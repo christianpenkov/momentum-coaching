@@ -1807,7 +1807,7 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
  * l'audience, pas du réglage de la séquence — et il est structurellement bas.
  * Le colorer inventerait un échec là où il n'y en a pas.
  */
-const ETAPES_SEQUENCE = new Set(['accroches', 'clics', 'conversations']);
+const ETAPES_SEQUENCE = new Set(['dm2', 'clics', 'conversations']);
 // Les chiffres du contenu lui-même, en lecture seule. Les deux API les
 // renvoyaient déjà par post ; ils n'étaient repris nulle part dans cet écran,
 // obligeant à quitter « Gérer mes liens » pour savoir si un post marchait.
@@ -1869,8 +1869,26 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
     const idsDuContenu = new Set(duContenu.map(l => l.id).filter(Boolean));
 
     const commentaires = duContenu.length;
-    const accroches = duContenu.filter(l => l.lead_magnet_sent).length;
     const conversations = duContenu.filter(l => l.hook_replied).length;
+
+    // DM2 reçus = clics sur le bouton « je veux le lien » du DM1.
+    //
+    // Le clic lui-même n'a pas d'événement dédié, mais il laisse une trace sûre :
+    // c'est à ce moment-là — et à ce moment-là seulement — que le webhook crée le
+    // lien Short.io PERSONNALISÉ du prospect (« lm-motcle-pseudo ») et l'écrit
+    // dans tracking_link. Avant le clic, tracking_link porte le lien GÉNÉRIQUE du
+    // contenu, posé dès la détection du commentaire. Comparer les deux distingue
+    // donc « a cliqué » de « a seulement commenté ».
+    //
+    // Les autres marqueurs candidats ne conviennent pas : `lead_magnet_sent` est
+    // posé à l'envoi du DM1 (donc égal aux commentaires mot-clé, une marche à
+    // 100 % qui n'apprend rien), et `dm3_scheduled_at` est remis à null par
+    // send-pending-dm3 une fois la relance partie — c'est une file d'attente,
+    // pas un historique.
+    const lienGenerique = post.lmShortUrl ?? null;
+    const dm2Recus = duContenu.filter(l =>
+      l.tracking_link && (!lienGenerique || l.tracking_link !== lienGenerique)
+    ).length;
 
     const cliqueurs = new Set(
       events
@@ -1886,11 +1904,11 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
     );
 
     return {
-      commentaires, accroches, clics: cliqueurs.size, conversations,
+      commentaires, dm2Recus, clics: cliqueurs.size, conversations,
       calls: calls.size,
       pret: !!pipelineData,
     };
-  }, [pipelineData, post.id]);
+  }, [pipelineData, post.id, post.lmShortUrl]);
 
   // Ordre d'importance décroissante : la portée d'abord (« combien de gens
   // l'ont vu »), puis l'engagement, puis ce que ça a rapporté au compte.
@@ -1931,18 +1949,23 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
     { cle: 'reach', libelle: 'Comptes touchés', valeur: post.reach ?? null },
     {
       cle: 'commentaires', libelle: 'Commentaires', valeur: entonnoir.commentaires,
-      // Le chiffre qui compte est celui des commentaires PORTANT LE MOT-CLÉ :
-      // c'est lui qui déclenche la séquence.
+      // Le chiffre principal est celui des commentaires PORTANT LE MOT-CLÉ :
+      // c'est lui qui déclenche la séquence, et lui qui alimente la marche
+      // suivante. Le total Instagram est rappelé en dessous.
       //
-      // Le total Instagram n'est PAS rappelé ici, malgré l'envie : `post.comments`
-      // est l'état actuel du post, quand les leads sont un cumul historique. Un
-      // commentaire supprimé depuis disparaît du premier et reste dans le second,
-      // d'où des « 3 sur 1 au total » impossibles à lire (cas constaté : 3 leads
-      // de juin à août, 1 commentaire encore en ligne). Le total figure dans les
-      // métriques Instagram juste dessous, où il est à sa place.
-      precision: 'avec le mot-clé',
+      // « encore en ligne » et non « au total » : `post.comments` est l'état
+      // actuel du post quand les leads sont un cumul historique. Un commentaire
+      // supprimé depuis disparaît du premier et reste dans le second — d'où des
+      // cas où le mot-clé dépasse le total (constaté : 3 leads de juin à août,
+      // 1 commentaire encore en ligne). Le dire évite de lire une contradiction.
+      precision: post.comments != null
+        ? `avec le mot-clé · ${post.comments.toLocaleString('fr-FR')} encore en ligne`
+        : 'avec le mot-clé',
     },
-    { cle: 'accroches', libelle: 'Accroches', valeur: entonnoir.accroches, precision: 'DM1 envoyés' },
+    // On ne montre PAS les DM1 envoyés : ils sont mécaniquement égaux aux
+    // commentaires mot-clé (le DM1 part à la détection), donc une marche à 100 %
+    // qui n'apprend rien. La vraie question est combien ont appuyé sur le bouton.
+    { cle: 'dm2', libelle: 'DM2 reçus', valeur: entonnoir.dm2Recus, precision: 'bouton du DM1 cliqué' },
     { cle: 'clics', libelle: 'Lead magnets ouverts', valeur: entonnoir.clics, precision: 'lien du DM2 cliqué' },
     // « après le DM3 » et non « au DM3 » : le webhook pose hook_replied dès que
     // le prospect écrit en DM, sans savoir à quel message il répond. Comme la
