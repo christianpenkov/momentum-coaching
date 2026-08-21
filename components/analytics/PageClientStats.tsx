@@ -1694,19 +1694,28 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   // vraie fenêtre déjà présente dans ytDaysRaw (pas de recalcul de bornes calendaires).
   const ytDayByDate = new Map(ytDaysRaw.map(d => [d.date, d]));
   const ytDaysNoDataSet = new Set<string>();
-  // En All-Time, ytDaysRaw est pris tel quel et le filet ytDaysNoDataSet reste vide.
+  // Jours que YouTube n'a pas encore traites — marques pour que les courbes y fassent un
+  // TROU plutot que de descendre a zero, qui se lirait « aucune vue ce jour-la ».
   //
-  // Sans consequence dans ce mode, et c'est une nuance qui merite d'etre ecrite : les
-  // deux sources de chartData n'emettent PAS de ligne pour un jour sans donnee (l'API
-  // YouTube n'en renvoie pas, et le snapshot n'a pas de ligne a lire). Le jour est donc
-  // ABSENT du tableau, pas present a zero — la courbe n'a aucun point a cet endroit,
-  // ce qui produit deja le trou recherche.
+  // Les deux modes signalent l'absence differemment :
+  //   - API live : le jour est ABSENT de chartData (l'API n'emet pas de ligne) ;
+  //   - snapshot : la ligne EXISTE avec yt_views a null — le cron la cree pour Instagram
+  //                meme quand YouTube n'a rien renvoye — et le `?? 0` du mapping la
+  //                transforme en 0.
   //
-  // Le filet ne sert qu'au mode calendaire ci-dessous, qui reconstruit une plage
-  // complete jour par jour et doit donc marquer explicitement ceux qu'il a inventes.
+  // C'est ce second cas qui manquait : en All-Time le filet restait vide, et les 3
+  // derniers jours s'affichaient a 0 au lieu d'un trou (constate le 2026-08-21).
   //
-  // Ne pas « corriger » en testant d.views == null : les deux constructions appliquent
-  // `?? 0`, ce test ne se declencherait jamais.
+  // Critere : aucune activite d'aucune sorte. Une vraie journee a zero vue serait
+  // marquee a tort, mais elle produirait le meme rendu qu'un point a zero — un creux
+  // dans la courbe — sans jamais affirmer une valeur fausse.
+  if (sinceConnection) {
+    for (const d of ytDaysRaw) {
+      const vide = (d.views ?? 0) === 0 && (d.watchTime ?? 0) === 0
+        && (d.likes ?? 0) === 0 && (d.subsGained ?? 0) === 0 && (d.subsLost ?? 0) === 0;
+      if (vide) ytDaysNoDataSet.add(d.date);
+    }
+  }
   const ytDays: typeof ytDaysRaw = sinceConnection ? ytDaysRaw : (() => {
     const days: typeof ytDaysRaw = [];
     let d = ytPeriodStart;
@@ -1731,11 +1740,25 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   // et le badge n'etait affiche que sur trois cartes. Il l'est desormais sur toutes
   // celles qui lisent des donnees journalieres.
   //
-  // Calcule sur `views` plutot que `likes` : une journee peut legitimement n'avoir aucun
-  // like tout en ayant des vues, auquel cas filtrer sur les likes sous-estimerait la
-  // fraicheur reelle.
+  // Derniere date PRESENTE dans les donnees, sans filtre sur une valeur.
+  //
+  // Le filtre `d.views != null` qui etait ici ne se declenchait jamais : les deux
+  // constructions de chartData appliquent `?? 0` / `|| 0`, donc `views` n'est jamais
+  // null. Tous les jours passaient le filtre, la derniere date valait aujourd'hui, le
+  // retard tombait a 0 — et AUCUN badge ne s'affichait nulle part (constate le
+  // 2026-08-21 : la carte « Vues » n'avait pas son badge alors qu'elle n'est pas exclue).
+  //
+  // Les deux modes signalent l'absence differemment, il faut donc couvrir les deux :
+  //   - API live  : le jour non traite est ABSENT de chartData (l'API n'emet pas de ligne) ;
+  //   - snapshot  : la ligne EXISTE avec yt_views a null (le cron la cree pour Instagram),
+  //                 et le `?? 0` du mapping la transforme en 0.
+  //
+  // Un jour a 0 vue ET 0 watch time ET 0 like est donc traite comme non renseigne. Une
+  // vraie journee sans aucune activite serait ecartee a tort, mais elle ne fausse rien :
+  // le retard affiche serait alors legerement surestime, jamais sous-estime — et sur une
+  // chaine active le cas ne se presente pas.
   const ytLastEngagementDate = [...yt.chartData]
-    .filter(d => d.views != null)
+    .filter(d => (d.views ?? 0) > 0 || (d.watchTime ?? 0) > 0 || (d.likes ?? 0) > 0)
     .sort((a, b) => a.date.localeCompare(b.date))
     .at(-1)?.date;
   // Retard reel en jours — sert a n'afficher le badge que s'il y en a un.
