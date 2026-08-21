@@ -1375,7 +1375,24 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                     </linearGradient>
                   </defs>
                   <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={statModalTickInterval} />
-                  <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={30} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = Math.max(1, Math.ceil(range * 0.12)); const lo = dataMin - margin; return [dataMin >= 0 ? Math.max(0, lo) : lo, dataMax + margin]; }} />
+                  {/* Domaine SYMETRIQUE autour de zero : cette modale montre des abonnes
+                      nets, une valeur qui peut descendre sous zero. L'ancien domaine
+                      faisait Math.max(0, lo) des que le minimum etait positif — avec
+                      toutes les valeurs a zero, la ligne collait en bas au lieu d'etre
+                      centree, et une perte future n'aurait eu aucun repere. */}
+                  <YAxis
+                    tick={{ fontSize: 10, fill: 'var(--muted)' }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={30}
+                    allowDecimals={false}
+                    domain={([dataMin, dataMax]: readonly [number, number]) => {
+                      const amplitude = Math.max(1, Math.abs(dataMin), Math.abs(dataMax));
+                      const marge = Math.max(1, Math.ceil(amplitude * 0.2));
+                      return [-(amplitude + marge), amplitude + marge];
+                    }}
+                  />
+                  <ReferenceLine y={0} stroke="var(--border)" strokeWidth={1} />
                   <Tooltip content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
                     const v = payload[0].value as number;
@@ -1799,6 +1816,13 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   // a 0 tout watch time sous 30 minutes — exactement le motif du bug de collecte
   // corrige le 2026-08-20, reproduit ici a l'affichage. Meme regle que le tableau des
   // videos, qui bascule en heures a partir de 60 minutes.
+  // Watch time de la periode, ventile par format — sert la carte « Watch time », qui
+  // affiche desormais les deux comme « Watch time moyen / vue » juste a cote.
+  // Somme et non moyenne : un jour sans vue vaut reellement 0 minute, il n'y a donc
+  // rien a exclure du calcul.
+  const ytWatchShortsP = ytDays.reduce((s, d) => s + ((d as any).watchTimeShorts ?? 0), 0);
+  const ytWatchLongP = ytDays.reduce((s, d) => s + ((d as any).watchTimeLong ?? 0), 0);
+  const fmtWatchMin = (m: number) => m >= 60 ? `${Math.round(m / 60)}h` : `${Math.round(m)} min`;
   const watchTimeLabel = ytWatchTimeP >= 60
     ? `${Math.round(ytWatchTimeP / 60)}h`
     : `${Math.round(ytWatchTimeP)} min`;
@@ -2090,13 +2114,51 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
       {/* Ligne 2 — engagement & watch time */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
         {[
-          { label: 'Watch time', value: watchTimeLabel, sub: `${period}j`, color: AMBER, key: 'Watch time' },
-          null, // carte Watch time moyen custom
+          // Deux cartes custom dans cette rangée : elles affichent chacune un total plus
+          // sa ventilation Shorts / vidéos longues, ce que le rendu générique ne sait pas
+          // faire. Marquées par un `custom` explicite et non par leur position — deux
+          // `null` indistinguables auraient rendu la même carte deux fois.
+          { custom: 'watch-total' as const },
+          { custom: 'watch-moyen' as const },
           { label: 'Likes', value: fmt(ytIsFallback ? yt.likes30d : ytLikesP), sub: ytIsFallback ? '30j' : `${period}j`, color: 'var(--ink)', key: 'Likes' },
           { label: 'Commentaires', value: fmt(ytIsFallback ? yt.comments30d : ytCommentsP), sub: ytIsFallback ? '30j' : `${period}j`, color: 'var(--ink)', key: 'Commentaires' },
           { label: 'Partages', value: fmt(ytIsFallback ? yt.shares30d : ytSharesP), sub: ytIsFallback ? '30j' : `${period}j`, color: 'var(--ink)', key: 'Partages' },
-        ].map((s, i) => {
-          if (s === null) return (
+        ].map((s: any, i) => {
+          if (s.custom === 'watch-total') return (
+            <div key="wt-total" onClick={() => openStatModal('Watch time', '')} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: 'pointer', transition: 'background .15s' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'} onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}>
+              <div style={{ marginBottom: 10 }}>
+                <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>Watch time</span>
+                <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{period}j</span>
+                {ytDataLagDays >= 2 && (
+                  <span
+                    title={`Délai de traitement de YouTube Analytics.${ytLastEngagementDateFmt ? ` Dernière donnée disponible : ${ytLastEngagementDateFmt}.` : ''}`}
+                    style={{ fontSize: 9, fontWeight: 700, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 4px', marginLeft: 5, cursor: 'help' }}
+                  >
+                    J-{ytDataLagDays}
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: AMBER, lineHeight: 1, marginBottom: 10 }}>{watchTimeLabel}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: AMBER, flexShrink: 0 }} />
+                    <span style={{ fontSize: 10, color: 'var(--muted)' }}>Shorts</span>
+                  </div>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{fmtWatchMin(ytWatchShortsP)}</span>
+                </div>
+                <div style={{ width: 1, height: 28, background: 'var(--border)', flexShrink: 0 }} />
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#64748b', flexShrink: 0 }} />
+                    <span style={{ fontSize: 10, color: 'var(--muted)' }}>Vidéos longues</span>
+                  </div>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{fmtWatchMin(ytWatchLongP)}</span>
+                </div>
+              </div>
+            </div>
+          );
+          if (s.custom === 'watch-moyen') return (
             <div key="wt-moyen" onClick={() => openStatModal('Watch time moyen', '')} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: 'pointer', transition: 'background .15s' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'} onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}>
               <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 10 }}>Watch time moyen / vue</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -2397,7 +2459,16 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             {statModal.data2 ? (() => {
               const color1 = statModal.color;
               const color2 = statModal.color2 || '#64748b';
-              const isWatchTime = statModal.label.includes('Watch time');
+              // Deux modales portent « Watch time » dans leur titre, avec des unites
+              // DIFFERENTES : « Watch time moyen / vue » est en secondes, « Watch time »
+              // (le total, separe par format) est en minutes.
+              //
+              // Le test includes('Watch time') attrapait les deux : les minutes du total
+              // etaient formatees comme des secondes, d'ou un axe gradue « 0m01s » pour
+              // des valeurs en minutes, et un total affiche « 0m06s » alors que c'etait
+              // la moyenne (constate par Chris le 2026-08-21).
+              const isWatchTimeMoyen = statModal.label.includes('Watch time moyen');
+              const isWatchTimeTotal = !isWatchTimeMoyen && statModal.label.includes('Watch time');
               // Pas de "?? 0" sur longues : ça écrasait le null posé en amont (isFutureDayYT)
               // sur les jours futurs, retransformant un vrai "pas de donnée" en faux zéro —
               // la ligne "Vidéos longues" continuait alors à plat jusqu'à fin de période au
@@ -2407,9 +2478,16 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 shorts: d.v,
                 longues: statModal.data2![i]?.v ?? null,
               }));
-              const formatVal = (v: number) => isWatchTime ? fmtSec(v) : fmt(v);
-              const val1 = isWatchTime ? (avgWatchShorts !== null ? fmtSec(avgWatchShorts) : '—') : `${fmt(ytShortsCount)}`;
-              const val2 = isWatchTime ? (avgWatchLong !== null ? fmtSec(avgWatchLong) : '—') : `${fmt(ytLongCount)}`;
+              // Trois formats de valeur selon la modale : secondes (watch time moyen),
+              // minutes/heures (watch time total), entier brut (videos publiees).
+              const formatVal = (v: number) =>
+                isWatchTimeMoyen ? fmtSec(v) : isWatchTimeTotal ? fmtWatchMin(v) : fmt(v);
+              const val1 = isWatchTimeMoyen
+                ? (avgWatchShorts !== null ? fmtSec(avgWatchShorts) : '—')
+                : isWatchTimeTotal ? fmtWatchMin(ytWatchShortsP) : `${fmt(ytShortsCount)}`;
+              const val2 = isWatchTimeMoyen
+                ? (avgWatchLong !== null ? fmtSec(avgWatchLong) : '—')
+                : isWatchTimeTotal ? fmtWatchMin(ytWatchLongP) : `${fmt(ytLongCount)}`;
               // Même formule que le composant partagé AreaChart (components/charts/AreaChart.tsx) :
               // ~9 labels max en vue mois, tous les jours affichés en vue semaine.
               const shortsLongTickInterval = period === 7 ? 0 : Math.max(1, Math.ceil(merged.length / 9) - 1);
@@ -2445,7 +2523,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                         </linearGradient>
                       </defs>
                       <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={shortsLongTickInterval} />
-                      <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={isWatchTime ? 50 : 36} tickFormatter={(v: number) => isWatchTime ? fmtSec(v) : fmt(v)} />
+                      <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={isWatchTimeMoyen || isWatchTimeTotal ? 50 : 36} tickFormatter={formatVal} />
                       <Tooltip content={({ active, payload, label }) => {
                         if (!active || !payload?.length) return null;
                         return (
