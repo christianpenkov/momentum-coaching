@@ -5833,6 +5833,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   const lastSnapWithTraffic = snaps.find(r => r.yt_traffic_sources != null) ?? null;
   const lastSnapWithDevices = snaps.find(r => r.yt_devices != null) ?? null;
   const lastSnapWithDemo    = snaps.find(r => r.yt_demographics != null) ?? null;
+  const lastSnapWithKeywords = snaps.find(r => r.yt_search_keywords != null) ?? null;
 
   // ── IG ──────────────────────────────────────────────────────────────────────
   const igReachTotal  = snaps.reduce((s, r) => s + (r.ig_reach ?? 0), 0);
@@ -5983,11 +5984,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     trafficSources: lastSnapWithTraffic?.yt_traffic_sources ?? [],
     devices:         lastSnapWithDevices?.yt_devices ?? [],
     demographics:    lastSnapWithDemo?.yt_demographics ?? [],
-    // TODO — mots-cles de recherche non stockes : aucune colonne ne les porte, donc le
-    // bloc « Mots-cles de recherche » est vide en mode historique (il fonctionne en
-    // periode courante, lu en direct depuis l'API). Meme defaut que trafic/appareils/
-    // demographie avant le 2026-08-21, mais celui-ci demande une colonne en plus.
-    searchKeywords:  [],
+    searchKeywords:  lastSnapWithKeywords?.yt_search_keywords ?? [],
     channelName: null,
     channelThumbnail: null,
     totalViews: 0,

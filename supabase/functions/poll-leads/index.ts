@@ -417,7 +417,7 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
   // 30 jours glissants avant endDate — fenetre des repartitions (voir plus bas).
   const repartitionStart = new Date(new Date(endDate).getTime() - 30 * 86400_000)
     .toISOString().split('T')[0];
-  const [channelRes, analyticsRes, byTypeRes, trafficRes, devicesRes, demoRes] = await Promise.all([
+  const [channelRes, analyticsRes, byTypeRes, trafficRes, devicesRes, demoRes, keywordsRes] = await Promise.all([
     fetch('https://www.googleapis.com/youtube/v3/channels?part=statistics&mine=true', { headers: auth }),
     fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,estimatedMinutesWatched,subscribersGained,subscribersLost,likes,comments,shares,averageViewDuration&dimensions=day&sort=day`, { headers: auth }),
     // ⚠️ Équivalent Deno de la requête ventilée de lib/yt-fetch.ts — même fenêtre,
@@ -442,6 +442,9 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
     fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=views,estimatedMinutesWatched&dimensions=insightTrafficSourceType&sort=-views`, { headers: auth }),
     fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=views,estimatedMinutesWatched&dimensions=deviceType&sort=-views`, { headers: auth }),
     fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=viewerPercentage&dimensions=ageGroup,gender`, { headers: auth }),
+    // Top 10 des termes de recherche. Meme fenetre de 30 jours que les autres
+    // repartitions : un « top des termes du 15 aout » n'aurait pas de sens.
+    fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=views&dimensions=insightTrafficSourceDetail&filters=insightTrafficSourceType==YT_SEARCH&sort=-views&maxResults=10`, { headers: auth }),
   ]);
   // D1 : un statut HTTP non-2xx sur l'Analytics API (429 rate limit, 5xx...) doit
   // être une vraie erreur, pas silencieusement traité comme "pas encore de données".
@@ -451,9 +454,9 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
     const errBody = await analyticsRes.text().catch(() => '');
     throw new Error(`yt_analytics_http_${analyticsRes.status}: ${errBody.slice(0, 300)}`);
   }
-  const [channelData, analyticsData, byTypeData, trafficData, devicesData, demoData] = await Promise.all([
+  const [channelData, analyticsData, byTypeData, trafficData, devicesData, demoData, keywordsData] = await Promise.all([
     safeJson(channelRes), safeJson(analyticsRes), safeJson(byTypeRes),
-    safeJson(trafficRes), safeJson(devicesRes), safeJson(demoRes),
+    safeJson(trafficRes), safeJson(devicesRes), safeJson(demoRes), safeJson(keywordsRes),
   ]);
   // Mis en forme au format attendu par PageClientStats (cf. types YTStats). Pas de throw
   // si l'une echoue : ces repartitions sont un complement, leur absence ne doit pas faire
@@ -461,6 +464,7 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
   const ytTrafficSources = ((trafficData?.rows ?? []) as any[]).map(r => ({ source: r[0], views: r[1] ?? 0, watchMinutes: r[2] ?? 0 }));
   const ytDevices        = ((devicesData?.rows ?? []) as any[]).map(r => ({ device: r[0], views: r[1] ?? 0, watchMinutes: r[2] ?? 0 }));
   const ytDemographics   = ((demoData?.rows ?? []) as any[]).map(r => ({ ageGroup: r[0], gender: r[1], viewerPct: r[2] ?? 0 }));
+  const ytSearchKeywords = ((keywordsData?.rows ?? []) as any[]).map(r => ({ term: r[0], views: r[1] ?? 0 }));
   // day -> ventilation par format. L'API n'émet une ligne que pour les formats ayant eu
   // des vues ce jour-là : null quand le format est absent, jamais un faux 0.
   // Pas de throw si cette requête échoue : la ventilation est un complément, son absence
@@ -507,6 +511,7 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
     yt_traffic_sources: i === rows.length - 1 ? ytTrafficSources : null,
     yt_devices:         i === rows.length - 1 ? ytDevices        : null,
     yt_demographics:    i === rows.length - 1 ? ytDemographics   : null,
+    yt_search_keywords: i === rows.length - 1 ? ytSearchKeywords  : null,
   }));
 }
 
@@ -1216,7 +1221,7 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
       (async () => {
         const ytRows = await fetchYtDayMetrics(ytToken, isoDate(3), yesterday);
         for (const row of ytRows) {
-          const { error } = await supa.from('analytics_daily_snapshots').upsert({ profile_id: profileId, date: row.date, yt_views: row.yt_views, yt_watch_time_min: row.yt_watch_time_min, yt_subscribers: row.yt_subscribers, yt_subs_gained: row.yt_subs_gained, yt_subs_lost: row.yt_subs_lost, yt_net_subs: row.yt_net_subs, yt_likes: row.yt_likes, yt_comments: row.yt_comments, yt_shares: row.yt_shares, yt_avg_view_duration_sec: row.yt_avg_view_duration_sec, yt_avg_duration_shorts_sec: row.yt_avg_duration_shorts_sec, yt_avg_duration_long_sec: row.yt_avg_duration_long_sec, yt_views_shorts: row.yt_views_shorts, yt_views_long: row.yt_views_long, ...(row.yt_traffic_sources ? { yt_traffic_sources: row.yt_traffic_sources } : {}), ...(row.yt_devices ? { yt_devices: row.yt_devices } : {}), ...(row.yt_demographics ? { yt_demographics: row.yt_demographics } : {}), backfill_source: 'cron' }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
+          const { error } = await supa.from('analytics_daily_snapshots').upsert({ profile_id: profileId, date: row.date, yt_views: row.yt_views, yt_watch_time_min: row.yt_watch_time_min, yt_subscribers: row.yt_subscribers, yt_subs_gained: row.yt_subs_gained, yt_subs_lost: row.yt_subs_lost, yt_net_subs: row.yt_net_subs, yt_likes: row.yt_likes, yt_comments: row.yt_comments, yt_shares: row.yt_shares, yt_avg_view_duration_sec: row.yt_avg_view_duration_sec, yt_avg_duration_shorts_sec: row.yt_avg_duration_shorts_sec, yt_avg_duration_long_sec: row.yt_avg_duration_long_sec, yt_views_shorts: row.yt_views_shorts, yt_views_long: row.yt_views_long, ...(row.yt_traffic_sources ? { yt_traffic_sources: row.yt_traffic_sources } : {}), ...(row.yt_devices ? { yt_devices: row.yt_devices } : {}), ...(row.yt_demographics ? { yt_demographics: row.yt_demographics } : {}), ...(row.yt_search_keywords ? { yt_search_keywords: row.yt_search_keywords } : {}), backfill_source: 'cron' }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
           if (error) throw new Error(`yt_upsert_${row.date}: ${error.message}`);
         }
       })(),
