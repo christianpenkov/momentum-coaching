@@ -126,7 +126,9 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
             sub={k ? `${k.collectedRate} % du contracté` : ''} color="var(--green)" />
           <Kpi label="Reste à encaisser" value={k ? fmtEur(k.remaining) : '—'} sub="échéances à venir" />
           <Kpi label="Impayés" value={k ? fmtEur(k.unpaid) : '—'}
-            sub={k && k.failedCount > 0 ? `${k.failedCount} carte refusée` : 'tout est à jour'}
+            sub={k && k.failedCount > 0
+              ? `${k.failedCount} paiement${k.failedCount > 1 ? 's' : ''} en échec`
+              : 'tout est à jour'}
             color={k && k.unpaid > 0 ? 'var(--red)' : 'var(--green)'} />
         </div>
       )}
@@ -654,8 +656,18 @@ function EmptyDeals({ onCreate }: { onCreate: () => void }) {
 
 function statusOf(d: DealRow): { label: string; tone: 'green' | 'amber' | 'red'; barColor: string } {
   if (d.status === 'paid') return { label: 'Payé', tone: 'green', barColor: 'var(--green)' };
-  if (d.hasFailure || d.status === 'past_due') return { label: 'Carte refusée', tone: 'red', barColor: 'var(--red)' };
-  if (d.paymentPlan === 'installments_manual' && d.paidCount > 0) return { label: 'À envoyer', tone: 'amber', barColor: 'var(--amber)' };
+  // « Carte refusée » n'a de sens qu'avec un moyen de paiement Stripe : hors
+  // Stripe (virement, espèces), aucune carte n'est en jeu.
+  if (d.hasFailure || d.status === 'past_due') {
+    return { label: d.hasLinks ? 'Carte refusée' : 'Paiement en échec', tone: 'red', barColor: 'var(--red)' };
+  }
+  // « À envoyer » suppose un lien à transmettre. Hors Stripe il n'y en a
+  // aucun : le versement suivant est à constater, pas à envoyer.
+  if (d.paymentPlan === 'installments_manual' && d.paidCount > 0) {
+    return d.hasLinks
+      ? { label: 'À envoyer', tone: 'amber', barColor: 'var(--amber)' }
+      : { label: 'À encaisser', tone: 'amber', barColor: 'var(--amber)' };
+  }
   if (d.collected > 0) return { label: 'En cours', tone: 'amber', barColor: 'var(--amber)' };
   return { label: 'En attente', tone: 'amber', barColor: 'var(--amber)' };
 }

@@ -24,6 +24,8 @@ export interface DealRow {
   paidCount: number;
   expectedCount: number;
   hasFailure: boolean;
+  /** Le deal a-t-il au moins un lien de paiement Stripe ? Faux = hors Stripe. */
+  hasLinks: boolean;
 }
 
 export interface DealPayment {

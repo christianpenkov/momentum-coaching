@@ -46,6 +46,8 @@ export interface DealRow {
   paidCount: number;
   expectedCount: number;
   hasFailure: boolean;
+  /** Le deal a-t-il au moins un lien de paiement Stripe ? Faux = hors Stripe. */
+  hasLinks: boolean;
 }
 
 export async function GET(request: NextRequest) {
@@ -170,6 +172,12 @@ export async function GET(request: NextRequest) {
       paidCount: succeeded.length,
       expectedCount: d.installments_count ?? 1,
       hasFailure: payments.some((p: any) => p.status === 'failed'),
+      // Un deal encaissé hors Stripe n'a aucun lien : le statut ne peut pas
+      // dire « À envoyer », il n'y a rien à envoyer. Se calcule ici parce que
+      // seule la route voit les échéances et leurs liens.
+      hasLinks: (d.deal_installments ?? []).length > 0
+        ? (d.deal_installments ?? []).some((i: any) => !!i.short_url)
+        : !!d.short_url,
     };
   });
 
