@@ -1904,6 +1904,18 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   const [jobCreatedAt, setJobCreatedAt] = useState<string | null>(null);
   const [ctrPending, setCtrPending] = useState(false);
   const [statModal, setStatModal] = useState<{ label: string; value: string; color: string; data: { date: string; v: number }[]; unit?: string; data2?: { date: string; v: number }[]; label2?: string; color2?: string } | null>(null);
+  // Largeur reelle des deux grands graphiques (Vues / jour et Abonnes nets / jour) :
+  // ils partagent la meme colonne de la grille, une seule mesure suffit. Elle sert a
+  // decider combien de dates tiennent sur l'axe — sur un ecran large il y a la place
+  // d'en afficher plus que sur un mobile.
+  //
+  // DECLARE ICI, avec les autres hooks, et surtout AVANT le `if (!yt) return` plus
+  // bas : place apres, il n'etait pas execute quand yt valait null (le temps du
+  // chargement d'une nouvelle periode), le nombre de hooks changeait d'un rendu a
+  // l'autre et React levait l'erreur #300. C'est ce qui faisait « this page couldn't
+  // load » au clic sur All-Time (signale par Chris, trace retrouvee dans
+  // webhook_debug_log le 2026-08-21 a 22:51 et 22:52).
+  const [refGraphiques, largeurGraphiques] = useLargeur<HTMLDivElement>();
 
   const loadRetention = useCallback(async (videoId: string, publishedAt?: string) => {
     setLoadingRetention(true);
@@ -2055,12 +2067,6 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   // graphiques couvraient juin a aout : l'etiquette contredisait la periode reellement
   // affichee (constate par Chris a l'ecran le 2026-08-21).
   const ytEtiquettePeriode = sinceConnection ? 'total' : `${period}j`;
-  // Largeur reelle des deux grands graphiques (Vues / jour et Abonnes nets / jour) :
-  // ils partagent la meme colonne de la grille, une seule mesure suffit. Elle sert a
-  // decider combien de dates tiennent sur l'axe — sur un ecran large il y a la place
-  // d'en afficher plus que sur un mobile, et figer un nombre revient a choisir le
-  // pire des deux cas (demande de Chris, 2026-08-21).
-  const [refGraphiques, largeurGraphiques] = useLargeur<HTMLDivElement>();
   const ytLastEngagementDateFmt = ytLastEngagementDate
     ? new Date(ytLastEngagementDate + 'T12:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
     : null;
