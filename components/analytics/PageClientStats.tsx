@@ -1714,14 +1714,28 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
     return days;
   })();
 
-  // Dernière date où likes/comments/shares sont réellement disponibles (pas juste
-  // "vues" qui n'a pas ce délai) — sert au badge "J-3" sur les cartes Likes/Commentaires/
-  // Partages, pour rassurer que l'absence des tout derniers jours est le délai normal
-  // de traitement de la YouTube Analytics API (2-3 jours documenté par Google), pas un bug.
+  // Derniere date reellement disponible cote YouTube Analytics.
+  //
+  // ⚠️ Le delai de traitement touche TOUTES les metriques, pas seulement l'engagement :
+  // verifie le 2026-08-21, vues, watch time, abonnes, duree moyenne, likes, commentaires
+  // et partages s'arretent tous au meme jour (J-3). Le cron demande pourtant jusqu'a
+  // hier — c'est l'API qui ne renvoie rien pour les jours recents.
+  //
+  // Le commentaire precedent affirmait que « vues » n'avait pas ce delai : c'etait faux,
+  // et le badge n'etait affiche que sur trois cartes. Il l'est desormais sur toutes
+  // celles qui lisent des donnees journalieres.
+  //
+  // Calcule sur `views` plutot que `likes` : une journee peut legitimement n'avoir aucun
+  // like tout en ayant des vues, auquel cas filtrer sur les likes sous-estimerait la
+  // fraicheur reelle.
   const ytLastEngagementDate = [...yt.chartData]
-    .filter(d => d.likes != null)
+    .filter(d => d.views != null)
     .sort((a, b) => a.date.localeCompare(b.date))
     .at(-1)?.date;
+  // Retard reel en jours — sert a n'afficher le badge que s'il y en a un.
+  const ytDataLagDays = ytLastEngagementDate
+    ? Math.round((Date.now() - new Date(ytLastEngagementDate + 'T12:00:00Z').getTime()) / 86400000)
+    : 0;
   const ytLastEngagementDateFmt = ytLastEngagementDate
     ? new Date(ytLastEngagementDate + 'T12:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
     : null;
@@ -1905,7 +1919,10 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
       {/* Ligne 1 — audience & portée */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
         {[
-          { label: 'Abonnés', value: fmt(yt.subscribers), sub: 'all time', color: 'var(--ink)', key: 'Abonnés YT' },
+          // Pas de sous-titre de periode : c'est le total actuel de la chaine, lu en
+          // direct via la Data API v3. « all time » induisait en erreur — la carte ne
+          // cumule rien sur une periode, elle affiche un compteur.
+          { label: 'Abonnés', value: fmt(yt.subscribers), color: 'var(--ink)', key: 'Abonnés YT' },
           { label: 'Vidéos publiées', value: fmt(ytVideosInPeriodCount), sub: `${period}j`, color: YT_COLOR, key: 'Vidéos publiées' },
           { label: 'Abonnés nets YT', value: `${ytNetSubsP >= 0 ? '+' : ''}${fmt(ytNetSubsP)}`, sub: `${period}j`, color: ytNetSubsP >= 0 ? GREEN : RED, key: 'Abonnés nets YT' },
           { label: 'Vues', value: fmt(ytViewsP), sub: `${period}j`, color: 'var(--ink)', key: 'Vues 30j' },
@@ -2005,12 +2022,22 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
               <div style={{ marginBottom: 8 }}>
                 <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>{s.label}</span>
                 {s.sub && <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{s.sub}</span>}
-                {['Likes', 'Commentaires', 'Partages'].includes(s.label) && (
+                {/* Badge de fraicheur — pose selon la SOURCE de la carte, pas son nom.
+                    YouTube expose trois APIs aux delais differents :
+                      - Data API v3 (youtube/v3)        : totaux, TEMPS REEL ;
+                      - Analytics API (youtubeanalytics) : donnees par jour, J-3 ;
+                      - Reporting API (youtubereporting) : CTR, ~J-2.
+                    Le badge ne concerne que les cartes lisant l'Analytics API. Deux
+                    exceptions : « Abonnes » (total de chaine, Data API v3) et « Videos
+                    publiees » (compte par date de publication, connue immediatement).
+                    Le nombre de jours est calcule : si Google rattrape, le badge
+                    disparait tout seul. */}
+                {ytDataLagDays >= 2 && !['Abonnés', 'Vidéos publiées'].includes(s.label) && (
                   <span
-                    title={`Délai de traitement Google : 2-3 jours.${ytLastEngagementDateFmt ? ` Dernière donnée disponible : ${ytLastEngagementDateFmt}.` : ''}`}
+                    title={`Délai de traitement de YouTube Analytics.${ytLastEngagementDateFmt ? ` Dernière donnée disponible : ${ytLastEngagementDateFmt}.` : ''}`}
                     style={{ fontSize: 9, fontWeight: 700, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 4px', marginLeft: 5, cursor: 'help' }}
                   >
-                    J-3
+                    J-{ytDataLagDays}
                   </span>
                 )}
               </div>
@@ -2021,7 +2048,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18 }}>
-        <Card title="Vues / jour" sub={`${period} jours · données J-3`}>
+        <Card title="Vues / jour" sub={`${period} jours${ytDataLagDays >= 2 ? ` · données J-${ytDataLagDays}` : ''}`}>
           {(() => {
             // null (pas 0) sur les jours sans vraie donnée — même traitement que
             // "Abonnés nets / jour" juste en dessous : sinon une barre à 0 est
@@ -2060,7 +2087,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
         </Card>
       </div>
 
-      <Card title="Abonnés nets / jour" sub={`${period} jours · données J-3`}>
+      <Card title="Abonnés nets / jour" sub={`${period} jours${ytDataLagDays >= 2 ? ` · données J-${ytDataLagDays}` : ''}`}>
         {(() => {
           // null (pas 0) sur les jours sans vraie donnée — sinon la ligne continue à plat
           // jusqu'à la fin de la période au lieu de s'arrêter au dernier point réel, même
