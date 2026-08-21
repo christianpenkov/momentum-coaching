@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Icon from '@/components/ui/Icon';
-import RapportModal from '@/components/ui/RapportModal';
+import RapportModal from '@/components/ui/RapportModalLoader';
 import PendingRapportCard from '@/components/ui/PendingRapportCard';
 import CallInfosModal from '@/components/ui/CallInfosModal';
 import Avatar, { getInitials } from '@/components/ui/Avatar';

@@ -22,18 +22,14 @@ export interface RapportChoice<T extends string> {
   value: T;
   label: string;
   /**
-   * `primary`   : la réponse la plus probable, en bleu plein.
-   * `neutral`   : une réponse ordinaire, encadrée.
-   * `muted`     : une échappatoire (« date pas encore connue ») — présente sans
-   *               attirer l'œil.
-   * `warning`   : une bifurcation qui sort du parcours normal (appel reporté),
-   *               signalée en ambre.
-   * `borderless`: comme neutral, mais sans cadre. Existe pour le seul bouton
-   *               « No-show », qui n'en avait pas alors que tous ses équivalents
-   *               en ont un. Incohérence conservée telle quelle : l'extraction ne
-   *               doit rien changer visuellement. À trancher séparément.
+   * `primary` : la réponse la plus probable, en bleu plein.
+   * `neutral` : une réponse ordinaire, encadrée.
+   * `muted`   : une échappatoire (« date pas encore connue ») — présente sans
+   *             attirer l'œil.
+   * `warning` : une bifurcation qui sort du parcours normal (appel reporté),
+   *             signalée en ambre.
    */
-  tone?: 'primary' | 'neutral' | 'muted' | 'warning' | 'borderless';
+  tone?: 'primary' | 'neutral' | 'muted' | 'warning';
 }
 
 export default function RapportChoiceStep<T extends string>({
@@ -110,9 +106,7 @@ export default function RapportChoiceStep<T extends string>({
                 padding: '14px',
                 fontSize: 14,
                 color: tone === 'warning' ? '#d97706' : tone === 'muted' ? 'var(--muted)' : 'var(--accent)',
-                ...(tone === 'borderless'
-                  ? {}
-                  : { border: tone === 'warning' ? '1px solid #fcd34d' : '1px solid var(--border)' }),
+                border: tone === 'warning' ? '1px solid #fcd34d' : '1px solid var(--border)',
               }}
               disabled={disabled}
               onClick={() => onChoose(choice.value)}

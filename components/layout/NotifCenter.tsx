@@ -5,7 +5,7 @@ import { useEscapeKey } from '@/lib/useEscapeKey';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 import { AppNotif } from '@/lib/useNotifications';
-import RapportModal from '@/components/ui/RapportModal';
+import RapportModal from '@/components/ui/RapportModalLoader';
 import SessionRapportModal from '@/components/ui/SessionRapportModalLoader';
 import { createClient } from '@/lib/supabase/client';
 

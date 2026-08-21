@@ -10,7 +10,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNotifications } from '@/lib/useNotifications';
 import { useUser } from '@/lib/UserContext';
-import RapportModal from '@/components/ui/RapportModal';
+import RapportModal from '@/components/ui/RapportModalLoader';
 import PendingRapportCard from '@/components/ui/PendingRapportCard';
 import { getDeadlineStatus } from '@/lib/clientSignals';
 import DeadlineBadge from '@/components/ui/DeadlineBadge';

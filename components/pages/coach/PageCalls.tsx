@@ -7,7 +7,7 @@ import Icon from '@/components/ui/Icon';
 import { Skeleton } from '@/components/ui/Skeleton';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import SessionRapportModal from '@/components/ui/SessionRapportModalLoader';
-import RapportModal from '@/components/ui/RapportModal';
+import RapportModal from '@/components/ui/RapportModalLoader';
 import CreateCallModal from '@/components/ui/CreateCallModal';
 import FathomUnmatchedTab from '@/components/ui/FathomUnmatchedTab';
 import CallInfosModal from '@/components/ui/CallInfosModal';

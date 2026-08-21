@@ -7,7 +7,10 @@ import Lottie from 'lottie-react';
 import Icon from '@/components/ui/Icon';
 import ModalShell from '@/components/ui/ModalShell';
 import RapportChoiceStep from '@/components/ui/RapportChoiceStep';
+import ConfirmCheckboxDialog from '@/components/ui/ConfirmCheckboxDialog';
 import celebrationAnimation from '@/public/animations/celebration.json';
+import { useRapportDraftWriter, type RapportDraft } from '@/lib/useRapportDraft';
+import { buildRapportPatch, estimateTotal, EMPTY_ANSWERS, type RapportAnswers } from '@/lib/rapportPatch';
 import { wallClockToUtc, cityLabelOf, formatDateIn, formatTimeIn } from '@/lib/timezone';
 import { useViewerTimeZone } from '@/lib/UserContext';
 
@@ -69,8 +72,33 @@ interface Props {
     revenue?: number | null;
     comment?: string | null;
   } | null;
+  /**
+   * Brouillon déjà résolu par RapportModalLoader — jamais chargé ici. Le charger
+   * dans ce composant afficherait l'étape 1 vide avant de sauter à la bonne étape,
+   * et un clic pendant cette fenêtre serait perdu.
+   */
+  initialDraft?: RapportDraft | null;
   onClose: () => void;
 }
+
+/**
+ * Étapes où le bouton Retour n'a pas de sens :
+ *  - `show_up` : c'est l'entrée, rien derrière ;
+ *  - `*_check` : écran d'attente transitoire, y revenir relancerait une recherche
+ *    déjà faite ;
+ *  - `*_done`, `celebration`, `payment` : le rapport est DÉJÀ soumis, revenir en
+ *    arrière laisserait croire qu'on peut encore le modifier alors qu'il faut
+ *    passer par le mode correction.
+ */
+const NO_BACK: readonly string[] = [
+  'show_up', 'rescheduled_check', 'second_call_check',
+  'rescheduled_done', 'second_call_done', 'celebration', 'payment',
+];
+
+/** Idem pour « Recommencer » : après soumission il n'y a plus de brouillon à effacer. */
+const NO_RESTART: readonly string[] = [
+  'rescheduled_done', 'second_call_done', 'celebration', 'payment',
+];
 
 function formatDate(dateStr: string, tz: string) {
   return formatDateIn(new Date(dateStr), tz);
@@ -100,45 +128,132 @@ function CelebrationOverlay({ onDone }: { onDone: () => void }) {
   );
 }
 
-export default function RapportModal({ callId, inviteeName, scheduledAt, isFollowUp, existing, onClose }: Props) {
+export default function RapportModal({ callId, inviteeName, scheduledAt, isFollowUp, existing, initialDraft, onClose }: Props) {
   useEscapeKey(onClose);
   const viewerTz = useViewerTimeZone();
   const isCorrection = !!existing;
-  const [step, setStep] = useState<RapportStep>('show_up');
-  // Pré-rempli en mode correction (voir la prop `existing`), vide en saisie initiale.
-  const [revenue, setRevenue] = useState(existing?.revenue != null ? String(existing.revenue) : '');
+
+  // Priorité : brouillon > rapport existant (correction) > vide.
+  const draftAnswers = (initialDraft?.answers ?? null) as RapportAnswers | null;
+
+  const [step, setStep] = useState<RapportStep>((initialDraft?.step as RapportStep) ?? 'show_up');
+  // Chemin réellement emprunté, pour le bouton Retour. Sérialisé avec le
+  // brouillon : sans lui, rouvrir à l'étape 4 donnerait un Retour mort.
+  const [history, setHistory] = useState<RapportStep[]>(
+    ((initialDraft?.answers as any)?.history as RapportStep[] | undefined) ?? []
+  );
+
+  /**
+   * TOUTES les réponses dans un seul objet. Remplace 10 useState épars : c'est lui
+   * qu'on sérialise, on ne peut donc plus oublier un champ au prochain ajout de
+   * question.
+   */
+  const [answers, setAnswers] = useState<RapportAnswers>(() => draftAnswers ?? {
+    ...EMPTY_ANSWERS,
+    revenue: existing?.revenue != null ? String(existing.revenue) : '',
+    comment: existing?.comment ?? '',
+    isCorrection: !!existing,
+  });
+
+  // État transitoire d'interface — jamais sérialisé.
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirmClose, setConfirmClose] = useState(false);
+  const [confirmRestart, setConfirmRestart] = useState(false);
+  const [restartChecked, setRestartChecked] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Plan de paiement — le défaut « comptant » couvre la majorité des ventes ;
-  // le prélèvement automatique est le défaut dès qu'on passe en plusieurs fois
-  // (c'est le seul mode où l'élève n'a rien à relancer).
+  // Plan de paiement — hors `answers` : l'étape paiement vient APRÈS la soumission
+  // du rapport, donc après la suppression du brouillon. Rien à reprendre.
   const [plan, setPlan] = useState<1 | 2 | 3 | 4>(1);
   const [autoDebit, setAutoDebit] = useState(true);
   const [paymentUrl, setPaymentUrl] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
-
-  // Commentaire facultatif — étape intermédiaire commune avant la fermeture définitive
-  // (pas closé, closé, 2ème call). afterComment indique où aller une fois cette étape
-  // passée : 'close' ferme la modale, 'celebration' joue l'animation puis ferme,
-  // 'second_call_done' affiche l'écran de confirmation existant (fermeture manuelle).
-  const [comment, setComment] = useState(existing?.comment ?? '');
   const [afterComment, setAfterComment] = useState<'close' | 'celebration' | 'second_call_done'>('close');
 
-  // Données trouvées automatiquement (refresh Calendly)
-  const [foundCall, setFoundCall] = useState<{ id: string; scheduledAt: string; inviteeName: string | null } | null>(null);
+  const draft = useRapportDraftWriter(callId);
 
-  // Saisie manuelle date/heure
-  const [manualDate, setManualDate] = useState('');
-  const [manualTimeStart, setManualTimeStart] = useState('');
-  const [manualTimeEnd, setManualTimeEnd] = useState('');
+  // Accesseurs : le reste du composant continue de lire `revenue`, `comment`…
+  // comme avant, sans avoir à connaître la forme de `answers`.
+  const { revenue, comment, foundCall, manualDate, manualTimeStart, manualTimeEnd } = answers;
   const manualValid = manualDate && manualTimeStart && manualTimeEnd;
+  const setRevenue = (v: string) => patch({ revenue: v });
+  const setComment = (v: string) => patch({ comment: v });
+  const setFoundCall = (v: RapportAnswers['foundCall']) => patch({ foundCall: v });
+  const setManualDate = (v: string) => patch({ manualDate: v });
+  const setManualTimeStart = (v: string) => patch({ manualTimeStart: v });
+  const setManualTimeEnd = (v: string) => patch({ manualTimeEnd: v });
 
+  function patch(p: Partial<RapportAnswers>) {
+    setAnswers(a => ({ ...a, ...p }));
+  }
+
+  /** Y a-t-il quoi que ce soit à conserver ? Sert au brouillon et à « Recommencer ». */
+  const hasAnything =
+    answers.showedUp !== null || answers.qualified !== null || answers.outcomeChoice !== null ||
+    answers.revenue !== '' || answers.comment !== '' || answers.reschedHow !== null ||
+    answers.manualDate !== '';
+
+  /** Avance d'une étape en empilant le chemin, et sauvegarde le brouillon. */
+  function goTo(next: RapportStep, p?: Partial<RapportAnswers>) {
+    const a = { ...answers, ...p };
+    const h = [...history, step];
+    setHistory(h);
+    if (p) setAnswers(a);
+    setStep(next);
+    saveDraft(next, a, h);
+  }
+
+  function goBack() {
+    const prev = history[history.length - 1];
+    if (!prev) return;
+    const h = history.slice(0, -1);
+    setHistory(h);
+    setStep(prev);
+    saveDraft(prev, answers, h);
+  }
+
+  function saveDraft(s: RapportStep, a: RapportAnswers, h: RapportStep[]) {
+    // Rien de saisi = pas de brouillon : sinon ouvrir puis fermer afficherait
+    // « Commencé · étape 1/… » sur la carte pour un rapport où l'on n'a rien fait.
+    const rempli = a.showedUp !== null || a.qualified !== null || a.outcomeChoice !== null
+      || a.revenue !== '' || a.comment !== '' || a.reschedHow !== null || a.manualDate !== '';
+    if (!rempli) return;
+    draft.save({
+      kind: 'sales',
+      step: s,
+      stepIndex: h.length + 1,
+      stepTotal: estimateTotal(a, h.length),
+      answers: { ...a, history: h },
+    });
+  }
+
+  // Frappe dans un champ libre (montant, commentaire, date manuelle) : sauvegarde
+  // différée, sinon une requête par caractère.
+  useEffect(() => {
+    if (!hasAnything || step === 'celebration') return;
+    draft.saveDebounced({
+      kind: 'sales',
+      step,
+      stepIndex: history.length + 1,
+      stepTotal: estimateTotal(answers, history.length),
+      answers: { ...answers, history },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [answers.revenue, answers.comment, answers.manualDate, answers.manualTimeStart, answers.manualTimeEnd]);
+
+  // Plus d'avertissement « le rapport n'a pas été enregistré » : c'est devenu faux,
+  // les réponses sont gardées. La sauvegarde en attente part au démontage du hook.
   function requestClose() {
-    if (step === 'show_up') { onClose(); return; }
-    setConfirmClose(true);
+    onClose();
+  }
+
+  function handleRestart() {
+    setAnswers({ ...EMPTY_ANSWERS, isCorrection });
+    setHistory([]);
+    setStep('show_up');
+    setError(null);
+    setConfirmRestart(false);
+    draft.clear();
   }
 
   // Lève une erreur si l'un des PATCH échoue — les appelants doivent catcher et ne PAS
@@ -199,42 +314,16 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
     setStep('rescheduled_how');
   }
 
-  async function confirmRescheduled(fields: Record<string, any> = {}) {
-    setSaving(true);
-    setError(null);
-    try {
-      await patchRapport({
-        outcome: 'rescheduled',
-        rescheduled: true,
-        rescheduled_at: new Date().toISOString(),
-        ...fields,
-      });
-      setStep('rescheduled_done');
-    } catch (e: any) {
-      setError(e.message || 'Erreur lors de l\'enregistrement');
-    } finally {
-      setSaving(false);
-    }
+  /** `how` : comment le prospect va reprendre rendez-vous. */
+  async function confirmRescheduled(how: RapportAnswers['reschedHow'] = 'calendly') {
+    const a: RapportAnswers = { ...answers, outcomeChoice: 'rescheduled', reschedHow: how };
+    setAnswers(a);
+    if (await submitRapport(a)) setStep('rescheduled_done');
   }
 
   async function confirmRescheduledManual() {
     if (!manualValid) return;
-    setSaving(true);
-    setError(null);
-    const scheduledAtNew = formInputsToUtc(manualDate, manualTimeStart, viewerTz).toISOString();
-    try {
-      await patchRapport({
-        outcome: 'rescheduled',
-        rescheduled: true,
-        rescheduled_at: new Date().toISOString(),
-        scheduled_at: scheduledAtNew,
-      });
-      setStep('rescheduled_done');
-    } catch (e: any) {
-      setError(e.message || 'Erreur lors de l\'enregistrement');
-    } finally {
-      setSaving(false);
-    }
+    await confirmRescheduled('manual');
   }
 
   // ── 2ème call ────────────────────────────────────────────────────────────────
@@ -260,63 +349,104 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
     setStep('second_call_how');
   }
 
-  async function confirmSecondCallFound() {
+  // Ces trois-là ne SOUMETTENT plus : elles enregistrent le choix et vont à
+  // l'étape commentaire. Le rapport — et la création ou liaison du call de suivi —
+  // part d'un bloc à la fin, dans submitRapport. Le commentaire est ainsi inclus
+  // dans la même écriture au lieu d'en demander une seconde.
+
+  function confirmSecondCallFound() {
     if (!foundCall) return;
+    setAfterComment('second_call_done');
+    goTo('comment', { outcomeChoice: 'second_call', reschedHow: 'calendly' });
+  }
+
+  function confirmSecondCallViaCalendly() {
+    setAfterComment('second_call_done');
+    goTo('comment', { outcomeChoice: 'second_call', reschedHow: 'calendly', foundCall: null });
+  }
+
+  function confirmSecondCallManual() {
+    if (!manualValid) return;
+    setAfterComment('second_call_done');
+    goTo('comment', { outcomeChoice: 'second_call', reschedHow: 'manual', foundCall: null });
+  }
+
+  // ── Étapes existantes ────────────────────────────────────────────────────────
+
+  /**
+   * Soumission unique du rapport. Remplace les onze fonctions qui écrivaient au fil
+   * de l'eau — c'est le SEUL endroit du composant qui touche la base.
+   *
+   * Ordre voulu : effets de bord sur d'AUTRES calls d'abord, rapport ensuite. Si un
+   * effet de bord échoue, le rapport n'est pas soumis, `outcome` reste null, et la
+   * carte du pipeline ne bouge pas — on peut recommencer proprement.
+   *
+   * Renvoie false en cas d'échec : l'appelant ne doit alors PAS avancer d'étape,
+   * sinon l'interface célèbre un enregistrement qui n'a pas eu lieu.
+   */
+  async function submitRapport(a: RapportAnswers): Promise<boolean> {
     setSaving(true);
     setError(null);
     try {
-      // Marquer le 2ème call comme is_follow_up=true
-      const res = await fetch(`/api/client/calls/${foundCall.id}`, {
+      await applySideEffects(a);
+
+      const scheduledAtNew = (a.outcomeChoice === 'rescheduled' && a.reschedHow === 'manual' && a.manualDate && a.manualTimeStart)
+        ? formInputsToUtc(a.manualDate, a.manualTimeStart, viewerTz).toISOString()
+        : null;
+
+      const { rapport, callFields } = buildRapportPatch(a, scheduledAtNew);
+      await patchRapport({ ...rapport, ...callFields });
+
+      // Le rapport est en base : le brouillon n'a plus lieu d'être, et le garder
+      // risquerait de le voir réappliqué par-dessus plus tard.
+      draft.clear();
+      return true;
+    } catch (e: any) {
+      setError(e.message || 'Erreur lors de l\'enregistrement');
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /**
+   * Écritures qui touchent d'AUTRES calls que celui rapporté. Différées jusqu'ici
+   * comme le reste : elles ne dépendent que des réponses déjà saisies, donc elles
+   * se rejouent à l'identique au moment de la soumission.
+   */
+  async function applySideEffects(a: RapportAnswers) {
+    if (a.outcomeChoice !== 'second_call') return;
+
+    // Créneau détecté par Calendly : on le marque comme call de suivi.
+    if (a.foundCall && a.reschedHow !== 'manual') {
+      const res = await fetch(`/api/client/calls/${a.foundCall.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_follow_up: true }),
       });
-      if (!res.ok) {
+      // Le créneau a été détecté au moment du parcours ; sur un brouillon repris
+      // des jours plus tard il a pu être annulé entre-temps. Un 404/403 ne doit pas
+      // empêcher d'enregistrer le rapport : la seule conséquence est un call non
+      // marqué « suivi », un écart de comptage sans commune mesure avec un rapport
+      // perdu.
+      if (!res.ok && res.status !== 404 && res.status !== 403) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || "Erreur lors de la liaison du 2ème call");
       }
-      await patchRapport({ outcome: 'second_call', no_show: false, deal_closed: false, revenue: 0 });
-      setAfterComment('second_call_done');
-      setStep('comment');
-    } catch (e: any) {
-      setError(e.message || 'Erreur lors de l\'enregistrement');
-    } finally {
-      setSaving(false);
+      return;
     }
-  }
 
-  async function confirmSecondCallViaCalendly() {
-    setSaving(true);
-    setError(null);
-    try {
-      await patchRapport({ outcome: 'second_call', no_show: false, deal_closed: false, revenue: 0 });
-      setAfterComment('second_call_done');
-      setStep('comment');
-    } catch (e: any) {
-      setError(e.message || 'Erreur lors de l\'enregistrement');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function confirmSecondCallManual() {
-    if (!manualValid) return;
-    setSaving(true);
-    setError(null);
-    const scheduledAtNew = formInputsToUtc(manualDate, manualTimeStart, viewerTz).toISOString();
-    // Calculer la durée depuis heure de fin
-    const startMs = formInputsToUtc(manualDate, manualTimeStart, viewerTz).getTime();
-    const endMs   = formInputsToUtc(manualDate, manualTimeEnd, viewerTz).getTime();
-    const durationMin = Math.round((endMs - startMs) / 60000);
-    try {
-      // Créer le 2ème call manuellement
+    // Date saisie à la main : on crée le call de suivi.
+    if (a.reschedHow === 'manual' && a.manualDate && a.manualTimeStart && a.manualTimeEnd) {
+      const startMs = formInputsToUtc(a.manualDate, a.manualTimeStart, viewerTz).getTime();
+      const endMs = formInputsToUtc(a.manualDate, a.manualTimeEnd, viewerTz).getTime();
       const res = await fetch('/api/client/calls', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ig_username: null,
-          scheduled_at: scheduledAtNew,
-          duration: `${durationMin} min`,
+          scheduled_at: new Date(startMs).toISOString(),
+          duration: `${Math.round((endMs - startMs) / 60000)} min`,
           invitee_name: inviteeName,
           is_follow_up: true,
           source: 'manual',
@@ -326,71 +456,34 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || "Erreur lors de la création du 2ème call");
       }
-      await patchRapport({ outcome: 'second_call', no_show: false, deal_closed: false, revenue: 0 });
-      setAfterComment('second_call_done');
-      setStep('comment');
-    } catch (e: any) {
-      setError(e.message || 'Erreur lors de l\'enregistrement');
-    } finally {
-      setSaving(false);
     }
   }
 
-  // ── Étapes existantes ────────────────────────────────────────────────────────
+  // ── Navigation pure : plus aucune écriture ici ───────────────────────────────
 
   async function handleShowUp(showedUp: boolean) {
     if (!showedUp) {
-      setSaving(true);
-      setError(null);
-      try {
-        await patchRapport({ no_show: true, deal_closed: false, revenue: 0, outcome: 'no_show' });
-        onClose();
-      } catch (e: any) {
-        setError(e.message || 'Erreur lors de l\'enregistrement');
-      } finally {
-        setSaving(false);
-      }
+      // No-show : c'est déjà la réponse finale, on soumet directement.
+      const a = { ...answers, showedUp: false };
+      setAnswers(a);
+      if (await submitRapport(a)) onClose();
     } else {
-      setStep('qualified');
+      goTo('qualified', { showedUp: true });
     }
   }
 
-  async function handleQualified(qualified: boolean) {
-    setSaving(true);
-    setError(null);
-    try {
-      await patchRapport({ qualified });
-      setStep('closed');
-    } catch (e: any) {
-      setError(e.message || 'Erreur lors de l\'enregistrement');
-    } finally {
-      setSaving(false);
-    }
+  function handleQualified(qualified: boolean) {
+    goTo('closed', { qualified });
   }
 
-  async function handleRevenue() {
-    const amount = parseFloat(revenue.replace(',', '.')) || 0;
-    setSaving(true);
-    setError(null);
-    try {
-      // `revenue` reste écrit sur le call, mais n'est plus la source du cash —
-      // c'est `deals` (créé à l'étape suivante) que lisent tous les écrans.
-      // On le conserve parce qu'il est la trace du montant SAISI dans ce
-      // rapport : si la création du deal échoue ensuite (Stripe indisponible,
-      // réseau coupé), le rapport garde le chiffre au lieu de le perdre.
-      await patchRapport({ no_show: false, deal_closed: true, revenue: amount, outcome: 'closed' });
-      // En correction, le deal existe déjà : le recréer ferait un doublon.
-      if (isCorrection) {
-        setAfterComment('celebration');
-        setStep('comment');
-      } else {
-        setStep('payment');
-      }
-    } catch (e: any) {
-      setError(e.message || 'Erreur lors de l\'enregistrement');
-    } finally {
-      setSaving(false);
-    }
+  /**
+   * Le montant n'écrit plus rien : on passe au commentaire, et c'est à sa sortie
+   * que le rapport part d'un bloc. L'étape paiement vient APRÈS — fermer avant
+   * laisse la base intacte et permet une reprise exacte.
+   */
+  function handleRevenue() {
+    setAfterComment('celebration');
+    goTo('comment', { outcomeChoice: 'closed' });
   }
 
   /**
@@ -439,35 +532,32 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
     }
   }
 
-  async function handleToRecontact() {
-    setSaving(true);
-    setError(null);
-    try {
-      await patchRapport({ no_show: false, deal_closed: false, revenue: 0, outcome: 'to_recontact' });
-      setAfterComment('close');
-      setStep('comment');
-    } catch (e: any) {
-      setError(e.message || 'Erreur lors de l\'enregistrement');
-    } finally {
-      setSaving(false);
-    }
+  function handleToRecontact() {
+    setAfterComment('close');
+    goTo('comment', { outcomeChoice: 'to_recontact' });
   }
 
-  async function handleSaveComment() {
-    if (!comment.trim()) { finishAfterComment(); return; }
-    setSaving(true);
-    setError(null);
-    try {
-      await patchRapport({ lead_rapport_comment: comment.trim() });
-      finishAfterComment();
-    } catch (e: any) {
-      setError(e.message || 'Erreur lors de l\'enregistrement');
-    } finally {
-      setSaving(false);
-    }
-  }
+  /**
+   * Sortie de l'étape commentaire : C'EST ICI que le rapport part en base, d'un
+   * seul bloc — outcome, qualified, montant et commentaire dans la même écriture.
+   *
+   * Les deux boutons (« Enregistrer » et « Passer ») aboutissent au même endroit :
+   * passer le commentaire ne veut pas dire renoncer au rapport.
+   */
+  async function handleSaveComment(override?: RapportAnswers) {
+    // `override` : le bouton « Passer » vide le commentaire. On passe la valeur
+    // directement plutôt que par setState, dont la mise à jour n'est pas visible
+    // dans le même gestionnaire d'événement.
+    const a = override ?? answers;
+    if (override) setAnswers(override);
 
-  function finishAfterComment() {
+    const ok = await submitRapport(a);
+    if (!ok) return; // erreur affichée, on reste sur l'étape
+
+    // Deal closé en saisie initiale : l'écran paiement suit, c'est lui qui crée le
+    // deal et le lien Stripe. En correction le deal existe déjà — le recréer ferait
+    // un doublon, on va droit à l'animation.
+    if (a.outcomeChoice === 'closed' && !isCorrection) { setStep('payment'); return; }
     if (afterComment === 'celebration') setStep('celebration');
     else if (afterComment === 'second_call_done') setStep('second_call_done');
     else onClose();
@@ -482,21 +572,21 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
     <>
       {step === 'celebration' && <CelebrationOverlay onDone={onClose} />}
 
-      {confirmClose && createPortal(
-        <>
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 4000 }} />
-          <div style={{ position: 'fixed', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', zIndex: 4001, background: 'var(--surface)', borderRadius: 16, padding: '28px 24px', width: '100%', maxWidth: 340, textAlign: 'center' }}>
-            <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>Fermer sans terminer ?</div>
-            <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 24, lineHeight: 1.6 }}>
-              Le rapport n'a pas été enregistré. Il restera en attente.
-            </div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button type="button" className="btn-ghost" style={{ flex: 1 }} onClick={() => setConfirmClose(false)}>Continuer</button>
-              <button type="button" className="btn-primary-brand" style={{ flex: 1, background: 'var(--red, #ef4444)' }} onClick={onClose}>Fermer quand même</button>
-            </div>
-          </div>
-        </>,
-        document.body
+      {/* Plus de « Fermer sans terminer ? » : les réponses sont gardées, l'alerte
+          serait devenue un mensonge. La case à cocher est réservée à
+          « Recommencer », qui efface réellement quelque chose. */}
+      {confirmRestart && (
+        <ConfirmCheckboxDialog
+          title="Recommencer le rapport ?"
+          message="Toutes tes réponses seront effacées et tu repartiras de la première question."
+          checkboxLabel="Je confirme vouloir effacer mes réponses"
+          confirmLabel="Recommencer"
+          cancelLabel="Annuler"
+          checked={restartChecked}
+          onCheckedChange={setRestartChecked}
+          onConfirm={handleRestart}
+          onCancel={() => setConfirmRestart(false)}
+        />
       )}
 
       {step !== 'celebration' && (
@@ -527,9 +617,24 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                 </div>
               )}
             </div>
-            <button type="button" onClick={requestClose} aria-label="Fermer" className="icon-btn" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--muted)' }}>
-              <Icon name="x" size={18} />
-            </button>
+            {/* « Recommencer » n'apparaît que s'il y a quelque chose à effacer, et
+                jamais sur les écrans qui suivent la soumission. Discret : c'est une
+                sortie de secours, pas une action courante. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+              {hasAnything && !NO_RESTART.includes(step) && (
+                <button
+                  type="button"
+                  onClick={() => { setRestartChecked(false); setConfirmRestart(true); }}
+                  className="btn-ghost"
+                  style={{ fontSize: 12, padding: '6px 10px', color: 'var(--muted)' }}
+                >
+                  Recommencer
+                </button>
+              )}
+              <button type="button" onClick={requestClose} aria-label="Fermer" className="icon-btn" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--muted)' }}>
+                <Icon name="x" size={18} />
+              </button>
+            </div>
           </div>
 
           {error && (
@@ -550,9 +655,14 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               question={inviteeName?.trim() ? `${inviteeName.trim()} s'est présenté ?` : "Le lead s'est présenté ?"}
               hint="Était-il au rendez-vous ?"
               disabled={saving}
+              // `value` : au retour arrière, la réponse déjà donnée est surlignée.
+              // Sans elle on retomberait sur une question qui semble vierge alors
+              // qu'on y a répondu — c'est ce que la navigation arrière rendait
+              // nécessaire, et la raison d'être de ce composant.
+              value={answers.showedUp === true ? 'yes' : answers.showedUp === false ? 'no' : answers.outcomeChoice === 'rescheduled' ? 'rescheduled' : null}
               choices={[
                 { value: 'yes', label: 'Oui, il était là', tone: 'primary' },
-                { value: 'no', label: 'No-show', tone: 'borderless' },
+                { value: 'no', label: 'No-show' },
                 { value: 'rescheduled', label: 'Appel reporté — nouvelle date à planifier', tone: 'warning' },
               ]}
               onChoose={v => {
@@ -569,6 +679,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               question="Le prospect était-il qualifié ?"
               hint="Correspond-il au profil recherché (besoin, budget, timing) ?"
               disabled={saving}
+              value={answers.qualified === true ? 'yes' : answers.qualified === false ? 'no' : null}
               choices={[
                 { value: 'yes', label: 'Oui, qualifié', tone: 'primary' },
                 { value: 'no', label: 'Non, pas qualifié', tone: 'neutral' },
@@ -609,14 +720,17 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               question="Comment va-t-il reréserver ?"
               hint="Aucun nouveau créneau n'a été détecté sur Calendly."
               disabled={saving}
+              value={answers.reschedHow}
               choices={[
                 { value: 'calendly', label: 'Via Calendly — il va reréserver lui-même' },
                 { value: 'manual', label: 'Manuellement — je vais saisir la date' },
                 { value: 'unknown', label: 'Date pas encore connue', tone: 'muted' },
               ]}
               onChoose={v => {
-                if (v === 'manual') setStep('rescheduled_manual_date');
-                else confirmRescheduled();
+                // `goTo` pour empiler l'historique : sans lui le Retour depuis
+                // l'écran de saisie manuelle serait mort.
+                if (v === 'manual') goTo('rescheduled_manual_date', { reschedHow: 'manual' });
+                else confirmRescheduled(v === 'unknown' ? 'unknown' : 'calendly');
               }}
             />
           )}
@@ -652,13 +766,16 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               question="Résultat du call ?"
               hint="Qu'est-ce qui s'est passé ?"
               disabled={saving}
+              value={answers.outcomeChoice === 'rescheduled' ? null : answers.outcomeChoice}
               choices={[
                 { value: 'closed', label: 'Oui, lead closé !', tone: 'primary' },
                 { value: 'second_call', label: isFollowUp ? 'Prochain call prévu' : '2ème call prévu' },
                 { value: 'to_recontact', label: 'Pas closé — à recontacter' },
               ]}
               onChoose={v => {
-                if (v === 'closed') setStep('revenue');
+                // `goTo` et non `setStep` : sans lui l'étape n'est pas empilée dans
+                // l'historique, et le Retour depuis l'écran du montant serait mort.
+                if (v === 'closed') goTo('revenue', { outcomeChoice: 'closed' });
                 else if (v === 'second_call') handleSecondCall();
                 else handleToRecontact();
               }}
@@ -691,13 +808,14 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               question="Comment va-t-il reréserver ?"
               hint="Aucun prochain call n'a été détecté sur Calendly."
               disabled={saving}
+              value={answers.reschedHow}
               choices={[
                 { value: 'calendly', label: 'Via Calendly — il va reréserver lui-même' },
                 { value: 'manual', label: 'Manuellement — je connais la date' },
                 { value: 'unknown', label: 'Date pas encore connue', tone: 'muted' },
               ]}
               onChoose={v => {
-                if (v === 'manual') setStep('second_call_manual_date');
+                if (v === 'manual') goTo('second_call_manual_date', { outcomeChoice: 'second_call', reschedHow: 'manual' });
                 else confirmSecondCallViaCalendly();
               }}
             />
@@ -868,15 +986,29 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                 rows={5}
                 style={{ width: '100%', resize: 'vertical', marginBottom: 20, fontFamily: 'inherit' }}
               />
+              {/* « Passer » soumet le rapport comme « Enregistrer » : le
+                  commentaire est facultatif, le rapport ne l'est pas. Le sauter
+                  sans enregistrer perdrait tout le parcours. */}
               <div style={{ display: 'flex', gap: 10 }}>
-                <button className="btn-ghost" type="button" style={{ flex: 1, padding: '14px', fontSize: 14, border: '1px solid var(--border)' }} disabled={saving} onClick={finishAfterComment}>
+                <button className="btn-ghost" type="button" style={{ flex: 1, padding: '14px', fontSize: 14, border: '1px solid var(--border)' }} disabled={saving}
+                  onClick={() => handleSaveComment({ ...answers, comment: '' })}>
                   Passer
                 </button>
-                <button className="btn-primary-brand" type="button" style={{ flex: 1, padding: '14px', fontSize: 14, fontWeight: 700 }} disabled={saving} onClick={handleSaveComment}>
+                <button className="btn-primary-brand" type="button" style={{ flex: 1, padding: '14px', fontSize: 14, fontWeight: 700 }} disabled={saving} onClick={() => handleSaveComment()}>
                   {saving ? 'Enregistrement…' : 'Enregistrer'}
                 </button>
               </div>
             </div>
+          )}
+
+          {/* Retour, en bas et discret. Pas une flèche dans l'en-tête : la croix y
+              est déjà, et deux sorties côte à côte prêtent à confusion sur mobile.
+              Les réponses restent en place au retour — c'est tout l'intérêt. */}
+          {!NO_BACK.includes(step) && history.length > 0 && (
+            <button type="button" onClick={goBack} disabled={saving}
+              className="btn-ghost" style={{ fontSize: 13, marginTop: 16, padding: '10px 0', color: 'var(--muted)' }}>
+              ‹ Retour
+            </button>
           )}
         </div>
         </ModalShell>
