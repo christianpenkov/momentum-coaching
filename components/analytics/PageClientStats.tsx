@@ -392,14 +392,43 @@ function Signal({ type, text, isLast }: { type: SignalType; text: string; isLast
  * gagner 3 se lit haut. Un axe ajuste separement en haut et en bas ferait
  * paraitre une petite perte aussi grave qu'un gros gain.
  */
-const domaineAbonnesNets = ([dataMin, dataMax]: readonly [number, number]): [number, number] => {
-  const amplitude = Math.max(Math.abs(dataMin), Math.abs(dataMax));
-  // Rien n'a bouge de la periode : -1 / 0 / +1, la ligne plate se lit au milieu.
-  if (amplitude === 0) return [-1, 1];
-  // Marge d'un cran seulement. Une marge proportionnelle (20 %) gonflait l'axe a
+/** Borne haute de l'axe : l'amplitude observee, plus un cran de respiration. */
+function borneAbonnesNets(valeurs: (number | null)[]): number {
+  const amplitude = valeurs.reduce<number>(
+    (max, v) => (v == null ? max : Math.max(max, Math.abs(v))),
+    0,
+  );
+  // Rien n'a bouge sur la periode : -1 / 0 / +1, la ligne plate se lit au milieu.
+  if (amplitude === 0) return 1;
+  // Un cran de marge seulement. Une marge proportionnelle (20 %) gonflait l'axe a
   // -24/+24 pour une pointe a 20 abonnes, ecrasant la courbe sur une bande etroite.
-  return [-(amplitude + 1), amplitude + 1];
-};
+  return amplitude + 1;
+}
+
+const domaineAbonnesNets = (borne: number): [number, number] => [-borne, borne];
+
+/**
+ * Graduations explicites, sans quoi Recharts ignore le domaine.
+ *
+ * Le `domain` seul ne suffit pas : Recharts recalcule ses propres bornes « jolies »
+ * par-dessus, et avec toutes les valeurs a zero il graduait « 0, 1 » en collant la
+ * ligne en bas — exactement ce que le domaine symetrique devait empecher
+ * (constate le 2026-08-21). Lui passer `ticks` fige l'echelle.
+ *
+ * Au plus 7 graduations, toujours en nombre impair pour que zero tombe pile au
+ * milieu, et jamais de decimale (on compte des abonnes).
+ */
+function graduationsAbonnesNets(borne: number): number[] {
+  // Construit depuis ZERO vers l'exterieur, et non depuis -borne : en partant du bas,
+  // le pas ne retombait pas sur zero (borne 101 graduait ...-2, 31... sans le zero),
+  // alors que c'est le repere central de ce graphique.
+  const pas = Math.max(1, Math.floor(borne / 3));
+  const ticks = [0];
+  for (let v = pas; v <= borne; v += pas) ticks.unshift(-v), ticks.push(v);
+  // La borne exacte ferme l'axe meme quand le pas ne tombe pas juste dessus.
+  if (ticks[ticks.length - 1] !== borne) ticks.unshift(-borne), ticks.push(borne);
+  return ticks;
+}
 
 // ─── Custom Tooltip ───────────────────────────────────────────────────────────
 
@@ -1405,14 +1434,20 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                     </linearGradient>
                   </defs>
                   <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={statModalTickInterval} />
-                  <YAxis
-                    tick={{ fontSize: 10, fill: 'var(--muted)' }}
-                    axisLine={false}
-                    tickLine={false}
-                    width={30}
-                    allowDecimals={false}
-                    domain={domaineAbonnesNets}
-                  />
+                  {(() => {
+                    const borne = borneAbonnesNets(statModal.data.map(d => d.v));
+                    return (
+                      <YAxis
+                        tick={{ fontSize: 10, fill: 'var(--muted)' }}
+                        axisLine={false}
+                        tickLine={false}
+                        width={30}
+                        allowDecimals={false}
+                        domain={domaineAbonnesNets(borne)}
+                        ticks={graduationsAbonnesNets(borne)}
+                      />
+                    );
+                  })()}
                   <ReferenceLine y={0} stroke="var(--border)" strokeWidth={1} />
                   <Tooltip content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
@@ -2313,13 +2348,19 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                 <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : "preserveStartEnd"} />
-                <YAxis
-                  tick={{ fontSize: 10, fill: 'var(--muted)' }}
-                  axisLine={false}
-                  tickLine={false}
-                  allowDecimals={false}
-                  domain={domaineAbonnesNets}
-                />
+                {(() => {
+                  const borne = borneAbonnesNets(netSubsForChart.map(d => d.netSubs));
+                  return (
+                    <YAxis
+                      tick={{ fontSize: 10, fill: 'var(--muted)' }}
+                      axisLine={false}
+                      tickLine={false}
+                      allowDecimals={false}
+                      domain={domaineAbonnesNets(borne)}
+                      ticks={graduationsAbonnesNets(borne)}
+                    />
+                  );
+                })()}
                 {/* Ligne de zero, pour que le point de bascule reste lisible meme quand
                     la courbe s'en eloigne. */}
                 <ReferenceLine y={0} stroke="var(--border)" strokeWidth={1} />
@@ -2651,11 +2692,34 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 ['Watch time total', loadingRetention ? <MiniLoadingDots /> : (() => {
                   const min = retentionSummary?.watchTimeMin ?? null;
                   if (min === null) return '—';
-                  return min >= 60 ? `${Math.round(min / 60)}h` : `${Math.round(min)}min`;
+                  return dureeDepuisMinutes(min);
                 })()],
                 ...(!selectedVideo.isShort && !loadingRetention ? (() => {
+                  // Le CTR n'existe QUE pour les videos publiees apres le demarrage du
+                  // suivi. YouTube ne fournit les impressions de miniature que via
+                  // l'API Reporting, dont le job ne collecte qu'a partir de sa creation :
+                  // une video anterieure n'a donc que ses impressions residuelles.
+                  //
+                  // Sur cette chaine, une video de juin 2025 cumule 2012 vues mais
+                  // seulement 113 impressions enregistrees — 0,1 % du reel. Le « CTR »
+                  // calcule dessus (1,77 %) ne mesure pas la miniature, il mesure un
+                  // fond de traine sur un echantillon minuscule. L'afficher serait un
+                  // chiffre faux (verifie en base le 2026-08-21).
+                  //
+                  // On l'annonce plutot que de faire disparaitre la ligne : une case
+                  // absente laisse croire a un oubli, une case qui s'explique informe.
                   const isOlderThanJob = jobCreatedAt && selectedVideo.publishedAt && new Date(selectedVideo.publishedAt) < new Date(jobCreatedAt);
-                  if (isOlderThanJob) return [];
+                  if (isOlderThanJob) {
+                    const depuis = new Date(jobCreatedAt!).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+                    return [['CTR miniature', (
+                      <span
+                        title={`YouTube ne fournit les impressions de miniature qu'à partir du démarrage du suivi, le ${depuis}. Cette vidéo est antérieure : les rares impressions enregistrées depuis ne représentent qu'une fraction de son audience réelle, et le CTR calculé dessus serait trompeur. Les vidéos publiées après cette date ont un CTR fiable.`}
+                        style={{ cursor: 'help', borderBottom: '1px dotted var(--muted)', color: 'var(--muted)' }}
+                      >
+                        Non mesurable
+                      </span>
+                    )] as [string, React.ReactNode]];
+                  }
                   if (ctrPending) return [['CTR miniature', 'Bientôt dispo'] as [string, React.ReactNode]];
                   return [['CTR miniature', videoCtr !== null ? `${videoCtr}%` : '—'] as [string, React.ReactNode]];
                 })() : []),
@@ -5484,14 +5548,31 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     {row.platform === 'YT' && ytVideo && (() => {
                       const metrics: [string, any][] = [
                         ['Vues', ytVideo.views], ['Likes', ytVideo.likes], ['Commentaires', ytVideo.comments],
-                        ['Partages', ytVideo.shares30d], ['Watch time moy.', (() => { const sec = Math.round(ytVideo.watchTime30d * 60 / (ytVideo.views30d || 1)); return sec >= 3600 ? `${Math.round(sec/3600)}h` : `${Math.floor(sec/60)}m${String(sec%60).padStart(2,'0')}s`; })()],
+                        ['Partages', ytVideo.shares30d],
+                        // Passe par lib/duree.ts comme le reste de la plateforme : cette
+                        // ligne refaisait son propre arrondi et pouvait afficher une autre
+                        // valeur que la meme donnee ailleurs.
+                        ['Watch time moy.', dureeDepuisSecondes(ytVideo.watchTime30d * 60 / (ytVideo.views30d || 1))],
                         ['% vu moy.', `${ytVideo.avgViewPct}%`],
                         // Vrai CTR de cette vidéo, plus une valeur codée en dur : cette
                         // case affichait '4,2%' pour TOUTES les vidéos, quelle que soit
                         // leur performance réelle (constaté le 2026-08-20 — les CTR réels
                         // en base vont de 1,7 % à 3,1 %).
                         // La colonne est un ratio (0-1), d'où le ×100.
-                        ['CTR miniature', ytVideo.ctr != null ? `${(ytVideo.ctr * 100).toFixed(1).replace('.', ',')}%` : null],
+                        //
+                        // ctr null = vidéo publiée avant le démarrage du suivi YouTube :
+                        // la RPC get_yt_videos_history l'annule à la lecture, parce que
+                        // les impressions d'avant le job ne représentent qu'une fraction
+                        // de l'audience réelle. On l'annonce plutôt que d'afficher un
+                        // tiret muet, qui se lirait comme un bug.
+                        ['CTR miniature', ytVideo.ctr != null ? `${(ytVideo.ctr * 100).toFixed(1).replace('.', ',')}%` : (
+                          <span
+                            title="YouTube ne fournit les impressions de miniature qu'à partir du démarrage du suivi sur la plateforme. Cette vidéo est antérieure : le CTR calculé sur les rares impressions enregistrées depuis serait trompeur. Les vidéos publiées après le démarrage ont un CTR fiable."
+                            style={{ cursor: 'help', fontSize: 13, fontWeight: 600, borderBottom: '1px dotted var(--muted)', color: 'var(--muted)' }}
+                          >
+                            Non mesurable
+                          </span>
+                        )],
                       ];
                       return metrics.map(([label, val], i) => (
                         <div key={i} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 12px' }}>
