@@ -1799,6 +1799,15 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
 }
 
 // ─── Onglet Stats ────────────────────────────────────────────────────────────
+
+/**
+ * Marches dont le taux se colore : celles que le coach pilote.
+ *
+ * En amont (vues → portée → commentaires), le taux dépend de l'algorithme et de
+ * l'audience, pas du réglage de la séquence — et il est structurellement bas.
+ * Le colorer inventerait un échec là où il n'y en a pas.
+ */
+const ETAPES_SEQUENCE = new Set(['accroches', 'clics', 'conversations']);
 // Les chiffres du contenu lui-même, en lecture seule. Les deux API les
 // renvoyaient déjà par post ; ils n'étaient repris nulle part dans cet écran,
 // obligeant à quitter « Gérer mes liens » pour savoir si un post marchait.
@@ -1822,8 +1831,66 @@ function CarteStat({ label, valeur, aide }: { label: string; valeur: string; aid
   );
 }
 
-function TabStats({ post }: { post: Post }) {
+function TabStats({ post, profileId }: { post: Post; profileId: string }) {
   const isYT = post.platform === 'YT';
+
+  // Le même cache que l'entonnoir d'accueil (queryKey identique) : aucune requête
+  // de plus, on relit ce qui est déjà chargé et on le restreint à ce contenu.
+  const { data: pipelineData } = useQuery({
+    queryKey: ['liens-funnel', profileId],
+    queryFn: () => fetch('/api/client/pipeline').then(r => r.json()),
+    enabled: !!profileId,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // ── Entonnoir de CE contenu ────────────────────────────────────────────────
+  //
+  // Décline l'entonnoir d'accueil au niveau d'un post : on part de l'audience
+  // (vues, comptes touchés) et on descend jusqu'à la conversation. C'est la
+  // question de cette page — « ce contenu, qu'est-ce qu'il m'a rapporté ? » —
+  // là où les métriques Instagram brutes seules s'arrêtent à la performance
+  // sociale.
+  //
+  // Les leads se rattachent par `media_id`. Un clic compte une fois par
+  // prospect, pas une fois par événement : recliquer son lien ne fait pas un
+  // prospect de plus.
+  //
+  // ⚠️ L'étape « réponses au DM3 » n'est PAS distinguable aujourd'hui :
+  // `hook_replied` dit qu'un prospect a répondu, jamais à quel message, et
+  // `dm3_scheduled_at` — qui permettrait de trancher par comparaison de dates —
+  // n'est alimenté nulle part (vérifié en base : 0 ligne renseignée sur 4
+  // réponses). L'étape s'appelle donc « Conversations », ce qu'elle mesure
+  // réellement : des prospects qui ont répondu, quel que soit le message.
+  const entonnoir = useMemo(() => {
+    const leads: any[] = pipelineData?.leads ?? [];
+    const events: any[] = pipelineData?.events ?? [];
+
+    const duContenu = leads.filter(l => l.media_id === post.id);
+    const idsDuContenu = new Set(duContenu.map(l => l.id).filter(Boolean));
+
+    const commentaires = duContenu.length;
+    const accroches = duContenu.filter(l => l.lead_magnet_sent).length;
+    const conversations = duContenu.filter(l => l.hook_replied).length;
+
+    const cliqueurs = new Set(
+      events
+        .filter(e => (e.event_type === 'lm_clicked' || e.event_type === 'link_clicked')
+                     && idsDuContenu.has(e.ig_lead_id))
+        .map(e => e.ig_lead_id)
+    );
+
+    const calls = new Set(
+      events
+        .filter(e => e.event_type === 'call_booked' && idsDuContenu.has(e.ig_lead_id))
+        .map(e => e.ig_lead_id)
+    );
+
+    return {
+      commentaires, accroches, clics: cliqueurs.size, conversations,
+      calls: calls.size,
+      pret: !!pipelineData,
+    };
+  }, [pipelineData, post.id]);
 
   // Ordre d'importance décroissante : la portée d'abord (« combien de gens
   // l'ont vu »), puis l'engagement, puis ce que ça a rapporté au compte.
@@ -1852,8 +1919,83 @@ function TabStats({ post }: { post: Post }) {
 
   const aucune = stats.every(s => s.valeur === '—');
 
+  // Étapes de l'entonnoir : l'audience vient des métriques du réseau, la suite
+  // du pipeline. Sur YouTube il n'y a ni commentaire déclencheur ni DM
+  // automatique — l'entonnoir n'y a rien à dire, on ne montre que les vues.
+  const etapes = [
+    { cle: 'vues', libelle: 'Vues', valeur: post.views ?? null },
+    { cle: 'reach', libelle: 'Comptes touchés', valeur: post.reach ?? null },
+    { cle: 'commentaires', libelle: 'Commentaires', valeur: entonnoir.commentaires },
+    { cle: 'accroches', libelle: 'Accroches', valeur: entonnoir.accroches },
+    { cle: 'clics', libelle: 'Liens cliqués', valeur: entonnoir.clics },
+    { cle: 'conversations', libelle: 'Conversations', valeur: entonnoir.conversations },
+  ].filter(e => e.valeur != null) as { cle: string; libelle: string; valeur: number }[];
+
+  const tauxEntre = (i: number): number | null => {
+    if (i === 0) return null;
+    const prec = etapes[i - 1].valeur;
+    return prec > 0 ? Math.round((etapes[i].valeur / prec) * 100) : null;
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {!isYT && entonnoir.pret && etapes.length > 1 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+          <div className="eyebrow-sm" style={{ color: MUTED }}>Entonnoir de ce contenu</div>
+
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+            {etapes.map((e, i) => {
+              const taux = tauxEntre(i);
+              return (
+                <Fragment key={e.cle}>
+                  {i > 0 && (
+                    <span style={{ alignSelf: 'center', color: '#c9c5bc', fontSize: 13, flexShrink: 0, paddingTop: 2 }}>›</span>
+                  )}
+                  <div style={{ flex: 1, minWidth: 0, textAlign: 'center' }}>
+                    <div style={{
+                      border: `1px solid ${BORDER}`, borderRadius: 10, background: SURFACE,
+                      padding: '9px 6px',
+                    }}>
+                      <div style={{ fontSize: 10, color: MUTED, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.libelle}</div>
+                      <div style={{ fontSize: 17, fontWeight: 700, color: INK, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>
+                        {e.valeur.toLocaleString('fr-FR')}
+                      </div>
+                    </div>
+                    {/* Le taux se lit sous l'étape d'arrivée : c'est là qu'on
+                        cherche la marche qui casse.
+                        Coloré uniquement sur les marches de la séquence, où un
+                        taux bas est un vrai défaut à corriger. Les marches
+                        d'audience (vues → portée → commentaires) restent
+                        neutres : 1 % de commentaires sur la portée est la norme
+                        sur Instagram, le peindre en rouge crierait à l'échec
+                        devant un chiffre parfaitement sain. */}
+                    {taux != null && (
+                      <div style={{
+                        fontSize: 10.5, fontWeight: 700, marginTop: 4,
+                        color: !ETAPES_SEQUENCE.has(e.cle) ? MUTED
+                          : taux >= 50 ? 'var(--green)' : RED,
+                      }}>{taux} %</div>
+                    )}
+                  </div>
+                </Fragment>
+              );
+            })}
+          </div>
+
+          {entonnoir.calls > 0 && (
+            <div style={{ fontSize: 12, color: MUTED }}>
+              → {entonnoir.calls} call{entonnoir.calls > 1 ? 's' : ''} booké{entonnoir.calls > 1 ? 's' : ''} depuis ce contenu
+            </div>
+          )}
+
+          {/* Dit ce que « Conversations » compte vraiment : sans ça, on le lit
+              comme « réponses à la relance », que la base ne sait pas isoler. */}
+          <div style={{ fontSize: 10.5, color: FAINT, lineHeight: 1.5 }}>
+            « Conversations » compte les prospects qui ont répondu en DM, quel que soit le message.
+          </div>
+        </div>
+      )}
+
       <div style={{ fontSize: 12.5, color: MUTED, lineHeight: 1.5 }}>
         Les chiffres de ce contenu, tels que {isYT ? 'YouTube' : 'Instagram'} les rapporte.
         {' '}Ils se rafraîchissent une fois par jour.
@@ -1965,7 +2107,7 @@ function PanneauActions({ post, profileId, activeDomain, domainsLoaded, calendly
       <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '14px' : '20px 24px' }}>
         {activeTab === 'desc' && <TabDesc post={post} profileId={profileId} domain={domain} canGenerate={canGenerate} showDisconnectedWarning={showDisconnectedWarning} calendlyUrl={calendlyUrl} leadMagnets={leadMagnets} onPostUpdated={onPostUpdated} />}
         {activeTab === 'lm' && <TabLm post={post} profileId={profileId} domain={domain} canGenerate={canGenerate} showDisconnectedWarning={showDisconnectedWarning} leadMagnets={leadMagnets} onLmCreated={onLmCreated} onPostUpdated={onPostUpdated} />}
-        {activeTab === 'stats' && <TabStats post={post} />}
+        {activeTab === 'stats' && <TabStats post={post} profileId={profileId} />}
       </div>
     </div>
   );
@@ -2736,16 +2878,19 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
                 </span>
 
                 {/* Clics — la promesse de l'écran (« chaque clic est tracké ») se
-                    vérifie ici. Vert dès le premier clic ; un tiret neutre à zéro,
-                    car « 0 clic » en vert se lirait comme un succès et en rouge
-                    comme un échec, alors qu'un lien récent n'a rien à dire encore. */}
+                    vérifie ici. Vert dès le premier clic, gris neutre à zéro.
+                    On écrit « 0 clic » et non un tiret : le tiret se lit comme
+                    une donnée manquante (« pas encore remontée »), alors que
+                    zéro est une mesure — le lien est bien suivi, personne n'a
+                    cliqué. La nuance compte, c'est la question qu'on se pose en
+                    regardant cette colonne. */}
                 <span style={{ width: 64, flexShrink: 0, display: 'flex', justifyContent: 'flex-end' }}>
                   <span style={{
                     fontSize: 11, fontWeight: 600, borderRadius: 999, padding: '3px 9px', whiteSpace: 'nowrap',
                     color: h.clicks > 0 ? 'var(--green)' : MUTED,
                     background: h.clicks > 0 ? 'var(--green-soft)' : SURFACE2,
-                  }} title={h.clicks > 0 ? `${h.clicks} clic${h.clicks > 1 ? 's' : ''} humain${h.clicks > 1 ? 's' : ''}` : 'Aucun clic pour l’instant'}>
-                    {h.clicks > 0 ? `${h.clicks} clic${h.clicks > 1 ? 's' : ''}` : '—'}
+                  }} title={h.clicks > 0 ? `${h.clicks} clic${h.clicks > 1 ? 's' : ''} humain${h.clicks > 1 ? 's' : ''}` : 'Aucun clic humain pour l’instant'}>
+                    {`${h.clicks} clic${h.clicks > 1 ? 's' : ''}`}
                   </span>
                 </span>
 

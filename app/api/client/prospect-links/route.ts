@@ -7,6 +7,25 @@ const supa = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+/**
+ * Chemin d'un lien court, sans son domaine : « prendre-rdv-pseudo ».
+ *
+ * C'est la partie qui survit à un changement de domaine Short.io, donc la clé
+ * de rattachement des clics collectés avant la bascule. Le champ `path` des
+ * snapshots est stocké sans slash de tête, on s'aligne dessus.
+ */
+function pathDeLien(shortUrl: string | null | undefined): string | null {
+  if (!shortUrl) return null;
+  try {
+    return new URL(shortUrl).pathname.replace(/^\/+/, '') || null;
+  } catch {
+    // Une valeur qui n'est pas une URL absolue : on prend le dernier segment
+    // plutôt que d'abandonner le lien.
+    const seg = shortUrl.split('/').filter(Boolean).pop();
+    return seg || null;
+  }
+}
+
 export async function GET(request: Request) {
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -55,21 +74,37 @@ export async function GET(request: Request) {
   // c'est la même métrique que partout ailleurs dans la plateforme.
   // Fire-and-forget : un échec ici ne doit pas priver l'écran de sa liste de
   // liens, la pastille tombe simplement à 0.
-  const urls = links.map(l => l.short_url).filter(Boolean);
-  const clicksByUrl = new Map<string, number>();
-  if (urls.length > 0) {
+  //
+  // On somme par PATH, pas par short_url : lors d'un changement de domaine
+  // Short.io, le lien est regénéré sur le nouvel hôte et sa ligne
+  // prospect_links pointe vers la nouvelle URL, tandis que les clics déjà
+  // collectés restent attachés à l'ancienne. Sommer par short_url affichait
+  // alors 0 sur un prospect qui avait bien cliqué (et parfois booké) avant la
+  // bascule. Le path (« prendre-rdv-pseudo ») est identique d'un domaine à
+  // l'autre et reste propre à un prospect : vérifié en base, les 6 chemins
+  // présents sur deux domaines sont chacun le même lien migré, jamais deux
+  // prospects distincts.
+  const paths = links
+    .map(l => pathDeLien(l.short_url))
+    .filter((p): p is string => !!p);
+  const clicksByPath = new Map<string, number>();
+  if (paths.length > 0) {
     const { data: snaps } = await supa
       .from('shortio_link_daily_snapshots')
-      .select('short_url, human_clicks')
+      .select('path, human_clicks')
       .eq('profile_id', targetId)
-      .in('short_url', urls);
+      .in('path', paths);
     for (const s of snaps ?? []) {
-      clicksByUrl.set(s.short_url, (clicksByUrl.get(s.short_url) ?? 0) + (s.human_clicks ?? 0));
+      if (!s.path) continue;
+      clicksByPath.set(s.path, (clicksByPath.get(s.path) ?? 0) + (s.human_clicks ?? 0));
     }
   }
 
   return NextResponse.json({
-    links: links.map(l => ({ ...l, clicks: clicksByUrl.get(l.short_url) ?? 0 })),
+    links: links.map(l => {
+      const p = pathDeLien(l.short_url);
+      return { ...l, clicks: (p && clicksByPath.get(p)) ?? 0 };
+    }),
   });
 }
 
