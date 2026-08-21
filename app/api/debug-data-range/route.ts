@@ -257,8 +257,13 @@ export async function GET(req: NextRequest) {
       calls_booked: results.calendly?.timeSeries?.status || 'N/A',
     },
     recommendation: [
-      'Stocker ig_chart_data (JSONB) dans les snapshots pour reconstituer les semaines passées',
-      'Stocker yt_chart_data (JSONB) dans les snapshots idem',
+      // Ces deux recommandations ont ete SUIVIES, mais autrement et mieux : la serie
+      // temporelle est stockee en colonnes normales (yt_views, yt_watch_time_min,
+      // ig_reach...), une ligne par jour, que fetchSnapshot agrege en SQL. Un bloc JSONB
+      // aurait fallu tout deserialiser pour faire une somme.
+      // Les colonnes *_chart_data creees pour l'approche JSONB n'ont jamais recu une
+      // seule valeur ; elles ont ete supprimees le 2026-08-21.
+      'FAIT autrement : séries temporelles en colonnes par jour, agrégées en SQL (voir fetchSnapshot)',
       'Les calls sont déjà day-to-day en DB — requête directe sur scheduled_at suffit',
       'Stripe : agréger revenue depuis la table calls (deal_closed + revenue) plutôt que Stripe API',
     ],
