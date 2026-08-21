@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext, Fragment, type ReactNode } from 'react';
+import { LazyMotion, domAnimation, m, useReducedMotion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@/lib/UserContext';
@@ -2954,48 +2955,116 @@ function RailBouton({ children, title, actif, accent, onClick }: {
  * Rail de 56px — l'état ② du parcours, celui par défaut quand on ouvre un
  * contenu : la séquence dispose alors de toute la largeur restante.
  */
-function RailContenus({ posts, rightView, onRetour, onDeplier, onProspect, onLmLibrary, onOuvrirPost, onSurvol }: {
+/**
+ * Le rail — un seul élément qui S'ÉTIRE de 56px à 250px.
+ *
+ * Pas un rail plus un panneau qui apparaît par-dessus : c'est le même conteneur
+ * qui grandit, et son contenu qui se réorganise. Deux éléments distincts se
+ * voient toujours, quelle que soit la finesse du fondu.
+ *
+ * L'animation est un ressort (`spring`), pas une durée fixe : une largeur qui
+ * s'ouvre par interpolation linéaire a l'air mécanique. Le ressort décélère en
+ * fin de course, ce qui donne le poids d'un objet qu'on tire.
+ *
+ * Chaque ligne garde sa vignette au même endroit pendant l'étirement — c'est ce
+ * qui donne l'impression que le rail se déplie au lieu d'être remplacé : les
+ * miniatures restent en place, le texte apparaît à côté.
+ */
+function RailContenus({ posts, rightView, ouvert, epingle, onRetour, onEpingler, onOuvrirPost, onSurvol }: {
   posts: Post[];
   rightView: RightView;
+  ouvert: boolean;
+  epingle: boolean;
   onRetour: () => void;
-  onDeplier: () => void;
-  onProspect: () => void;
-  onLmLibrary: () => void;
+  onEpingler: () => void;
   onOuvrirPost: (post: Post) => void;
   onSurvol?: (dedans: boolean) => void;
 }) {
   const idCourant = rightView && (rightView.type === 'post' || rightView.type === 'story') ? rightView.post.id : null;
+  const reduit = useReducedMotion();
+
+  // Ressort ferme mais amorti : il arrive sans rebond visible. Un `stiffness`
+  // plus bas donnerait un rail mou, un `damping` plus bas le ferait osciller.
+  const ressort = reduit
+    ? { duration: 0 }
+    : { type: 'spring' as const, stiffness: 320, damping: 34, mass: 0.7 };
+
+  // Le fondu du texte suit l'étirement au lieu de le précéder : sinon les
+  // libellés apparaissent dans un rail encore étroit et se font tronquer.
+  const fondu = reduit
+    ? { duration: 0 }
+    : { duration: 0.18, ease: [0.22, 1, 0.36, 1] as const, delay: ouvert ? 0.08 : 0 };
 
   return (
-    <div
-      onMouseEnter={() => onSurvol?.(true)}
-      onMouseLeave={() => onSurvol?.(false)}
-      style={{
-        width: 56, flexShrink: 0, borderRight: `1px solid ${BORDER}`, background: BG,
-        padding: '11px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
-        boxSizing: 'border-box', overflowY: 'auto',
-      }}>
-      <RailBouton title="Revenir à tous les contenus" onClick={onRetour}>{IcoRetour}</RailBouton>
-      <RailBouton title="Déplier la liste" onClick={onDeplier}>{IcoMenu}</RailBouton>
-      {/* Pas d'entrées Calendly / Lead magnets ici : la ligne de titre reste
-          visible au-dessus du rail avec ses CTA, les répéter en icônes ferait
-          deux chemins vers la même vue à quelques centimètres d'écart. Le rail
-          ne porte donc que la navigation entre contenus. */}
-      <span style={{ width: 26, height: 1, background: BORDER, margin: '2px 0', flexShrink: 0 }} />
+    <LazyMotion features={domAnimation}>
+      <m.div
+        onMouseEnter={() => onSurvol?.(true)}
+        onMouseLeave={() => onSurvol?.(false)}
+        initial={false}
+        animate={{ width: ouvert ? 250 : 56 }}
+        transition={ressort}
+        style={{
+          flexShrink: 0, borderRight: `1px solid ${BORDER}`, background: BG,
+          padding: '11px 0', display: 'flex', flexDirection: 'column',
+          alignItems: ouvert ? 'stretch' : 'center', gap: 4,
+          boxSizing: 'border-box', overflowY: 'auto', overflowX: 'hidden',
+        }}>
 
-      {posts.map(post => {
-        const actif = post.id === idCourant;
-        return (
-          <button key={post.id} onClick={() => onOuvrirPost(post)} title={post.caption} style={{
-            padding: 0, border: 'none', background: 'none', cursor: 'pointer', flexShrink: 0,
-            borderRadius: 8, outline: actif ? `2px solid ${BLUE}` : 'none', outlineOffset: 1,
+        {/* Tête : retour, puis épinglage quand le rail est ouvert */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: ouvert ? '0 11px 8px' : '0 0 8px', flexShrink: 0, borderBottom: `1px solid ${BORDER_SOFT}`, marginBottom: 4 }}>
+          <button onClick={onRetour} title="Revenir à tous les contenus" aria-label="Revenir à tous les contenus" style={{
+            display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer',
+            padding: 0, color: BLUE, fontSize: 12, fontWeight: 700, flexShrink: 0, minWidth: 34, justifyContent: ouvert ? 'flex-start' : 'center',
           }}>
-            {/* Les stories sont en 9/16 : une vignette carrée les déformerait. */}
-            <VignetteContenu post={post} size={34} hauteur={post.platform === 'STORY' ? 44 : 34} />
+            {IcoRetour}
+            <m.span initial={false} animate={{ opacity: ouvert ? 1 : 0 }} transition={fondu}
+              style={{ whiteSpace: 'nowrap', pointerEvents: ouvert ? 'auto' : 'none' }}>Gérer mes liens</m.span>
           </button>
-        );
-      })}
-    </div>
+
+          {/* L'épingle n'a de sens qu'une fois ouvert : elle décide si le rail
+              reste déplié quand la souris part. */}
+          <m.button onClick={onEpingler}
+            initial={false} animate={{ opacity: ouvert ? 1 : 0 }} transition={fondu}
+            title={epingle ? 'Ne plus garder la liste ouverte' : 'Garder la liste ouverte'}
+            aria-label={epingle ? 'Ne plus garder la liste ouverte' : 'Garder la liste ouverte'}
+            style={{
+              marginLeft: 'auto', width: 26, height: 24, borderRadius: 6, flexShrink: 0,
+              cursor: ouvert ? 'pointer' : 'default', pointerEvents: ouvert ? 'auto' : 'none',
+              background: epingle ? BLUE : SURFACE, border: `1px solid ${epingle ? BLUE : BORDER}`,
+              color: epingle ? '#fff' : INK,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>{IcoMenu}</m.button>
+        </div>
+
+        {posts.map(post => {
+          const actif = post.id === idCourant;
+          return (
+            <button key={post.id} onClick={() => onOuvrirPost(post)} title={post.caption} style={{
+              display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+              padding: ouvert ? '5px 11px' : '3px 0', justifyContent: ouvert ? 'flex-start' : 'center',
+              border: 'none', background: actif ? BLUE_SOFT : 'none', cursor: 'pointer', flexShrink: 0,
+              borderLeft: `3px solid ${actif && ouvert ? BLUE : 'transparent'}`,
+              transition: `background var(--dur-quick) var(--ease-out)`,
+            }}>
+              {/* La vignette ne bouge pas pendant l'étirement : c'est elle qui
+                  donne l'impression d'un rail qui se déplie, pas d'un panneau
+                  qui remplace un autre. Les stories restent en 9/16. */}
+              <span style={{ flexShrink: 0, borderRadius: 8, outline: actif && !ouvert ? `2px solid ${BLUE}` : 'none', outlineOffset: 1, display: 'flex' }}>
+                <VignetteContenu post={post} size={34} hauteur={post.platform === 'STORY' ? 44 : 34} />
+              </span>
+
+              <m.span initial={false} animate={{ opacity: ouvert ? 1 : 0 }} transition={fondu}
+                style={{ flex: 1, minWidth: 0, textAlign: 'left', pointerEvents: ouvert ? 'auto' : 'none' }}>
+                <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: actif ? BLUE : INK, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{post.caption}</span>
+                <span style={{ display: 'block', fontSize: 10.5, color: MUTED, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1 }}>
+                  {metaContenu(post, true)}{post.lmKeyword ? ` · ${post.lmKeyword.toUpperCase()}` : ''}
+                </span>
+              </m.span>
+            </button>
+          );
+        })}
+      </m.div>
+    </LazyMotion>
   );
 }
 
@@ -4161,58 +4230,23 @@ export default function PageLiens() {
           {rightView !== null && (
             <RailContenus
               posts={filteredPosts} rightView={rightView}
+              ouvert={menuOuvert} epingle={menuEpingle}
               onRetour={() => unsavedGuardApi.guard(() => { setRightView(null); setMenuEpingle(false); setSurvolMenu(false); })}
-              onDeplier={() => setMenuEpingle(v => !v)}
-              onProspect={() => unsavedGuardApi.guard(() => setRightView({ type: 'prospect' }))}
-              onLmLibrary={() => unsavedGuardApi.guard(() => setRightView({ type: 'lm-library' }))}
+              onEpingler={() => { setMenuEpingle(v => !v); setSurvolMenu(false); }}
               onOuvrirPost={post => unsavedGuardApi.guard(() => setRightView(post.platform === 'STORY' ? { type: 'story', post } : { type: 'post', post }))}
               onSurvol={survolRail}
             />
           )}
 
-          {/* Colonne gauche — ① pleine largeur, ③ panneau de 250px.
-              En ③ le panneau se SUPERPOSE au détail au lieu de le pousser : sans
-              ça, la séquence DM en cours d'écriture se réorganiserait à chaque
-              fois que la souris frôle le rail. C'est la variante que les
-              wireframes du handoff retenaient pour ce cas. */}
-          {(rightView === null || menuOuvert) && (
+          {/* Colonne gauche — état ① uniquement, en pleine largeur. Dès qu'un
+              contenu est ouvert, c'est le RAIL qui porte la liste : il s'étire
+              de 56 à 250px au lieu de céder la place à un second panneau. */}
+          {rightView === null && (
           <div
-            onMouseEnter={() => rightView !== null && survolRail(true)}
-            onMouseLeave={() => rightView !== null && survolRail(false)}
             style={{
-              ...(rightView === null
-                ? { width: '100%', flexShrink: 0, borderRight: 'none' }
-                : {
-                    position: 'absolute', top: 0, bottom: 0, left: 56, zIndex: 20,
-                    width: 250, borderRight: `1px solid ${BORDER}`,
-                    boxShadow: 'var(--shadow-elev)',
-                  }),
+              width: '100%', flexShrink: 0, borderRight: 'none',
               background: BG, display: 'flex', flexDirection: 'column', minHeight: 0,
             }}>
-
-            {/* En ③, la tête de menu porte le retour à ① et l'épinglage —
-                sans elle, on ne pourrait plus ni revenir ni garder le menu ouvert. */}
-            {rightView !== null && (
-              <div style={{ padding: '12px 13px 9px', display: 'flex', alignItems: 'center', gap: 9, flexShrink: 0, borderBottom: `1px solid ${BORDER_SOFT}` }}>
-                <button onClick={() => unsavedGuardApi.guard(() => { setRightView(null); setMenuEpingle(false); setSurvolMenu(false); })} title="Revenir à tous les contenus" style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: BLUE, fontSize: 12, fontWeight: 700 }}>
-                  {IcoRetour}<span>Gérer mes liens</span>
-                </button>
-                <button onClick={() => { setMenuEpingle(v => !v); setSurvolMenu(false); }}
-                  title={menuEpingle ? 'Ne plus garder la liste ouverte' : 'Garder la liste ouverte'}
-                  aria-label={menuEpingle ? 'Ne plus garder la liste ouverte' : 'Garder la liste ouverte'} style={{
-                  marginLeft: 'auto', width: 26, height: 24, borderRadius: 6, flexShrink: 0, cursor: 'pointer',
-                  background: menuEpingle ? BLUE : SURFACE, border: `1px solid ${menuEpingle ? BLUE : BORDER}`,
-                  color: menuEpingle ? '#fff' : INK,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>{IcoMenu}</button>
-              </div>
-            )}
-
-            {/* Pas d'entrées épinglées ici : la ligne de titre reste visible en
-                permanence avec ses CTA « Lien Calendly prospect » et « Lead
-                magnet ». Les répéter dans le menu déplié ne ferait que doubler
-                les mêmes actions à 200px d'écart. Le rail (②), lui, en a besoin :
-                sa colonne masque justement ces boutons. */}
 
             {/* Entonnoir — état ① seulement : une fois dans un contenu, la question
                 n'est plus « où ça casse ? » mais « que dit CE contenu ». */}
