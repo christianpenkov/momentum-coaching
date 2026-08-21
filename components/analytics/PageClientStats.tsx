@@ -1379,7 +1379,12 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
         const curr = d.followerCount ?? prev;
         return { date: d.date, v: i === 0 ? 0 : (curr - (prev ?? curr)) };
       });
-    })(), color: ig.followsUnfollows30d >= 0 ? GREEN : RED },
+    // Couleur decidee sur le solde REELLEMENT affiche, pas sur followsUnfollows30d :
+    // cette derniere vient de ig_follows_unfollows, une colonne vide sur les 107 jours
+    // du profil de test (Meta ne renvoie plus cette metrique). Elle valait donc
+    // toujours 0, la condition `>= 0` etait toujours vraie, et la courbe restait VERTE
+    // meme sur une periode ou le compte perdait des abonnes (constate le 2026-08-22).
+    })(), color: igFollowerDeltaP >= 0 ? GREEN : RED },
     "Taux d'engagement": { data: igDays.map(d => ({ date: d.date, v: igDaysNoDataSet.has(d.date) ? (null as any) : (d.reach > 0 ? Math.round((d.totalInteractions ?? 0) / d.reach * 100 * 10) / 10 : 0) })), color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, unit: '%' },
     // Pas d'entrée "Followers reach rate" ici : Meta n'expose aucun équivalent
     // dédupliqué PAR JOUR (seulement sur la fenêtre glissante totale de 28 jours) —
