@@ -2983,17 +2983,18 @@ function RailContenus({ posts, rightView, ouvert, epingle, onRetour, onEpingler,
   const idCourant = rightView && (rightView.type === 'post' || rightView.type === 'story') ? rightView.post.id : null;
   const reduit = useReducedMotion();
 
-  // Ressort ferme mais amorti : il arrive sans rebond visible. Un `stiffness`
+  // Ressort ferme et léger : il arrive vite, sans rebond visible. Un `stiffness`
   // plus bas donnerait un rail mou, un `damping` plus bas le ferait osciller.
+  // `mass` réduite pour raccourcir encore la course.
   const ressort = reduit
     ? { duration: 0 }
-    : { type: 'spring' as const, stiffness: 320, damping: 34, mass: 0.7 };
+    : { type: 'spring' as const, stiffness: 520, damping: 38, mass: 0.5 };
 
   // Le fondu du texte suit l'étirement au lieu de le précéder : sinon les
   // libellés apparaissent dans un rail encore étroit et se font tronquer.
   const fondu = reduit
     ? { duration: 0 }
-    : { duration: 0.18, ease: [0.22, 1, 0.36, 1] as const, delay: ouvert ? 0.08 : 0 };
+    : { duration: 0.12, ease: [0.22, 1, 0.36, 1] as const, delay: ouvert ? 0.04 : 0 };
 
   return (
     <LazyMotion features={domAnimation}>
@@ -3071,10 +3072,16 @@ function RailContenus({ posts, rightView, ouvert, epingle, onRetour, onEpingler,
               {ouvert && (
                 <m.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={fondu}
                   style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
-                  <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: actif ? BLUE : INK, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{post.caption}</span>
-                  <span style={{ display: 'block', fontSize: 10.5, color: MUTED, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1 }}>
-                    {metaContenu(post, true)}{post.lmKeyword ? ` · ${post.lmKeyword.toUpperCase()}` : ''}
-                  </span>
+                  <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: actif ? BLUE : INK, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.35 }}>{post.caption}</span>
+                  {/* Une seule ligne de méta ici : le mot-clé suffit à dire si la
+                      séquence tourne, la date et les clics se lisent dans le
+                      détail juste à côté. À 250px, tout empiler rend la colonne
+                      illisible. */}
+                  {post.lmKeyword && (
+                    <span style={{ display: 'block', fontSize: 10, fontWeight: 600, color: MUTED, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 2 }}>
+                      {post.lmKeyword.toUpperCase()}
+                    </span>
+                  )}
                 </m.span>
               )}
             </button>
@@ -3611,7 +3618,12 @@ export default function PageLiens() {
       .filter((p: any) => !p.deletedAt)
       .map((p: any) => ({
         id: p.id,
-        caption: (p.caption || 'Publication Instagram').slice(0, 60),
+        // Une légende qui ne contient que des hashtags, des emojis ou deux
+        // caractères ne dit rien dans une liste — mieux vaut le libellé
+        // générique que « # » tout seul.
+        caption: ((p.caption || '').replace(/[#@]\S+/g, '').trim().length >= 3
+          ? p.caption
+          : 'Publication Instagram').slice(0, 60),
         platform: 'IG' as const,
         thumbnail: p.thumbnail,
         permalink: p.permalink || null,
