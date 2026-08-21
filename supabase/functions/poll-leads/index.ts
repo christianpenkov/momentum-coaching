@@ -109,7 +109,18 @@ async function getIgCreds(profileId: string): Promise<{ token: string; igAccount
 
   if (!integ?.access_token) return null;
 
-  const needsRefresh = integ.expires_at &&
+  // `expires_at` NULL veut dire « on ne sait pas quand ce jeton expire », pas « il
+  // n'expire jamais » : les jetons Instagram longue duree valent 60 jours.
+  //
+  // La condition testait `integ.expires_at &&`, donc un NULL la rendait toujours
+  // fausse : le jeton n'etait jamais rafraichi et finissait par expirer en silence.
+  // Constate le 2026-08-22 sur un profil dont la collecte s'etait arretee depuis
+  // 5 jours, avec un last_snapshot_status toujours a « ok » et aucune erreur tracee.
+  //
+  // Sans date connue, on tente le rafraichissement : l'appel est sans risque (Meta
+  // renvoie simplement une erreur si le jeton est trop recent ou deja invalide) et il
+  // restaure la date d'expiration au passage.
+  const needsRefresh = !integ.expires_at ||
     new Date(integ.expires_at).getTime() < Date.now() + 5 * 24 * 60 * 60 * 1000;
 
   let token = integ.access_token;
@@ -119,7 +130,20 @@ async function getIgCreds(profileId: string): Promise<{ token: string; igAccount
     if (d.access_token) {
       token = d.access_token;
       const expiresAt = d.expires_in ? new Date(Date.now() + d.expires_in * 1000).toISOString() : null;
-      await supa.from('integrations').update({ access_token: token, expires_at: expiresAt })
+      await supa.from('integrations').update({ access_token: token, expires_at: expiresAt, status: 'ok', last_snapshot_error: null })
+        .eq('profile_id', profileId).eq('provider', 'instagram');
+    } else {
+      // Un refus de rafraichissement signifie presque toujours un jeton revoque ou
+      // expire : l'utilisateur doit reconnecter son compte. Sans cette trace, l'echec
+      // etait totalement invisible — le statut restait « ok » et la collecte s'arretait
+      // sans que rien ne l'indique nulle part.
+      const msg = d?.error?.message || 'refresh refuse';
+      console.error(`[poll-leads] ig_token_refresh_failed profile=${profileId}: ${msg}`);
+      await supa.from('integrations')
+        // status vaut 'ok' ou 'failed' — une contrainte CHECK l'impose, toute autre
+        // valeur ferait echouer l'ecriture en silence. Le detail va dans
+        // last_snapshot_error.
+        .update({ status: 'failed', last_snapshot_status: 'error', last_snapshot_error: `ig_token: ${String(msg).slice(0, 200)}` })
         .eq('profile_id', profileId).eq('provider', 'instagram');
     }
   }
@@ -1311,6 +1335,74 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
  * Tourne une fois par jour (meme cadence que les repartitions) pour ne pas peser sur
  * le quota : un trou vieux de trois semaines peut attendre quelques heures de plus.
  */
+/**
+ * Rattrape les journees Instagram manquantes.
+ *
+ * Meme principe que rattraperTrousYt, mais l'API Instagram impose une contrainte de
+ * plus : elle ne renvoie qu'une fenetre limitee par appel, et surtout ses metriques
+ * `total_value` ne se decoupent pas par jour sur une longue plage. On rattrape donc
+ * JOUR PAR JOUR, avec un plafond par execution pour ne pas exploser le budget de
+ * temps de la fonction.
+ *
+ * Verifie contre l'API le 2026-08-22 : les dates anciennes sont acceptees (J-60
+ * renvoie une vraie valeur), avec une retention de 2 ANS — au-dela, l'API repond
+ * « Metrics data is available for the last 2 years ».
+ *
+ * 43 journees de reach manquaient sur trois profils avant cette fonction, sans aucun
+ * mecanisme pour les recuperer.
+ */
+async function rattraperTrousIg(profileId: string, token: string, igAccountId: string): Promise<string[]> {
+  const errors: string[] = [];
+  const MAX_JOURS_PAR_PASSAGE = 5;
+  try {
+    const { data: premier } = await supa
+      .from('analytics_daily_snapshots')
+      .select('date')
+      .eq('profile_id', profileId)
+      .not('ig_reach', 'is', null)
+      .order('date', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (!premier?.date) return [];
+
+    // Retention Meta : 2 ans. Inutile de demander au-dela, l'API repond 400.
+    const limiteRetention = isoDate(720);
+    const debutUtile = premier.date > limiteRetention ? premier.date : limiteRetention;
+
+    const { data: trous } = await supa
+      .from('analytics_daily_snapshots')
+      .select('date')
+      .eq('profile_id', profileId)
+      .is('ig_reach', null)
+      .gt('date', debutUtile)
+      .lte('date', isoDate(1))
+      .order('date', { ascending: false })   // les plus recents d'abord
+      .limit(MAX_JOURS_PAR_PASSAGE);
+    if (!trous?.length) return [];
+
+    for (const t of trous) {
+      try {
+        const metrics = await fetchIgDayMetrics(token, igAccountId, t.date);
+        // Ne pas ecrire une ligne vide : si Meta ne renvoie rien pour ce jour, mieux
+        // vaut laisser le trou que d'y poser des null qui empecheraient un nouvel essai
+        // de se distinguer d'un echec.
+        if (metrics.ig_reach == null) { errors.push(`ig_rattrapage_vide_${t.date}`); continue; }
+        const { error } = await supa.from('analytics_daily_snapshots').upsert(
+          { profile_id: profileId, date: t.date, ...metrics, backfill_source: 'rattrapage' },
+          { onConflict: 'profile_id,date', ignoreDuplicates: false },
+        );
+        if (error) errors.push(`ig_rattrapage_${t.date}: ${error.message}`);
+      } catch (e: any) {
+        errors.push(`ig_rattrapage_${t.date}: ${e?.message || 'unknown'}`);
+      }
+    }
+    console.log(`[poll-leads] ig_rattrapage profile=${profileId}: ${trous.length} journee(s) traitee(s)`);
+  } catch (e: any) {
+    errors.push(`ig_rattrapage: ${e?.message || 'unknown'}`);
+  }
+  return errors;
+}
+
 async function rattraperTrousYt(profileId: string, accessToken: string): Promise<string[]> {
   const errors: string[] = [];
   try {
@@ -1406,10 +1498,14 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
     .maybeSingle();
   const igDernierSync = igIntegration?.last_synced_at ? new Date(igIntegration.last_synced_at).getTime() : 0;
   const igDoitSync = Date.now() - igDernierSync >= IG_INTERVALLE_MS;
+  // Le rattrapage des trous ne tourne qu'une fois par JOUR : un trou vieux de deux
+  // semaines peut attendre quelques heures. Meme regle que les repartitions YouTube.
+  const igRattrapageAFaire = igDernierSync === 0
+    || new Date(igDernierSync).toISOString().split('T')[0] !== new Date().toISOString().split('T')[0];
 
   const igCreds = igDoitSync ? await getIgCreds(profileId) : null;
   if (igCreds) {
-    const [igMetricsResult, igPostsResult] = await Promise.allSettled([
+    const [igMetricsResult, igPostsResult, igRattrapageResult] = await Promise.allSettled([
       (async () => {
         const metrics = await fetchIgDayMetrics(igCreds.token, igCreds.igAccountId, yesterday);
         const { error } = await supa.from('analytics_daily_snapshots').upsert({ profile_id: profileId, date: yesterday, ...metrics, backfill_source: 'cron' }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
@@ -1448,10 +1544,16 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
         } catch (e) { console.error(`[poll-leads] todayMetrics IG (${profileId}):`, (e as Error).message); }
       })(),
       snapshotIgPosts(supa, profileId, igCreds.token, igCreds.igAccountId, yesterday, false, { platformUrl: PLATFORM_URL, cronSecret: CRON_SECRET }),
+      // Rattrapage des journees anciennes manquantes — une fois par jour, comme cote
+      // YouTube. Ajoute EN DERNIER pour ne pas decaler les deux resultats deja
+      // destructures. Sur une base sans trou, la fonction sort avant tout appel reseau.
+      igRattrapageAFaire ? rattraperTrousIg(profileId, igCreds.token, igCreds.igAccountId) : Promise.resolve([] as string[]),
     ]);
     if (igMetricsResult.status === 'rejected') errors.push(`ig_fetch: ${igMetricsResult.reason?.message || 'unknown'}`);
     if (igPostsResult.status === 'fulfilled') errors.push(...igPostsResult.value);
     else errors.push(`ig_posts: ${igPostsResult.reason?.message || 'unknown'}`);
+    if (igRattrapageResult.status === 'fulfilled') errors.push(...igRattrapageResult.value);
+    else errors.push(`ig_rattrapage: ${igRattrapageResult.reason?.message || 'unknown'}`);
 
     // Horodate la synchronisation pour que la cadence horaire se rearme.
     //
