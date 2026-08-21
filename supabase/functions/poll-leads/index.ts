@@ -1353,7 +1353,12 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
  */
 async function rattraperTrousIg(profileId: string, token: string, igAccountId: string): Promise<string[]> {
   const errors: string[] = [];
-  const MAX_JOURS_PAR_PASSAGE = 5;
+  // 3 et non 5 : le rattrapage est SEQUENTIEL (5 appels par journee) et tourne pour
+  // chaque profil. A 40 eleves ayant tous des trous le meme jour, 5 journees mettaient
+  // le passage a ~112 s sur un budget de 150 — marge trop mince. A 3, on redescend a
+  // ~75 s dans ce meme pire cas, et les trous se comblent en quelques jours au lieu de
+  // quelques heures, ce qui est sans consequence sur des donnees anciennes.
+  const MAX_JOURS_PAR_PASSAGE = 3;
   try {
     const { data: premier } = await supa
       .from('analytics_daily_snapshots')
