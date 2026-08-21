@@ -343,6 +343,67 @@ function Empty({ msg = 'Aucune donnée disponible' }: { msg?: string }) {
 }
 
 /**
+ * Nom lisible d'une source de trafic YouTube.
+ *
+ * Les codes de l'API etaient affiches tels quels, juste passes en minuscules :
+ * « Search », « Ext Url », « No Link_other », « End Screen ». Le `.replace('_', ' ')`
+ * ne remplacait que le PREMIER underscore, d'ou le « No Link_other » a l'ecran, et
+ * rien n'etait traduit alors que la plateforme est en francais.
+ *
+ * Les 7 valeurs vues en base sont couvertes ; les autres codes documentes par
+ * l'API le sont aussi, pour ne pas ressortir de l'anglais brut chez un autre
+ * utilisateur. Un code inconnu est nettoye correctement plutot qu'affiche brut.
+ */
+const NOMS_SOURCES_TRAFIC: Record<string, string> = {
+  YT_SEARCH:        'Recherche YouTube',
+  YT_CHANNEL:       'Page de la chaîne',
+  YT_OTHER_PAGE:    'Autre page YouTube',
+  RELATED_VIDEO:    'Vidéos suggérées',
+  SUBSCRIBER:       'Abonnés (fil d’accueil)',
+  END_SCREEN:       'Écran de fin',
+  ANNOTATION:       'Carte ou annotation',
+  PLAYLIST:         'Playlist',
+  EXT_URL:          'Site externe',
+  NOTIFICATION:     'Notification',
+  SHORTS:           'Fil Shorts',
+  ADVERTISING:      'Publicité',
+  CAMPAIGN_CARD:    'Carte de campagne',
+  HASHTAGS:         'Hashtags',
+  SOUND_PAGE:       'Page du son',
+  VIDEO_REMIXES:    'Remix de la vidéo',
+  LIVE_REDIRECT:    'Redirection live',
+  PRODUCT_PAGE:     'Page produit',
+  NO_LINK_OTHER:    'Source inconnue',
+  NO_LINK_EMBEDDED: 'Lecteur intégré',
+};
+
+function nomSourceTrafic(code: string): string {
+  const connu = NOMS_SOURCES_TRAFIC[code];
+  if (connu) return connu;
+  // Repli : tous les underscores (pas seulement le premier), premiere lettre en
+  // majuscule. Mieux qu'un code brut si YouTube ajoute une source.
+  const nettoye = code.replace(/^YT_/, '').replace(/_/g, ' ').toLowerCase();
+  return nettoye.charAt(0).toUpperCase() + nettoye.slice(1);
+}
+
+/** Nom lisible d'un type d'appareil. Meme motif que les sources de trafic. */
+const NOMS_APPAREILS: Record<string, string> = {
+  MOBILE: 'Mobile',
+  DESKTOP: 'Ordinateur',
+  TABLET: 'Tablette',
+  TV: 'Télévision',
+  GAME_CONSOLE: 'Console de jeu',
+  UNKNOWN_PLATFORM: 'Appareil inconnu',
+};
+
+function nomAppareil(code: string): string {
+  const connu = NOMS_APPAREILS[code];
+  if (connu) return connu;
+  const nettoye = code.replace(/_/g, ' ').toLowerCase();
+  return nettoye.charAt(0).toUpperCase() + nettoye.slice(1);
+}
+
+/**
  * Formate une VARIATION sur une periode : « +12 », « -1 », « 0 ».
  *
  * Likes, commentaires et partages sont des soldes, pas des compteurs : YouTube
@@ -2126,11 +2187,11 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   };
 
   const trafficData = yt.trafficSources.slice(0, 8).map(s => ({
-    name: s.source.replace('YT_', '').replace('_', ' ').toLowerCase(),
+    name: nomSourceTrafic(s.source),
     views: s.views,
   }));
 
-  const deviceData = yt.devices.map(d => ({ name: d.device.toLowerCase(), views: d.views }));
+  const deviceData = yt.devices.map(d => ({ name: nomAppareil(d.device), views: d.views }));
 
   return (
     <div className="stack">
@@ -2293,7 +2354,19 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
           );
           if (s.custom === 'watch-moyen') return (
             <div key="wt-moyen" onClick={() => openStatModal('Watch time moyen', '')} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: 'pointer', transition: 'background .15s' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'} onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}>
-              <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 10 }}>Watch time moyen / vue</div>
+              {/* Seule carte de la rangee sans mention de fenetre : elle n'est PAS sur
+                  la periode. avgWatchShorts / avgWatchLong somment le watch time et les
+                  vues de toutes les videos de la chaine, donc du depuis-toujours. Ses
+                  quatre voisines affichent « 30j » ou « 7j ». L'ecart etait invisible
+                  (constate a l'ecran le 2026-08-21).
+
+                  Pas de badge J-3 non plus : sur du cumul depuis la publication, trois
+                  jours de retard ne changent rien de lisible — contrairement a un
+                  chiffre du jour. */}
+              <div style={{ marginBottom: 10 }}>
+                <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>Watch time moyen / vue</span>
+                <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>depuis toujours</span>
+              </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -2552,7 +2625,10 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
           <div style={{ minHeight: 180 }}>
           {trafficData.map((s, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-              <div style={{ fontSize: 11, color: 'var(--muted)', width: 90, textTransform: 'capitalize' }}>{s.name}</div>
+              {/* Plus de textTransform : les noms sont deja rediges (nomSourceTrafic).
+                  « capitalize » mettrait une majuscule a chaque mot — « Recherche
+                  Youtube » au lieu de « Recherche YouTube ». */}
+              <div style={{ fontSize: 11, color: 'var(--muted)', width: 110 }}>{s.name}</div>
               <div style={{ flex: 1, height: 6, background: 'var(--border)', borderRadius: 3 }}>
                 <div style={{ height: 6, width: `${pct(s.views, trafficData[0]?.views || 1)}%`, background: 'var(--accent-brand)', borderRadius: 3 }} />
               </div>
