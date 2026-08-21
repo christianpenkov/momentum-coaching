@@ -3296,7 +3296,11 @@ function periodLabel(period: number, index: number): string {
   // timeZone Europe/Paris (pas UTC) : periodStart/periodEnd (getPeriodWindow) sont des
   // instants UTC correspondant à minuit/23:59:59.999 heure de Paris, pas minuit UTC —
   // les lire en UTC affichait un jour "trop tôt" (ex: "30 juin" au lieu de "1 juil").
-  const fmt2 = (d: Date) => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit', timeZone: 'Europe/Paris' });
+  // Pas d'annee ici : ce libelle borne la periode SELECTIONNEE (« 1 août – 31 août »),
+  // toujours proche du present. L'annee n'apporte rien et alourdit le bandeau.
+  // Elle n'a de sens que sur les dates de publication, qui peuvent remonter a plusieurs
+  // annees.
+  const fmt2 = (d: Date) => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'Europe/Paris' });
   return `${fmt2(periodStart)} – ${fmt2(periodEnd)}`;
 }
 
