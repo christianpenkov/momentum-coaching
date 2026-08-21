@@ -1369,11 +1369,21 @@ async function rattraperTrousIg(profileId: string, token: string, igAccountId: s
     const limiteRetention = isoDate(720);
     const debutUtile = premier.date > limiteRetention ? premier.date : limiteRetention;
 
+    // Deux cas a rattraper, pas un seul :
+    //   - ig_reach NULL : la journee n'a jamais ete collectee ;
+    //   - ig_views NULL alors que la journee EXISTE : elle vient du backfill de
+    //     premiere connexion, qui remplit 30 jours d'un coup mais ne peut pas
+    //     recuperer views / profile_links_taps / website_clicks — ces metriques
+    //     n'existent que via `metric_type=total_value`, une forme qui renvoie un
+    //     total unique sans serie datee (verifie contre l'API le 2026-08-22).
+    //
+    // Sans ce second cas, les journees backfillees gardaient des colonnes vides pour
+    // toujours : le rattrapage ne les voyait pas puisque ig_reach y etait rempli.
     const { data: trous } = await supa
       .from('analytics_daily_snapshots')
       .select('date')
       .eq('profile_id', profileId)
-      .is('ig_reach', null)
+      .or('ig_reach.is.null,ig_views.is.null')
       .gt('date', debutUtile)
       .lte('date', isoDate(1))
       .order('date', { ascending: false })   // les plus recents d'abord
