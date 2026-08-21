@@ -1793,7 +1793,8 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   const ytCommentsP = ytDays.reduce((s, d) => s + (d.comments ?? 0), 0);
   const ytSharesP = ytDays.reduce((s, d) => s + (d.shares ?? 0), 0);
 
-  const conversionRate = ytViewsP > 0 ? ((ytSubsGainedP / ytViewsP) * 100).toFixed(3) : '0';
+  // (conversionRate supprimé : plus aucun appelant depuis que la courbe « Conv.
+  //  vue→abonné » calcule le taux jour par jour au lieu d'étaler un total global.)
   // Affichage adaptatif : « 20 min » et non « 0h ». Math.round(minutes / 60) ecrasait
   // a 0 tout watch time sous 30 minutes — exactement le motif du bug de collecte
   // corrige le 2026-08-20, reproduit ici a l'affichage. Meme regle que le tableau des
@@ -1889,9 +1890,13 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
     'Conv. vue→abonné': {
       data: ytDays.map(d => ({
         date: d.date,
+        // null et non 0 quand il n'y a aucune vue : c'est un TAUX, donc une division.
+        // Sans vue le taux est indefini, pas nul — afficher 0 dirait « des gens ont vu
+        // et aucun ne s'est abonne », alors que personne n'a vu. Meme distinction que
+        // pour le watch time moyen : une somme peut valoir 0, une moyenne ne le peut pas.
         v: ytDaysNoDataSet.has(d.date)
           ? (null as any)
-          : (d.views > 0 ? Math.round(((d.subsGained ?? 0) / d.views) * 100 * 1000) / 1000 : 0),
+          : (d.views > 0 ? Math.round(((d.subsGained ?? 0) / d.views) * 100 * 1000) / 1000 : (null as any)),
       })),
       color: 'var(--accent-brand)', unit: '%',
     },
@@ -1913,18 +1918,28 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
       // creatorContentType). Ne PAS les reconstituer par « vues x duree moyenne » :
       // averageViewDuration est arrondi a la seconde, et sur petits volumes l'erreur
       // s'amplifie — 1,25 min calculee contre 0,00 reelle sur une journee testee.
+      // ?? 0 et non ?? null, contrairement au « watch time MOYEN » juste en dessous :
+      // c'est une SOMME, pas une division. Un jour sans vue vaut donc reellement
+      // 0 minute de visionnage — l'affirmer est exact.
+      //
+      // La moyenne, elle, se calcule watch time / vues : sans vue, la division est
+      // indefinie, pas nulle. Afficher 0 y dirait « ils ont ouvert et sont partis
+      // instantanement » alors que personne n'a ouvert. D'ou les deux traitements.
+      //
+      // Seuls les jours que YouTube n'a pas encore traites restent en trou (null), dans
+      // les deux cas : la donnee n'existe pas encore.
       setStatModal({
         label: 'Watch time — Shorts',
         value: watchTimeLabel,
         color: AMBER,
         data: ytDays.map(d => ({
           date: d.date,
-          v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).watchTimeShorts ?? null),
+          v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).watchTimeShorts ?? 0),
         })),
         label2: 'Vidéos longues',
         data2: ytDays.map(d => ({
           date: d.date,
-          v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).watchTimeLong ?? null),
+          v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).watchTimeLong ?? 0),
         })),
         color2: '#64748b',
         unit: 'min',
@@ -1996,6 +2011,17 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
               <div style={{ marginBottom: 10 }}>
                 <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>Vues pour 1 abonné gagné</span>
                 <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{period}j</span>
+                {/* Cette carte a son propre rendu (valeurs Shorts/Vidéos côte à côte),
+                    elle n'héritait donc pas du badge de la boucle. Ses deux termes
+                    viennent de l'Analytics API : même retard que les cartes voisines. */}
+                {ytDataLagDays >= 2 && (
+                  <span
+                    title={`Délai de traitement de YouTube Analytics.${ytLastEngagementDateFmt ? ` Dernière donnée disponible : ${ytLastEngagementDateFmt}.` : ''}`}
+                    style={{ fontSize: 9, fontWeight: 700, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 4px', marginLeft: 5, cursor: 'help' }}
+                  >
+                    J-{ytDataLagDays}
+                  </span>
+                )}
               </div>
               <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                 <div>
@@ -2017,6 +2043,20 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             <div style={{ marginBottom: 8 }}>
               <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>{s.label}</span>
               {s.sub && <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{s.sub}</span>}
+              {/* Meme badge que la seconde rangee : « Vues » et « Abonnes nets » lisent
+                  l'Analytics API, donc subissent le meme retard que Watch time ou Likes.
+                  Il manquait ici parce que les deux rangees ont leur propre rendu — le
+                  badge n'avait ete pose que sur la seconde (constate par Chris a l'ecran
+                  le 2026-08-21). Exclusions : « Abonnes » (Data API v3, temps reel) et
+                  « Videos publiees » (date de publication, connue immediatement). */}
+              {ytDataLagDays >= 2 && !['Abonnés', 'Vidéos publiées'].includes(s.label) && (
+                <span
+                  title={`Délai de traitement de YouTube Analytics.${ytLastEngagementDateFmt ? ` Dernière donnée disponible : ${ytLastEngagementDateFmt}.` : ''}`}
+                  style={{ fontSize: 9, fontWeight: 700, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 4px', marginLeft: 5, cursor: 'help' }}
+                >
+                  J-{ytDataLagDays}
+                </span>
+              )}
             </div>
             <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1, marginBottom: s.label === 'Vidéos publiées' ? 8 : 0 }}>
               {s.value}
