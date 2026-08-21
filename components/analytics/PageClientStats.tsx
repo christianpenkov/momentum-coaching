@@ -2036,21 +2036,52 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
 
   const fmtSec = dureeDepuisSecondes;
 
-  const shortsVideos = yt.videos.filter(v => v.isShort);
-  const longVideos = yt.videos.filter(v => !v.isShort);
+  // (shortsVideos / longVideos supprimes : ils ne servaient qu'au watch time moyen
+  //  all-time, remplace par un calcul sur la periode juste en dessous.)
   // v.watchTime30d vient de row.watch_time_min (des minutes, cf. ligne ~4903) — *60 pour
   // repasser en secondes avant division, sinon fmtSec() (qui attend des secondes) affiche
   // toujours "0m00s" (ex: 500min de watch time / 10000 vues = 0.05 arrondi à 0).
-  // Ratio watch time / vues : les deux termes viennent de la MEME fenetre (views30d et
-  // watchTime30d, cumuls 30j du cron), donc le ratio est juste meme si la fenetre n'est
-  // pas celle affichee. A ne pas confondre avec « vues pour 1 abonne » ci-dessus, qui
-  // melangeait bien deux fenetres differentes.
-  const avgWatchShorts = shortsVideos.length > 0 && shortsVideos.reduce((s,v) => s + (v.viewsAllTime ?? v.views30d), 0) > 0
-    ? Math.round(shortsVideos.reduce((s,v) => s + v.watchTime30d * 60, 0) / shortsVideos.reduce((s,v) => s + (v.viewsAllTime ?? v.views30d), 0))
-    : null;
-  const avgWatchLong = longVideos.length > 0 && longVideos.reduce((s,v) => s + (v.viewsAllTime ?? v.views30d), 0) > 0
-    ? Math.round(longVideos.reduce((s,v) => s + v.watchTime30d * 60, 0) / longVideos.reduce((s,v) => s + (v.viewsAllTime ?? v.views30d), 0))
-    : null;
+  // Watch time moyen par vue, SUR LA PERIODE AFFICHEE — comme les quatre cartes
+  // voisines, et comme le graphique de sa propre modale.
+  //
+  // Le calcul precedent partait de yt.videos, c'est-a-dire TOUTES les videos de la
+  // chaine sans filtre de date, et divisait leur watch time all-time par leurs vues
+  // all-time. La carte affichait donc une moyenne depuis-toujours au milieu d'une
+  // rangee de cartes de periode : changer de periode ne la faisait pas bouger, et sa
+  // valeur ne correspondait pas au graphique qui s'ouvrait au clic (choix de Chris,
+  // 2026-08-21).
+  //
+  // Calcul PONDERE a partir de la duree moyenne quotidienne, pas du watch time.
+  //
+  // Le chemin evident — somme(watch time) / somme(vues) — est inutilisable ici :
+  // yt_watch_time_*_min vient de estimatedMinutesWatched, que l'API arrondit a la
+  // MINUTE entiere. Sur des Shorts de 20 secondes chaque journee tombe a 0, et la
+  // moyenne affichait 0s sur toutes les periodes testees (verifie en base le
+  // 2026-08-21 : aout, juillet, 7 derniers jours, tout — 0s partout).
+  //
+  // yt_avg_duration_*_sec porte la meme information en SECONDES, donc sans cette
+  // perte. Pondere par les vues du jour, il reconstitue la vraie moyenne sur
+  // n'importe quel decoupage : un jour a 10 vues pese dix fois un jour a 1 vue.
+  // Meme mesure, les valeurs deviennent 21s (Shorts) et 44s (longues) en aout.
+  //
+  // Condition verifiee : chaque jour ayant des vues a bien sa duree moyenne
+  // renseignee (15/15 Shorts, 8/8 longues), aucun jour n'est donc exclu du calcul.
+  // Precision restante : ±0,5 s par jour (arrondi seconde de l'API), contre jusqu'a
+  // 59 s par jour pour le calcul via watch time.
+  const moyennePonderee = (cle: string, cleVues: string): number | null => {
+    let sommeDurees = 0;
+    let sommeVues = 0;
+    for (const d of ytDays) {
+      const vues = (d as any)[cleVues] ?? 0;
+      const duree = (d as any)[cle];
+      if (vues > 0 && duree != null) { sommeDurees += duree * vues; sommeVues += vues; }
+    }
+    // null (pas 0) sans aucune vue : la division est indefinie, pas nulle. Afficher 0
+    // dirait « ils ont ouvert et sont partis aussitot » alors que personne n'a ouvert.
+    return sommeVues > 0 ? Math.round(sommeDurees / sommeVues) : null;
+  };
+  const avgWatchShorts = moyennePonderee('avgDurationShorts', 'viewsShorts');
+  const avgWatchLong = moyennePonderee('avgDurationLong', 'viewsLong');
 
   const ytStatSeries: Record<string, { data: { date: string; v: number }[]; color: string; unit?: string }> = {
     'Vidéos publiées':    { data: ytPubsByDay.map(d => ({ date: d.date, v: isFutureDayYT(d.date) ? (null as any) : d.shorts + d.longues })), color: YT_COLOR },
@@ -2364,13 +2395,23 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                   jours de retard ne changent rien de lisible — contrairement a un
                   chiffre du jour. */}
               {/* Titre raccourci en « Watch time moyen » : avec « / vue » plus la mention
-                  de fenetre, l'en-tete passait sur deux lignes et decalait cette carte
-                  par rapport a ses quatre voisines (constate a l'ecran le 2026-08-21).
-                  « / vue » est de toute facon redondant avec « moyen » ici, et les deux
-                  valeurs sous-jacentes sont bien des durees par vue. */}
+                  de periode, l'en-tete passait sur deux lignes et decalait cette carte
+                  par rapport a ses quatre voisines. « / vue » etait de toute facon
+                  redondant avec « moyen ».
+                  La carte est desormais sur la periode, comme ses voisines : elle porte
+                  donc la meme etiquette qu'elles, et le badge de fraicheur qui lui
+                  manquait. */}
               <div style={{ marginBottom: 10, whiteSpace: 'nowrap' }}>
                 <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>Watch time moyen</span>
-                <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>depuis toujours</span>
+                <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{period}j</span>
+                {ytDataLagDays >= 2 && (
+                  <span
+                    title={`Délai de traitement de YouTube Analytics.${ytLastEngagementDateFmt ? ` Dernière donnée disponible : ${ytLastEngagementDateFmt}.` : ''}`}
+                    style={{ fontSize: 9, fontWeight: 700, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 4px', marginLeft: 5, cursor: 'help', whiteSpace: 'nowrap', display: 'inline-block' }}
+                  >
+                    J-{ytDataLagDays}
+                  </span>
+                )}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
