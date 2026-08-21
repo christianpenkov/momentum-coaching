@@ -404,6 +404,23 @@ function nomAppareil(code: string): string {
 }
 
 /**
+ * Espacement des dates sur l'axe horizontal d'un graphique journalier.
+ *
+ * `preserveStartEnd` de Recharts n'espace RIEN : il garde toutes les graduations qui
+ * tiennent, d'ou un axe qui affichait « 1 juil, 2 juil, 3 juil... » sur trente jours
+ * pendant que le graphique voisin en montrait neuf. Deux graphiques cote a cote, deux
+ * densites differentes (constate par Chris a l'ecran le 2026-08-21).
+ *
+ * ~9 labels au maximum en vue mois, tous les jours en vue semaine. Meme regle que le
+ * composant partage components/charts/AreaChart.tsx, posee ici une seule fois : elle
+ * etait recopiee dans treize graphiques, dont huit avaient derive.
+ */
+function graduationsDates(nbPoints: number, periode: number): number | 'preserveStartEnd' {
+  if (periode === 7) return 0;
+  return Math.max(1, Math.ceil(nbPoints / 9) - 1);
+}
+
+/**
  * Formate une VARIATION sur une periode : « +12 », « -1 », « 0 ».
  *
  * Likes, commentaires et partages sont des soldes, pas des compteurs : YouTube
@@ -983,7 +1000,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : 'preserveStartEnd'} />
+                  <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(item.data.length, period)} />
                   <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} allowDecimals={false} width={30} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.15 : Math.max(1, Math.abs(dataMax) * 0.1 || 1); return [Math.max(0, dataMin - margin), dataMax + margin]; }} />
                   <Tooltip content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
@@ -2556,7 +2573,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : "preserveStartEnd"} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(netSubsForChart.length, period)} />
                 {(() => {
                   const borne = borneAbonnesNets(netSubsForChart.map(d => d.netSubs));
                   return (
@@ -3512,7 +3529,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                               <stop offset="95%" stopColor={chart.color} stopOpacity={0} />
                             </linearGradient>
                           </defs>
-                          <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : "preserveStartEnd"} />
+                          <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(chart.data.length, period)} />
                           <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = Math.max(1, Math.ceil(range * 0.12)); return [dataMin - margin, dataMax + margin]; }} />
                           <Tooltip content={({ active, payload, label }) => {
                             if (!active || !payload?.length) return null;
@@ -3610,7 +3627,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                     <stop offset="95%" stopColor={expandedEff.color} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : "preserveStartEnd"} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(expandedEff.data.length, period)} />
                 <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={40} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = Math.max(1, Math.ceil(range * 0.12)); return [dataMin - margin, dataMax + margin]; }} />
                 <Tooltip content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null;
@@ -4862,7 +4879,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     <stop offset="95%" stopColor={YT_COLOR} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={sPeriod === 7 ? 0 : "preserveStartEnd"} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates((chartFilter === 'bio' ? chartDataBio : chartDataContent).length, sPeriod)} />
                 {/* Domain avec marge explicite — pas de Math.max(0, ...) inconditionnel sur
                     la borne basse (confirmé par inspection DOM réelle : ce clamp écrasait la
                     marge à 0 dès que dataMin valait déjà 0, laissant le point collé pile au
@@ -4900,7 +4917,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     <stop offset="95%" stopColor={AMBER} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={sPeriod === 7 ? 0 : "preserveStartEnd"} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(chartDataDm.length, sPeriod)} />
                 {/* Clampé à 0 si dataMin >= 0 (compteur de clics jamais négatif) — mêmes
                     raisons que le bloc content/bio ci-dessus, évite un tick "-1" absurde
                     quand tous les jours sont à 0. */}
@@ -4944,7 +4961,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
             <ResponsiveContainer width="100%" height={160}>
               <ReAreaChart data={activationSeries} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={sPeriod === 7 ? 0 : "preserveStartEnd"} padding={{ left: 0, right: 0 }} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(activationSeries.length, sPeriod)} padding={{ left: 0, right: 0 }} />
                 <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={36} unit="%" domain={[-4, 100]} />
                 <Tooltip content={({ active, payload, label }) => !active || !payload?.length ? null : (
                   <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div>
@@ -4965,7 +4982,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             <ResponsiveContainer width="100%" height={180}>
               <ComposedChart data={callsSeries} margin={{ top: 4, right: 8, left: 0, bottom: 0 }} barCategoryGap="0%">
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={sPeriod === 7 ? 0 : "preserveStartEnd"} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(callsSeries.length, sPeriod)} />
                 <YAxis yAxisId="left" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${v}€`} />
                 <Tooltip content={({ active, payload, label }) => !active || !payload?.length ? null : (
