@@ -35,6 +35,12 @@ export interface RapportAnswers {
    * closé — tant qu'elle n'a pas de réponse, le rapport n'est pas terminé.
    */
   paymentDone?: boolean;
+  /**
+   * Encaissement hors Stripe : l'argent est-il déjà arrivé ? Question posée
+   * uniquement sur ce chemin, et qui compte comme une étape à part entière —
+   * sans elle un virement simplement convenu était compté comme encaissé.
+   */
+  offlineReceived?: boolean | null;
   /** Mode correction d'un rapport déjà soumis — sert aussi à détecter un brouillon périmé. */
   isCorrection: boolean;
 }
@@ -186,6 +192,9 @@ export function countAnswered(a: RapportAnswers): number {
   // action d'après-coup : tant qu'elles ne sont pas choisies, le rapport n'est pas
   // terminé. `paymentDone` est posé par la modale à la création du deal.
   if (a.outcomeChoice === 'closed' && a.paymentDone === true) n++;
+  // Chemin hors Stripe seulement : une question de plus, « l'argent est-il déjà
+  // arrivé ? ». Elle n'existe pas sur un paiement par lien, d'où le total variable.
+  if (a.outcomeChoice === 'closed' && a.offlineReceived != null) n++;
   return n;
 }
 
@@ -214,8 +223,11 @@ export function estimateTotal(a: RapportAnswers, answeredCount = countAnswered(a
   // +1 : il reste au moins la question en cours à répondre.
   const minimum = answeredCount + 1;
   // Un deal closé compte 5 questions : présent, qualifié, résultat, montant,
-  // modalités de paiement.
-  if (a.outcomeChoice === 'closed') return Math.max(minimum, 5);
+  // modalités de paiement — et une 6ᵉ sur le chemin hors Stripe (« déjà
+  // encaissé ? »), qui n'est pas posée sur un paiement par lien.
+  if (a.outcomeChoice === 'closed') {
+    return Math.max(minimum, a.offlineReceived != null ? 6 : 5);
+  }
   if (a.outcomeChoice === 'rescheduled') return Math.max(minimum, 3);
   return Math.max(minimum, 4);
 }

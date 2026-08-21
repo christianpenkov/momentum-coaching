@@ -193,6 +193,22 @@ test('les modalités de paiement sont la dernière question d’un deal closé',
   assert.equal(estimateTotal(avecPaiement), 5, 'jamais « 5/6 » sur un rapport complet');
 });
 
+test('hors Stripe : « déjà encaissé ? » ajoute une 6ᵉ question', () => {
+  const parLien = reponses({ showedUp: true, qualified: true, outcomeChoice: 'closed', revenue: '2000' });
+  const horsStripe = { ...parLien, offlineReceived: true };
+
+  // Le chemin par lien n'a que 5 questions.
+  assert.equal(estimateTotal(parLien), 5);
+  // Hors Stripe, une de plus — elle n'existe pas sur l'autre chemin.
+  assert.equal(countAnswered(horsStripe), 5);
+  assert.equal(estimateTotal(horsStripe), 6);
+
+  // Et une fois le deal créé : 6/6.
+  const termine = { ...horsStripe, paymentDone: true };
+  assert.equal(countAnswered(termine), 6);
+  assert.equal(estimateTotal(termine), 6);
+});
+
 test('paymentDone ne compte que sur la branche closed', () => {
   // Une valeur résiduelle sur une autre branche ne doit rien ajouter.
   const a = reponses({ showedUp: true, qualified: true, outcomeChoice: 'to_recontact', paymentDone: true });

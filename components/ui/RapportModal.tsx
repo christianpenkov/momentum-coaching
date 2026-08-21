@@ -181,7 +181,9 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
   const [paymentUrl, setPaymentUrl] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   // Hors Stripe : l'argent est-il déjà encaissé, et sinon pour quand ?
-  const [offlineReceived, setOfflineReceived] = useState<boolean | null>(null);
+  // `offlineReceived` vit dans `answers` et non en state local : c'est une question
+  // du rapport, elle doit compter dans la progression et survivre à une fermeture.
+  // `offlineDue` reste local — c'est un détail du deal, pas une question.
   const [offlineDue, setOfflineDue] = useState(() => new Date().toISOString().slice(0, 10));
   const [afterComment, setAfterComment] = useState<'close' | 'celebration' | 'second_call_done'>('close');
 
@@ -190,6 +192,8 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
   // Accesseurs : le reste du composant continue de lire `revenue`, `comment`…
   // comme avant, sans avoir à connaître la forme de `answers`.
   const { revenue, comment, foundCall, manualDate, manualTimeStart, manualTimeEnd } = answers;
+  const offlineReceived = answers.offlineReceived ?? null;
+  const setOfflineReceived = (v: boolean | null) => patch({ offlineReceived: v });
   const manualValid = manualDate && manualTimeStart && manualTimeEnd;
   const setRevenue = (v: string) => patch({ revenue: v });
   const setComment = (v: string) => patch({ comment: v });
@@ -257,8 +261,11 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
       stepTotal: estimateTotal(answers),
       answers: { ...answers, history },
     });
+    // `offlineReceived` en dépendance : elle est répondue par un bouton, pas par
+    // une frappe, mais elle ne passe pas par `goTo` (on reste sur le même écran).
+    // Sans elle, la progression n'était pas mise à jour.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [answers.revenue, answers.comment, answers.manualDate, answers.manualTimeStart, answers.manualTimeEnd]);
+  }, [answers.revenue, answers.comment, answers.manualDate, answers.manualTimeStart, answers.manualTimeEnd, answers.offlineReceived]);
 
   // Plus d'avertissement « le rapport n'a pas été enregistré » : c'est devenu faux,
   // les réponses sont gardées. La sauvegarde en attente part au démontage du hook.
