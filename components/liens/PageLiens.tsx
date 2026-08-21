@@ -2134,32 +2134,44 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
               );
             })}
 
-            {/* Les deux issues, empilées : elles partagent la même flèche parce
-                qu'elles partent du même endroit — les lead magnets reçus — et
-                qu'aucune ne conditionne l'autre. L'accolade dit « les deux à la
-                fois », là où deux cartes en file diraient « puis ». */}
+            {/* Les deux issues, chacune avec sa propre flèche et son taux : le
+                taux se lit là où il se lit partout ailleurs dans l'entonnoir,
+                sur la flèche qui mène à la carte. Les deux flèches partent du
+                même bord — celui des lead magnets reçus — ce qui dit qu'elles
+                se partagent cette base au lieu de se suivre. */}
             {branches.length > 0 && (
               <>
-                <div style={{ alignSelf: 'center', flexShrink: 0, color: '#c9c5bc', fontSize: 13, lineHeight: 1 }}>›</div>
-                <div style={{ flex: 1.15, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
                   {branches.map(b => (
                     <div key={b.cle} style={{
-                      border: `1px solid ${BORDER}`, borderRadius: 10, background: SURFACE,
-                      padding: '7px 8px', textAlign: 'center',
-                      display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 7,
+                      flex: 1, display: 'flex', flexDirection: 'column',
+                      alignItems: 'center', justifyContent: 'center', gap: 1,
                     }}>
-                      <span style={{ fontSize: 17, fontWeight: 700, color: INK, fontVariantNumeric: 'tabular-nums' }}>
-                        {b.valeur.toLocaleString('fr-FR')}
-                      </span>
+                      <span style={{ color: '#c9c5bc', fontSize: 13, lineHeight: 1 }}>›</span>
                       {b.taux != null && (
                         <span style={{
                           fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap',
                           color: b.taux >= 50 ? 'var(--green)' : RED,
                         }}>{b.taux} %</span>
                       )}
-                      <span style={{ fontSize: 10, fontWeight: 600, color: INK, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ flex: 1.15, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {branches.map(b => (
+                    <div key={b.cle} style={{
+                      flex: 1,
+                      border: `1px solid ${BORDER}`, borderRadius: 10, background: SURFACE,
+                      padding: '7px 6px', textAlign: 'center',
+                      display: 'flex', flexDirection: 'column', justifyContent: 'center',
+                    }}>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: INK, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {b.libelle}
-                      </span>
+                      </div>
+                      <div style={{ fontSize: 17, fontWeight: 700, color: INK, fontVariantNumeric: 'tabular-nums', marginTop: 1 }}>
+                        {b.valeur.toLocaleString('fr-FR')}
+                      </div>
                     </div>
                   ))}
                 </div>
