@@ -174,6 +174,22 @@ journées perdues le sont définitivement.
 
 ---
 
+## 10 bis. À retirer le jour où Google validera l'application
+
+Les intégrations **YouTube** et **Google Calendar** affichent un encadré
+« Google affichera un avertissement — c'est normal », avec quatre étapes pour
+passer l'écran de sécurité de Google (triangle rouge, « Paramètres avancés »,
+lien « non sécurisé »).
+
+Cet écran disparaîtra dès que l'application sera validée par Google. À ce
+moment-là, **ces instructions deviendront fausses** et devront être retirées.
+
+Le texte vit à un seul endroit : `lib/onboarding/integrationConfig.ts`, dans le
+champ `instructions` de `youtube` et `google`. Les trois écrans qui l'affichent
+(wizard, réglages élève, réglages coach) le lisent depuis là.
+
+---
+
 ## 10. Vérifier le parcours de première connexion
 
 Le chemin de *backfill* initial est souvent une **copie partielle** du cron.
