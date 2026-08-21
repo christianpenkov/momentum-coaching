@@ -36,6 +36,9 @@ type RapportStep =
   // Plan de paiement + génération du lien Stripe, juste après le montant : c'est
   // le moment où l'élève a le prospect au téléphone et peut lui envoyer le lien.
   | 'payment'
+  // Encaissement hors Stripe : l'argent est-il déjà là, ou attendu ? Sans cette
+  // question, un virement simplement convenu était compté comme encaissé.
+  | 'offline'
   | 'celebration'
   // Appel reporté
   | 'rescheduled_check'       // vérification en cours (refresh Calendly)
@@ -92,12 +95,12 @@ interface Props {
  */
 const NO_BACK: readonly string[] = [
   'show_up', 'rescheduled_check', 'second_call_check',
-  'rescheduled_done', 'second_call_done', 'celebration', 'payment',
+  'rescheduled_done', 'second_call_done', 'celebration', 'payment', 'offline',
 ];
 
 /** Idem pour « Recommencer » : après soumission il n'y a plus de brouillon à effacer. */
 const NO_RESTART: readonly string[] = [
-  'rescheduled_done', 'second_call_done', 'celebration', 'payment',
+  'rescheduled_done', 'second_call_done', 'celebration', 'payment', 'offline',
 ];
 
 function formatDate(dateStr: string, tz: string) {
@@ -168,6 +171,9 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
   const [autoDebit, setAutoDebit] = useState(true);
   const [paymentUrl, setPaymentUrl] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
+  // Hors Stripe : l'argent est-il déjà encaissé, et sinon pour quand ?
+  const [offlineReceived, setOfflineReceived] = useState<boolean | null>(null);
+  const [offlineDue, setOfflineDue] = useState(() => new Date().toISOString().slice(0, 10));
   const [afterComment, setAfterComment] = useState<'close' | 'celebration' | 'second_call_done'>('close');
 
   const draft = useRapportDraftWriter(callId);
@@ -218,14 +224,15 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
     const rempli = a.showedUp !== null || a.qualified !== null || a.outcomeChoice !== null
       || a.revenue !== '' || a.comment !== '' || a.reschedHow !== null || a.manualDate !== '';
     if (!rempli) return;
+    // Compté sur les RÉPONSES et non sur les étapes franchies : revenir en arrière
+    // n'efface pas une réponse, elle reste enregistrée — faire reculer le compteur
+    // laisserait croire le contraire.
+    const repondues = countAnswered(a);
     draft.save({
       kind: 'sales',
       step: s,
-      // Questions RÉPONDUES, pas étape courante : `history` contient exactement
-      // les étapes franchies. Avec un `+ 1` on affichait « 2/2 » alors qu'il
-      // restait une question à répondre — on croyait le rapport terminé.
-      stepIndex: h.length,
-      stepTotal: estimateTotal(a, h.length),
+      stepIndex: repondues,
+      stepTotal: estimateTotal(a, repondues),
       answers: { ...a, history: h },
     });
   }
@@ -512,6 +519,10 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
           // encaissement en 3 virements est bien un échéancier, il a juste
           // besoin d'être coché à la main plutôt que payé par lien.
           offline: skipLink,
+          // Hors Stripe seulement : l'argent est-il déjà arrivé, et sinon pour
+          // quelle date l'attendre. Sans ça un virement convenu comptait comme
+          // encaissé, et le cash affichait de l'argent pas encore reçu.
+          ...(skipLink ? { alreadyReceived: offlineReceived === true, dueOn: offlineDue } : {}),
           paymentPlan: plan === 1
             ? 'one_shot'
             : (skipLink || !autoDebit) ? 'installments_manual' : 'installments_auto',
@@ -602,7 +613,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
           onClose={onClose}
           onOverlayClick={requestClose}
           variant="sheet"
-          fullScreen={step === 'revenue' || step === 'payment' || step === 'comment'}
+          fullScreen={step === 'revenue' || step === 'payment' || step === 'offline' || step === 'comment'}
           width={520}
         >
         <div style={{ padding: '48px 24px 32px', overflowY: 'auto' }}>
@@ -955,14 +966,11 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                     disabled={saving} onClick={() => createDeal(false)}>
                     {saving ? 'Création…' : 'Générer le lien de paiement'}
                   </button>
-                  {/* Le deal est enregistré dans les deux cas — c'est lui qui
-                      porte le cash et l'attribution, pas le lien Stripe.
-                      Le libellé dit ce qui va se passer : comptant, l'argent
-                      est déjà là ; en plusieurs fois, Momentum crée
-                      l'échéancier et rappellera chaque versement. */}
+                  {/* Le deal est enregistré dans tous les cas — c'est lui qui
+                      porte le cash et l'attribution, pas le lien Stripe. */}
                   <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, border: '1px solid var(--border)' }}
-                    disabled={saving} onClick={() => createDeal(true)}>
-                    {plan === 1 ? 'Déjà encaissé (virement, espèces)' : 'Encaissé hors Stripe'}
+                    disabled={saving} onClick={() => setStep('offline')}>
+                    Paiement hors Stripe (virement, espèces)
                   </button>
                   {plan > 1 && (
                     <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8, lineHeight: 1.5, textAlign: 'center' }}>
@@ -976,6 +984,54 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
           )}
 
           {/* ── Commentaire facultatif et privé — visible uniquement par l'auteur ── */}
+          {/* ── Encaissement hors Stripe : déjà reçu, ou attendu ? ─────────── */}
+          {step === 'offline' && (
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>
+                {plan === 1 ? 'L’argent est-il déjà arrivé ?' : 'Le 1er versement est-il déjà arrivé ?'}
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20, lineHeight: 1.6 }}>
+                {plan === 1
+                  ? 'Momentum ne peut pas le savoir : aucun paiement hors Stripe ne remonte automatiquement.'
+                  : `Momentum créera les ${plan} échéances et te rappellera chacune à sa date.`}
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
+                {([[true, 'Oui, déjà encaissé'], [false, plan === 1 ? 'Non, à venir' : 'Non, pas encore']] as const).map(([v, label]) => (
+                  <button key={String(v)} type="button" onClick={() => setOfflineReceived(v)}
+                    style={{
+                      border: `1px solid ${offlineReceived === v ? 'var(--accent)' : 'var(--border)'}`,
+                      background: offlineReceived === v ? 'var(--accent)' : 'var(--surface)',
+                      color: offlineReceived === v ? '#fff' : 'var(--ink-2)',
+                      fontWeight: offlineReceived === v ? 600 : 400,
+                      borderRadius: 999, padding: '10px 18px', fontSize: 13.5, cursor: 'pointer', fontFamily: 'inherit',
+                    }}>{label}</button>
+                ))}
+              </div>
+
+              {/* La date n'a de sens qu'en comptant : en plusieurs fois,
+                  l'échéancier est calculé à partir d'aujourd'hui. */}
+              {offlineReceived === false && plan === 1 && (
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 7 }}>Paiement attendu le</div>
+                  <input className="input" type="date" value={offlineDue}
+                    onChange={e => setOfflineDue(e.target.value)}
+                    style={{ width: '100%', fontSize: 15 }} />
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7, lineHeight: 1.5 }}>
+                    Tu recevras un rappel 2 jours avant, puis 2 jours après si
+                    le paiement n&apos;est toujours pas arrivé.
+                  </div>
+                </div>
+              )}
+
+              <button className="btn-primary-brand" type="button"
+                style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700, opacity: offlineReceived === null ? .5 : 1 }}
+                disabled={saving || offlineReceived === null} onClick={() => createDeal(true)}>
+                {saving ? 'Enregistrement…' : 'Enregistrer le deal'}
+              </button>
+            </div>
+          )}
+
           {step === 'comment' && (
             <div>
               <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>Un commentaire à ajouter ?</div>

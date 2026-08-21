@@ -157,23 +157,48 @@ export async function POST(request: NextRequest) {
 
   // ── Encaissement hors Stripe ───────────────────────────────────────────────
   if (offline || !access) {
-    // Comptant : l'argent est déjà là, on l'enregistre. `match_method = manual`
-    // distingue pour toujours ce paiement déclaré d'un paiement constaté par
-    // Stripe — la distinction certain/déclaré ne doit jamais se perdre.
+    // `alreadyReceived` : l'argent est DÉJÀ là (virement reçu avant le call,
+    // espèces en main) — par opposition à un paiement simplement convenu, qui
+    // n'arrivera que plus tard. Enregistrer les deux pareil gonflerait le cash
+    // collecté d'un argent qui n'est pas encore entré.
+    const alreadyReceived = body.alreadyReceived === true;
+
     if (plan === 'one_shot' || !count) {
-      await supa.from('deal_payments').insert({
+      // Encaissé : on enregistre le paiement. `match_method = manual` distingue
+      // pour toujours ce montant DÉCLARÉ d'un montant CONSTATÉ par Stripe.
+      if (alreadyReceived) {
+        await supa.from('deal_payments').insert({
+          deal_id: deal.id,
+          // Pas d'id Stripe puisqu'il n'y a pas de transaction Stripe ; l'id du
+          // deal garantit l'unicité de la clé (deal_id, stripe_payment_id).
+          stripe_payment_id: `offline_${deal.id}`,
+          amount,
+          currency: 'eur',
+          paid_at: new Date().toISOString(),
+          status: 'succeeded',
+          match_method: 'manual',
+        });
+        await supa.from('deals').update({ status: 'paid' }).eq('id', deal.id);
+        return NextResponse.json({ dealId: deal.id, mode: 'offline_paid', url: null });
+      }
+
+      // Attendu : une échéance unique à la date convenue. Elle remonte dans
+      // Relances et déclenche les rappels comme n'importe quelle autre — sans
+      // elle, un virement promis serait oublié faute de trace.
+      const { error: instErr } = await supa.from('deal_installments').insert({
         deal_id: deal.id,
-        // Pas d'id Stripe puisqu'il n'y a pas de transaction Stripe ; l'id du
-        // deal garantit l'unicité de la clé (deal_id, stripe_payment_id).
-        stripe_payment_id: `offline_${deal.id}`,
+        rank: 1,
         amount,
-        currency: 'eur',
-        paid_at: new Date().toISOString(),
-        status: 'succeeded',
-        match_method: 'manual',
+        due_on: body.dueOn ?? new Date().toISOString().slice(0, 10),
+        status: 'pending',
       });
-      await supa.from('deals').update({ status: 'paid' }).eq('id', deal.id);
-      return NextResponse.json({ dealId: deal.id, mode: 'offline_paid', url: null });
+      if (instErr) return NextResponse.json({ error: instErr.message }, { status: 500 });
+
+      // Le deal reste `one_shot` : un versement unique n'est pas un échéancier,
+      // et la contrainte deals_installments_count_check impose > 1. C'est la
+      // ligne deal_installments seule qui porte la date attendue et fait
+      // remonter le paiement dans Relances.
+      return NextResponse.json({ dealId: deal.id, mode: 'offline_pending', url: null });
     }
 
     // Plusieurs fois : Momentum porte l'échéancier, puisque ni Stripe ni
@@ -193,8 +218,30 @@ export async function POST(request: NextRequest) {
         status: 'pending',
       };
     });
-    const { error: instErr } = await supa.from('deal_installments').insert(rows);
+    const { data: created, error: instErr } = await supa
+      .from('deal_installments').insert(rows).select('id, rank, amount');
     if (instErr) return NextResponse.json({ error: instErr.message }, { status: 500 });
+
+    // Acompte déjà versé : le premier versement est souvent encaissé le jour de
+    // la signature. Le laisser « à encaisser » ferait remonter dans Relances
+    // une action déjà faite, et sous-estimerait le cash collecté.
+    if (alreadyReceived) {
+      const first1 = (created ?? []).find(i => i.rank === 1);
+      if (first1) {
+        await supa.from('deal_payments').insert({
+          deal_id: deal.id,
+          installment_id: first1.id,
+          stripe_payment_id: `offline_${first1.id}`,
+          amount: first1.amount,
+          currency: 'eur',
+          paid_at: new Date().toISOString(),
+          status: 'succeeded',
+          match_method: 'manual',
+        });
+        await supa.from('deal_installments')
+          .update({ status: 'paid' }).eq('id', first1.id);
+      }
+    }
 
     return NextResponse.json({
       dealId: deal.id, mode: 'offline_installments', url: null, installments: count,

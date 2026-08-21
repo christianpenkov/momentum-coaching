@@ -88,11 +88,16 @@ Deno.serve(async (req) => {
   const { data: rows, error } = await sb
     .from('deal_installments')
     .select('id, rank, amount, due_on, status, short_url, sent_at, reminder_before_sent_at, reminder_late_sent_at, deals!inner(id, profile_id, buyer_name, installments_count, payment_plan, status)')
-    // deal_installments ne contient aujourd'hui que du manuel — en automatique
-    // c'est Stripe qui porte l'échéancier. Le filtre est explicite pour qu'un
-    // futur usage de la table ne déclenche pas des rappels sur des
-    // prélèvements dont l'élève n'a rien à faire.
-    .eq('deals.payment_plan', 'installments_manual')
+    // L'EXISTENCE d'une échéance suffit : c'est elle qui dit qu'un versement
+    // est attendu et que l'élève devra agir. Filtrer sur
+    // payment_plan = 'installments_manual' excluait un cas réel — un paiement
+    // comptant hors Stripe convenu pour plus tard, qui reste `one_shot` (la
+    // contrainte deals_installments_count_check impose > 1) mais porte bien une
+    // échéance à surveiller.
+    //
+    // Aucun risque de notifier un prélèvement automatique : en mode auto c'est
+    // Stripe qui porte l'échéancier, deal_installments reste vide.
+    .neq('deals.payment_plan', 'installments_auto')
     .neq('deals.status', 'canceled')
     .neq('status', 'paid')
     .lte('due_on', inTwoDays)
@@ -125,10 +130,10 @@ Deno.serve(async (req) => {
           d.profile_id,
           `Échéance ${r.rank}/${total} dans 2 jours`,
           horsStripe
-            ? `${qui} · ${montant} à encaisser`
+            ? `${qui} · ${montant} à encaisser le ${fmtJour(r.due_on)}`
             : dejaEnvoye
-              ? `${qui} · ${montant} — lien déjà envoyé, paiement attendu`
-              : `${qui} · ${montant} — pense à envoyer le lien`,
+              ? `${qui} · ${montant} — lien envoyé, paiement attendu le ${fmtJour(r.due_on)}`
+              : `${qui} · ${montant} — pense à lui envoyer le lien de paiement`,
           `/paiements?deal=${d.id}`,
           `echeance-${r.id}-before`,
         );
