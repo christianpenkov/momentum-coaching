@@ -54,6 +54,22 @@ export default function DealPanel({ deal, detail, onClose, onChange, isCoach }: 
     setTimeout(() => setCopied(false), 2000);
   }
 
+  /**
+   * Versement hors Stripe déclaré reçu par l'élève.
+   *
+   * Pas d'affichage optimiste : cette action fait entrer de l'argent dans le
+   * cash collecté. Montrer un encaissement qui n'a pas été écrit serait pire
+   * que d'attendre la réponse du serveur.
+   */
+  async function markInstallmentReceived(installmentId: string) {
+    const r = await fetch('/api/payments/installments', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ installmentId, received: true }),
+    });
+    if (r.ok) onChange?.();
+  }
+
   async function toggleSent() {
     if (!nextInstallment || savingSent) return;
     const next = !sentMark;
@@ -141,6 +157,13 @@ export default function DealPanel({ deal, detail, onClose, onChange, isCoach }: 
                   // N'exposer que la suivante bloquait ces cas — et empêchait
                   // simplement de tester le rattachement par échéance.
                   copyUrl={i.status !== 'paid' ? i.short_url ?? undefined : undefined}
+                  // Sans lien Stripe, aucun webhook ne confirmera jamais ce
+                  // versement : c'est l'élève qui déclare l'avoir reçu. Le
+                  // bouton doit vivre ICI aussi, pas seulement dans Relances —
+                  // c'est le panneau qu'ouvre la notification de rappel.
+                  onReceived={i.status !== 'paid' && !i.short_url
+                    ? () => markInstallmentReceived(i.id)
+                    : undefined}
                 />
               ))
             : payments.length > 0
@@ -284,13 +307,16 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Line({ dot, title, sub, amount, dim, copyUrl }: {
+function Line({ dot, title, sub, amount, dim, copyUrl, onReceived }: {
   dot: 'green' | 'red' | 'amber' | 'neutral'; title: string; sub: string; amount: string; dim?: boolean;
   /** Lien de cette ligne — affiche une icône de copie discrète à droite. */
   copyUrl?: string;
+  /** Versement hors Stripe : bouton de déclaration à la place de la copie. */
+  onReceived?: () => Promise<void>;
 }) {
   const color = dot === 'green' ? 'var(--green)' : dot === 'red' ? 'var(--red)' : dot === 'amber' ? 'var(--amber)' : '#d8d2c5';
   const [copied, setCopied] = useState(false);
+  const [marking, setMarking] = useState(false);
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '7px 0' }}>
@@ -310,6 +336,20 @@ function Line({ dot, title, sub, amount, dim, copyUrl }: {
           aria-label="Copier le lien de ce versement"
           style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, display: 'flex', flexShrink: 0 }}>
           <Icon name={copied ? 'check' : 'copy'} size={14} color={copied ? 'var(--green)' : 'var(--faint)'} />
+        </button>
+      )}
+      {onReceived && (
+        <button
+          onClick={async () => { setMarking(true); await onReceived(); setMarking(false); }}
+          disabled={marking}
+          style={{
+            fontSize: 11.5, flexShrink: 0, border: '1px solid var(--border)', borderRadius: 7,
+            padding: '5px 10px', background: 'var(--surface)', cursor: marking ? 'default' : 'pointer',
+            fontFamily: 'inherit', color: 'var(--ink-2)', opacity: marking ? .6 : 1,
+            display: 'inline-flex', alignItems: 'center', gap: 5,
+          }}>
+          <Icon name="check" size={12} color="var(--green)" />
+          {marking ? '…' : 'Marquer reçu'}
         </button>
       )}
     </div>

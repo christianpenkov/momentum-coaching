@@ -170,8 +170,13 @@ Deno.serve(async (req) => {
           // Forme interrogative pour les deux cas où l'information dépend d'une
           // case cochée à la main : une question ne peut pas être fausse, une
           // affirmation si — et elle invite à corriger la case au passage.
+          // Le seul des six messages qui nomme une action DANS Momentum : les
+          // autres se règlent ailleurs (envoyer un lien, relancer quelqu'un).
+          // Ici, cocher « Marquer reçu » est indispensable — sans ce clic le
+          // cash reste faux même quand l'argent est arrivé. Le clic sur la
+          // notification ouvre le panneau du deal, où le bouton existe.
           horsStripe
-            ? `${qui} · ${montant} du ${fmtJour(r.due_on)} — le paiement est-il arrivé ?`
+            ? `${qui} · ${montant} hors Stripe — vérifie si tu l'as reçu, puis marque-le`
             : r.sent_at
               ? `${qui} · ${montant} du ${fmtJour(r.due_on)} — lien envoyé, toujours pas payé`
               : `${qui} · ${montant} du ${fmtJour(r.due_on)} — le lien de paiement a-t-il été envoyé ?`,
