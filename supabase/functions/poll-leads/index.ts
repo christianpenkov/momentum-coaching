@@ -1058,7 +1058,11 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
     const videoIds = items.map((i: any) => i.snippet?.resourceId?.videoId).filter(Boolean);
 
     // Détails vidéo (durée, statistiques lifetime)
-    const BATCH = 10;
+    //
+    // 50 ids par appel, le maximum accepte par videos.list. C'etait 10 : sur une chaine
+    // de 30 videos cela faisait 3 appels au lieu d'un seul. Le cout d'un appel ne depend
+    // pas du nombre d'ids qu'il porte.
+    const BATCH = 50;
     const videoDetailsMap: Record<string, any> = {};
     for (let i = 0; i < videoIds.length; i += BATCH) {
       const batch = videoIds.slice(i, i + BATCH);
@@ -1069,14 +1073,31 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
       if (detailsRes.ok) {
         const detailsData = await safeJson(detailsRes);
         for (const v of detailsData.items || []) videoDetailsMap[v.id] = v;
+      } else {
+        // Un echec ici etait ignore en SILENCE : la boucle continuait et le snapshot
+        // s'ecrivait avec des titres et des vues vides. Pire, le garde-fou d'entree
+        // (« le snapshot d'hier existe deja ») empechait ensuite tout rattrapage — la
+        // journee restait definitivement amputee sans que rien ne le signale.
+        //
+        // On interrompt plutot que d'ecrire une journee incomplete : sans ligne pour
+        // hier, le prochain passage refera le travail de lui-meme. Un trou temporaire
+        // se rattrape, une ligne fausse reste.
+        return [`yt_videos_details: HTTP ${detailsRes.status}`];
       }
     }
 
-    // Analytics vidéo par batch de 10 (30 jours glissants)
+    // Analytics vidéo (30 jours glissants).
+    //
+    // Lot plus petit que videos.list : le filtre `video==` de l'Analytics API est borne
+    // a 500 CARACTERES, pas a un nombre d'ids. A 11 caracteres par id plus le separateur,
+    // 40 ids font 479 caracteres — sous la limite avec une marge, sans dependre d'une
+    // longueur d'id qui pourrait changer. Depasser renverrait un 400 sur TOUT le lot,
+    // donc aucune metrique par video pour le profil.
+    const BATCH_ANALYTICS = 40;
     const startDate = isoDate(30);
     const analyticsMap: Record<string, any> = {};
-    for (let i = 0; i < videoIds.length; i += BATCH) {
-      const batch = videoIds.slice(i, i + BATCH);
+    for (let i = 0; i < videoIds.length; i += BATCH_ANALYTICS) {
+      const batch = videoIds.slice(i, i + BATCH_ANALYTICS);
       const analyticsRes = await fetch(
         `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&dimensions=video&filters=video==${batch.join(',')}&metrics=views,estimatedMinutesWatched,likes,comments,shares,averageViewPercentage,subscribersGained&startDate=${startDate}&endDate=${yesterday}`,
         { headers: auth }
@@ -1086,6 +1107,16 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
         for (const row of analyticsData.rows || []) {
           analyticsMap[row[0]] = { views: row[1], watchMin: row[2], likes: row[3], comments: row[4], shares: row[5], avgViewPct: row[6], subsGained: row[7] };
         }
+      } else {
+        // Contrairement aux details ci-dessus, on n'interrompt PAS : les metriques par
+        // video (vues 30j, retention) sont un complement, alors que titre / miniature /
+        // vues lifetime viennent de videos.list et suffisent a une ligne exploitable.
+        // Les colonnes concernees restent simplement null — un trou, pas un faux zero.
+        //
+        // Mais l'echec doit se voir : il etait ignore en silence, donc une chaine entiere
+        // pouvait perdre ses metriques par video sans que rien ne l'indique nulle part.
+        errors.push(`yt_videos_analytics: HTTP ${analyticsRes.status}`);
+        console.error(`[poll-leads] profile=${profileId} yt_videos_analytics: HTTP ${analyticsRes.status}`);
       }
     }
 
@@ -1242,7 +1273,41 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
   }
 
   // YouTube J-1, J-2, J-3 + CTR + vidéos individuelles (en parallèle)
-  const ytToken = await getYtToken(profileId);
+  //
+  // ─── Cadence : une synchronisation par heure, pas une par passage ───────────────
+  //
+  // Ce cron tourne toutes les 5 minutes (288 passages/jour) pour les leads Instagram,
+  // qui doivent etre captes vite. YouTube n'a pas ce besoin : ses metriques ont 2 a 3
+  // jours de retard cote Google, et le total d'abonnes bouge de quelques unites par
+  // jour. Resynchroniser toutes les 5 minutes ne rend donc AUCUNE donnee plus fraiche.
+  //
+  // Sans garde-fou, fetchYtDayMetrics emettait ses 7 appels a chaque passage :
+  //   1 profil  = 2 016 appels/jour
+  //   20 eleves = 40 540 appels/jour, soit 4x le quota YouTube (10 000 unites/jour)
+  // La plateforme cassait donc entre 4 et 5 eleves, avec des 403 quota exceeded et des
+  // journees entieres sans donnee — exactement le genre de panne qui demande une
+  // intervention (mesure du 2026-08-21).
+  //
+  // Une sync par heure suffit largement et divise le cout par 12 :
+  //   20 eleves = 3 400 appels/jour, 34 % du quota
+  //   30 eleves = 5 100 appels/jour, 51 % du quota
+  //
+  // Les deux autres blocs YouTube (videos, CTR) ont deja leur propre garde-fou et ne
+  // repartaient pas a chaque passage.
+  //
+  // Le premier passage apres connexion n'est jamais retarde : last_synced_at est null,
+  // donc la condition laisse passer. La recuperation initiale complete reste intacte.
+  const YT_INTERVALLE_MS = 60 * 60 * 1000;
+  const { data: ytIntegration } = await supa
+    .from('integrations')
+    .select('last_synced_at')
+    .eq('profile_id', profileId)
+    .eq('provider', 'youtube')
+    .maybeSingle();
+  const ytDernierSync = ytIntegration?.last_synced_at ? new Date(ytIntegration.last_synced_at).getTime() : 0;
+  const ytDoitSync = Date.now() - ytDernierSync >= YT_INTERVALLE_MS;
+
+  const ytToken = ytDoitSync ? await getYtToken(profileId) : null;
   if (ytToken) {
     const [ytMetricsResult, ytCtrResult, ytVideosResult] = await Promise.allSettled([
       (async () => {
@@ -1259,11 +1324,15 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
         // Ecrit sur toute la fenetre que l'Analytics ne couvre pas encore, pas seulement
         // aujourd'hui et hier.
         //
-        // La version precedente ecrivait sur [aujourd'hui, hier]. Ce cron tourne une
-        // fois par SEMAINE : les jours du milieu ne recevaient donc jamais leur total
-        // d'abonnes, alors que la Data API v3 le donne en temps reel. Sur le profil de
-        // test, le 19 aout etait vide entre un 18 et un 20 tous deux a 49 — un trou au
+        // La version precedente ecrivait sur [aujourd'hui, hier]. Sur le profil de test,
+        // le 19 aout etait pourtant vide entre un 18 et un 20 tous deux a 49 — un trou au
         // milieu d'une courbe parfaitement plate (constate le 2026-08-21).
+        //
+        // Une fenetre de 2 jours ne laisse aucune marge : il suffit d'une interruption
+        // du cron, d'un echec de l'appel YouTube (le try/catch avale l'erreur et le
+        // profil est saute), ou d'un decalage de date pour qu'un jour passe entre les
+        // mailles et ne soit jamais rattrape — la Data API v3 ne renvoyant que la valeur
+        // COURANTE, un jour manque le reste a jamais.
         //
         // La fenetre couvre les memes jours que la requete Analytics (isoDate(3) a
         // hier), plus aujourd'hui. Un jour deja rempli par l'Analytics est simplement
@@ -1298,6 +1367,18 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
     else errors.push(`yt_ctr: ${ytCtrResult.reason?.message || 'unknown'}`);
     if (ytVideosResult.status === 'fulfilled') errors.push(...ytVideosResult.value);
     else errors.push(`yt_videos: ${ytVideosResult.reason?.message || 'unknown'}`);
+
+    // Horodate la synchronisation pour que la cadence horaire ci-dessus se rearme.
+    //
+    // Ecrit meme en cas d'erreur, et c'est VOULU : sans ca, un profil dont le token
+    // YouTube est revoque relancerait ses 7 appels toutes les 5 minutes indefiniment,
+    // brulant le quota pour rien et empechant les autres profils de se synchroniser.
+    // Une heure de retard sur un profil en panne est preferable a un quota epuise pour
+    // tout le monde. L'erreur reste tracee dans last_snapshot_error.
+    await supa.from('integrations')
+      .update({ last_synced_at: new Date().toISOString() })
+      .eq('profile_id', profileId)
+      .eq('provider', 'youtube');
   }
 
   // Calls stats J-1 — exclut les calls réservés avant que toutes les intégrations
