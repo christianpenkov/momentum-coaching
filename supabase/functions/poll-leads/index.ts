@@ -1245,6 +1245,87 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
 // Snapshot complet d'un profil
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Rattrape les journees YouTube manquantes, quelle que soit leur anciennete.
+ *
+ * La fenetre normale du cron (J-3 -> hier) ne rattrape que trois jours : au-dela, une
+ * interruption laissait un trou definitif — c'est ce qui s'etait produit du 9 au 14 juin
+ * sur un profil, et 38 journees etaient encore vides le 2026-08-21.
+ *
+ * Or l'Analytics API accepte n'importe quelle date de debut (verifie contre l'API :
+ * une requete sur le 1-10 juin renvoie bien ses 10 jours). Les donnees ne sont donc
+ * jamais perdues, elles n'etaient simplement plus demandees.
+ *
+ * Strategie : une seule requete par execution, sur la plage qui couvre les trous, et
+ * seulement quand il y en a. Sur une base saine, cette fonction ne coute RIEN — elle
+ * sort avant le moindre appel reseau.
+ *
+ * Tourne une fois par jour (meme cadence que les repartitions) pour ne pas peser sur
+ * le quota : un trou vieux de trois semaines peut attendre quelques heures de plus.
+ */
+async function rattraperTrousYt(profileId: string, accessToken: string): Promise<string[]> {
+  const errors: string[] = [];
+  try {
+    // Debut de la collecte : avant cette date, l'absence est normale (le compte
+    // n'etait pas connecte), il n'y a rien a rattraper.
+    const { data: premier } = await supa
+      .from('analytics_daily_snapshots')
+      .select('date')
+      .eq('profile_id', profileId)
+      .not('yt_views', 'is', null)
+      .order('date', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (!premier?.date) return [];
+
+    // Jours vides APRES ce debut et hors delai de traitement Google (J-4 et plus
+    // anciens) : un jour recent sans donnee n'est pas un trou, c'est de l'attente.
+    const limite = isoDate(4);
+    const { data: trous } = await supa
+      .from('analytics_daily_snapshots')
+      .select('date')
+      .eq('profile_id', profileId)
+      .is('yt_views', null)
+      .gt('date', premier.date)
+      .lte('date', limite)
+      .order('date', { ascending: true });
+    if (!trous?.length) return [];
+
+    // Une seule requete couvrant du plus ancien au plus recent trou. Les jours deja
+    // remplis dans l'intervalle sont simplement reecrits a l'identique.
+    const debut = trous[0].date;
+    const fin = trous[trous.length - 1].date;
+    const { rows } = await fetchYtDayMetrics(accessToken, debut, fin, false);
+    if (!rows.length) return [`yt_rattrapage_vide_${debut}_${fin}`];
+
+    const aRemplir = new Set(trous.map((t: any) => t.date));
+    let comblees = 0;
+    for (const row of rows) {
+      if (!aRemplir.has(row.date)) continue;
+      const { error } = await supa.from('analytics_daily_snapshots').upsert({
+        profile_id: profileId, date: row.date,
+        yt_views: row.yt_views, yt_watch_time_min: row.yt_watch_time_min,
+        yt_subs_gained: row.yt_subs_gained, yt_subs_lost: row.yt_subs_lost,
+        yt_net_subs: row.yt_net_subs, yt_likes: row.yt_likes,
+        yt_comments: row.yt_comments, yt_shares: row.yt_shares,
+        yt_avg_view_duration_sec: row.yt_avg_view_duration_sec,
+        yt_avg_duration_shorts_sec: row.yt_avg_duration_shorts_sec,
+        yt_avg_duration_long_sec: row.yt_avg_duration_long_sec,
+        yt_views_shorts: row.yt_views_shorts, yt_views_long: row.yt_views_long,
+        yt_watch_time_shorts_min: row.yt_watch_time_shorts_min,
+        yt_watch_time_long_min: row.yt_watch_time_long_min,
+        backfill_source: 'rattrapage',
+      }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
+      if (error) errors.push(`yt_rattrapage_${row.date}: ${error.message}`);
+      else comblees++;
+    }
+    if (comblees) console.log(`[poll-leads] yt_rattrapage profile=${profileId}: ${comblees} journee(s) comblee(s) sur ${trous.length} trou(s)`);
+  } catch (e: any) {
+    errors.push(`yt_rattrapage: ${e?.message || 'unknown'}`);
+  }
+  return errors;
+}
+
 async function snapshotProfile(profileId: string): Promise<string[]> {
   const errors: string[] = [];
   const yesterday = isoDate(1);
@@ -1362,7 +1443,7 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
 
   const ytToken = ytDoitSync ? await getYtToken(profileId) : null;
   if (ytToken) {
-    const [ytMetricsResult, ytCtrResult, ytVideosResult] = await Promise.allSettled([
+    const [ytMetricsResult, ytCtrResult, ytVideosResult, ytRattrapageResult] = await Promise.allSettled([
       (async () => {
         const { subscribersNow: ytSubsNow, rows: ytRows } = await fetchYtDayMetrics(ytToken, isoDate(3), yesterday, ytRepartitionsAFaire);
 
@@ -1408,6 +1489,13 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
       })(),
       syncYtCtr(profileId, ytToken),
       snapshotYtVideos(profileId, ytToken, yesterday),
+      // Rattrapage des journees anciennes manquantes — ajoute EN DERNIER pour ne pas
+      // decaler les trois resultats deja destructures au-dessus.
+      //
+      // Une fois par jour, meme cadence que les repartitions : un trou vieux de trois
+      // semaines peut attendre quelques heures de plus. Sur une base sans trou, la
+      // fonction sort avant tout appel reseau — elle ne coute rien.
+      ytRepartitionsAFaire ? rattraperTrousYt(profileId, ytToken) : Promise.resolve([] as string[]),
     ]);
     if (ytMetricsResult.status === 'rejected') {
       const msg = `yt_fetch: ${ytMetricsResult.reason?.message || 'unknown'}`;
@@ -1418,6 +1506,8 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
     }
     if (ytCtrResult.status === 'fulfilled') { if (ytCtrResult.value.errors.length) errors.push(...ytCtrResult.value.errors.map(e => `yt_ctr: ${e}`)); }
     else errors.push(`yt_ctr: ${ytCtrResult.reason?.message || 'unknown'}`);
+    if (ytRattrapageResult.status === 'fulfilled') errors.push(...ytRattrapageResult.value);
+    else errors.push(`yt_rattrapage: ${ytRattrapageResult.reason?.message || 'unknown'}`);
     if (ytVideosResult.status === 'fulfilled') errors.push(...ytVideosResult.value);
     else errors.push(`yt_videos: ${ytVideosResult.reason?.message || 'unknown'}`);
 
