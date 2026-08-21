@@ -2278,8 +2278,12 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
           }));
           const allPending = netSubsForChart.every(d => d.netSubs === null);
           if (allPending) return <Empty msg="Pas encore de données" />;
-          const hasMovement = netSubsForChart.some(d => d.netSubs !== null && d.netSubs !== 0);
-          if (!hasMovement) return <Empty msg="Pas de mouvement d'abonnés sur cette période" />;
+          // PAS de court-circuit « aucun mouvement » : une ligne plate a zero dit
+          // « aucun abonne perdu sur la periode », ce qui est une information reelle
+          // et rassurante. Le message vide qui s'affichait a la place laissait croire
+          // a une donnee manquante — c'est ce que Chris voyait le 2026-08-21 en
+          // signalant « je vois absolument rien, aucun graphique ». L'axe symetrique
+          // ci-dessous rend justement cette ligne plate lisible, centree sur zero.
           return (
             <ResponsiveContainer width="100%" height={160}>
               <ReAreaChart data={netSubsForChart} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
