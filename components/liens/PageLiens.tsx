@@ -2254,7 +2254,7 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
     : postMode === 'none' ? undefined
     : (postId || undefined); // 'lead' ou 'manual' → postId direct
 
-  const [history, setHistory] = useState<{ id: string; ig_username: string; short_url: string; content_id: string | null; created_at: string }[]>([]);
+  const [history, setHistory] = useState<{ id: string; ig_username: string; short_url: string; content_id: string | null; created_at: string; clicks: number }[]>([]);
   const [historyCopied, setHistoryCopied] = useState<string | null>(null);
   const [historySearch, setHistorySearch] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -2299,16 +2299,34 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
         body: JSON.stringify({ ig_username: username, short_url: shortUrl, content_id: resolvedPostId || null }),
       });
       const saved = await res.json();
-      if (saved.link) setHistory(prev => [saved.link, ...prev]);
+      // Un lien qui vient d'être créé n'a par définition aucun clic : le POST ne
+      // renvoie pas ce champ, on le pose ici plutôt que de recharger la liste.
+      if (saved.link) setHistory(prev => [{ ...saved.link, clicks: 0 }, ...prev]);
     } catch (e: any) { setError(e.message); } finally { setLoading(false); }
   };
 
   return (
-    <div style={{ padding: isMobile ? '14px' : '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div>
-        <div style={{ fontSize: 14, fontWeight: 700, color: INK, marginBottom: 4 }}>Lien Calendly prospect</div>
-        <div style={{ fontSize: 12, color: MUTED }}>Génère un lien unique par prospect à envoyer en DM. Chaque clic est tracké.</div>
+    <div>
+      {/* En-tête sur bande séparée, comme les autres panneaux de détail :
+          le titre ne flotte plus au-dessus du formulaire. */}
+      <div style={{ padding: isMobile ? '14px' : '15px 24px', borderBottom: `1px solid ${BORDER}` }}>
+        <div style={{ fontSize: 16, fontWeight: 600, color: INK, marginBottom: 3 }}>Lien Calendly prospect</div>
+        <div style={{ fontSize: 12.5, color: MUTED }}>Génère un lien unique par prospect à envoyer en DM. Chaque clic est tracké.</div>
       </div>
+
+      {/* Deux colonnes en desktop : le formulaire à gauche en largeur fixe, et
+          l'historique à droite qui prend le reste. En une seule colonne, la
+          liste des liens déjà générés passait sous la ligne de flottaison —
+          or c'est là qu'on vient chercher un lien 9 fois sur 10. */}
+      <div style={{
+        display: 'flex', flexDirection: isMobile ? 'column' : 'row',
+        gap: isMobile ? 16 : 24, alignItems: 'flex-start',
+        padding: isMobile ? '14px' : '20px 24px',
+      }}>
+      <div style={{
+        width: isMobile ? '100%' : 420, flexShrink: 0,
+        display: 'flex', flexDirection: 'column', gap: 14,
+      }}>
 
       {!hasCalendly && (
         <div style={{ fontSize: 12, color: AMBER, background: AMBER_SOFT, borderRadius: 8, padding: '10px 12px' }}>
@@ -2316,7 +2334,11 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
         </div>
       )}
       {hasCalendly && (
-        <div style={{ fontSize: 11, color: MUTED, background: SURFACE2, borderRadius: 8, padding: '8px 12px' }}>
+        <div style={{
+          fontSize: 12, color: MUTED, background: SURFACE2,
+          border: `1px solid ${BORDER}`, borderRadius: 8, padding: '9px 12px',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
           → <span style={{ fontWeight: 600, color: INK }}>{calendlyUrl}</span>
         </div>
       )}
@@ -2334,7 +2356,7 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
         <>
           {/* Pseudo Instagram */}
           <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 6 }}>Pseudo Instagram du prospect</div>
+            <div className="eyebrow-sm" style={{ marginBottom: 7 }}>Pseudo Instagram du prospect</div>
             <div style={{ position: 'relative' }}>
               <div className="liens-input-wrap" style={{ display: 'flex', alignItems: 'center', gap: 0, border: `1px solid ${BORDER}`, borderRadius: 8, background: BG, overflow: 'hidden', transition: 'border-color .15s, box-shadow .15s' }}>
                 <span style={{ padding: '0 8px 0 12px', fontSize: 13, color: FAINT }}>@</span>
@@ -2382,7 +2404,7 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
 
           {/* Contenu source */}
           <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 6 }}>Contenu source</div>
+            <div className="eyebrow-sm" style={{ marginBottom: 7 }}>Contenu source</div>
             <div style={{ position: 'relative' }}>
               <button type="button" onClick={() => setShowPostPicker(v => !v)}
                 style={{ width: '100%', padding: '9px 12px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -2458,60 +2480,92 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
               </div>
             );
             return (
+              // Aligné à gauche et à la largeur de son texte : en pleine largeur
+              // il pesait autant que le formulaire entier alors que ce n'est que
+              // la validation d'un champ.
               <button onClick={generate} disabled={loading || !canGenerate || !hasCalendly || !username.trim()}
-                style={{ minHeight: 44, padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || !hasCalendly || !username.trim() ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                {loading ? <><Spinner /> Génération...</> : 'Générer le lien prospect'}
+                style={{ alignSelf: 'flex-start', minHeight: 44, padding: '10px 20px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || !hasCalendly || !username.trim() ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                {loading ? <><Spinner /> Génération...</> : 'Générer le lien'}
               </button>
             );
           })()}
         </>
       )}
+      </div>
 
-      {/* Historique des liens générés */}
+      {/* Historique des liens générés — colonne de droite */}
       {history.length > 0 && (
-        <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10, width: isMobile ? '100%' : undefined }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <div className="eyebrow-sm" style={{ color: MUTED }}>Liens Calendly générés <span style={{ fontWeight: 400, color: FAINT }}>({history.length})</span></div>
+            <div className="eyebrow-sm">Liens Calendly générés <span style={{ fontWeight: 400, color: FAINT }}>({history.length})</span></div>
           </div>
           <input
             value={historySearch}
             onChange={e => setHistorySearch(e.target.value)}
             placeholder="Rechercher un prospect..."
-            style={{ width: '100%', padding: '7px 10px', fontSize: 12, borderRadius: 7, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }}
+            style={{ width: '100%', padding: '8px 11px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }}
           />
+          {/* Carte unique à filets, comme la liste d'accueil */}
+          <div className="liens-carte" style={{ border: `1px solid ${BORDER}`, borderRadius: 12, background: SURFACE, overflow: 'hidden' }}>
           {history.filter(h => !historySearch || h.ig_username.toLowerCase().includes(historySearch.toLowerCase())).map(h => {
             const post = posts.find(p => p.id === h.content_id);
             const lead = leads.find(l => l.ig_username.toLowerCase() === h.ig_username.toLowerCase());
             const copied = historyCopied === h.id;
             const isDeleting = deletingId === h.id;
             return (
-              <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, background: SURFACE2, border: `1px solid ${BORDER}`, opacity: isDeleting ? 0.4 : 1, transition: 'opacity .15s' }}>
-                <Avatar initials={getInitials(h.ig_username)} avatarUrl={lead?.avatar_url} seed={lead?.ig_user_id || h.ig_username} size={28} />
+              <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', background: SURFACE, opacity: isDeleting ? 0.4 : 1, transition: 'opacity .15s' }}>
+                <Avatar initials={getInitials(h.ig_username)} avatarUrl={lead?.avatar_url} seed={lead?.ig_user_id || h.ig_username} size={30} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 2, minWidth: 0 }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: INK, flexShrink: 0 }}>@{h.ig_username}</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: INK, flexShrink: 0 }}>@{h.ig_username}</span>
                     {post && <span style={{ fontSize: 10, color: FAINT, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>· {post.platform} · {post.caption.slice(0, 25)}...</span>}
                   </div>
-                  <div style={{ fontSize: 10, color: FAINT }}>
+                  {/* Le lien court lui-même : c'est ce qu'on vient copier, il doit
+                      être lisible sans passer par le presse-papiers pour vérifier
+                      qu'on prend le bon. */}
+                  <div style={{ fontSize: 11, color: MUTED, fontFamily: 'var(--font-mono, ui-monospace), monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {h.short_url.replace(/^https?:\/\//, '')}
+                  </div>
+                  <div style={{ fontSize: 10, color: FAINT, marginTop: 1 }}>
                     {new Date(h.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })} à {new Date(h.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
                   </div>
                 </div>
+
+                {/* Clics — la promesse de l'écran (« chaque clic est tracké ») se
+                    vérifie ici. Vert dès le premier clic : c'est le signal qu'un
+                    prospect a ouvert le Calendly. */}
+                <div style={{
+                  flexShrink: 0, fontSize: 11, fontWeight: 700, borderRadius: 999, padding: '3px 9px',
+                  color: h.clicks > 0 ? 'var(--green)' : FAINT,
+                  background: h.clicks > 0 ? 'var(--green-soft)' : SURFACE2,
+                }} title={`${h.clicks} clic${h.clicks > 1 ? 's' : ''} humain${h.clicks > 1 ? 's' : ''}`}>
+                  {h.clicks} clic{h.clicks > 1 ? 's' : ''}
+                </div>
+
                 <button
                   onClick={() => { navigator.clipboard.writeText(h.short_url); setHistoryCopied(h.id); setTimeout(() => setHistoryCopied(null), 2000); }}
-                  style={{ flexShrink: 0, fontSize: 13, fontWeight: 700, padding: '9px 16px', borderRadius: 7, border: `1.5px solid ${copied ? 'var(--green)' : BORDER}`, background: copied ? 'var(--green-soft)' : BG, color: copied ? 'var(--green)' : MUTED, cursor: 'pointer', transition: 'all .15s' }}>
+                  style={{ flexShrink: 0, fontSize: 12.5, fontWeight: 700, padding: '8px 15px', borderRadius: 8, border: `1.5px solid ${copied ? 'var(--green)' : BORDER}`, background: copied ? 'var(--green-soft)' : BG, color: copied ? 'var(--green)' : MUTED, cursor: 'pointer', transition: 'all .15s' }}>
                   {copied ? '✓ Copié' : 'Copier'}
                 </button>
                 <button
                   onClick={() => { setDeleteTarget({ id: h.id, ig_username: h.ig_username }); setDeleteConfirmChecked(false); }}
                   title="Supprimer ce lien"
-                  style={{ flexShrink: 0, width: 24, height: 24, borderRadius: 6, border: 'none', background: 'none', color: MUTED, cursor: 'pointer', fontSize: 14, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
-                  ×
+                  style={{ flexShrink: 0, width: 30, height: 30, borderRadius: 7, border: 'none', background: 'none', color: RED, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
                 </button>
               </div>
             );
           })}
+          </div>
+
+          {/* Mention permanente, pas seulement dans le modal : elle doit être lue
+              AVANT de cliquer sur la corbeille, pas après. */}
+          <div style={{ fontSize: 11, color: FAINT, lineHeight: 1.45 }}>
+            La suppression est définitive : le lien cesse d'être trackable.
+          </div>
         </div>
       )}
+      </div>
 
       {deleteTarget && (
         <ModalShell onClose={() => setDeleteTarget(null)} width={380}>

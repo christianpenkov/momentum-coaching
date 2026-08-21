@@ -47,7 +47,30 @@ export async function GET(request: Request) {
   const { data, error } = await query;
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ links: data ?? [] });
+
+  const links = data ?? [];
+
+  // Clics par lien — Short.io les stocke en snapshots journaliers, il faut donc
+  // sommer. On lit human_clicks (et non total_clicks) pour exclure les bots :
+  // c'est la même métrique que partout ailleurs dans la plateforme.
+  // Fire-and-forget : un échec ici ne doit pas priver l'écran de sa liste de
+  // liens, la pastille tombe simplement à 0.
+  const urls = links.map(l => l.short_url).filter(Boolean);
+  const clicksByUrl = new Map<string, number>();
+  if (urls.length > 0) {
+    const { data: snaps } = await supa
+      .from('shortio_link_daily_snapshots')
+      .select('short_url, human_clicks')
+      .eq('profile_id', targetId)
+      .in('short_url', urls);
+    for (const s of snaps ?? []) {
+      clicksByUrl.set(s.short_url, (clicksByUrl.get(s.short_url) ?? 0) + (s.human_clicks ?? 0));
+    }
+  }
+
+  return NextResponse.json({
+    links: links.map(l => ({ ...l, clicks: clicksByUrl.get(l.short_url) ?? 0 })),
+  });
 }
 
 export async function POST(request: Request) {
