@@ -200,7 +200,7 @@ async function fetchIgDayMetrics(token: string, igAccountId: string, date: strin
   const [accountRes, insightsRes, insightsTvRes, engagedRes, reachBdRes, followsBdRes] = await Promise.all([
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}?fields=followers_count,follows_count&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach,follower_count&period=day&since=${since}&until=${until}&access_token=${token}`),
-    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=views,profile_links_taps,website_clicks&metric_type=total_value&period=day&since=${since}&until=${until}&access_token=${token}`),
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=views,profile_links_taps,website_clicks,profile_views&metric_type=total_value&period=day&since=${since}&until=${until}&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=accounts_engaged,total_interactions&metric_type=total_value&period=day&since=${since}&until=${until}&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach&metric_type=total_value&breakdown=follow_type&period=day&since=${since}&until=${until}&access_token=${token}`),
     // follows_and_unfollows exige metric_type=total_value ET breakdown=follow_type.
@@ -311,6 +311,15 @@ async function fetchIgDayMetrics(token: string, igAccountId: string, date: strin
     ig_follows_unfollows:  sommeBreakdown(followsBdData),
     ig_profile_taps:       tvMap['profile_links_taps'] ?? null,
     ig_website_clicks:     tvMap['website_clicks'] ?? null,
+    // Vues du profil : l'etape charniere du tunnel Instagram — quelqu'un a vu un
+    // contenu ET est alle voir qui se cache derriere, juste avant l'abonnement ou le
+    // DM. Aucune autre metrique ne l'agrege (contrairement aux likes / commentaires /
+    // partages, tous inclus dans total_interactions).
+    //
+    // Rentre dans la requete total_value existante : aucun appel supplementaire.
+    // Verifie journaliere contre l'API le 2026-08-22 (3, 4, 1, 4, 7 sur cinq jours,
+    // dont la somme fait bien le total de la periode).
+    ig_profile_views:      tvMap['profile_views'] ?? null,
     ig_accounts_engaged:   (engagedData?.data || []).some((m: any) => m.name === 'accounts_engaged') ? accountsEngagedTotal : null,
     ig_total_interactions: (engagedData?.data || []).some((m: any) => m.name === 'total_interactions') ? totalInteractionsTotal : null,
     ig_reach_follower:     reachFollower,
@@ -1444,7 +1453,10 @@ async function rattraperTrousIg(profileId: string, token: string, igAccountId: s
       .from('analytics_daily_snapshots')
       .select('date')
       .eq('profile_id', profileId)
-      .or('ig_reach.is.null,ig_views.is.null')
+      // ig_profile_views ajoutee le 2026-08-22 : sans elle dans cette liste, les
+      // journees deja collectees ne seraient jamais reprises et la colonne resterait
+      // vide sur tout l'historique.
+      .or('ig_reach.is.null,ig_views.is.null,ig_profile_views.is.null')
       .gt('date', debutUtile)
       .lte('date', isoDate(1))
       .order('date', { ascending: false })   // les plus recents d'abord

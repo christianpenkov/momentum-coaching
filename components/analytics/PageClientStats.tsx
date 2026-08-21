@@ -1279,6 +1279,10 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
   // ig_total_interactions identiques corrigé le 2026-07-06 — même confusion ici,
   // côté lecture cette fois plutôt que côté collecte).
   const igInteractionsP = igDaysSlice.reduce((s, d) => s + (d.totalInteractions ?? 0), 0);
+  // Vues du profil sur la periode. Collectee depuis le 2026-08-22 : les journees
+  // anterieures valent null, d'ou le `?? 0` qui les traite comme sans consultation
+  // plutot que de casser la somme. Le rattrapage les comble progressivement.
+  const igProfileViewsP = igDaysSlice.reduce((s, d) => s + ((d as any).profileViews ?? 0), 0);
 
 
   const engRate = igReachP > 0 ? pct(igInteractionsP, igReachP) : 0;
@@ -1373,6 +1377,14 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
     'Reach': { data: igDays.map(d => ({ date: d.date, v: igDaysNoDataSet.has(d.date) ? (null as any) : d.reach })), color: 'var(--accent-brand)' },
     'Abonnés': { data: igDays.map(d => ({ date: d.date, v: igDaysNoDataSet.has(d.date) ? (null as any) : (d.followerCount ?? 0) })), color: IG_COLOR },
     'Interactions posts': { data: interactionsByDay, color: GREEN },
+    // Serie de la nouvelle carte. « Abonnés nets » garde la sienne : elle alimente
+    // desormais la modale ouverte depuis le BADGE de la carte Abonnés.
+    'Vues du profil': { data: igDays.map(d => ({
+      date: d.date,
+      // null (pas 0) avant le 2026-08-22 : la metrique n'etait pas collectee, la
+      // courbe doit faire un trou plutot que d'affirmer « aucune consultation ».
+      v: igDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).profileViews ?? null),
+    })), color: IG_COLOR },
     'Abonnés nets': { data: (() => {
       // Delta brut jour J vs J-1 (nombre entier réel, pas de lissage) — très bruyant
       // sur un petit compte (±1-2/jour), affiché en barres plutôt qu'une ligne pour
@@ -1433,7 +1445,12 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
           // « total » plutot que « all time » : c'est un compteur actuel, pas un cumul
           // sur une periode, et le reste de la plateforme dit « total » (cf. la carte
           // « Abonnés IG » de la vue generale).
-          { label: 'Abonnés', value: fmt(ig.followers), sub: 'total', color: 'var(--ink)', key: 'Abonnés' },
+          // Le solde net est affiche en BADGE sur cette carte plutot que sur une carte
+          // dediee : les deux parlent d'abonnes, et la case liberee accueille les vues
+          // du profil — l'etape charniere du tunnel, qui n'etait affichee nulle part
+          // (demande de Chris, 2026-08-22). Meme principe que la carte YouTube, qui
+          // porte deja « +0 (+0 -0) » a cote de son chiffre.
+          { label: 'Abonnés', value: fmt(ig.followers), sub: 'total', color: 'var(--ink)', key: 'Abonnés', badge: igFollowerDeltaP },
           { label: 'Publications', value: fmt(postsInPeriod), sub: igEtiquettePeriode, color: IG_COLOR, key: 'Publications' },
           { label: 'Reach · personnes', value: fmt(igReachP), sub: igEtiquettePeriode, color: 'var(--ink)', key: 'Reach' },
           { label: 'Interactions posts', value: fmt(igInteractionsP), sub: igEtiquettePeriode, color: 'var(--ink)', key: 'Interactions posts' },
@@ -1445,14 +1462,31 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
               <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>{s.label}</span>
               {s.sub && <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{s.sub}</span>}
             </div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: s.color, lineHeight: 1, display: 'flex', alignItems: 'baseline', gap: 7 }}>
+              {s.value}
+              {/* Solde de la periode, en petit a cote du total. Zero n'a pas de signe :
+                  « +0 » annoncerait un gain nul comme un gain. */}
+              {/* Cliquable : ouvre la courbe des abonnes nets, qui avait sa propre carte
+                  avant. Le stopPropagation evite d'ouvrir en meme temps la modale de la
+                  carte Abonnés, qui est cliquable elle aussi. */}
+              {(s as any).badge != null && (
+                <span
+                  onClick={(e) => { e.stopPropagation(); openStatModal('Abonnés nets', `${igFollowerDeltaP >= 0 ? '+' : ''}${fmt(igFollowerDeltaP)}`); }}
+                  title="Voir l'évolution jour par jour"
+                  style={{ fontSize: 13, fontWeight: 700, cursor: 'pointer', color: (s as any).badge > 0 ? GREEN : (s as any).badge < 0 ? RED : 'var(--faint)' }}>
+                  {(s as any).badge > 0 ? '+' : ''}{fmt((s as any).badge)}
+                  <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 3 }}>{igEtiquettePeriode}</span>
+                </span>
+              )}
+            </div>
           </div>
         ))}
       </div>
       {/* Ligne 2 — 4 stats performance */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
         {[
-          { label: 'Abonnés nets', value: `${igFollowerDeltaP >= 0 ? '+' : ''}${fmt(igFollowerDeltaP)}`, sub: igEtiquettePeriode, color: igFollowerDeltaP >= 0 ? GREEN : RED, key: 'Abonnés nets' },
+          // Remplace « Abonnés nets », desormais en badge sur la carte Abonnés.
+          { label: 'Vues du profil', value: fmt(igProfileViewsP), sub: igEtiquettePeriode, color: 'var(--ink)', key: 'Vues du profil' },
           { label: "Taux d'engagement", value: fmtPct(engRate), sub: 'interactions / reach', color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, key: "Taux d'engagement" },
           { label: 'Followers reach rate', value: reachRate !== null ? fmtPct(reachRate) : 'N/D', sub: reachRate !== null ? 'abonnés uniques touchés / total' : 'seuil Meta non atteint', color: reachRate !== null ? 'var(--ink)' : 'var(--faint)', tooltip: 'Nombre réel de tes abonnés distincts touchés au moins une fois par tes contenus sur les 28 derniers jours (chaque abonné compté une seule fois, jamais deux fois même s\'il a vu plusieurs posts), rapporté à ton nombre total d\'abonnés. 100% = tous tes abonnés ont été atteints. Pas de détail jour par jour disponible (Meta ne fournit pas cette déduplication par jour, seulement sur la fenêtre totale).' },
           { label: 'Reach Non-Followers', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'vues non-abonnés / total' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', tooltip: 'Part des vues venant de personnes qui ne te suivent pas encore. Plus c\'est élevé, plus ton contenu est découvert par de nouvelles personnes. Pas de détail jour par jour disponible (Meta ne fournit pas cette déduplication par jour, seulement sur la fenêtre totale).' },
@@ -6807,6 +6841,10 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       websiteClicks:     r.ig_website_clicks ?? 0,
       reachFollower:     r.ig_reach_follower ?? null,
       reachNonFollower:  r.ig_reach_non_follower ?? null,
+      // null (pas 0) : collectee seulement depuis le 2026-08-22, les journees
+      // anterieures n'ont jamais eu cette mesure. Un 0 affirmerait « personne n'a
+      // consulte le profil ce jour-la », ce qui serait faux.
+      profileViews:      r.ig_profile_views ?? null,
     })),
     posts: igPosts,
     demographics: lastSnap?.ig_demographics ?? {},
