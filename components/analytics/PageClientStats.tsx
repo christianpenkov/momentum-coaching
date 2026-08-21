@@ -1688,6 +1688,19 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   // vraie fenêtre déjà présente dans ytDaysRaw (pas de recalcul de bornes calendaires).
   const ytDayByDate = new Map(ytDaysRaw.map(d => [d.date, d]));
   const ytDaysNoDataSet = new Set<string>();
+  // En All-Time, ytDaysRaw est pris tel quel et le filet ytDaysNoDataSet reste vide.
+  //
+  // Sans consequence dans ce mode, et c'est une nuance qui merite d'etre ecrite : les
+  // deux sources de chartData n'emettent PAS de ligne pour un jour sans donnee (l'API
+  // YouTube n'en renvoie pas, et le snapshot n'a pas de ligne a lire). Le jour est donc
+  // ABSENT du tableau, pas present a zero — la courbe n'a aucun point a cet endroit,
+  // ce qui produit deja le trou recherche.
+  //
+  // Le filet ne sert qu'au mode calendaire ci-dessous, qui reconstruit une plage
+  // complete jour par jour et doit donc marquer explicitement ceux qu'il a inventes.
+  //
+  // Ne pas « corriger » en testant d.views == null : les deux constructions appliquent
+  // `?? 0`, ce test ne se declencherait jamais.
   const ytDays: typeof ytDaysRaw = sinceConnection ? ytDaysRaw : (() => {
     const days: typeof ytDaysRaw = [];
     let d = ytPeriodStart;
@@ -1719,6 +1732,14 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   const ytSubsGainedP = ytDays.reduce((s, d) => s + (d.subsGained ?? 0), 0);
   const ytSubsLostP = ytDays.reduce((s, d) => s + (d.subsLost ?? 0), 0);
   const ytNetSubsP = ytSubsGainedP - ytSubsLostP;
+  // Likes / commentaires / partages sur la PERIODE affichee. Les cartes utilisaient
+  // yt.likes30d & co — des valeurs figees sur 30 jours — tout en affichant l'etiquette
+  // « ${period}j » : sur une vue a 7 jours, elles montraient 30 jours de donnees sous un
+  // libelle « 7j ». Les quatre autres cartes de la meme rangee utilisent bien des
+  // valeurs de periode (ytViewsP, ytNetSubsP...), d'ou l'incoherence.
+  const ytLikesP = ytDays.reduce((s, d) => s + (d.likes ?? 0), 0);
+  const ytCommentsP = ytDays.reduce((s, d) => s + (d.comments ?? 0), 0);
+  const ytSharesP = ytDays.reduce((s, d) => s + (d.shares ?? 0), 0);
 
   const conversionRate = ytViewsP > 0 ? ((ytSubsGainedP / ytViewsP) * 100).toFixed(3) : '0';
   // Affichage adaptatif : « 20 min » et non « 0h ». Math.round(minutes / 60) ecrasait
@@ -1951,9 +1972,9 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
         {[
           { label: 'Watch time', value: watchTimeLabel, sub: `${period}j`, color: AMBER, key: 'Watch time' },
           null, // carte Watch time moyen custom
-          { label: 'Likes', value: fmt(yt.likes30d), sub: ytIsFallback ? '30j' : `${period}j`, color: 'var(--ink)', key: 'Likes' },
-          { label: 'Commentaires', value: fmt(yt.comments30d), sub: ytIsFallback ? '30j' : `${period}j`, color: 'var(--ink)', key: 'Commentaires' },
-          { label: 'Partages', value: fmt(yt.shares30d), sub: ytIsFallback ? '30j' : `${period}j`, color: 'var(--ink)', key: 'Partages' },
+          { label: 'Likes', value: fmt(ytIsFallback ? yt.likes30d : ytLikesP), sub: ytIsFallback ? '30j' : `${period}j`, color: 'var(--ink)', key: 'Likes' },
+          { label: 'Commentaires', value: fmt(ytIsFallback ? yt.comments30d : ytCommentsP), sub: ytIsFallback ? '30j' : `${period}j`, color: 'var(--ink)', key: 'Commentaires' },
+          { label: 'Partages', value: fmt(ytIsFallback ? yt.shares30d : ytSharesP), sub: ytIsFallback ? '30j' : `${period}j`, color: 'var(--ink)', key: 'Partages' },
         ].map((s, i) => {
           if (s === null) return (
             <div key="wt-moyen" onClick={() => openStatModal('Watch time moyen', '')} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: 'pointer', transition: 'background .15s' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'} onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}>
