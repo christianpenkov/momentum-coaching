@@ -382,7 +382,20 @@ export async function GET(request: Request) {
 
     const retentionCurve: any[] = [];
 
-    videos = (detailsData?.items || []).map((v: any) => {
+    videos = (detailsData?.items || [])
+      // Un direct EN COURS ou PROGRAMME n'est pas une video : ni duree finale, ni
+      // retention, ni performance a analyser. Sur le profil de test, un live jamais
+      // demarre remontait avec « duration: P0D » — soit 0 seconde, donc classe SHORT par
+      // la regle `durSecs <= 60` ci-dessous, et affiche avec une ligne entierement vide.
+      //
+      // Une REDIFFUSION reste comptee : YouTube repasse liveBroadcastContent a « none »
+      // une fois la diffusion terminee, elle redevient alors une video normale. La
+      // distinction se fait donc seule, sans regle a maintenir.
+      //
+      // Verifie contre l'API le 2026-08-21 sur dWn-lq6g38k : liveBroadcastContent
+      // « upcoming », duration « P0D », liveStreamingDetails sans actualStartTime.
+      .filter((v: any) => v.snippet?.liveBroadcastContent !== 'live' && v.snippet?.liveBroadcastContent !== 'upcoming')
+      .map((v: any) => {
       const a = analyticsByVideo[v.id] || { views30d: 0, viewsAllTime: 0, watchTime30d: 0, avgViewPct: 0, likes30d: 0, comments30d: 0, shares30d: 0, subsGained30d: 0 };
       const st = subsAllTimeByVideo[v.id] || { subsGainedTotal: 0, subsLostTotal: 0 };
       const rawDuration = v.contentDetails?.duration || 'PT0S';

@@ -1099,7 +1099,10 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
     for (let i = 0; i < videoIds.length; i += BATCH) {
       const batch = videoIds.slice(i, i + BATCH);
       const detailsRes = await fetch(
-        `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${batch.join(',')}&fields=items(id,snippet(title,publishedAt,thumbnails),statistics,contentDetails(duration))`,
+        // liveBroadcastContent distingue un direct EN COURS (« live ») ou PROGRAMME
+        // (« upcoming ») d'une video normale (« none »). Une rediffusion terminee vaut
+        // « none » : elle redevient une video et doit etre comptee comme telle.
+        `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${batch.join(',')}&fields=items(id,snippet(title,publishedAt,thumbnails,liveBroadcastContent),statistics,contentDetails(duration))`,
         { headers: auth }
       );
       if (detailsRes.ok) {
@@ -1169,6 +1172,17 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
       try {
         const detail = videoDetailsMap[videoId];
         const analytics = analyticsMap[videoId] || {};
+        // Un direct EN COURS ou PROGRAMME n'est pas une video : il n'a ni duree finale,
+        // ni retention, ni performance a analyser. Il encombrait le tableau avec une
+        // ligne entierement vide (« 0:00 », « — » partout).
+        //
+        // Une REDIFFUSION, elle, est une video a part entiere : YouTube repasse
+        // liveBroadcastContent a « none » une fois la diffusion terminee, et la ligne
+        // est alors conservee normalement. La distinction se fait donc toute seule,
+        // sans regle a maintenir (choix de Chris, 2026-08-21).
+        const diffusionEnCours = detail?.snippet?.liveBroadcastContent === 'live'
+          || detail?.snippet?.liveBroadcastContent === 'upcoming';
+        if (diffusionEnCours) continue;
         const isShort = detail?.contentDetails?.duration
           ? /^PT(?:\d+S|[0-5]?\dS|[0-5]?\d[Ss])$/.test(detail.contentDetails.duration) ||
             /^PT0?[0-5]?\d[Ss]$/.test(detail.contentDetails.duration)
