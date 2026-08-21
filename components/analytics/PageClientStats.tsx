@@ -13,7 +13,7 @@ import Heatmap from '@/components/charts/Heatmap';
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend, PieChart, Pie, Cell,
-  AreaChart as ReAreaChart, Area,
+  AreaChart as ReAreaChart, Area, ReferenceLine,
 } from 'recharts';
 import { getPeriodWindow, parisDateStr, parisAddDays } from '@/lib/period';
 import { isCallHonored } from '@/lib/callHonored';
@@ -1739,9 +1739,18 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
     .sort((a, b) => a.date.localeCompare(b.date))
     .at(-1)?.date;
   // Retard reel en jours — sert a n'afficher le badge que s'il y en a un.
+  // Suffixe de fraicheur commun a tous les blocs lisant l'Analytics API. Defini une
+  // fois : ces blocs partagent la meme source, donc le meme retard — l'ecrire dans
+  // chacun garantissait qu'un nouveau bloc l'oublie (c'est ce qui est arrive a
+  // Appareils, Sources de trafic, Mots-cles et Demographie).
   const ytDataLagDays = ytLastEngagementDate
     ? Math.round((Date.now() - new Date(ytLastEngagementDate + 'T12:00:00Z').getTime()) / 86400000)
     : 0;
+  // Pose sur les blocs dont on suit l'evolution jour apres jour (vues, abonnes nets,
+  // tableau des videos) — pas sur les repartitions (Appareils, Sources de trafic,
+  // Mots-cles, Demographie), ou le retard n'a pas d'importance : on y lit une structure
+  // cumulee, pas un chiffre du jour. Choix de Chris, 2026-08-21.
+  const ytLagSuffix = ytDataLagDays >= 2 ? ` · données J-${ytDataLagDays}` : '';
   const ytLastEngagementDateFmt = ytLastEngagementDate
     ? new Date(ytLastEngagementDate + 'T12:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
     : null;
@@ -2054,7 +2063,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18 }}>
-        <Card title="Vues / jour" sub={`${period} jours${ytDataLagDays >= 2 ? ` · données J-${ytDataLagDays}` : ''}`}>
+        <Card title="Vues / jour" sub={`${period} jours${ytLagSuffix}`}>
           {(() => {
             // null (pas 0) sur les jours sans vraie donnée — même traitement que
             // "Abonnés nets / jour" juste en dessous : sinon une barre à 0 est
@@ -2093,7 +2102,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
         </Card>
       </div>
 
-      <Card title="Abonnés nets / jour" sub={`${period} jours${ytDataLagDays >= 2 ? ` · données J-${ytDataLagDays}` : ''}`}>
+      <Card title="Abonnés nets / jour" sub={`${period} jours${ytLagSuffix}`}>
         {(() => {
           // null (pas 0) sur les jours sans vraie donnée — sinon la ligne continue à plat
           // jusqu'à la fin de la période au lieu de s'arrêter au dernier point réel, même
@@ -2118,7 +2127,26 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                 <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : "preserveStartEnd"} />
-                <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
+                {/* Domaine SYMETRIQUE autour de zero : un graphique d'abonnes nets doit
+                    montrer le zero au milieu, les gains au-dessus et les pertes en
+                    dessous. Sans domaine explicite, l'axe s'ajuste aux donnees — toutes
+                    a zero ici, donc la ligne collait en bas de la zone au lieu d'etre
+                    centree, et une perte future n'aurait eu aucun repere visuel.
+                    L'amplitude est celle de la plus grande variation, minimum 1. */}
+                <YAxis
+                  tick={{ fontSize: 10, fill: 'var(--muted)' }}
+                  axisLine={false}
+                  tickLine={false}
+                  allowDecimals={false}
+                  domain={([dataMin, dataMax]: readonly [number, number]) => {
+                    const amplitude = Math.max(1, Math.abs(dataMin), Math.abs(dataMax));
+                    const marge = Math.max(1, Math.ceil(amplitude * 0.2));
+                    return [-(amplitude + marge), amplitude + marge];
+                  }}
+                />
+                {/* Ligne de zero, pour que le point de bascule reste lisible meme quand
+                    la courbe s'en eloigne. */}
+                <ReferenceLine y={0} stroke="var(--border)" strokeWidth={1} />
                 <Tooltip content={<ChartTooltip />} />
                 <Area type="monotone" dataKey="netSubs" name="Abonnés nets" stroke={GREEN} strokeWidth={2} fill="url(#grad-yt-netsubs)" dot={todayDotFactory(GREEN, 'date', lastRealPointKey(netSubsForChart, 'date', 'netSubs'))} activeDot={{ r: 4, strokeWidth: 0, fill: GREEN }} isAnimationActive={false} />
               </ReAreaChart>
@@ -2127,7 +2155,11 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
         })()}
       </Card>
 
-      <Card title={`Vidéos (${yt.videos.length})`} sub="Clic → courbe de rétention">
+      {/* Ce tableau melange les deux sources : « Vues totales », « Likes » et « Durée »
+          viennent de la Data API v3 (temps reel), « Vues 30j » et « Retention » de
+          l'Analytics API (J-3). D'ou une mention qui precise QUELLES colonnes sont en
+          retard, plutot qu'un badge global qui laisserait croire que tout l'est. */}
+      <Card title={`Vidéos (${yt.videos.length})`} sub={`Clic → courbe de rétention${ytLagSuffix ? ` · vues 30j et rétention en J-${ytDataLagDays}` : ''}`}>
         {/* Filtre Short / Vidéo / Tous */}
         <div style={{ display: 'flex', gap: 3, background: 'var(--surface-2)', borderRadius: 7, padding: 3, marginBottom: 12, width: 'fit-content' }}>
           {([['all', 'Tous'], ['short', 'Short'], ['long', 'Vidéo']] as const).map(([key, label]) => (
