@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Icon from '@/components/ui/Icon';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
@@ -35,6 +36,7 @@ function LoadingDots() {
 
 export default function PageClientSettings() {
   const supabase = createClient();
+  const searchParams = useSearchParams();
   const { refreshUser } = useUser();
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -105,6 +107,22 @@ export default function PageClientSettings() {
     setTimeout(() => setToast(null), 3000);
   }
 
+  // Confirmation apres un retour de connexion OAuth.
+  //
+  // Le callback renvoie deja `?connected=<provider>` (ou `?error=`), mais seule la
+  // page coach l'exploitait : cote eleve, on revenait sur les Reglages sans le moindre
+  // signe que la connexion avait abouti. Rien ne distinguait un succes d'un abandon
+  // (demande de Chris, 2026-08-22).
+  useEffect(() => {
+    const connected = searchParams.get('connected');
+    if (connected) {
+      const nom = INTEGRATIONS.find(i => i.provider === connected)?.name || connected;
+      showToast(`${nom} connecté avec succès ✓`);
+    }
+    const erreur = searchParams.get('error');
+    if (erreur) showToast(`Erreur de connexion (${erreur})`);
+  }, [searchParams]);
+
   async function saveKey(provider: Provider) {
     if (!profileId || !keyInput.trim()) return;
     setKeyError(null);
@@ -138,14 +156,27 @@ export default function PageClientSettings() {
 
     const { data: existing } = await supabase.from('integrations').select('id, first_connected_at').eq('profile_id', profileId).eq('provider', provider).single();
     const connectedNow = new Date().toISOString();
-    if (existing) {
-      await supabase.from('integrations').update({
-        api_key: key, account_label: label, metadata, connected_at: connectedNow,
-        first_connected_at: existing.first_connected_at || connectedNow,
-        ...clearOauth,
-      }).eq('id', existing.id);
-    } else {
-      await supabase.from('integrations').insert({ profile_id: profileId, provider, api_key: key, account_label: label, metadata, first_connected_at: connectedNow });
+    // L'ecriture est VERIFIEE avant d'annoncer « Connecte ».
+    //
+    // Avant, ni l'update ni l'insert ne regardaient leur erreur : une ecriture refusee
+    // (RLS, contrainte, coupure reseau) laissait quand meme l'ecran basculer en
+    // « Connecte ». L'eleve croyait son compte branche alors que la ligne etait
+    // incomplete ou absente, et le cron le sautait en silence.
+    //
+    // Constate le 2026-08-22 sur un profil dont les lignes Instagram et Short.io
+    // existaient sans aucun identifiant, tout en affichant « Connecte ».
+    const { error: ecritureErr } = existing
+      ? await supabase.from('integrations').update({
+          api_key: key, account_label: label, metadata, connected_at: connectedNow,
+          first_connected_at: existing.first_connected_at || connectedNow,
+          ...clearOauth,
+        }).eq('id', existing.id)
+      : await supabase.from('integrations').insert({ profile_id: profileId, provider, api_key: key, account_label: label, metadata, first_connected_at: connectedNow });
+
+    if (ecritureErr) {
+      setSaving(false);
+      setKeyError(`Enregistrement impossible : ${ecritureErr.message}`);
+      return;
     }
 
     setIntegrations(prev => ({ ...prev, [provider]: true }));
@@ -228,11 +259,17 @@ export default function PageClientSettings() {
 
   return (
     <div className="page-content">
-      {toast && (
-        <div className="settings-toast" style={{ position: 'fixed', top: 20, right: 20, zIndex: 9999, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 18px', fontSize: 13, color: 'var(--accent)', boxShadow: 'var(--shadow-elev)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Icon name="check" size={14} /> {toast}
-        </div>
-      )}
+      {/* Vert sur un succes, rouge sur une erreur : le fond neutre ne distinguait pas
+          « Instagram connecte » d'« Erreur de connexion », alors que les deux passent
+          par ce meme bandeau. */}
+      {toast && (() => {
+        const estErreur = /erreur|impossible|invalide|échec/i.test(toast);
+        return (
+          <div className="settings-toast" style={{ position: 'fixed', top: 20, right: 20, zIndex: 9999, background: estErreur ? '#fef2f2' : '#f0fdf4', border: `1px solid ${estErreur ? '#fca5a5' : '#86efac'}`, borderRadius: 10, padding: '12px 18px', fontSize: 13, fontWeight: 600, color: estErreur ? '#b91c1c' : '#15803d', boxShadow: 'var(--shadow-elev)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Icon name={estErreur ? 'x' : 'check'} size={14} /> {toast}
+          </div>
+        );
+      })()}
 
       <div className="page-header">
         <h1 className="page-title">Réglages</h1>

@@ -40,7 +40,7 @@ function AttachmentList({ attachments }: { attachments: TaskAttachment[] }) {
       {attachments.map(att => (
         <a key={att.id} href={att.file_url} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'var(--surface)', borderRadius: 6, border: '1px solid var(--border)', fontSize: 12, color: 'var(--accent-brand)' }}>
           {att.thumbnail_url ? (
-            <img src={att.thumbnail_url} alt="" style={{ width: 24, height: 24, borderRadius: 4, objectFit: 'cover', flexShrink: 0 }} />
+            <img loading="lazy" decoding="async" src={att.thumbnail_url} alt="" style={{ width: 24, height: 24, borderRadius: 4, objectFit: 'cover', flexShrink: 0 }} />
           ) : (
             <Icon name="file" size={13} style={{ flexShrink: 0 }} />
           )}

@@ -1141,7 +1141,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
                   onMouseLeave={e => { e.currentTarget.style.background = ''; }}>
                   <td style={{ padding: '8px 8px', width: 52 }}>
                     {c.thumbnail ? (
-                      <img src={c.thumbnail} alt="" style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
+                      <img loading="lazy" decoding="async" src={c.thumbnail} alt="" style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
                     ) : (
                       <div style={{ width: 44, height: 44, borderRadius: 6, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
                         {c.platform === 'YT' ? '▶' : '📷'}
@@ -1576,7 +1576,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                 onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}>
                 <div style={{ position: 'relative', aspectRatio: '1', background: 'var(--surface-2)' }}>
                   {post.thumbnail
-                    ? <img src={post.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ? <img loading="lazy" decoding="async" src={post.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--faint)', fontSize: 24 }}>🎬</div>}
                   <div style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,.6)', color: '#fff', fontSize: 9, padding: '2px 5px', borderRadius: 4, fontWeight: 600 }}>
                     {isReel ? 'REEL' : post.type === 'CAROUSEL_ALBUM' ? 'CAROUSEL' : 'IMAGE'}
@@ -1624,7 +1624,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                 onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}>
                 <div style={{ position: 'relative', aspectRatio: '1', background: 'var(--surface-2)' }}>
                   {s.storage_url
-                    ? <img src={s.storage_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ? <img loading="lazy" decoding="async" src={s.storage_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--faint)', fontSize: 24 }}>📸</div>}
                   {(s.lm_keyword || s.calendly_short_url) && (
                     <div style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,.6)', color: '#fff', fontSize: 9, padding: '2px 5px', borderRadius: 4, fontWeight: 600 }}>CTA</div>
@@ -1651,7 +1651,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
               onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}>
               <div style={{ position: 'relative', aspectRatio: '1', background: 'var(--surface-2)' }}>
                 {seq.thumbnail
-                  ? <img src={seq.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ? <img loading="lazy" decoding="async" src={seq.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--faint)', fontSize: 24 }}>📸</div>}
                 <div style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,.6)', color: '#fff', fontSize: 9, padding: '2px 5px', borderRadius: 4, fontWeight: 600 }}>
                   {seq.story_count} story{seq.story_count > 1 ? 'ies' : ''}
@@ -1962,7 +1962,7 @@ function StorySequenceDetailModal({ profileId, sequence, onClose }: { profileId?
                 return (
                   <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div style={{ width: 32, height: 32, borderRadius: 6, overflow: 'hidden', flexShrink: 0, background: 'var(--surface-2)' }}>
-                      {s.storage_url && <img src={s.storage_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                      {s.storage_url && <img loading="lazy" decoding="async" src={s.storage_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ height: 16, borderRadius: 4, background: 'var(--accent)', width: `${barWidth}%`, minWidth: 4 }} />
@@ -2853,7 +2853,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
                 onMouseLeave={e => (e.currentTarget.style.background = '')}>
                 <td style={{ padding: '10px' }}>
-                  {v.thumbnail ? <img src={v.thumbnail} alt="" style={{ width: 56, height: 32, objectFit: 'cover', borderRadius: 4 }} /> : <div style={{ width: 56, height: 32, borderRadius: 4, background: 'var(--surface-2)' }} />}
+                  {v.thumbnail ? <img loading="lazy" decoding="async" src={v.thumbnail} alt="" style={{ width: 56, height: 32, objectFit: 'cover', borderRadius: 4 }} /> : <div style={{ width: 56, height: 32, borderRadius: 4, background: 'var(--surface-2)' }} />}
                 </td>
                 <td style={{ padding: '10px', maxWidth: 200 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.title}</div>
@@ -3159,7 +3159,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
         <ModalOverlay onClose={() => { setSelectedVideo(null); setRetention(null); setRetentionSummary(null); }} maxWidth={640}>
           <div style={{ background: 'var(--surface)', borderRadius: 14, padding: 24, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', gap: 14, marginBottom: 16 }}>
-              {selectedVideo.thumbnail ? <img src={selectedVideo.thumbnail} alt="" style={{ width: 120, height: 68, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }} /> : <div style={{ width: 120, height: 68, borderRadius: 8, background: 'var(--surface-2)', flexShrink: 0 }} />}
+              {selectedVideo.thumbnail ? <img loading="lazy" decoding="async" src={selectedVideo.thumbnail} alt="" style={{ width: 120, height: 68, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }} /> : <div style={{ width: 120, height: 68, borderRadius: 8, background: 'var(--surface-2)', flexShrink: 0 }} />}
               <div>
                 <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.3, marginBottom: 4 }}>{selectedVideo.title}</div>
                 <div style={{ fontSize: 11, color: 'var(--muted)' }}>{new Date(selectedVideo.publishedAt).toLocaleDateString('fr-FR', { dateStyle: 'long' })} · {selectedVideo.duration} · {selectedVideo.isShort ? 'Short' : 'Vidéo'}</div>
@@ -5807,7 +5807,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                       onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = ''; }}>
                       <td style={{ position: 'sticky', left: 0, zIndex: 1, background: isSelected ? BLUE + '15' : 'var(--surface)', padding: '8px 10px', width: 40 }}>
                         {row.thumbnail
-                          ? <img src={row.thumbnail} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
+                          ? <img loading="lazy" decoding="async" src={row.thumbnail} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
                           : <div style={{ width: 36, height: 36, borderRadius: 6, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>{row.platform === 'IG' ? '📷' : row.platform === 'STORY_SEQUENCE' ? '📸' : '▶️'}</div>}
                       </td>
                       <td style={{ position: 'sticky', left: 44, zIndex: 1, background: isSelected ? BLUE + '15' : 'var(--surface)', padding: '8px 10px', maxWidth: 200 }}>
@@ -5908,7 +5908,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                           onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = ''; }}>
                           <td style={{ position: 'sticky', left: 0, zIndex: 1, background: isSelected ? BLUE + '15' : 'var(--surface)', padding: '8px 10px', width: 40 }}>
                             {row.thumbnail
-                              ? <img src={row.thumbnail} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
+                              ? <img loading="lazy" decoding="async" src={row.thumbnail} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
                               : <div style={{ width: 36, height: 36, borderRadius: 6, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>{row.platform === 'IG' ? '📷' : row.platform === 'STORY_SEQUENCE' ? '📸' : '▶️'}</div>}
                           </td>
                           <td style={{ position: 'sticky', left: 44, zIndex: 1, background: isSelected ? BLUE + '15' : 'var(--surface)', padding: '8px 10px', maxWidth: 200 }}>
@@ -6028,7 +6028,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
               {/* Header modal */}
               <div style={{ padding: '22px 26px 18px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', gap: 14 }}>
                 <div style={{ width: 56, height: 56, borderRadius: 10, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>
-                  {row.thumbnail ? <img src={row.thumbnail} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 10 }} /> : (row.platform === 'IG' ? '📷' : row.platform === 'STORY_SEQUENCE' ? '📸' : '▶️')}
+                  {row.thumbnail ? <img loading="lazy" decoding="async" src={row.thumbnail} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 10 }} /> : (row.platform === 'IG' ? '📷' : row.platform === 'STORY_SEQUENCE' ? '📸' : '▶️')}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4, lineHeight: 1.3 }}>{row.title}</div>

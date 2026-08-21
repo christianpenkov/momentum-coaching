@@ -1057,7 +1057,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
           <>
             <div style={{ borderRadius: 10, overflow: 'hidden', minWidth: 220, maxWidth: 280, background: isMe ? 'rgba(255,255,255,0.10)' : 'var(--surface-2)' }}>
               {msg.thumbnail_url ? (
-                <img src={msg.thumbnail_url} alt="" style={{ width: '100%', height: 140, objectFit: 'cover', objectPosition: 'top', display: 'block', borderBottom: '1px solid var(--border-soft)' }} />
+                <img loading="lazy" decoding="async" src={msg.thumbnail_url} alt="" style={{ width: '100%', height: 140, objectFit: 'cover', objectPosition: 'top', display: 'block', borderBottom: '1px solid var(--border-soft)' }} />
               ) : getFileExt(msg.text || '').toLowerCase() === 'pdf' ? (
                 <div style={{ background: '#fff', height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid var(--border-soft)' }}>
                   <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>

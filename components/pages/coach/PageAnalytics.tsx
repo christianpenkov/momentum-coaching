@@ -230,7 +230,7 @@ export default function PageAnalytics() {
                             overflow: 'hidden',
                           }}>
                             {c.avatar_url
-                              ? <img src={c.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              ? <img loading="lazy" decoding="async" src={c.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                               : getInitials(c.name)}
                           </div>
                           <div>
