@@ -2690,6 +2690,20 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                     <> · délai Google 2-3j, dernière donnée : {ytLastEngagementDateFmt}</>
                   )}
                 </div>
+                {/* L'API YouTube renvoie estimatedMinutesWatched en minutes ENTIERES.
+                    Sur une chaine peu active, la plupart des journees tombent donc a 0
+                    alors qu'il y a eu du visionnage : verifie en base le 2026-08-21, 30
+                    des 35 jours mesures affichaient 0, dont 15 ou l'on sait qu'il y a eu
+                    des vues — environ 10 minutes effacees par l'arrondi.
+                    On garde la valeur de l'API (jamais de chiffre reconstitue, choix de
+                    Chris) et on explique le zero plutot que de le laisser passer pour une
+                    absence de visionnage. */}
+                {statModal.label.includes('Watch time') && !statModal.label.includes('moyen') && (
+                  <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 3, maxWidth: 460, lineHeight: 1.4 }}>
+                    YouTube arrondit à la minute entière : une journée avec moins de 30 secondes
+                    de visionnage apparaît à 0.
+                  </div>
+                )}
               </div>
               <button onClick={() => setStatModal(null)} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--muted)', lineHeight: 1 }}>×</button>
             </div>
