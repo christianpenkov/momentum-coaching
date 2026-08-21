@@ -104,11 +104,38 @@ chaîne. La doc ne suffit pas.
 
 ---
 
-## Métriques non auditées
+## Rétention par vidéo — auditée, chaîne saine
 
-Sources de trafic, appareils, démographie, mots-clés de recherche, rétention par vidéo.
-Elles s'affichent, mais leur chaîne n'a pas été remontée jusqu'à l'API.
+Seule métrique de cet onglet dont la chaîne était correcte de bout en bout :
 
-Deux métriques réelles disponibles et **inexploitées** : `engagedViews` (537 vues engagées
-sur 2 012 pour une vidéo — combien ont vraiment regardé) et la courbe de rétention par
-vidéo (100 points via `elapsedVideoTimeRatio`).
+- **Requête** : `audienceWatchRatio` par `elapsedVideoTimeRatio`, la seule combinaison
+  de rétention que cette chaîne accepte (vérifié : `dimensions=video` est refusé).
+- **Fenêtre** : depuis la publication de la vidéo, pas 30 jours — correct pour une
+  rétention, qui doit couvrir toute la vie du contenu. Repli à 365 jours si la date de
+  publication manque, cas défensif jamais atteint (elle est toujours transmise).
+- **Tri** : `sort=elapsedVideoTimeRatio` demandé à l'API **et** re-trié côté serveur.
+- **Affichage** : ratio converti en secondes réelles quand la durée est connue, en
+  pourcentage sinon.
+
+## Vues engagées — ajoutées
+
+`engagedViews` distingue les spectateurs qui ont **vraiment regardé** d'une vue comptée
+dès les premières secondes. Métrique Shorts introduite par YouTube en 2025, disponible
+sur cette chaîne (537 vues engagées sur 2 012 pour `awrGQJIdthA`, soit 27 %).
+
+Ajoutée à la modale de chaque vidéo, avec son ratio. **Sans appel supplémentaire** :
+`views` et `engagedViews` ont été ajoutés à la requête de résumé qui existait déjà.
+
+## Mots-clés de recherche — vide, et c'est normal
+
+Colonne `yt_search_keywords` créée et collectée, mais l'API renvoie un tableau vide
+malgré 27 vues venant de la recherche.
+
+**Ce n'est pas un bug.** La documentation Google est explicite : « pour garantir
+l'anonymat des spectateurs, les valeurs de certaines dimensions ne sont renvoyées que si
+une métrique de la même ligne atteint un certain seuil » et « les termes de recherche qui
+génèrent très peu de vues n'apparaîtront pas dans les rapports ». Les 27 vues sont
+réparties sur trop de termes pour qu'aucun n'atteigne le seuil.
+
+Même mécanisme que la démographie. Le bloc affiche un message explicite plutôt qu'un vide
+inexpliqué.

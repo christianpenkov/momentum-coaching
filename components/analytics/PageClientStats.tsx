@@ -1616,7 +1616,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   const VIDEOS_PREVIEW = 5;
   const [videosSortDir, setVideosSortDir] = useState<'desc' | 'asc'>('desc');
   const [retention, setRetention] = useState<{ ratio: number; watchRatio: number }[] | null>(null);
-  const [retentionSummary, setRetentionSummary] = useState<{ avgViewDurationSec: number | null; avgViewPercentage: number | null; watchTimeMin: number | null; likes: number | null; comments: number | null; shares: number | null } | null>(null);
+  const [retentionSummary, setRetentionSummary] = useState<{ avgViewDurationSec: number | null; avgViewPercentage: number | null; watchTimeMin: number | null; likes: number | null; comments: number | null; shares: number | null; viewsPeriod: number | null; engagedViews: number | null } | null>(null);
   const [loadingRetention, setLoadingRetention] = useState(false);
   const [videoCtr, setVideoCtr] = useState<number | null>(null);
   const [jobCreatedAt, setJobCreatedAt] = useState<string | null>(null);
@@ -1641,6 +1641,8 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
         likes: retData.likes ?? null,
         comments: retData.comments ?? null,
         shares: retData.shares ?? null,
+        viewsPeriod: retData.viewsPeriod ?? null,
+        engagedViews: retData.engagedViews ?? null,
       });
       if (ctrRes.ok) {
         const ctrData = await ctrRes.json();
@@ -2328,6 +2330,16 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
               {[
                 ['Vues totales', fmt(selectedVideo.views)],
+                // Vues engagees : spectateurs qui ont vraiment regarde, par opposition a
+                // une vue comptee des les premieres secondes. Le ratio dit combien de
+                // curieux sont devenus de vrais spectateurs.
+                ['Vues engagées', loadingRetention ? <MiniLoadingDots /> : (() => {
+                  const ev = retentionSummary?.engagedViews;
+                  const vp = retentionSummary?.viewsPeriod;
+                  if (ev == null) return '—';
+                  if (!vp) return fmt(ev);
+                  return `${fmt(ev)} (${Math.round((ev / vp) * 100)}%)`;
+                })()],
                 ['Watch time total', loadingRetention ? <MiniLoadingDots /> : (() => {
                   const min = retentionSummary?.watchTimeMin ?? null;
                   if (min === null) return '—';
