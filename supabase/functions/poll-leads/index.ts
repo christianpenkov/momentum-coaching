@@ -66,6 +66,30 @@ async function safeJson(res: Response): Promise<any> {
   try { return await res.json(); } catch { return {}; }
 }
 
+/**
+ * Le quota Instagram vaut « 4800 x impressions sur 24 h », propre a chaque compte.
+ * Un compte peu actif dispose donc de tres peu d'appels — la documentation Meta le dit
+ * explicitement : « a brand-new account with almost no impressions gets almost no API
+ * quota », parfois « just a few hundred calls per day ». Meta prevoit un plancher de
+ * 10 impressions pour Threads, mais PAS pour Instagram.
+ *
+ * Sur le compte de test, 18 journees sur 80 ont un reach a zero — une sur cinq.
+ *
+ * On ne peut pas anticiper ce plafond : `x-business-use-case-usage`, qui donnerait le
+ * pourcentage consomme PAR COMPTE, n'est pas renvoye par graph.instagram.com (verifie
+ * le 2026-08-22 ; seul `x-app-usage` l'est, et il mesure l'application entiere, pas le
+ * compte). Le seul signal fiable est donc l'erreur elle-meme.
+ *
+ * Code 4 = rate limit applicatif, 17 = limite utilisateur, 80002 = quota business
+ * epuise, 429 = trop de requetes. Detecter n'importe lequel suffit.
+ */
+function estErreurQuota(res: Response, body: any): boolean {
+  if (res.status === 429) return true;
+  const code = body?.error?.code;
+  const sub = body?.error?.error_subcode;
+  return code === 4 || code === 17 || code === 32 || code === 80002 || sub === 2207051;
+}
+
 // Deno-native gunzip (remplace Node zlib.gunzipSync)
 async function gunzip(buf: ArrayBuffer): Promise<string> {
   const bytes = new Uint8Array(buf);
@@ -185,6 +209,17 @@ async function fetchIgDayMetrics(token: string, igAccountId: string, date: strin
     safeJson(accountRes), safeJson(insightsRes), safeJson(insightsTvRes),
     safeJson(engagedRes), safeJson(reachBdRes),
   ]);
+
+  // Quota epuise : on le signale a l'appelant en levant, plutot que de rendre des
+  // metriques vides qui ressembleraient a « ce compte n'a rien fait aujourd'hui ».
+  // L'appelant ralentira la cadence de ce profil pour laisser le quota se reconstituer.
+  const reponses: [Response, any][] = [
+    [accountRes, accountData], [insightsRes, insightsData],
+    [insightsTvRes, insightsTvData], [engagedRes, engagedData], [reachBdRes, reachBdData],
+  ];
+  if (reponses.some(([r, b]) => estErreurQuota(r, b))) {
+    throw new Error('ig_quota_epuise');
+  }
 
   const insightMap: Record<string, number[]> = {};
   for (const metric of insightsData?.data || []) {
@@ -1580,7 +1615,29 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
       // destructures. Sur une base sans trou, la fonction sort avant tout appel reseau.
       igRattrapageAFaire ? rattraperTrousIg(profileId, igCreds.token, igCreds.igAccountId) : Promise.resolve([] as string[]),
     ]);
-    if (igMetricsResult.status === 'rejected') errors.push(`ig_fetch: ${igMetricsResult.reason?.message || 'unknown'}`);
+    if (igMetricsResult.status === 'rejected') {
+      const msg = igMetricsResult.reason?.message || 'unknown';
+      errors.push(`ig_fetch: ${msg}`);
+      // Quota epuise : on repousse la prochaine tentative de 24 h au lieu d'une heure.
+      //
+      // C'est le seul garde-fou possible : le quota Instagram vaut 4800 x impressions
+      // sur 24 h et n'est PAS observable a l'avance (l'en-tete qui donnerait le
+      // pourcentage par compte n'est pas renvoye par graph.instagram.com). On ne peut
+      // donc que reagir a l'erreur.
+      //
+      // La cadence remonte SEULE : des que le compte regagne de l'audience, son quota
+      // grandit, l'appel du lendemain passe, et le rythme horaire reprend sans aucune
+      // intervention. Rien a surveiller, rien a reparametrer.
+      if (msg.includes('ig_quota_epuise')) {
+        await supa.from('integrations')
+          .update({
+            last_synced_at: new Date(Date.now() + 23 * 60 * 60 * 1000).toISOString(),
+            last_snapshot_error: 'ig_quota: quota Instagram epuise, prochaine tentative dans 24 h',
+          })
+          .eq('profile_id', profileId).eq('provider', 'instagram');
+        console.warn(`[poll-leads] ig_quota_epuise profile=${profileId} — cadence repoussee a 24 h`);
+      }
+    }
     if (igPostsResult.status === 'fulfilled') errors.push(...igPostsResult.value);
     else errors.push(`ig_posts: ${igPostsResult.reason?.message || 'unknown'}`);
     if (igRattrapageResult.status === 'fulfilled') errors.push(...igRattrapageResult.value);
