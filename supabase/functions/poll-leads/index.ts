@@ -414,6 +414,9 @@ async function getYtToken(profileId: string): Promise<string | null> {
 
 async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate: string) {
   const auth = { Authorization: `Bearer ${accessToken}` };
+  // 30 jours glissants avant endDate — fenetre des repartitions (voir plus bas).
+  const repartitionStart = new Date(new Date(endDate).getTime() - 30 * 86400_000)
+    .toISOString().split('T')[0];
   const [channelRes, analyticsRes, byTypeRes, trafficRes, devicesRes, demoRes] = await Promise.all([
     fetch('https://www.googleapis.com/youtube/v3/channels?part=statistics&mine=true', { headers: auth }),
     fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,estimatedMinutesWatched,subscribersGained,subscribersLost,likes,comments,shares,averageViewDuration&dimensions=day&sort=day`, { headers: auth }),
@@ -423,16 +426,22 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
     // longues — distinction que yt_avg_view_duration_sec (tous formats confondus) ne
     // permet pas, et qui était donc simulée jusqu'au 2026-08-20.
     fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,averageViewDuration&dimensions=day,creatorContentType&sort=day`, { headers: auth }),
-    // Sources de trafic, appareils et demographie : agreges sur toute la fenetre (pas
-    // par jour — ces repartitions n'ont de sens que cumulees). Stockes en JSONB sur la
-    // ligne du dernier jour, que l'affichage lit en mode historique.
+    // Sources de trafic, appareils et demographie : repartitions CUMULEES, pas des
+    // series journalieres. Stockees en JSONB sur la ligne du dernier jour, que
+    // l'affichage lit en mode historique.
+    //
+    // ⚠️ Fenetre de 30 JOURS, pas celle passee en parametre : le cron n'interroge que
+    // les 3 derniers jours pour les metriques journalieres (suffisant, elles sont
+    // reecrites chaque jour), mais une repartition sur 3 jours ne veut rien dire —
+    // l'affichage attend « les sources de trafic des 30 derniers jours ». Constate le
+    // 2026-08-21 : la base ne contenait qu'une source (YT_SEARCH, 1 vue) la ou l'API
+    // sur 30 jours en renvoie sept.
     //
     // Ces trois colonnes existaient et etaient LUES par PageClientStats, mais aucun code
-    // ne les ecrivait : 266 lignes en base, 0 remplie. Les blocs correspondants etaient
-    // donc vides des qu'on quittait la periode courante (constate le 2026-08-20).
-    fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,estimatedMinutesWatched&dimensions=insightTrafficSourceType&sort=-views`, { headers: auth }),
-    fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,estimatedMinutesWatched&dimensions=deviceType&sort=-views`, { headers: auth }),
-    fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=viewerPercentage&dimensions=ageGroup,gender`, { headers: auth }),
+    // ne les ecrivait : 266 lignes en base, 0 remplie.
+    fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=views,estimatedMinutesWatched&dimensions=insightTrafficSourceType&sort=-views`, { headers: auth }),
+    fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=views,estimatedMinutesWatched&dimensions=deviceType&sort=-views`, { headers: auth }),
+    fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=viewerPercentage&dimensions=ageGroup,gender`, { headers: auth }),
   ]);
   // D1 : un statut HTTP non-2xx sur l'Analytics API (429 rate limit, 5xx...) doit
   // être une vraie erreur, pas silencieusement traité comme "pas encore de données".

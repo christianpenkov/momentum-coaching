@@ -5826,6 +5826,13 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   // passés) : on cherche le snapshot le plus récent qui a réellement une valeur.
   const lastSnap = snaps[0] ?? null;
   const lastSnapWithYtSubs = snaps.find(r => r.yt_subscribers != null) ?? null;
+  // Repartitions (trafic / appareils / demographie) : portees par UNE seule ligne de la
+  // periode, celle du dernier jour traite par le cron. Prendre lastSnap tout court
+  // renvoyait un tableau vide des que ce n'etait pas la premiere ligne — meme motif que
+  // lastSnapWithYtSubs juste au-dessus.
+  const lastSnapWithTraffic = snaps.find(r => r.yt_traffic_sources != null) ?? null;
+  const lastSnapWithDevices = snaps.find(r => r.yt_devices != null) ?? null;
+  const lastSnapWithDemo    = snaps.find(r => r.yt_demographics != null) ?? null;
 
   // ── IG ──────────────────────────────────────────────────────────────────────
   const igReachTotal  = snaps.reduce((s, r) => s + (r.ig_reach ?? 0), 0);
@@ -5973,9 +5980,13 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       viewsLong:         r.yt_views_long ?? null,
     })),
     videos: ytVideos,
-    trafficSources: lastSnap?.yt_traffic_sources ?? [],
-    devices:         lastSnap?.yt_devices ?? [],
-    demographics:    lastSnap?.yt_demographics ?? [],
+    trafficSources: lastSnapWithTraffic?.yt_traffic_sources ?? [],
+    devices:         lastSnapWithDevices?.yt_devices ?? [],
+    demographics:    lastSnapWithDemo?.yt_demographics ?? [],
+    // TODO — mots-cles de recherche non stockes : aucune colonne ne les porte, donc le
+    // bloc « Mots-cles de recherche » est vide en mode historique (il fonctionne en
+    // periode courante, lu en direct depuis l'API). Meme defaut que trafic/appareils/
+    // demographie avant le 2026-08-21, mais celui-ci demande une colonne en plus.
     searchKeywords:  [],
     channelName: null,
     channelThumbnail: null,
