@@ -1,4 +1,4 @@
-// SW v9 — push + coquille hors ligne
+// SW v10 — push + coquille hors ligne
 //
 // Strategie volontairement minimale, alignee sur les recommandations courantes :
 //   - navigations : RESEAU D'ABORD, repli sur /offline.html si le reseau echoue.
@@ -34,7 +34,7 @@ function swLog(event, data) {
 }
 
 self.addEventListener('install', e => {
-  swLog('install', { msg: 'SW v9 installing', ts: Date.now() });
+  swLog('install', { msg: 'SW v10 installing', ts: Date.now() });
   e.waitUntil(
     // L'ecran hors ligne doit etre en cache AVANT d'en avoir besoin : au moment
     // ou le reseau manque, il est trop tard pour le telecharger.
@@ -129,7 +129,12 @@ self.addEventListener('push', e => {
             // Miniature large affichée dans la notification (photo envoyée, ou
             // miniature PDF pour un document) — absent pour les messages texte/vocal.
             ...(payload.image ? { image: payload.image } : {}),
-            tag: 'momentum-msg',
+            // Un tag PARTAGÉ fait qu'une notification remplace la précédente :
+            // c'est voulu pour la messagerie (un seul badge de conversation),
+            // mais pas pour des rappels distincts — deux échéances tombant le
+            // même jour n'en laisseraient qu'une visible. L'émetteur peut donc
+            // imposer son propre tag ; à défaut on garde l'ancien comportement.
+            tag: payload.tag || 'momentum-msg',
             renotify: true,
             // requireInteraction + vibrate — pousse Android à traiter la notif comme
             // prioritaire (heads-up) plutôt que la déposer silencieusement dans le tiroir.

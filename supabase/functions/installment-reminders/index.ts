@@ -25,7 +25,7 @@ const sb = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 );
 
-async function sendPushToProfile(profileId: string, title: string, body: string, url: string) {
+async function sendPushToProfile(profileId: string, title: string, body: string, url: string, tag?: string) {
   const { data: subs } = await sb
     .from('push_subscriptions')
     .select('endpoint, p256dh, auth')
@@ -39,7 +39,7 @@ async function sendPushToProfile(profileId: string, title: string, body: string,
     Deno.env.get('VAPID_PRIVATE_KEY')!.trim()
   );
 
-  const payload = JSON.stringify({ title, body, url });
+  const payload = JSON.stringify({ title, body, url, tag });
 
   const results = await Promise.all(
     subs.map(sub =>
@@ -61,6 +61,13 @@ async function sendPushToProfile(profileId: string, title: string, body: string,
 
 function fmtEur(n: number): string {
   return `${Math.round(n).toLocaleString('fr-FR')} €`;
+}
+
+/** « 19 septembre » — sans l'année, inutile sur un rappel à quelques jours. */
+function fmtJour(iso: string): string {
+  return new Date(`${iso}T12:00:00Z`).toLocaleDateString('fr-FR', {
+    day: 'numeric', month: 'long', timeZone: 'UTC',
+  });
 }
 
 Deno.serve(async (req) => {
@@ -122,7 +129,8 @@ Deno.serve(async (req) => {
             : dejaEnvoye
               ? `${qui} · ${montant} — lien déjà envoyé, paiement attendu`
               : `${qui} · ${montant} — pense à envoyer le lien`,
-          '/paiements',
+          `/paiements?deal=${d.id}`,
+          `echeance-${r.id}-before`,
         );
         await sb.from('deal_installments')
           .update({ reminder_before_sent_at: new Date().toISOString() })
@@ -139,13 +147,18 @@ Deno.serve(async (req) => {
         // explicitement coché la case.
         await sendPushToProfile(
           d.profile_id,
-          `Échéance ${r.rank}/${total} en retard`,
+          // La date d'échéance plutôt qu'un « en retard » sans repère : elle dit
+          // d'un coup d'œil s'il s'agit de deux jours ou de trois semaines.
+          `Échéance ${r.rank}/${total} due le ${fmtJour(r.due_on)}`,
           horsStripe
             ? `${qui} · ${montant} — le virement est-il arrivé ?`
             : r.sent_at
               ? `${qui} · ${montant} — lien envoyé, toujours pas payé`
               : `${qui} · ${montant} — le lien n'a jamais été envoyé`,
-          '/paiements',
+          `/paiements?deal=${d.id}`,
+          // Tag propre à cette échéance : sans lui, deux rappels du même jour
+          // se remplaceraient l'un l'autre dans le centre de notifications.
+          `echeance-${r.id}-late`,
         );
         await sb.from('deal_installments')
           .update({ reminder_late_sent_at: new Date().toISOString() })

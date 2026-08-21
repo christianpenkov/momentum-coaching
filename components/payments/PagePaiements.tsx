@@ -30,6 +30,15 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
   const [search, setSearch] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
   const [openDeal, setOpenDeal] = useState<string | null>(null);
+
+  // ?deal=<id> ouvre directement le panneau de détail : une notification de
+  // rappel doit mener à la personne concernée, pas à une liste où il faut la
+  // retrouver. Lu une seule fois au montage — ensuite l'état local prime, pour
+  // que fermer le panneau ne le rouvre pas au rendu suivant.
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('deal');
+    if (id) setOpenDeal(id);
+  }, []);
   const [creating, setCreating] = useState(false);
   const isMobile = useIsMobile();
 
@@ -188,7 +197,11 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
 
       </>}
 
-      {openDeal && data && (
+      {/* Le deal doit exister : depuis qu'un ?deal=<id> peut venir d'une
+          notification, l'id peut désigner un deal supprimé ou d'un autre
+          profil — sans cette garde, DealPanel recevrait undefined et
+          planterait à l'ouverture de la page. */}
+      {openDeal && data && deals.some(d => d.id === openDeal) && (
         <DealPanel
           deal={deals.find(d => d.id === openDeal)!}
           detail={data.details[openDeal]}
