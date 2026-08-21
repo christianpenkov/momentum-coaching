@@ -1964,7 +1964,7 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
       // contradiction.
       cle: 'commentaires', libelle: 'Commentaires', valeur: entonnoir.commentaires,
       duo: post.comments != null
-        ? { gauche: post.comments, gaucheAide: 'en ligne', droite: entonnoir.commentaires, droiteAide: 'mot-clé' }
+        ? { gauche: post.comments, gaucheAide: 'Total', droite: entonnoir.commentaires, droiteAide: 'Lead Magnets' }
         : undefined,
       precision: post.comments != null ? undefined : 'avec le mot-clé',
     },
@@ -1994,7 +1994,7 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {!isYT && entonnoir.pret && etapes.length > 1 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-          <div className="eyebrow-sm" style={{ color: MUTED }}>Entonnoir de ce contenu</div>
+          <div className="eyebrow-sm" style={{ color: INK }}>Entonnoir de ce contenu</div>
 
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
             {etapes.map((e, i) => {
@@ -2009,17 +2009,17 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
                       border: `1px solid ${BORDER}`, borderRadius: 10, background: SURFACE,
                       padding: '9px 6px',
                     }}>
-                      <div style={{ fontSize: 10, color: MUTED, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.libelle}</div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: INK, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.libelle}</div>
 
                       {e.duo ? (
                         // Deux chiffres, séparés par un filet : le total à gauche,
-                        // celui qui déclenche la séquence à droite. Le droit porte
-                        // l'encre pleine — c'est lui qui alimente la marche
-                        // suivante et qui compte pour le taux ; le gauche reste en
-                        // gris, c'est un contexte.
+                        // celui qui déclenche la séquence à droite. Même encre
+                        // pour les deux — ce sont deux mesures de plein droit, et
+                        // griser la première la faisait passer pour une note de
+                        // bas de page. Ce sont les libellés qui les distinguent.
                         <div style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center', gap: 8, marginTop: 2 }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 17, fontWeight: 700, color: MUTED, fontVariantNumeric: 'tabular-nums' }}>
+                            <div style={{ fontSize: 17, fontWeight: 700, color: INK, fontVariantNumeric: 'tabular-nums' }}>
                               {e.duo.gauche.toLocaleString('fr-FR')}
                             </div>
                             <div style={{ fontSize: 9, color: FAINT, marginTop: 1, lineHeight: 1.3 }}>{e.duo.gaucheAide}</div>
