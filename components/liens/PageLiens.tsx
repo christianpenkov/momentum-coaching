@@ -3004,11 +3004,17 @@ function RailContenus({ posts, rightView, ouvert, epingle, onRetour, onEpingler,
         initial={false}
         animate={{ width: ouvert ? 250 : 56 }}
         transition={ressort}
+        className={ouvert ? undefined : 'rail-sans-scrollbar'}
         style={{
           flexShrink: 0, borderRight: `1px solid ${BORDER}`, background: BG,
           padding: '11px 0', display: 'flex', flexDirection: 'column',
           alignItems: ouvert ? 'stretch' : 'center', gap: 4,
-          boxSizing: 'border-box', overflowY: 'auto', overflowX: 'hidden',
+          boxSizing: 'border-box', overflowX: 'hidden',
+          // Barre de défilement masquée quand le rail est replié : sur 56px elle
+          // mange une part visible de la largeur et recouvre le bord des
+          // miniatures. Le contenu reste défilable à la molette et au clavier —
+          // seule la barre disparaît.
+          overflowY: ouvert ? 'auto' : 'scroll',
         }}>
 
         {/* Tête : retour, puis épinglage une fois le rail ouvert.
@@ -3347,36 +3353,49 @@ function LigneContenu({ post, selected, checked, selectionMode, groupedElsewhere
         <div style={{ fontSize: 11, color: MUTED, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {metaContenu(post, compact)}
         </div>
-
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginTop: 5 }}>
-          {isStory && (post.sequenceStoryCount ?? 0) > 1 && (
-            <span style={{ fontSize: 10, fontWeight: 600, color: STORY_COLOR, background: STORY_SOFT, borderRadius: 4, padding: '1px 5px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>📎 {post.sequenceName}</span>
-          )}
-
-          {/* Mot-clé : ce qui déclenche la séquence DM. Un point gris quand il
-              manque plutôt qu'une pastille écrite — « Pas de séquence » en ambre
-              sur chaque ligne non configurée transformait la liste en mur
-              d'avertissements. Le filtre « Sans séquence » sert à les isoler. */}
-          {post.lmKeyword
-            ? <span style={{ fontSize: 10, fontWeight: 600, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '1px 5px' }}>{post.lmKeyword.toUpperCase()}</span>
-            : post.platform === 'YT'
-              ? null   /* le DM automatique est propre à Instagram — sur YouTube seul le lien description existe */
-              : <PointAbsence title="Pas de séquence" />}
-
-          {/* Lien de description : présent sur toutes les plateformes, y compris
-              YouTube où c'est le seul moyen de tracker le trafic. */}
-          {post.hasDescLink && (
-            <span style={{ fontSize: 10, fontWeight: 600, color: BLUE, background: BLUE_SOFT, borderRadius: 4, padding: '1px 5px' }}>Lien desc ✓</span>
-          )}
-
-          {/* L'état ne concerne que les stories, qui périment en 24 h. */}
-          <PastilleEtatStory post={post} />
-
-          {post.calendlyShortUrl && (
-            <span style={{ fontSize: 10, fontWeight: 600, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '1px 5px' }}>Calendly</span>
-          )}
-        </div>
       </div>
+
+      {/* Pastilles À DROITE, après le bloc flex:1 — comme le hi-fi. Sous le titre
+          elles se mêlaient à la méta ; ici elles forment une colonne qu'on lit
+          verticalement d'une ligne à l'autre. */}
+      {!compact && (
+        <>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+            {isStory && (post.sequenceStoryCount ?? 0) > 1 && (
+              <span style={{ fontSize: 10, fontWeight: 600, color: STORY_COLOR, background: STORY_SOFT, borderRadius: 4, padding: '2px 6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 130 }}>📎 {post.sequenceName}</span>
+            )}
+
+            {post.hasDescLink && (
+              <span style={{ fontSize: 10, fontWeight: 600, color: BLUE, background: BLUE_SOFT, borderRadius: 4, padding: '2px 6px', whiteSpace: 'nowrap' }}>Lien desc ✓</span>
+            )}
+
+            {post.calendlyShortUrl && (
+              <span style={{ fontSize: 10, fontWeight: 600, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '2px 6px', whiteSpace: 'nowrap' }}>Calendly</span>
+            )}
+
+            {/* Mot-clé : ce qui déclenche la séquence DM. Un point gris quand il
+                manque — « Pas de séquence » écrit sur chaque ligne non configurée
+                transformait la liste en mur d'avertissements ; le filtre
+                « Sans séquence » sert à les isoler. Rien sur YouTube, où le DM
+                automatique n'existe pas. */}
+            {post.lmKeyword
+              ? <span style={{ fontSize: 10, fontWeight: 700, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '2px 6px', letterSpacing: '.02em', whiteSpace: 'nowrap' }}>{post.lmKeyword.toUpperCase()}</span>
+              : post.platform === 'YT'
+                ? null
+                : <PointAbsence title="Pas de séquence" />}
+          </div>
+
+          {/* Colonne fixe de 104px, comme le hi-fi : l'état s'aligne d'une ligne
+              à l'autre au lieu de flotter après une pastille de largeur variable. */}
+          <div style={{ width: 104, flexShrink: 0, display: 'flex', justifyContent: 'flex-end' }}>
+            <PastilleEtatStory post={post} />
+          </div>
+        </>
+      )}
+
+      {compact && post.lmKeyword && (
+        <span style={{ fontSize: 10, fontWeight: 700, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '1px 5px', flexShrink: 0, whiteSpace: 'nowrap' }}>{post.lmKeyword.toUpperCase()}</span>
+      )}
 
       {!(isStory && selectionMode) && (
         <svg width={compact ? 14 : 17} height={compact ? 14 : 17} viewBox="0 0 24 24" fill="none" stroke="#c9c3b5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
@@ -3979,6 +3998,13 @@ export default function PageLiens() {
         @media (min-width: 768px) {
           .liens-mobile-panel { display: none !important; }
         }
+        /* Rail replié : la barre de défilement recouvrait le bord des miniatures
+           sur une largeur de 56px. On la masque sans retirer le défilement —
+           molette et clavier continuent de fonctionner. La barre revient dès que
+           le rail est déplié, où elle a la place. */
+        .rail-sans-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+        .rail-sans-scrollbar::-webkit-scrollbar { width: 0; height: 0; }
+
         .liens-root input:focus, .liens-root textarea:focus {
           border-color: var(--accent-brand, #2563eb) !important;
           box-shadow: 0 0 0 3px var(--accent-brand-soft, rgba(37,99,235,0.15));
