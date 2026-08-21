@@ -855,18 +855,6 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
     setDmLinkBtnSaved(true);
   }, [post.id]);
 
-  if (isYT) return (
-    <div style={{ background: SURFACE2, borderRadius: 10, padding: '16px', display: 'flex', gap: 12 }}>
-      <span style={{ fontSize: 20, flexShrink: 0 }}>ℹ️</span>
-      <div>
-        <div style={{ fontSize: 12, fontWeight: 700, color: INK, marginBottom: 4 }}>Non disponible sur YouTube</div>
-        <div style={{ fontSize: 12, color: MUTED, lineHeight: 1.6 }}>
-          Les lead magnets par mot-clé nécessitent de pouvoir contacter les viewers en DM automatique, ce qui n'est pas possible sur YouTube.<br /><br />
-          Pour tracker ton trafic YouTube, utilise le <strong>Lien description</strong>.
-        </div>
-      </div>
-    </div>
-  );
 
   const saveMessage = async (msg: string) => {
     setSavingMsg(true);
@@ -1084,6 +1072,27 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dm1Saved, dm2Saved, buttonSaved, dmLinkSaved, dmLinkBtnSaved,
       dm1Text, dm2Text, buttonText, dmLinkMsg, dmLinkBtn]);
+
+  // Le retour « Non disponible sur YouTube » etait place TOUT EN HAUT du composant,
+  // avant 25 hooks (22 useState et 3 useEffect). Sur un contenu YouTube, ces hooks
+  // n'etaient donc pas executes : le nombre de hooks changeait d'un rendu a l'autre
+  // en passant de YouTube a Instagram, et React levait l'erreur #300.
+  //
+  // Deplace ici, apres tous les hooks : la sortie est identique pour l'utilisateur,
+  // mais le composant execute toujours le meme nombre de hooks. Meme defaut que celui
+  // corrige dans PageClientStats et ModalShell le 2026-08-21.
+  if (isYT) return (
+    <div style={{ background: SURFACE2, borderRadius: 10, padding: '16px', display: 'flex', gap: 12 }}>
+      <span style={{ fontSize: 20, flexShrink: 0 }}>ℹ️</span>
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 700, color: INK, marginBottom: 4 }}>Non disponible sur YouTube</div>
+        <div style={{ fontSize: 12, color: MUTED, lineHeight: 1.6 }}>
+          Les lead magnets par mot-clé nécessitent de pouvoir contacter les viewers en DM automatique, ce qui n'est pas possible sur YouTube.<br /><br />
+          Pour tracker ton trafic YouTube, utilise le <strong>Lien description</strong>.
+        </div>
+      </div>
+    </div>
+  );
 
   if ((result || isExisting) && !editing) return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
