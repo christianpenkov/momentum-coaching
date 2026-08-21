@@ -1806,8 +1806,11 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
  * En amont (vues → portée → commentaires), le taux dépend de l'algorithme et de
  * l'audience, pas du réglage de la séquence — et il est structurellement bas.
  * Le colorer inventerait un échec là où il n'y en a pas.
+ *
+ * Les deux issues en branche sont colorées d'office : elles se rapportent aux
+ * lead magnets reçus, une base que le coach pilote entièrement.
  */
-const ETAPES_SEQUENCE = new Set(['dm2', 'clics', 'conversations']);
+const ETAPES_SEQUENCE = new Set(['dm2']);
 // Les chiffres du contenu lui-même, en lecture seule. Les deux API les
 // renvoyaient déjà par post ; ils n'étaient repris nulle part dans cet écran,
 // obligeant à quitter « Gérer mes liens » pour savoir si un post marchait.
@@ -1984,7 +1987,28 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
     // On ne montre PAS les DM1 envoyés : ils sont mécaniquement égaux aux
     // commentaires mot-clé (le DM1 part à la détection), donc une marche à 100 %
     // qui n'apprend rien. La vraie question est combien ont appuyé sur le bouton.
-    { cle: 'dm2', libelle: 'DM2 reçus', valeur: entonnoir.dm2Recus, precision: 'bouton du DM1 cliqué' },
+    // Dernière marche de la CHAÎNE : tout ce qui suit en découle, mais en
+    // parallèle. « Lead Magnet reçus » plutôt que « DM2 reçus » — le prospect
+    // reçoit un lead magnet, la numérotation des DM est notre vocabulaire à nous.
+    { cle: 'dm2', libelle: 'Lead Magnet reçus', valeur: entonnoir.dm2Recus, precision: 'bouton du DM1 cliqué' },
+  ].filter(e => e.valeur != null) as {
+    cle: string; libelle: string; valeur: number; precision?: string;
+    duo?: { gauche: number; gaucheAide: string; droite: number; droiteAide: string; taux?: number | null };
+  }[];
+
+  // ── Les deux issues, en branche ────────────────────────────────────────────
+  //
+  // Ni l'une ni l'autre ne conditionne sa voisine : un prospect peut répondre en
+  // DM sans jamais ouvrir le lien (constaté en base), et inversement. Les
+  // enchaîner affirmait une dépendance qui n'existe pas — et rendait faux le taux
+  // qui en découlait.
+  //
+  // Les deux se rapportent donc à la même base, les lead magnets reçus, ce qui
+  // rend enfin leurs pourcentages comparables entre eux.
+  const partDesRecus = (n: number): number | null =>
+    entonnoir.dm2Recus > 0 ? Math.round((n / entonnoir.dm2Recus) * 100) : null;
+
+  const branches = [
     { cle: 'clics', libelle: 'Lead magnets ouverts', valeur: entonnoir.clics, precision: 'lien du DM2 cliqué' },
     // « après le DM3 » et non « au DM3 » : le webhook pose hook_replied dès que
     // le prospect écrit en DM, sans savoir à quel message il répond. Comme la
@@ -1992,20 +2016,21 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
     // pratique après elle — mais l'écrire « réponses au DM3 » promettrait une
     // précision que la donnée n'a pas.
     { cle: 'conversations', libelle: 'Conversations', valeur: entonnoir.conversations, precision: 'réponses après le DM3' },
-  ].filter(e => e.valeur != null) as {
-    cle: string; libelle: string; valeur: number; precision?: string;
-    duo?: { gauche: number; gaucheAide: string; droite: number; droiteAide: string; taux?: number | null };
-  }[];
+  ].map(b => ({ ...b, taux: partDesRecus(b.valeur) }));
 
-  // Plafonné à 100 %, comme le taux interne : une marche ne peut pas convertir
-  // plus de prospects qu'elle n'en a reçu. Un dépassement ne signale jamais une
-  // sur-performance, seulement deux compteurs qui n'ont pas la même horloge —
-  // typiquement un commentaire supprimé qui disparaît du total Instagram mais
-  // reste dans les leads.
+  // Plafonné à 100 % : dans la chaîne, une marche ne peut pas convertir plus de
+  // prospects qu'elle n'en a reçu. Un dépassement ne signale jamais une
+  // sur-performance, seulement deux compteurs qui n'ont pas la même horloge — le
+  // total des commentaires est l'état actuel du post quand les leads sont un
+  // cumul historique.
+  //
+  // Les branches, elles, ne passent pas par ici : leurs taux se rapportent tous
+  // deux aux lead magnets reçus et n'ont pas à être plafonnés.
   const tauxEntre = (i: number): number | null => {
     if (i === 0) return null;
     const prec = etapes[i - 1].valeur;
-    return prec > 0 ? Math.min(100, Math.round((etapes[i].valeur / prec) * 100)) : null;
+    if (prec <= 0) return null;
+    return Math.min(100, Math.round((etapes[i].valeur / prec) * 100));
   };
 
   return (
@@ -2014,7 +2039,11 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
           <div className="eyebrow-sm" style={{ color: INK }}>Entonnoir de ce contenu</div>
 
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+          {/* `stretch` : toutes les cartes prennent la hauteur de la plus haute.
+              Sans lui, celle des commentaires — deux chiffres, donc deux libellés
+              empilés — descendait plus bas que ses voisines et cassait la ligne
+              de base de l'entonnoir. */}
+          <div style={{ display: 'flex', alignItems: 'stretch', gap: 6 }}>
             {etapes.map((e, i) => {
               const taux = tauxEntre(i);
               return (
@@ -2046,10 +2075,15 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
                       )}
                     </div>
                   )}
-                  <div style={{ flex: 1, minWidth: 0, textAlign: 'center' }}>
+                  <div style={{ flex: 1, minWidth: 0, textAlign: 'center', display: 'flex' }}>
                     <div style={{
                       border: `1px solid ${BORDER}`, borderRadius: 10, background: SURFACE,
                       padding: '9px 6px',
+                      // La carte remplit la hauteur que `stretch` lui donne, et
+                      // centre son contenu : une carte à un seul chiffre garde
+                      // ainsi son chiffre à la même hauteur que ses voisines.
+                      flex: 1, minWidth: 0,
+                      display: 'flex', flexDirection: 'column', justifyContent: 'center',
                     }}>
                       <div style={{ fontSize: 10, fontWeight: 600, color: INK, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.libelle}</div>
 
@@ -2099,6 +2133,46 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
                 </Fragment>
               );
             })}
+
+            {/* Les deux issues, empilées : elles partagent la même flèche parce
+                qu'elles partent du même endroit — les lead magnets reçus — et
+                qu'aucune ne conditionne l'autre. L'accolade dit « les deux à la
+                fois », là où deux cartes en file diraient « puis ». */}
+            {branches.length > 0 && (
+              <>
+                <div style={{ alignSelf: 'center', flexShrink: 0, color: '#c9c5bc', fontSize: 13, lineHeight: 1 }}>›</div>
+                <div style={{ flex: 1.15, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {branches.map(b => (
+                    <div key={b.cle} style={{
+                      border: `1px solid ${BORDER}`, borderRadius: 10, background: SURFACE,
+                      padding: '7px 8px', textAlign: 'center',
+                      display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 7,
+                    }}>
+                      <span style={{ fontSize: 17, fontWeight: 700, color: INK, fontVariantNumeric: 'tabular-nums' }}>
+                        {b.valeur.toLocaleString('fr-FR')}
+                      </span>
+                      {b.taux != null && (
+                        <span style={{
+                          fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap',
+                          color: b.taux >= 50 ? 'var(--green)' : RED,
+                        }}>{b.taux} %</span>
+                      )}
+                      <span style={{ fontSize: 10, fontWeight: 600, color: INK, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {b.libelle}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Les deux issues se rapportent aux lead magnets reçus, pas l'une à
+              l'autre : le dire une fois évite de lire une suite là où il y a un
+              partage. */}
+          <div style={{ fontSize: 10.5, color: FAINT, lineHeight: 1.5 }}>
+            Les deux derniers chiffres sont deux issues possibles d'un lead magnet reçu, pas deux
+            étapes qui se suivent : leurs taux se rapportent l'un et l'autre aux {entonnoir.dm2Recus} reçus.
           </div>
 
           {entonnoir.calls > 0 && (
