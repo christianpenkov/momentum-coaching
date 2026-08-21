@@ -4,9 +4,21 @@ import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 import ModalShell from '@/components/ui/ModalShell';
+import ConfirmCheckboxDialog from '@/components/ui/ConfirmCheckboxDialog';
 import { SESSION_TOPICS, type SessionTopic } from '@/lib/sessionRapport';
+import { useRapportDraftWriter, type RapportDraft } from '@/lib/useRapportDraft';
 
 type SessionRapportStep = 'attended' | 'topic_notes' | 'done';
+
+/** Ce qu'on sérialise dans le brouillon. `step` vit à côté, en colonne dédiée. */
+interface SessionAnswers {
+  attended: boolean | null;
+  topic: SessionTopic | null;
+  topicCustom: string;
+  notes: string;
+  /** Distingue un brouillon de correction d'une saisie initiale (voir isDraftStale). */
+  isCorrection: boolean;
+}
 
 interface Props {
   callId: string;
@@ -18,40 +30,113 @@ interface Props {
   // l'étape topic_notes (le "présent/no-show" initial n'est pas remis en cause ici,
   // seuls sujet/notes sont modifiables après coup).
   editInitial?: { topic: SessionTopic | null; topicCustom: string; notes: string; attended?: boolean | null };
+  /**
+   * Brouillon déjà résolu par SessionRapportModalLoader — jamais chargé ici.
+   * Le charger dans ce composant afficherait l'étape 1 vide avant de sauter à la
+   * bonne étape, et un clic pendant cette fenêtre serait perdu.
+   */
+  initialDraft?: RapportDraft | null;
 }
 
 function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
-export default function SessionRapportModal({ callId, studentName, scheduledAt, topic: callTopic, onClose, editInitial }: Props) {
+export default function SessionRapportModal({ callId, studentName, scheduledAt, topic: callTopic, onClose, editInitial, initialDraft }: Props) {
   const isEdit = !!editInitial;
-  const [step, setStep] = useState<SessionRapportStep>(isEdit ? 'topic_notes' : 'attended');
+
+  // Priorité : brouillon > rapport existant (mode correction) > vide. Le brouillon
+  // décrit la dernière saisie réelle, il gagne sur ce qui est en base.
+  const draftAnswers = (initialDraft?.answers ?? null) as SessionAnswers | null;
+
+  const [step, setStep] = useState<SessionRapportStep>(
+    (initialDraft?.step as SessionRapportStep) ?? (isEdit ? 'topic_notes' : 'attended')
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [attended, setAttended] = useState<boolean | null>(isEdit ? (editInitial?.attended ?? true) : null);
-  const [topic, setTopic] = useState<SessionTopic | null>(editInitial?.topic ?? null);
-  const [topicCustom, setTopicCustom] = useState(editInitial?.topicCustom ?? '');
-  const [notes, setNotes] = useState(editInitial?.notes ?? '');
+  const [attended, setAttended] = useState<boolean | null>(
+    draftAnswers ? draftAnswers.attended : (isEdit ? (editInitial?.attended ?? true) : null)
+  );
+  const [topic, setTopic] = useState<SessionTopic | null>(draftAnswers?.topic ?? editInitial?.topic ?? null);
+  const [topicCustom, setTopicCustom] = useState(draftAnswers?.topicCustom ?? editInitial?.topicCustom ?? '');
+  const [notes, setNotes] = useState(draftAnswers?.notes ?? editInitial?.notes ?? '');
   const [confirmClose, setConfirmClose] = useState(false);
   const [confirmChecked, setConfirmChecked] = useState(false);
+  const [confirmRestart, setConfirmRestart] = useState(false);
+  const [restartChecked, setRestartChecked] = useState(false);
 
-  // Y a-t-il quelque chose à perdre en fermant ? On compare l'état courant aux
-  // valeurs de départ — celles du rapport existant en édition, vides en création.
-  // Avant, la confirmation se déclenchait sur la seule ÉTAPE : ouvrir un rapport,
-  // ne rien toucher et vouloir fermer imposait quand même de confirmer.
-  const initialAttended = isEdit ? (editInitial?.attended ?? true) : null;
+  const draft = useRapportDraftWriter(callId);
+
+  // Y a-t-il quelque chose à perdre ? On compare l'état courant à son point de
+  // départ RÉEL : le brouillon s'il existe (c'est là qu'on a repris), sinon le
+  // rapport en base en correction, sinon rien. Sans cette baseline, rouvrir un
+  // brouillon et fermer aussitôt redéclencherait une confirmation pour zéro
+  // modification.
+  const baseline = draftAnswers ?? {
+    attended: isEdit ? (editInitial?.attended ?? true) : null,
+    topic: editInitial?.topic ?? null,
+    topicCustom: editInitial?.topicCustom ?? '',
+    notes: editInitial?.notes ?? '',
+  };
   const hasChanges =
-    attended !== initialAttended ||
-    topic !== (editInitial?.topic ?? null) ||
-    topicCustom !== (editInitial?.topicCustom ?? '') ||
-    notes !== (editInitial?.notes ?? '');
+    attended !== baseline.attended ||
+    topic !== baseline.topic ||
+    topicCustom !== baseline.topicCustom ||
+    notes !== baseline.notes;
 
-  // Confirmation uniquement si une saisie serait réellement perdue. Sur l'étape
-  // "done" le rapport est déjà enregistré, il n'y a jamais rien à perdre.
+  /** Y a-t-il quoi que ce soit de saisi ? Sert au bouton « Recommencer ». */
+  const hasAnything = attended !== null || topic !== null || topicCustom !== '' || notes !== '';
+
+  const answers = (): SessionAnswers => ({ attended, topic, topicCustom, notes, isCorrection: isEdit });
+  // Questions RÉPONDUES, pas rang de l'étape courante : sur l'étape topic_notes la
+  // présence est acquise (1 sur 2), et il reste le sujet à choisir. Compter
+  // l'étape courante affichait « 2/2 » et laissait croire au rapport terminé.
+  const compteReponses = (s: SessionRapportStep, t: SessionTopic | null) =>
+    s === 'attended' ? 0 : (t ? 2 : 1);
+  const stepIndex = compteReponses(step, topic);
+  const stepTotal = isEdit ? 1 : 2;
+
+  /** Sauvegarde immédiate, puis changement d'étape. */
+  function goTo(next: SessionRapportStep, patch?: Partial<SessionAnswers>) {
+    const a = { ...answers(), ...patch };
+    // Même garde que le debounce : revenir à l'étape 1 sans avoir rien saisi ne doit
+    // pas créer de brouillon, sinon la carte annonce « Commencé » pour rien.
+    const rempli = a.attended !== null || a.topic !== null || a.topicCustom !== '' || a.notes !== '';
+    if (rempli) {
+      draft.save({ kind: 'session', step: next, stepIndex: compteReponses(next, a.topic), stepTotal, answers: a });
+    }
+    setStep(next);
+  }
+
+  // Frappe dans un champ libre : sauvegarde différée. `notes` est un textarea qui
+  // peut recevoir plusieurs paragraphes — c'est la saisie qu'on perdait le plus.
+  //
+  // `hasAnything` : on n'écrit RIEN tant que rien n'est saisi. Sans ce garde, ouvrir
+  // une modale et la refermer aussitôt créait un brouillon vide, et la carte
+  // affichait « Commencé · étape 1/2 » pour un rapport où l'on n'a rien fait. Même
+  // effet juste après « Recommencer », qui remet l'état à zéro.
+  useEffect(() => {
+    if (step === 'done' || !hasAnything) return;
+    draft.saveDebounced({ kind: 'session', step, stepIndex, stepTotal, answers: answers() });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topic, topicCustom, notes, attended]);
+
+  // Plus de « Ce que tu as saisi ne sera pas enregistré » : c'est devenu faux, tout
+  // est gardé. On ferme directement, la sauvegarde en attente est envoyée par le
+  // flush de démontage du hook.
   function requestClose() {
-    if (step !== 'done' && hasChanges) { setConfirmChecked(false); setConfirmClose(true); }
-    else onClose();
+    onClose();
+  }
+
+  function handleRestart() {
+    setAttended(isEdit ? (editInitial?.attended ?? true) : null);
+    setTopic(null);
+    setTopicCustom('');
+    setNotes('');
+    setError('');
+    setStep(isEdit ? 'topic_notes' : 'attended');
+    setConfirmRestart(false);
+    draft.clear();
   }
 
   useEffect(() => {
@@ -74,6 +159,10 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
         throw new Error(data.error || 'Erreur lors de l\'enregistrement');
       }
       window.dispatchEvent(new Event('notifs-refresh'));
+      // Le rapport est en base : le brouillon n'a plus de raison d'être, et le
+      // laisser vivre risquerait de le voir réappliqué par-dessus plus tard.
+      // Supprimé APRÈS le succès uniquement — en cas d'échec on garde la saisie.
+      draft.clear();
       setStep('done');
     } catch (e: any) {
       setError(e.message || 'Erreur lors de l\'enregistrement');
@@ -89,7 +178,7 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
 
   function handlePresent() {
     setAttended(true);
-    setStep('topic_notes');
+    goTo('topic_notes', { attended: true });
   }
 
   function handleSubmitTopicNotes() {
@@ -114,15 +203,29 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
             <Icon name="phone-call" size={20} />
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 18, color: 'var(--accent)' }}>
-                {isEdit ? 'Modifier le rapport' : 'Rapport de session'}{studentName ? ` — ${studentName}` : ''}
+              {/* Titre et nom sur DEUX lignes, comme RapportModal.tsx:510-515.
+                  Sur une seule ligne, « Modifier le rapport — Christian Penkov »
+                  occupait déjà 2 lignes à 375 px (mesuré : 216 px de large pour
+                  52 px de haut) ; « Rapport de session de coaching — … » serait
+                  passé à trois. Le nom porte une ellipsis : un nom composé long
+                  ne peut plus repousser le sujet du call hors de vue.
+                  `text-wrap: balance` équilibre la coupure quand le titre tient
+                  quand même sur deux lignes — sans lui elle tombait après « de »,
+                  laissant « coaching » seul sur la seconde. */}
+              <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--accent)', textWrap: 'balance' }}>
+                {isEdit ? 'Modifier le rapport' : 'Rapport de session de coaching'}
               </div>
+              {studentName && (
+                <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {studentName}
+                </div>
+              )}
               {callTopic && (
                 <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>{callTopic}</div>
               )}
             </div>
           </div>
-          <button onClick={requestClose} type="button" className="icon-btn" aria-label="Fermer"><Icon name="x" size={18} /></button>
+          <button onClick={requestClose} type="button" className="icon-btn" aria-label="Fermer" style={{ flexShrink: 0 }}><Icon name="x" size={18} /></button>
         </div>
 
         <div style={{ padding: '26px 30px' }}>
@@ -285,19 +388,35 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
         </div>
 
         {step === 'topic_notes' && (
-          <div style={{ padding: '0 30px 26px', display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-            {!isEdit && (
-              <button onClick={() => setStep('attended')} className="btn-ghost" type="button" disabled={saving} style={{ fontSize: 14 }}>Retour</button>
-            )}
+          <div style={{ padding: '0 30px 26px' }}>
             <button
               onClick={handleSubmitTopicNotes}
               className="btn-primary-brand"
               type="button"
               disabled={saving}
-              style={{ fontSize: 14 }}
+              style={{ width: '100%', fontSize: 14, padding: '14px' }}
             >
               {saving ? 'Enregistrement…' : isEdit ? 'Enregistrer les modifications' : 'Enregistrer le rapport'}
             </button>
+            {/* Retour et Recommencer côte à côte sous l'action principale, même
+                police et même encadré : deux actions de navigation de même rang,
+                seule leur portée diffère. */}
+            {(!isEdit || hasAnything) && (
+              <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+                {!isEdit && (
+                  <button onClick={() => goTo('attended')} className="btn-ghost" type="button" disabled={saving}
+                    style={{ flex: 1, fontSize: 13, padding: '12px', color: 'var(--muted)', border: '1px solid var(--border)' }}>
+                    ‹ Retour
+                  </button>
+                )}
+                {hasAnything && (
+                  <button onClick={() => { setRestartChecked(false); setConfirmRestart(true); }} className="btn-ghost" type="button" disabled={saving}
+                    style={{ flex: 1, fontSize: 13, padding: '12px', color: 'var(--muted)', border: '1px solid var(--border)' }}>
+                    Recommencer
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -312,50 +431,21 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
   return (
     <>
       {modal}
-      {confirmClose && createPortal(
-        <div
-          onClick={e => e.stopPropagation()}
-          style={{
-            position: 'fixed', inset: 0, zIndex: 5001,
-            background: 'rgba(0,0,0,0.45)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            padding: 24,
-          }}
-        >
-          <div style={{ textAlign: 'center', maxWidth: 320, background: 'var(--surface)', borderRadius: 16, padding: '24px 22px', boxShadow: '0 12px 32px rgba(0,0,0,0.25)' }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 8 }}>
-              Quitter le rapport en cours ?
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
-              Ce que tu as déjà saisi ne sera pas enregistré.
-            </div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--ink-2)', marginBottom: 20, cursor: 'pointer', justifyContent: 'center' }}>
-              <input
-                type="checkbox"
-                checked={confirmChecked}
-                onChange={e => setConfirmChecked(e.target.checked)}
-                style={{ width: 16, height: 16, cursor: 'pointer' }}
-              />
-              Je confirme vouloir quitter sans enregistrer
-            </label>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-              <button type="button" className="btn-ghost" onClick={() => setConfirmClose(false)}>
-                Continuer le rapport
-              </button>
-              <button
-                type="button"
-                className="btn-primary-brand"
-                style={{ background: confirmChecked ? 'var(--red)' : 'var(--border)', borderColor: confirmChecked ? 'var(--red)' : 'var(--border)', cursor: confirmChecked ? 'pointer' : 'not-allowed', opacity: confirmChecked ? 1 : 0.6 }}
-                disabled={!confirmChecked}
-                onClick={onClose}
-              >
-                Quitter
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
+      {/* Plus de dialogue « quitter sans enregistrer » : les réponses sont gardées,
+          l'avertissement serait devenu un mensonge. La case à cocher est désormais
+          réservée à « Recommencer », qui efface réellement quelque chose. */}
+      {confirmRestart && (
+        <ConfirmCheckboxDialog
+          title="Recommencer le rapport ?"
+          message="Toutes tes réponses seront effacées et tu repartiras de la première question."
+          checkboxLabel="Je confirme vouloir effacer mes réponses"
+          confirmLabel="Recommencer"
+          cancelLabel="Annuler"
+          checked={restartChecked}
+          onCheckedChange={setRestartChecked}
+          onConfirm={handleRestart}
+          onCancel={() => setConfirmRestart(false)}
+        />
       )}
     </>
   );

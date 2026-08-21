@@ -73,7 +73,12 @@ export async function GET(request: Request) {
   // "saut" visuel (ex: 4→3) au moment où ce fetch remplaçait la valeur affichée.
   // shares n'a pas d'équivalent dans la Data API v3, reste donc sur Analytics.
   const summaryRes = await fetch(
-    `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${getToday()}&metrics=averageViewDuration,averageViewPercentage,estimatedMinutesWatched,shares&filters=video==${videoId}`,
+    // views + engagedViews ajoutes a la requete EXISTANTE (pas d'appel supplementaire).
+    // engagedViews = spectateurs qui ont vraiment regarde, par opposition a une vue
+    // comptee des les premieres secondes. Metrique Shorts introduite par YouTube en
+    // 2025, verifiee disponible sur cette chaine le 2026-08-20 (537 vues engagees sur
+    // 2 012 vues pour awrGQJIdthA).
+    `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${getToday()}&metrics=averageViewDuration,averageViewPercentage,estimatedMinutesWatched,shares,views,engagedViews&filters=video==${videoId}`,
     { headers: authHeader }
   );
   const summaryData = await summaryRes.json();
@@ -82,6 +87,8 @@ export async function GET(request: Request) {
   const avgViewPercentage: number | null = summaryRow ? summaryRow[1] : null;
   const watchTimeMin: number | null = summaryRow ? summaryRow[2] : null;
   const shares: number | null = summaryRow ? summaryRow[3] : null;
+  const viewsPeriod: number | null = summaryRow ? summaryRow[4] : null;
+  const engagedViews: number | null = summaryRow ? summaryRow[5] : null;
 
   // likes/comments : même source que l'affichage "avant chargement" (Data API v3,
   // statistics.likeCount/commentCount) — compteur public temps quasi-réel, stable et
@@ -102,6 +109,7 @@ export async function GET(request: Request) {
   return NextResponse.json({
     videoId, retentionCurve,
     avgViewDurationSec, avgViewPercentage, watchTimeMin, likes, comments, shares,
+    viewsPeriod, engagedViews,
     debug: {
       startDate, endDate: getToday(), rowCount: retentionCurve.length,
       apiError: retentionData.error || summaryData.error || statsData.error || null,

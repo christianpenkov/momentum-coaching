@@ -3,8 +3,10 @@ import InlineLoader from '@/components/ui/InlineLoader';
 
 import { useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import { useEscapeKey } from '@/lib/useEscapeKey';
 import Link from 'next/link';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
+import { Skeleton } from '@/components/ui/Skeleton';
 import Icon from '@/components/ui/Icon';
 import CreateCallModal from '@/components/ui/CreateCallModal';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
@@ -40,6 +42,8 @@ export default function PageCalendar() {
   const [view, setView] = useState<ViewMode>('month');
   const [cursor, setCursor] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState<string | null>(toDateKey(new Date()));
+  // Detail d'un jour : couche modale, Echap la ferme.
+  useEscapeKey(() => setSelectedDay(null), selectedDay !== null);
   const [showCreateCallModal, setShowCreateCallModal] = useState(false);
 
   // Construire tous les événements
@@ -133,7 +137,26 @@ export default function PageCalendar() {
     setCursor(d);
   }
 
-  if (loading) return <InlineLoader fullPage />;
+  // Squelette calque sur la page : titre, bascule Mois/Semaine, puis la grille
+  // de jours (7 colonnes) aux memes dimensions que le rendu reel.
+  if (loading) return (
+    <div className="page-content">
+      <div className="page-header">
+        <Skeleton width={150} height={22} />
+      </div>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+        <Skeleton width={72} height={32} radius={20} />
+        <Skeleton width={84} height={32} radius={20} />
+      </div>
+      <div className="card" style={{ padding: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
+          {Array.from({ length: 35 }).map((_, i) => (
+            <Skeleton key={i} height={56} radius={8} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 
   const label = view === 'month'
     ? `${MONTHS_FR[cursor.getMonth()]} ${cursor.getFullYear()}`

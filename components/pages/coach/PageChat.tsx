@@ -4,6 +4,8 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, createContext, useContext, Fragment } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
+import { Skeleton } from '@/components/ui/Skeleton';
+import { isOnlineNow } from '@/lib/useOnline';
 import HapticTap from '@/components/ui/HapticTap';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
@@ -1400,10 +1402,19 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
     const optimistic: Msg = { id: optimisticId, client_id: clientId, sender_id: userId, text: text.trim(), created_at: new Date().toISOString(), type: 'text', reply_to_id: replyId };
     setMessages(prev => [...prev, optimistic]);
     setReplyingTo(null);
-    const { data } = await supabase.from('messages')
+    const { data, error } = await supabase.from('messages')
       .insert({ client_id: clientId, sender_id: userId, text: text.trim(), type: 'text', read: false, reply_to_id: replyId })
       .select('id, text, sender_id, created_at, type, audio_url, duration_s, read_at, read, listened_at, caption, reply_to_id, reaction_emoji, reaction_by, file_size_bytes, page_count, thumbnail_url').single();
     if (data) setMessages(prev => prev.map(m => m.id === optimisticId ? data as Msg : m));
+    else if (error) {
+      // Sans ce rollback, un échec (réseau, RLS, contrainte DB) laissait le
+      // message optimiste affiché indéfiniment : le coach croyait avoir écrit à
+      // son élève alors que rien n'était parti. Même garantie que côté élève
+      // (PageClientMessages.sendMessage).
+      setMessages(prev => prev.filter(m => m.id !== optimisticId));
+      setInput(text);
+      setActionError(isOnlineNow() ? 'Message non envoyé — réessaie.' : "Pas de connexion — ton message n'a pas été envoyé.");
+    }
   }
 
   async function copyMessageText(text: string) {
@@ -2180,7 +2191,33 @@ export default function PageChat() {
 
   const presenceCh = activeId ? getChannel(activeId) : null;
 
-  if (loading) return <InlineLoader fullPage />;
+  // Squelette calque sur la vraie messagerie : sidebar de 260px avec son
+  // en-tete "Messages" et ses lignes (avatar 34px, nom, statut), puis la zone de
+  // conversation. Memes dimensions que le rendu reel, donc rien ne saute quand
+  // les conversations arrivent.
+  if (loading) return (
+    <div className="chat-shell" style={{ display: 'flex', flexDirection: 'row', background: 'var(--bg)' }}>
+      <div style={{ width: isMobile ? '100%' : 260, borderRight: isMobile ? 'none' : '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--surface)', flexShrink: 0 }}>
+        <div style={{ padding: '16px 16px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+          <Skeleton width={82} height={14} />
+        </div>
+        <div style={{ flex: 1 }}>
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} style={{ padding: '11px 16px', display: 'flex', gap: 10, alignItems: 'center' }}>
+              <Skeleton width={34} height={34} radius={17} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <Skeleton width={`${68 - i * 6}%`} height={13} />
+                <Skeleton width={54} height={11} style={{ marginTop: 6 }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* Zone de conversation : vide tant qu'aucune n'est ouverte, comme dans le
+          rendu reel. */}
+      {!isMobile && <div style={{ flex: 1 }} />}
+    </div>
+  );
 
   if (clients.length === 0) return (
     <div className="page-content">

@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { Client } from '@/lib/supabase/types';
+import { resolveUser } from '@/lib/waitForSession';
 
 interface ClientSelfContextValue {
   clientRow: Client | null;
@@ -26,8 +27,17 @@ export function ClientSelfProvider({ children }: { children: ReactNode }) {
   const load = useCallback(async () => {
     setLoading(true);
     const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setClientRow(null); setLoading(false); return; }
+
+    // Attend que le SDK ait fini de restaurer la session avant de trancher :
+    // au réveil d'une PWA, getUser() renvoie null le temps du rafraîchissement.
+    // Sans ça, on affichait « ton coach configure ton espace » sur une session
+    // pourtant valide, juste avant que le middleware ne redirige vers /login.
+    const user = await resolveUser(supabase);
+
+    // Réellement déconnecté : on garde `loading` à true pour que l'écran de
+    // lancement couvre la redirection vers /login, au lieu de laisser voir un
+    // état vide qui ne correspond à rien.
+    if (!user) { setClientRow(null); return; }
 
     const { data, error } = await supabase
       .from('clients')

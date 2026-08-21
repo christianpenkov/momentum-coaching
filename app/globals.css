@@ -1432,6 +1432,14 @@ a { color: inherit; text-decoration: none; }
   color: var(--muted);
   white-space: nowrap;
 }
+/* Parenthèses en CSS et non dans le JSX : timeZoneCityLabel() reste une ville nue,
+   réutilisable ailleurs (CreateCallModal écrit "Heure de Sofia", qui ne veut pas de
+   parenthèses). Sur mobile elles séparent la ville de la durée qui suit dans la même
+   ligne — "14:30 (Sofia) · 30 min" plutôt que trois mots collés sans hiérarchie. */
+.call-card-tz::before,
+.call-card-tz-rail::before { content: '('; }
+.call-card-tz::after,
+.call-card-tz-rail::after { content: ')'; }
 .call-card-tz { margin-left: 4px; }
 .call-card-tz-rail { margin-top: 1px; text-align: center; }
 .call-card-duration { font-family: var(--font-mono); }
@@ -2076,6 +2084,50 @@ a { color: inherit; text-decoration: none; }
 /* PageToday — "Tous tes clients" : cards mobile, masquées par défaut (desktop garde
    le tableau .today-clients-table) ; basculées à 767px, voir bloc Mobile PWA plus bas. */
 .today-clients-cards { display: none; }
+
+/* Page Clients : meme bascule que l'accueil ci-dessus. Le tableau fait 9
+   colonnes et 838px de large — sur 375px il faut le faire defiler lateralement
+   pour le lire, ce qui n'est pas une lecture mobile acceptable. */
+.clients-cards { display: none; }
+
+/* Pipeline : kanban sur desktop, entonnoir sous 767px. La vue mobile est un
+   ajout, le kanban n'est pas modifie — important tant que la review Meta est en
+   cours, la video ayant ete filmee avec le pipeline desktop actuel. */
+.pipeline-mobile { display: none; }
+
+/* Pipeline — valeurs de base des filtres et onglets, hors media query.
+   Elles vivaient en style inline ; deplacees ici pour que la regle mobile
+   (max-width 767px) puisse les surcharger — un style inline ne l'est jamais.
+   Ces deux regles reproduisent a l'identique l'ancien rendu desktop. */
+.pipeline-filter { padding: 4px 10px; font-size: 11px; }
+.pipeline-filters-toggle { display: none; }
+/* Reprend la valeur qui etait en style inline : desktop inchange. */
+.pipeline-page { gap: 16px; }
+/* Entonnoir mobile — valeurs de base, surchargees sur ecran court. */
+.funnel-row { min-height: 56px; padding: 15px 14px; }
+.funnel-list { gap: 7px; }
+
+/* Onglets de plateforme — valeurs de base (desktop). Elles vivaient en style
+   inline ; deplacees ici pour que la vue mobile puisse les surcharger, ce
+   qu'une media query ne peut pas faire sur de l'inline. Rendu desktop
+   strictement identique a l'avant. */
+.pipeline-tabs { background: var(--surface-2); }
+.pipeline-tab { padding: 5px 14px; background: transparent; color: var(--muted); }
+.pipeline-tab.is-active {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 1px 3px rgba(0,0,0,.08);
+}
+.pipeline-tab-count { background: transparent; color: var(--faint); }
+.pipeline-tab.is-active .pipeline-tab-count { background: var(--surface-2); color: var(--ink); }
+.pipeline-tab { justify-content: flex-start; }
+.clients-card {
+  cursor: pointer;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  transition: background 120ms;
+}
+.clients-card:active { background: var(--surface-2); }
 .today-client-card {
   display: flex; align-items: center; gap: 12px;
   padding: 12px 4px;
@@ -2408,6 +2460,13 @@ a { color: inherit; text-decoration: none; }
   .page-header > div:first-child { min-width: 0; }
   .page-header > div:first-child > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .page-header > button, .page-header .btn-primary-brand { flex-shrink: 0; }
+  /* Le groupe d'actions est souvent enveloppe dans un <div> plutot que pose
+     directement dans le header : sans cette regle, flex-shrink ne s'appliquait
+     pas et deux boutons larges ecrasaient le titre (observe sur /clients, ou
+     "Clients" chevauchait "Voir les archives"). Le groupe passe sous le titre
+     quand la place manque. */
+  .page-header { flex-wrap: wrap !important; row-gap: 10px; }
+  .page-header > div:last-child:not(:first-child) { flex-shrink: 0; }
 
   /* Feedback tactile léger sur les boutons */
   .btn-primary:active, .btn-primary-brand:active, .btn-ghost:active, .bottom-nav-item:active {
@@ -2485,6 +2544,116 @@ a { color: inherit; text-decoration: none; }
   /* PageToday — "Tous tes clients" : cards au lieu du tableau à scroll horizontal */
   .today-clients-table { display: none !important; }
   .today-clients-cards { display: block !important; }
+
+  /* Page Clients — tableau remplace par des cartes lisibles. */
+  .clients-table-wrap { display: none !important; }
+  .clients-cards { display: block !important; }
+
+  /* Pipeline — le kanban cede la place a l'entonnoir. */
+  .pipeline-desktop { display: none !important; }
+  .pipeline-mobile { display: block !important; }
+
+  /* EN-TETE MOBILE — "Rafraichir" + 3 onglets faisaient 388px de large pour
+     375px d'ecran, et "Autres" sortait a droite, non atteignable. Le bouton
+     quitte la ligne des onglets et remonte en haut a droite, a hauteur du
+     titre ; les onglets prennent alors toute la largeur. Ils cessent d'etre
+     un segmented control compresse pour devenir trois pilules autonomes, au
+     format des chips du reste de l'app. */
+  .pipeline-actions {
+    width: 100%;
+    min-width: 0;
+    gap: 0 !important;
+  }
+  /* Sorti du flux et remonte a hauteur du titre. Le parent est en position
+     relative (.pipeline-header). */
+  .pipeline-refresh {
+    position: absolute;
+    top: 0;
+    right: 0;
+    min-height: 36px;
+    padding: 7px 13px !important;
+    border-radius: 999px !important;
+  }
+  .pipeline-tabs {
+    /* Trois pilules egales sur toute la largeur. minmax(0, 1fr) et non 1fr :
+       "1fr" vaut minmax(auto, 1fr), dont le plancher est la taille du contenu
+       — les colonnes refusaient de retrecir et le 3e onglet sortait de
+       l'ecran a 320px (mesure : 249px de colonnes pour 193px disponibles). */
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+    background: transparent !important;
+    padding: 0 !important;
+    gap: 7px !important;
+  }
+  .pipeline-tab {
+    /* Pilule autonome : 44px de cible tactile, contour au repos, accent plein
+       quand active — comme dans la maquette. */
+    min-height: 44px;
+    min-width: 0;
+    padding: 8px 10px !important;
+    justify-content: center;
+    white-space: nowrap;
+    overflow: hidden;
+    border-radius: 999px !important;
+    border: 1px solid var(--border) !important;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 12.5px !important;
+  }
+  /* accent-brand et non accent : c'est la couleur des onglets actifs partout
+     ailleurs sur mobile (.chip-active). --accent est le noir-brun de l'UI. */
+  .pipeline-tab.is-active {
+    background: var(--accent-brand) !important;
+    border-color: var(--accent-brand) !important;
+    color: #fff !important;
+    box-shadow: none !important;
+  }
+  .pipeline-tab.is-active .pipeline-tab-count {
+    background: rgba(255,255,255,0.22) !important;
+    color: #fff !important;
+  }
+  .pipeline-tab-label { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+
+  /* Ecarts resserres : 3 gaps a 16px coutaient 48px de hauteur. */
+  .pipeline-page { gap: 10px; }
+
+  /* Bouton de repli des filtres — mobile seulement. */
+  .pipeline-filters-toggle {
+    display: flex !important;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 40px;
+    padding: 9px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink-2);
+    font-size: 12.5px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .pipeline-filters-count {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 18px; height: 18px; padding: 0 5px;
+    border-radius: 5px;
+    background: var(--accent); color: #fff;
+    font-size: 10.5px; font-weight: 700;
+  }
+  /* Replies par defaut : la place va a l'entonnoir. */
+  .pipeline-filters { display: none !important; }
+  .pipeline-filters.is-open { display: flex !important; }
+  .pipeline-filters { row-gap: 8px !important; }
+  .pipeline-filter {
+    /* Pilules, comme les onglets et les chips du reste de l'app. */
+    min-height: 36px;
+    padding: 8px 14px !important;
+    font-size: 12px !important;
+    border-radius: 999px !important;
+  }
 
   /* PageCalls (coach) — la carte de call "à venir" empile jusqu'à 6 éléments
      de largeur fixe sur une seule ligne flex (heure, séparateur, avatar, nom,
@@ -2914,8 +3083,8 @@ a { color: inherit; text-decoration: none; }
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Aucune animation d'entrée : l'écran prend la suite du splash système, il
-     est déjà là. L'animer ferait précisément le flash qu'on veut supprimer. */
+  /* Le FOND, lui, est identique au splash système (même crème) : il n'y a donc
+     jamais de rupture visible sur la couleur, quelle que soit la géométrie. */
   opacity: 1;
   transition: opacity 240ms ease-out;
 }
@@ -2930,6 +3099,83 @@ a { color: inherit; text-decoration: none; }
    La durée d'affichage est pilotée par SplashHold (voir MIN_VISIBLE_DESKTOP_MS). */
 @media (min-width: 768px) {
   #app-splash img { width: 200px; }
+}
+
+/* LE LOGO QUI DESCEND — solution retenue après quatre tentatives.
+   En PWA installée, iOS centre le logo du splash système sur l'ÉCRAN ENTIER,
+   alors que notre overlay vit dans la fenêtre de l'app, qui commence SOUS la
+   barre de statut (apple-mobile-web-app-status-bar-style="default" : Apple
+   limite le viewport à la zone sous la barre). Deux logos, deux surfaces : le
+   second tombe plus bas, on le voit « descendre ».
+
+   Compenser avec env(safe-area-inset-top) ne pouvait pas marcher : cette valeur
+   est rapportée à 0px en portrait sur une grande partie des iPhone, donc la
+   correction valait zéro. C'est ce qui explique l'échec des tentatives
+   précédentes.
+
+   La pratique établie, y compris côté natif iOS, est de ne PAS viser
+   l'alignement au pixel mais de masquer l'écart par un fondu : la continuité
+   perçue prime sur la coïncidence exacte. Le logo de l'overlay apparaît donc en
+   fondu au lieu de surgir à une position légèrement différente — un élément qui
+   se révèle progressivement ne donne pas l'impression d'avoir bougé.
+
+   Le fond, lui, est exactement la même couleur que le splash système : la
+   surface ne présente donc aucune rupture, seul le logo se ré-affiche. */
+/* ══ Squelettes de chargement ═══════════════════════════════════════════════
+   Voir components/ui/Skeleton.tsx. Balayage lumineux plutôt que clignotement
+   d'opacité : c'est le motif des apps natives, il suggère un chargement en
+   cours au lieu d'un élément qui apparaît et disparaît. ────────────────────── */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-2);
+  /* Empêche le texte réel de "sauter" quand il remplace le squelette : les
+     formes ont les mêmes dimensions que le contenu attendu. */
+  flex-shrink: 0;
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.55),
+    transparent
+  );
+  animation: skeleton-sweep 1.4s ease-in-out infinite;
+}
+@keyframes skeleton-sweep {
+  100% { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after { animation: none; }
+}
+
+/* Tant que l'écran de lancement est là, aucun loader de page ne doit se voir.
+   Sans cette règle, la page peut rendre son loader pendant que l'overlay
+   entame son fondu : on aperçoit alors une fraction de seconde de spinner
+   entre le logo et le contenu. Le body porte le marqueur pendant toute la
+   durée d'affichage de l'écran (voir SplashHold). */
+html[data-splash='1'] .dot-wave {
+  visibility: hidden;
+}
+
+#app-splash img {
+  /* Remonte le logo de la moitié de l'écart écran/fenêtre, calculé au chargement
+     dans app/layout.tsx. Le logo tombe alors au même endroit que celui du splash
+     système, quel que soit le modèle. Vaut 0 par défaut : sur les appareils sans
+     décalage (desktop, Android en plein écran), rien ne bouge. */
+  transform: translateY(calc(var(--splash-logo-shift, 0px) * -1));
+  animation: splash-logo-in 380ms ease-out both;
+}
+@keyframes splash-logo-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #app-splash img { animation: none; }
 }
 #app-splash[data-hide='1'],
 #app-splash[data-force-hide='1'] {
@@ -3050,3 +3296,14 @@ a { color: inherit; text-decoration: none; }
     animation-delay: 0s !important;
   }
 }
+
+/* Ecrans courts (iPhone SE/8 et paysage) : 8 lignes a 56px plus l'en-tete
+   depassent la hauteur utile. Mesure a 375x667 : il manquait 174px. On
+   compacte l'entonnoir la, plutot que d'imposer un defilement partout.
+   Les cibles restent au-dessus du minimum tactile de 44px. */
+@media (max-width: 767px) and (max-height: 750px) {
+  .funnel-row { min-height: 46px !important; padding: 10px 13px !important; }
+  .funnel-list { gap: 5px !important; }
+  .pipeline-page { gap: 8px !important; }
+}
+

@@ -7,8 +7,10 @@ import BottomNavCoach from '@/components/layout/BottomNavCoach';
 import CoachMoreSheet from '@/components/layout/CoachMoreSheet';
 import PageTransition from '@/components/layout/PageTransition';
 import SplashHold from '@/components/ui/SplashHold';
+import OfflineBanner from '@/components/ui/OfflineBanner';
+import PullToRefresh from '@/components/ui/PullToRefresh';
 import { UserProvider, useUser } from '@/lib/UserContext';
-import { SupabaseClientsProvider } from '@/lib/SupabaseClientsContext';
+import { SupabaseClientsProvider, useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { GlobalPresenceCoachProvider } from '@/lib/GlobalPresenceContext';
 import { usePushNotifications } from '@/lib/usePushNotifications';
 import { useViewportShellHeight } from '@/lib/useViewportShellHeight';
@@ -23,20 +25,30 @@ function CoachLayoutInner({ children, shellRef, navRef }: {
   navRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const { user, loading: userLoading } = useUser();
+  // Les donnees de la page, pas seulement la session : sans ca l'ecran de
+  // lancement partait des la session resolue et laissait apparaitre le loader
+  // de la page pendant que ses donnees chargeaient encore.
+  const { loading: dataLoading, refetch } = useSupabaseClients();
   usePushNotifications(user?.id ?? null);
   const [moreOpen, setMoreOpen] = useState(false);
   return (
     <OnboardingWizardProvider autoOpen={user?.onboardingStep === 'not_started'}>
       {/* Voir (client)/layout.tsx : prolonge l'ecran de demarrage jusqu'a ce
           que la session soit resolue, pour eviter le loader qui clignote. */}
-      <SplashHold show={userLoading} />
+      <SplashHold show={userLoading || dataLoading} owner />
       <div ref={shellRef} className="app-shell-pwa">
         <OrientationLockOverlay />
         <PushPermissionGate userId={user?.id ?? null} />
         <TopBar />
+        {/* Previent des que le reseau tombe : sans ca les actions echouaient
+            en silence (voir lib/useOnline). */}
+        <OfflineBanner />
         <div className="app-body-pwa">
           <Sidebar />
           <main className="main-content">
+            {/* Geste attendu par reflexe sur mobile : la seule facon de recharger
+                etait de fermer et rouvrir l'app. */}
+            <PullToRefresh onRefresh={refetch} />
             <PageTransition>{children}</PageTransition>
           </main>
         </div>

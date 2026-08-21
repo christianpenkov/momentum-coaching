@@ -2,10 +2,13 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { useEscapeKey } from '@/lib/useEscapeKey';
+import PipelineFunnelMobile from './PipelineFunnelMobile';
+import Icon from '@/components/ui/Icon';
 import Image from 'next/image';
 import { useQuery } from '@tanstack/react-query';
 import InlineLoader from '@/components/ui/InlineLoader';
-import RapportModal from '@/components/ui/RapportModal';
+import RapportModal from '@/components/ui/RapportModalLoader';
 import ProspectDetailModal from './ProspectDetailModal';
 import { isYtVideoId } from '@/lib/ytId';
 import { isCallHonored } from '@/lib/callHonored';
@@ -423,16 +426,31 @@ function PipelineCard({
   onNotALead?: (key: string, callId?: string | null) => void;
 }) {
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  // Trois couches peuvent etre ouvertes en meme temps (menu contextuel, puis une
+  // confirmation par-dessus). Echap ne doit fermer que celle du dessus, sinon on
+  // perd tout le contexte d'un coup — d'ou l'ordre de priorite ci-dessous.
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleteConfirmed, setDeleteConfirmed] = useState(false);
   const [confirmNotALead, setConfirmNotALead] = useState(false);
   const [notALeadConfirmed, setNotALeadConfirmed] = useState(false);
+
+  useEscapeKey(() => {
+    if (confirmDelete) { setConfirmDelete(false); return; }
+    if (confirmNotALead) { setConfirmNotALead(false); return; }
+    if (ctxMenu) setCtxMenu(null);
+  }, !!ctxMenu || confirmDelete || confirmNotALead);
   const stage = stages[card.stageIdx] ?? stages[0];
   const ac = avatarColor(card.name);
   const dragStartedRef = useRef(false);
 
   // Bouton "Remplir le rapport d'appel" : visible dès le début du call, caché si rapport déjà rempli
-  // Accepte aussi status=cancelled sans outcome — fenêtre de transition Calendly entre reschedule et nouveau call
+  //
+  // Les calls annulés étaient acceptés, au motif d'une fenêtre de transition Calendly
+  // pendant un report. Or un report ne crée PAS un nouveau call : le webhook
+  // `invitee.rescheduled` déplace le `scheduled_at` du call existant, qui reste
+  // `active` (app/api/webhooks/calendly/route.ts:428-432). Il n'y avait donc pas de
+  // fenêtre à couvrir — juste un bouton affiché sur des calls annulés pour de bon,
+  // qui n'ont pas eu lieu et n'auront jamais lieu.
   const now = Date.now();
   // Le bouton reste affiché APRÈS qu'un rapport a été rempli : il devient « Modifier le
   // rapport ». Avant, la condition `!card.callOutcome` le faisait disparaître dès la
@@ -441,7 +459,7 @@ function PipelineCard({
   // rapportPending). Voir docs/tracking-prospect.md.
   const hasRapport = !!card.callOutcome;
   const showRapport = card.callId && card.callScheduledAt
-    && (card.callStatus === 'active' || ['cancelled', 'canceled'].includes(card.callStatus ?? ''))
+    && card.callStatus === 'active'
     && new Date(card.callScheduledAt).getTime() <= now
     && POST_CALL_STAGES.has(card.stageKey);
 
@@ -904,6 +922,7 @@ function getAdvanceConfirmations(currentStage: string, targetStage: string): { i
 
 function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetStageLabel, currentStageKey, callId, onConfirm, onCancel }: ConfirmMoveModalProps) {
   const viewerTz = useViewerTimeZone();
+  useEscapeKey(onCancel);
   const [reason, setReason] = useState('');
   const [irreversibleChecked, setIrreversibleChecked] = useState(false);
   const [advanceChecked, setAdvanceChecked] = useState<Set<string>>(new Set());
@@ -1199,6 +1218,8 @@ export default function PagePipeline() {
 
   // Filtres
   const [filterNoShow, setFilterNoShow] = useState(false);
+  // Repli des filtres sur mobile uniquement (le desktop les affiche toujours).
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [filterArchived, setFilterArchived] = useState(false);
   const [filterCanceled, setFilterCanceled] = useState(false);
   const [filterRescheduled, setFilterRescheduled] = useState(false);
@@ -1931,32 +1952,47 @@ export default function PagePipeline() {
   // changer quand on passe d'un onglet à l'autre, sinon il se lit comme un total alors
   // qu'il ne compte que l'onglet courant (demande Chris, 2026-08-19).
   const totalProspects = filteredIgCards.length + filteredYtCards.length + filteredOtherCards.length;
-  const anyFilter = filterNoShow || filterArchived || filterCanceled || filterRescheduled || filterNotQualified || filterToRecontact;
+  const activeFilterCount = [filterNoShow, filterArchived, filterCanceled, filterRescheduled, filterNotQualified, filterToRecontact].filter(Boolean).length;
+  const anyFilter = activeFilterCount > 0;
 
   return (
     <div
-      className="page-content"
-      style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%', overflow: 'hidden' }}
+      className="page-content pipeline-page"
+      // gap en CSS et non en inline : sur mobile il descend a 10px pour rendre
+      // ~18px a l'entonnoir. Un style inline ne serait jamais atteint par la
+      // media query.
+      style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}
       onDragEnd={handleDragEnd}
     >
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-        <div>
+      {/* flexWrap : sur 375px, le titre et le groupe d'actions ne tiennent pas
+          cote a cote — sans repli le titre se coupait en deux lignes et le
+          sous-titre s'etirait en colonne d'un mot. */}
+      {/* position relative : ancre le bouton "Rafraichir" que la vue mobile
+          sort du flux pour le remonter en haut a droite. */}
+      <div className="pipeline-header" style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, flexWrap: 'wrap', rowGap: 10 }}>
+        <div style={{ minWidth: 0 }}>
           <h1 className="page-title" style={{ marginBottom: 2 }}>Pipeline Leads</h1>
           <p className="page-sub" style={{ fontSize: 12 }}>
             {loading ? 'Chargement…' : `${totalProspects} prospect${totalProspects !== 1 ? 's' : ''}`}
           </p>
           {!loading && (
-            <p className="page-sub" style={{ fontSize: 11, marginTop: 2 }}>
+            <p className="page-sub pipeline-desktop" style={{ fontSize: 11, marginTop: 2 }}>
               Le pipeline se met à jour tout seul · glisse une carte pour la déplacer, le système reprendra sa position dès qu&apos;un nouvel événement sera détecté
             </p>
           )}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {/* pipeline-actions : sur mobile, "Rafraichir" et les 3 onglets ne
+            tiennent pas cote a cote (mesure a 375px : 388px de contenu).
+            Plutot que de compresser les onglets, le bouton remonte a cote du
+            titre (order: -1 + position absolue) et les onglets prennent toute
+            la largeur en pilules. */}
+        <div className="pipeline-actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button
             onClick={handleRefresh}
             disabled={refreshing}
+            className="pipeline-refresh"
             style={{
               padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8,
               border: '1px solid var(--border)', background: 'var(--surface)',
@@ -1967,26 +2003,34 @@ export default function PagePipeline() {
             <span style={{ display: 'inline-block', animation: refreshing ? 'spin 1s linear infinite' : 'none' }}>↻</span>
             {refreshing ? 'Maj…' : 'Rafraîchir'}
           </button>
-          <div style={{ display: 'flex', background: 'var(--surface-2)', borderRadius: 8, padding: 3, gap: 2 }}>
+          {/* pipeline-tabs : sur mobile ce groupe passe en grille 3 colonnes
+              egales. En flex simple, les trois libelles cumulaient plus de
+              375px et "Autres" sortait de l'ecran (constate au navigateur). */}
+          <div className="pipeline-tabs" style={{ display: 'flex', borderRadius: 8, padding: 3, gap: 2 }}>
             {([
               { key: 'ig', label: 'Instagram', count: igCards.length },
               { key: 'yt', label: 'YouTube', count: filteredYtCards.length },
               { key: 'other', label: 'Autres', count: filteredOtherCards.length },
             ] as const).map(t => (
-              <button key={t.key} onClick={() => setTab(t.key)} style={{
-                padding: '5px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6,
-                cursor: 'pointer', border: 'none', transition: 'all .12s',
-                background: tab === t.key ? 'var(--surface)' : 'transparent',
-                color: tab === t.key ? 'var(--ink)' : 'var(--muted)',
-                boxShadow: tab === t.key ? '0 1px 3px rgba(0,0,0,.08)' : 'none',
-                display: 'flex', alignItems: 'center', gap: 6,
-              }}>
-                {t.label}
-                <span style={{
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                // is-active plutot qu'un style inline conditionnel : sur mobile
+                // l'onglet actif devient une pilule pleine en accent, ce qu'une
+                // media query ne pourrait pas surcharger depuis l'inline.
+                className={`pipeline-tab${tab === t.key ? ' is-active' : ''}`}
+                style={{
+                  fontSize: 12, fontWeight: 600, borderRadius: 6,
+                  cursor: 'pointer', border: 'none', transition: 'all .12s',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                {/* Enveloppe pour que la troncature mobile puisse s'y appliquer :
+                    un noeud texte nu n'est pas atteignable en CSS. */}
+                <span className="pipeline-tab-label">{t.label}</span>
+                <span className="pipeline-tab-count" style={{
                   fontSize: 10, fontWeight: 700, minWidth: 16, height: 16,
                   borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px',
-                  background: tab === t.key ? 'var(--surface-2)' : 'transparent',
-                  color: tab === t.key ? 'var(--ink)' : 'var(--faint)',
                 }}>{t.count}</span>
               </button>
             ))}
@@ -1995,8 +2039,31 @@ export default function PagePipeline() {
       </div>
 
       {/* Filtres IG */}
+      {/* Sur mobile les 6 filtres occupent deux rangees pleines, soit ~80px pris
+          sur un budget vertical de ~620px — assez pour pousser la fin de
+          l'entonnoir hors ecran. Ils sont secondaires : on vient lire
+          l'entonnoir, pas filtrer. D'ou le repli, avec le nombre de filtres
+          actifs sur le bouton pour qu'un filtrage en cours reste visible meme
+          replie. Le desktop les affiche toujours (.pipeline-desktop). */}
       {tab === 'ig' && (
-        <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          className="pipeline-filters-toggle"
+          onClick={() => setFiltersOpen(o => !o)}
+          aria-expanded={filtersOpen}
+        >
+          <span>Filtres</span>
+          {activeFilterCount > 0 && (
+            <span className="pipeline-filters-count">{activeFilterCount}</span>
+          )}
+          <Icon name="chevR" size={13} style={{ transform: filtersOpen ? 'rotate(90deg)' : 'none', transition: 'transform .15s', marginLeft: 'auto' }} />
+        </button>
+      )}
+      {tab === 'ig' && (
+        <div
+          className={`pipeline-filters${filtersOpen ? ' is-open' : ''}`}
+          style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}
+        >
           {[
             { key: 'no_show', label: 'No-shows', value: filterNoShow, set: setFilterNoShow, color: '#dc2626', bg: '#fef2f2' },
             { key: 'archived', label: 'Archivés', value: filterArchived, set: setFilterArchived, color: '#6b7280', bg: '#f3f4f6' },
@@ -2008,8 +2075,9 @@ export default function PagePipeline() {
             <button
               key={f.key}
               onClick={() => f.set(!f.value)}
+              className="pipeline-filter"
               style={{
-                padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer',
+                fontWeight: 600, borderRadius: 6, cursor: 'pointer',
                 border: `1px solid ${f.value ? f.color : 'var(--border)'}`,
                 background: f.value ? f.bg : 'transparent',
                 color: f.value ? f.color : 'var(--muted)',
@@ -2022,7 +2090,8 @@ export default function PagePipeline() {
           {anyFilter && (
             <button
               onClick={() => { setFilterNoShow(false); setFilterArchived(false); setFilterCanceled(false); setFilterRescheduled(false); setFilterNotQualified(false); setFilterToRecontact(false); }}
-              style={{ padding: '4px 10px', fontSize: 11, fontWeight: 500, borderRadius: 6, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)' }}
+              className="pipeline-filter"
+              style={{ fontWeight: 500, borderRadius: 6, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)' }}
             >
               Effacer filtres
             </button>
@@ -2041,7 +2110,20 @@ export default function PagePipeline() {
           <InlineLoader />
         </div>
       ) : (
-        <div style={{ flex: 1, overflowX: 'auto', overflowY: 'auto', paddingBottom: 16, scrollbarWidth: 'thin', scrollbarColor: 'var(--border) transparent' }}>
+        <>
+        {/* Vue mobile : entonnoir en consultation. Le kanban ci-dessous n'est pas
+            utilisable au doigt (le glisser-deposer HTML5 ne se declenche pas au
+            tactile) et ses 8 colonnes demandent de defiler lateralement.
+            Bascule purement CSS a 767px : le desktop reste inchange. */}
+        <div className="pipeline-mobile" style={{ flex: 1, overflowY: 'auto', paddingBottom: 16 }}>
+          <PipelineFunnelMobile
+            cards={cards}
+            stages={stages}
+            onCardClick={cardKey => setDetailModal({ cardKey, platform: tab })}
+          />
+        </div>
+
+        <div className="pipeline-desktop" style={{ flex: 1, overflowX: 'auto', overflowY: 'auto', paddingBottom: 16, scrollbarWidth: 'thin', scrollbarColor: 'var(--border) transparent' }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', minWidth: 'max-content', height: '100%' }}>
             {stages.map(stage => {
               const stageCards = cards.filter(c => c.stageIdx === stages.findIndex(s => s.key === stage.key));
@@ -2069,12 +2151,16 @@ export default function PagePipeline() {
             })}
           </div>
         </div>
+        </>
       )}
 
       {/* Empty state — sur l'onglet affiché (son message le nomme : "Aucun lead
           Instagram", "Aucun call YouTube"…), pas sur le total toutes plateformes. */}
+      {/* pipeline-desktop : sur mobile l'entonnoir affiche deja "0" sur chaque
+          etape, donc l'etat vide fait doublon — et surtout il occupait la
+          hauteur, ecrasant l'entonnoir a 226px pour 535px de contenu. */}
       {!loading && tabProspects === 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, paddingTop: 60, paddingBottom: 60 }}>
+        <div className="pipeline-desktop" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, paddingTop: 60, paddingBottom: 60 }}>
           <div style={{ width: 44, height: 44, borderRadius: 12, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>

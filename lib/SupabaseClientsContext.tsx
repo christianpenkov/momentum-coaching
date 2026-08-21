@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { resolveUser } from '@/lib/waitForSession';
 import { CALL_COLUMNS } from '@/lib/supabase/types';
 import type { Task } from '@/lib/supabase/types';
 import type { ClientWithMetrics } from '@/lib/supabase/useCoachData';
@@ -71,13 +72,11 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     setError(null);
     try {
-      let { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        // Session peut ne pas être hydratée au 1er render — retry une fois après 400ms
-        await new Promise(r => setTimeout(r, 400));
-        const retry = await supabase.auth.getUser();
-        user = retry.data.user;
-      }
+      // Attend l'evenement de restauration du SDK plutot qu'un delai fixe :
+      // au reveil d'une PWA, getUser() renvoie null le temps du rafraichissement
+      // du token. Un setTimeout est soit trop court sur reseau lent, soit du
+      // temps perdu a chaque lancement (voir lib/waitForSession.ts).
+      const user = await resolveUser(supabase);
       if (!user) { setError('Non authentifié'); setLoading(false); return; }
 
       setUserId(user.id);

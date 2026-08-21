@@ -12,11 +12,14 @@ import { fmtEur, fmtDateLong } from './types';
  * Détail d'un deal — panneau latéral, pas modal centré : la liste reste visible
  * derrière, ce qui permet d'enchaîner plusieurs deals sans perdre le contexte.
  */
-export default function DealPanel({ deal, detail, onClose, onChange }: {
+export default function DealPanel({ deal, detail, onClose, onChange, isCoach }: {
   deal: DealRow;
   detail?: DealDetail;
   onClose: () => void;
   onChange?: () => void;
+  /** Le coach distingue ses élèves Momentum de ses clients directs ; l'élève
+   *  n'a que des clients directs, le libellé n'y aurait aucun sens. */
+  isCoach?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const [savingSent, setSavingSent] = useState(false);
@@ -100,7 +103,7 @@ export default function DealPanel({ deal, detail, onClose, onChange }: {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-0.1px' }}>{deal.buyerName}</div>
             <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-              {[deal.buyerSubtitle, `signé le ${fmtDateLong(deal.signedAt)}`].filter(Boolean).join(' · ')}
+              {[isCoach ? deal.buyerSubtitleCoach : deal.buyerSubtitle, `signé le ${fmtDateLong(deal.signedAt)}`].filter(Boolean).join(' · ')}
             </div>
           </div>
           <button onClick={onClose} aria-label="Fermer"
@@ -120,7 +123,9 @@ export default function DealPanel({ deal, detail, onClose, onChange }: {
         {/* Versements */}
         <div style={{ padding: isMobile ? '16px 20px' : '18px 24px', borderBottom: '1px solid var(--border-soft)', flexShrink: 0 }}>
           <div className="mono" style={{ marginBottom: 13 }}>
-            {planSummary(deal)}
+            {planSummary(deal, installments.length > 0
+              ? installments.some(i => !!i.short_url)
+              : !!deal.shortUrl)}
           </div>
 
           {installments.length > 0
@@ -128,9 +133,14 @@ export default function DealPanel({ deal, detail, onClose, onChange }: {
                 <Line key={i.id}
                   dot={i.status === 'paid' ? 'green' : i.sent_at ? 'amber' : 'neutral'}
                   title={`Versement ${i.rank} · ${fmtDateLong(i.due_on)}`}
-                  sub={i.status === 'paid' ? 'payé' : i.sent_at ? 'lien envoyé, en attente' : 'à envoyer'}
+                  sub={i.status === 'paid' ? 'payé' : i.sent_at ? 'lien envoyé, en attente' : i.short_url ? 'à envoyer' : 'à encaisser'}
                   amount={fmtEur(Number(i.amount))}
                   dim={i.status !== 'paid'}
+                  // Chaque échéance non payée a son propre lien : un client peut
+                  // payer la 2 avant la 1, ou régler deux versements d'avance.
+                  // N'exposer que la suivante bloquait ces cas — et empêchait
+                  // simplement de tester le rattachement par échéance.
+                  copyUrl={i.status !== 'paid' ? i.short_url ?? undefined : undefined}
                 />
               ))
             : payments.length > 0
@@ -144,6 +154,11 @@ export default function DealPanel({ deal, detail, onClose, onChange }: {
                   />
                 ))
               : <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Aucun paiement encaissé pour l&apos;instant.</div>}
+
+          {/* En prélèvement automatique, l'échéancier vit chez Stripe et non en
+              base — le dupliquer créerait deux sources de vérité. On le lit donc
+              à l'ouverture du panneau, seul endroit où la question se pose. */}
+          {deal.paymentPlan === 'installments_auto' && <AutoScheduleBlock dealId={deal.id} />}
 
           {/* Le lien vit ici, pas en pied de panneau : le bloc dit DE QUEL lien il
               s'agit, ce qu'un bouton isolé ne pourrait pas faire. */}
@@ -207,10 +222,76 @@ function Total({ label, value, color }: { label: string; value: string; color?: 
   );
 }
 
-function Line({ dot, title, sub, amount, dim }: {
+/**
+ * Prochaine échéance et date de fin des prélèvements, lues chez Stripe.
+ *
+ * Le mot « abonnement » n'apparaît jamais : ce que vend le coach est un
+ * accompagnement payé en plusieurs fois, pas une souscription reconductible.
+ * Employer ce terme laisserait croire à un renouvellement sans fin — l'inverse
+ * exact de ce que garantit le bornage.
+ */
+function AutoScheduleBlock({ dealId }: { dealId: string }) {
+  const [sched, setSched] = useState<{
+    status: string; perPayment: number | null; interval: string | null;
+    nextPaymentAt: string | null; endsAt: string | null; bounded: boolean;
+    totalCount: number | null;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/payments/schedule?dealId=${dealId}`)
+      .then(r => r.ok ? r.json() : { schedule: null })
+      .then(d => { if (alive) { setSched(d.schedule); setLoading(false); } })
+      .catch(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [dealId]);
+
+  if (loading || !sched) return null;
+  if (sched.status === 'canceled') return null;
+
+  return (
+    <div style={{ marginTop: 12, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 8 }}>
+      <div className="mono" style={{ marginBottom: 7 }}>Prélèvements automatiques</div>
+
+      {sched.nextPaymentAt && (
+        <Row label="Prochain prélèvement" value={fmtDateLong(sched.nextPaymentAt)} />
+      )}
+      {sched.perPayment != null && (
+        <Row label="Montant" value={`${fmtEur(sched.perPayment)} par mois`} />
+      )}
+
+      {/* Sans date de fin, Stripe prélèverait indéfiniment : l'anomalie doit se
+          voir, pas se deviner. Le webhook coupe en secours au dernier versement,
+          mais un élève doit pouvoir le constater lui-même. */}
+      {sched.bounded && sched.endsAt ? (
+        <Row label="Dernier prélèvement" value={fmtDateLong(sched.endsAt)} />
+      ) : (
+        <div style={{ fontSize: 11.5, color: 'var(--red)', marginTop: 5 }}>
+          Aucune date de fin enregistrée — préviens le support avant la dernière échéance.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12.5, padding: '2px 0' }}>
+      <span style={{ color: 'var(--muted)' }}>{label}</span>
+      <span style={{ color: 'var(--ink)', fontWeight: 500 }}>{value}</span>
+    </div>
+  );
+}
+
+function Line({ dot, title, sub, amount, dim, copyUrl }: {
   dot: 'green' | 'red' | 'amber' | 'neutral'; title: string; sub: string; amount: string; dim?: boolean;
+  /** Lien de cette ligne — affiche une icône de copie discrète à droite. */
+  copyUrl?: string;
 }) {
   const color = dot === 'green' ? 'var(--green)' : dot === 'red' ? 'var(--red)' : dot === 'amber' ? 'var(--amber)' : '#d8d2c5';
+  const [copied, setCopied] = useState(false);
+
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '7px 0' }}>
       <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0 }} />
@@ -219,6 +300,18 @@ function Line({ dot, title, sub, amount, dim }: {
         <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>{sub}</span>
       </span>
       <span className="tabular" style={{ fontSize: 13, fontWeight: 600, color: dim ? 'var(--muted)' : 'var(--ink)' }}>{amount}</span>
+      {copyUrl && (
+        <button
+          onClick={async () => {
+            await navigator.clipboard.writeText(copyUrl);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          }}
+          aria-label="Copier le lien de ce versement"
+          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, display: 'flex', flexShrink: 0 }}>
+          <Icon name={copied ? 'check' : 'copy'} size={14} color={copied ? 'var(--green)' : 'var(--faint)'} />
+        </button>
+      )}
     </div>
   );
 }
@@ -273,10 +366,19 @@ function AcquisitionChain({ dealId }: { dealId: string }) {
   );
 }
 
-function planSummary(d: DealRow): string {
+/**
+ * `hasLinks` distingue un échéancier Stripe d'un encaissement hors plateforme :
+ * annoncer « un lien par échéance » sur des virements décrirait un mécanisme
+ * qui n'existe pas, et laisserait chercher des liens absents.
+ */
+function planSummary(d: DealRow, hasLinks: boolean): string {
   const base = `Deal du ${fmtDateLong(d.signedAt)} · ${fmtEur(d.amountTotal)}`;
-  if (d.paymentPlan === 'one_shot') return `${base} · comptant`;
+  if (d.paymentPlan === 'one_shot') {
+    return `${base} · comptant${hasLinks ? '' : ' · hors Stripe'}`;
+  }
   const every = d.installmentInterval === 'week' ? 'hebdomadaire' : 'mensuel';
-  const mode = d.paymentPlan === 'installments_auto' ? 'prélèvement automatique' : 'un lien par échéance';
+  const mode = d.paymentPlan === 'installments_auto'
+    ? 'prélèvement automatique'
+    : hasLinks ? 'un lien par échéance' : 'encaissement hors Stripe';
   return `${base} en ${d.installmentsCount}× ${every} · ${mode}`;
 }

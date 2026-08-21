@@ -44,17 +44,58 @@ function isDesktop(): boolean {
   return window.matchMedia('(pointer: fine)').matches && window.innerWidth >= 768;
 }
 
-export default function SplashHold({ show }: { show: boolean }) {
+/**
+ * true si le document a été rechargé (F5, Cmd+R, bouton recharger) plutôt
+ * qu'atteint par une navigation. Un rechargement est un nouveau lancement pour
+ * l'utilisateur : l'écran doit se rejouer, alors que le marqueur de session,
+ * lui, survit au refresh.
+ */
+function isReload(): boolean {
+  if (typeof performance === 'undefined') return false;
+  try {
+    const [nav] = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
+    return nav?.type === 'reload';
+  } catch {
+    return false;
+  }
+}
+
+// Un seul SplashHold doit décider du retrait. Le layout racine en monte un pour
+// couvrir /login, /signup, /invite et / (qui n'ont pas de layout d'app), mais il
+// doit s'effacer dès qu'un layout coach/élève en monte un piloté par la session.
+// Sans ça, le splash partirait avant que la session soit résolue.
+let sessionOwner = false;
+
+/**
+ * @param show true tant que l'app n'est pas prête à être montrée. Omis sur les
+ * écrans qui n'attendent aucune session : ils sont prêts dès leur rendu.
+ * @param owner true pour le SplashHold d'un layout d'app, qui a autorité sur
+ * celui du layout racine.
+ */
+export default function SplashHold({ show = false, owner = false }: { show?: boolean; owner?: boolean }) {
   useEffect(() => {
+    if (owner) sessionOwner = true;
+    // Le contrôleur racine se tait dès qu'un layout d'app a pris la main.
+    if (!owner && sessionOwner) return;
+
     const el = document.getElementById('app-splash');
     if (!el) return;
 
     // Déjà vu dans cette session : retrait sec, sans fondu ni délai. Une
-    // navigation vers l'accueil ne doit pas rejouer un lancement.
+    // navigation interne vers l'accueil ne doit pas rejouer un lancement.
+    //
+    // Exception : un rechargement de page est un nouveau lancement du point de
+    // vue de l'utilisateur, l'écran doit donc se rejouer. Le marqueur de session
+    // survivant au refresh, on le neutralise explicitement dans ce cas.
     let seen = false;
     try { seen = sessionStorage.getItem(SEEN_KEY) === '1'; } catch { /* mode privé */ }
+    if (seen && isReload()) {
+      seen = false;
+      try { sessionStorage.removeItem(SEEN_KEY); } catch { /* mode privé */ }
+    }
     if (seen) {
       el.setAttribute('data-done', '1');
+      document.documentElement.removeAttribute('data-splash');
       return;
     }
 
@@ -73,10 +114,13 @@ export default function SplashHold({ show }: { show: boolean }) {
 
     const doneTimer = setTimeout(() => {
       el.setAttribute('data-done', '1');
+      // Les loaders de page redeviennent visibles seulement maintenant : entre
+      // le debut du fondu et ce point, l'ecran couvre encore la page.
+      document.documentElement.removeAttribute('data-splash');
     }, wait + FADE_MS);
 
     return () => { clearTimeout(fadeTimer); clearTimeout(doneTimer); };
-  }, [show]);
+  }, [show, owner]);
 
   return null;
 }

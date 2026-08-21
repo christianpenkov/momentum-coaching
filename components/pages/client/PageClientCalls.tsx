@@ -1,11 +1,13 @@
 'use client';
 import InlineLoader from '@/components/ui/InlineLoader';
+import { Skeleton } from '@/components/ui/Skeleton';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Icon from '@/components/ui/Icon';
-import RapportModal from '@/components/ui/RapportModal';
+import RapportModal from '@/components/ui/RapportModalLoader';
+import PendingRapportCard from '@/components/ui/PendingRapportCard';
 import CallInfosModal from '@/components/ui/CallInfosModal';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
@@ -288,8 +290,6 @@ export default function PageClientCalls() {
     return () => clearInterval(interval);
   }, []);
 
-  // Carrousel rapports en attente
-  const [rapportIdx, setRapportIdx] = useState(0);
   // Carrousel historique
 
   // Modal rapport
@@ -439,7 +439,33 @@ export default function PageClientCalls() {
     setTimeout(() => setSyncMsg(null), 4000);
   }
 
-  if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>;
+  // Squelette calque sur la page : titre, chips de filtre, cartes de call.
+  if (loading) return (
+    <div className="page-content">
+      <div className="page-header">
+        <Skeleton width={90} height={22} />
+      </div>
+      {/* Rangee de chips de filtre, puis cartes de call : avatar, identite,
+          heure a droite. Memes dimensions que le rendu reel. */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+        {[74, 82, 90, 96].map((w, i) => (
+          <Skeleton key={i} width={w} height={32} radius={20} />
+        ))}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="card" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px' }}>
+            <Skeleton width={38} height={38} radius={19} />
+            <div style={{ flex: 1 }}>
+              <Skeleton width={`${46 - i * 5}%`} height={13} />
+              <Skeleton width="28%" height={11} style={{ marginTop: 7 }} />
+            </div>
+            <Skeleton width={54} height={12} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 
   function getCallCounterpart(call: Call) {
     if (isCoachingCall(call)) {
@@ -642,58 +668,26 @@ export default function PageClientCalls() {
         </div>
       </div>
 
-      {/* Rapports en attente — carrousel, flèches latérales */}
-      {pendingRapports.length > 0 && (
-        <div style={{ marginBottom: 24 }}>
-          <div className="eyebrow-lg" style={{ color: 'var(--accent-brand)', marginBottom: 10 }}>
-            {pendingRapports.length} rapport{pendingRapports.length > 1 ? 's' : ''} en attente
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button
-              type="button"
-              onClick={() => setRapportIdx(i => Math.max(0, i - 1))}
-              disabled={rapportIdx === 0 || pendingRapports.length <= 1}
-              style={{ flexShrink: 0, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, cursor: rapportIdx === 0 ? 'default' : 'pointer', opacity: rapportIdx === 0 || pendingRapports.length <= 1 ? 0.2 : 1 }}
-            >‹</button>
-            {(() => {
-              const call = pendingRapports[rapportIdx];
-              if (!call) return null;
-              return (
-                <div className="card" style={{ flex: 1, borderLeft: '3px solid var(--accent-brand)', padding: '18px 20px' }}>
-                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent-brand)', marginBottom: 4 }}>
-                        RAPPORT DE CALL{pendingRapports.length > 1 && <span style={{ fontWeight: 400, color: 'var(--muted)', marginLeft: 8 }}>{rapportIdx + 1} / {pendingRapports.length}</span>}
-                      </div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>
-                        {call.invitee_name ? `Appel avec ${call.invitee_name}` : call.topic || 'Appel découverte'}
-                      </div>
-                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                        {call.scheduled_at ? formatCallLongDate(call.scheduled_at, viewerTz) : '—'}
-                        {call.duration && <span style={{ marginLeft: 8 }}>· {call.duration}</span>}
-                      </div>
-                    </div>
-                    <button
-                      className="btn-primary-brand"
-                      type="button"
-                      style={{ fontSize: 13, background: 'var(--accent-brand)', flexShrink: 0 }}
-                      onClick={() => setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at })}
-                    >
-                      Remplir le rapport
-                    </button>
-                  </div>
-                </div>
-              );
-            })()}
-            <button
-              type="button"
-              onClick={() => setRapportIdx(i => Math.min(pendingRapports.length - 1, i + 1))}
-              disabled={rapportIdx === pendingRapports.length - 1 || pendingRapports.length <= 1}
-              style={{ flexShrink: 0, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, cursor: rapportIdx === pendingRapports.length - 1 ? 'default' : 'pointer', opacity: rapportIdx === pendingRapports.length - 1 || pendingRapports.length <= 1 ? 0.2 : 1 }}
-            >›</button>
-          </div>
-        </div>
-      )}
+      {/* Rapports en attente — carrousel partagé avec les deux accueils. Flèches à
+          44 px ici (et 32 ailleurs) : cet écran est le plus utilisé au doigt, la
+          cible tactile y était volontairement plus grande. */}
+      <PendingRapportCard
+        arrowSize={44}
+        marginBottom={24}
+        items={pendingRapports.map(call => ({
+          id: call.id,
+          // Ici l'item EST un call : les deux coïncident, contrairement aux accueils
+          // qui partent de notifications.
+          callId: call.id,
+          title: call.invitee_name ? `Appel avec ${call.invitee_name}` : call.topic || 'Appel découverte',
+          scheduledAt: call.scheduled_at,
+          duration: call.duration,
+        }))}
+        onOpen={(_item, index) => {
+          const call = pendingRapports[index];
+          if (call) setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at });
+        }}
+      />
 
       {/* Demandes de call en attente d'acceptation (Google Calendar) */}
       {pendingCalls.length > 0 && (

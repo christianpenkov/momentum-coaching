@@ -4,6 +4,8 @@ export interface DealRow {
   id: string;
   buyerName: string;
   buyerSubtitle: string | null;
+  /** Variante vue coach — voir app/api/payments/route.ts. */
+  buyerSubtitleCoach: string | null;
   buyerKind: 'student' | 'external' | null;
   /** Photo Instagram du lead, ou avatar de l'élève côté coach. */
   avatarUrl: string | null;
@@ -22,6 +24,8 @@ export interface DealRow {
   paidCount: number;
   expectedCount: number;
   hasFailure: boolean;
+  /** Le deal a-t-il au moins un lien de paiement Stripe ? Faux = hors Stripe. */
+  hasLinks: boolean;
 }
 
 export interface DealPayment {

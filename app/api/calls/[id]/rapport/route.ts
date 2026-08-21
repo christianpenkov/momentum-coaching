@@ -1,11 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient as createServerClient } from '@/lib/supabase/server';
-import { createClient } from '@supabase/supabase-js';
-
-const serviceSupabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { requireCallAccess, serviceSupabase } from '@/lib/callAccess';
 
 // Mapping outcome → stage pipeline
 function outcomeToStage(outcome: string): string | null {
@@ -53,28 +47,22 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const supabase = await createServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
-  // Récupère le call avec ig_lead_id + source pour le lien pipeline
+  // Authentification + contrôle d'appartenance : logique déplacée telle quelle dans
+  // lib/callAccess.ts, partagée avec la route des brouillons. C'est la seule
+  // définition de « qui a le droit de toucher ce call » — l'avertissement sur
+  // client_id des calls Calendly y est conservé intégralement.
+  const access = await requireCallAccess(id);
+  if (!access.ok) return access.response;
+
+  // Champs propres au lien pipeline, hors du périmètre du contrôle d'accès.
   const { data: call } = await serviceSupabase
     .from('calls')
-    .select('id, coach_id, client_id, ig_lead_id, source, prospect_id')
+    .select('id, coach_id, ig_lead_id, source, prospect_id')
     .eq('id', id)
     .single();
 
   if (!call) return NextResponse.json({ error: 'Call introuvable' }, { status: 404 });
-
-  // ⚠️ INCOHÉRENCE CONNUE (audit sécurité, en attente de clarification) : pour les calls
-  // Calendly, call.client_id référence clients.id (table de jointure), pas auth.users.id
-  // — la comparaison ci-dessous ne matche donc probablement jamais côté élève sur ce flux.
-  // Confirmé avec Chris (24/07/2026) : seul le coach remplit ce rapport en pratique
-  // aujourd'hui, donc pas de bug utilisateur actif. À cartographier entièrement (calls
-  // Calendly vs Google Meet utilisent des conventions différentes pour client_id/coach_id)
-  // avant de corriger, pour ne pas casser un accès élève qui fonctionnerait déjà autrement.
-  const isOwner = call.coach_id === user.id || call.client_id === user.id;
-  if (!isOwner) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
 
   const body = await request.json().catch(() => ({}));
   const patch: Record<string, unknown> = {};

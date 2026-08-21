@@ -25,6 +25,8 @@ export interface DealRow {
   id: string;
   buyerName: string;
   buyerSubtitle: string | null;
+  /** Variante vue coach : distingue élève plateforme et client externe. */
+  buyerSubtitleCoach: string | null;
   buyerKind: 'student' | 'external' | null;
   /** Photo Instagram du lead, ou avatar de l'élève côté coach. */
   avatarUrl: string | null;
@@ -44,6 +46,8 @@ export interface DealRow {
   paidCount: number;
   expectedCount: number;
   hasFailure: boolean;
+  /** Le deal a-t-il au moins un lien de paiement Stripe ? Faux = hors Stripe. */
+  hasLinks: boolean;
 }
 
 export async function GET(request: NextRequest) {
@@ -119,17 +123,36 @@ export async function GET(request: NextRequest) {
     const collected = succeeded.reduce((s: number, p: any) => s + Number(p.amount), 0);
 
     const username = d.ig_lead_id ? leadNames.get(d.ig_lead_id) : null;
+    // « élève plateforme » / « hors plateforme » ne parlent qu'au coach, qui
+    // distingue ses élèves Momentum de ses clients externes. Côté élève, TOUS
+    // ses clients sont externes par construction : le libellé n'apportait rien
+    // et laissait croire que la vente s'était faite hors de Momentum. On décrit
+    // alors l'origine du deal, seule information utile là.
+    //
+    // La route ignore qui regarde (le même composant est monté des deux côtés
+    // avec une prop) : elle renvoie les deux libellés, le composant choisit.
     const subtitle = username
       ? `@${username}`
-      : d.buyer_kind === 'student' ? 'élève plateforme'
-      : d.buyer_kind === 'external' ? 'hors plateforme'
-      : d.attribution_source === 'manual' ? 'saisi à la main'
-      : null;
+      : d.call_id ? 'call de vente'
+      : d.attribution_source === 'client_existant' ? 'client existant'
+      : d.attribution_source === 'cold_dm' ? 'cold DM'
+      : 'saisi à la main';
+
+    // « hors plateforme » se lisait « paie hors de Momentum », donc hors Stripe
+    // — le sens exactement inverse de celui voulu, et déjà occupé par
+    // l'encaissement par virement. On nomme ce qu'est la personne, pas ce
+    // qu'elle n'est pas : un client du coach qui n'a pas de compte élève.
+    const subtitleCoach = username
+      ? `@${username}`
+      : d.buyer_kind === 'student' ? 'élève Momentum'
+      : d.buyer_kind === 'external' ? 'client direct'
+      : subtitle;
 
     return {
       id: d.id,
       buyerName: d.buyer_name,
       buyerSubtitle: subtitle,
+      buyerSubtitleCoach: subtitleCoach,
       buyerKind: d.buyer_kind,
       avatarUrl: (d.ig_lead_id ? leadAvatars.get(d.ig_lead_id) : null)
         ?? (d.client_id ? clientAvatars.get(d.client_id) : null)
@@ -149,6 +172,12 @@ export async function GET(request: NextRequest) {
       paidCount: succeeded.length,
       expectedCount: d.installments_count ?? 1,
       hasFailure: payments.some((p: any) => p.status === 'failed'),
+      // Un deal encaissé hors Stripe n'a aucun lien : le statut ne peut pas
+      // dire « À envoyer », il n'y a rien à envoyer. Se calcule ici parce que
+      // seule la route voit les échéances et leurs liens.
+      hasLinks: (d.deal_installments ?? []).length > 0
+        ? (d.deal_installments ?? []).some((i: any) => !!i.short_url)
+        : !!d.short_url,
     };
   });
 
@@ -191,8 +220,37 @@ export async function GET(request: NextRequest) {
     .eq('deals.profile_id', profileId);
 
   const attachedIds = new Set((attachedPayments ?? []).map((p: any) => p.stripe_payment_id));
-  const orphans = (allPayments ?? [])
-    .filter(p => p.status === 'succeeded' && !attachedIds.has(p.payment_id));
+
+  // Une même transaction d'abonnement arrive DEUX fois dans stripe_payments :
+  // sous son id d'invoice (`in_…`) et sous celui de son PaymentIntent (`pi_…`),
+  // au même montant et à la même seconde. Constaté en test le 20/08/2026 sur
+  // TestBIO. Ne comparer que les identifiants faisait donc remonter la moitié
+  // non retenue comme un faux orphelin — et la rattacher aurait dupliqué
+  // 1 000 € dans le cash collecté.
+  //
+  // On écarte donc aussi tout paiement dont le montant ET l'instant coïncident
+  // avec un paiement déjà rattaché. Deux vrais paiements distincts du même
+  // montant à la même seconde n'existent pas en pratique ; et dans ce cas
+  // improbable, mieux vaut un orphelin manquant qu'un doublon de cash.
+  const { data: attachedDetail } = await supa
+    .from('deal_payments')
+    .select('amount, paid_at, deals!inner(profile_id)')
+    .eq('deals.profile_id', profileId)
+    .eq('status', 'succeeded');
+
+  const attachedFingerprints = new Set(
+    (attachedDetail ?? [])
+      .filter((p: any) => p.paid_at)
+      .map((p: any) => `${Number(p.amount)}@${new Date(p.paid_at).toISOString().slice(0, 19)}`)
+  );
+
+  const orphans = (allPayments ?? []).filter(p => {
+    if (p.status !== 'succeeded') return false;
+    if (attachedIds.has(p.payment_id)) return false;
+    if (!p.date) return true;
+    const fp = `${Number(p.amount)}@${new Date(p.date).toISOString().slice(0, 19)}`;
+    return !attachedFingerprints.has(fp);
+  });
 
   return NextResponse.json({
     profileId,

@@ -14,6 +14,7 @@ import fixWebmDuration from 'fix-webm-duration';
 import { useGlobalClientPresence } from '@/lib/GlobalPresenceContext';
 import { useFloatingDate } from '@/lib/useFloatingDate';
 import { useUser } from '@/lib/UserContext';
+import { isOnlineNow } from '@/lib/useOnline';
 import { compressImageIfNeeded } from '@/lib/compressImage';
 import { useBlobMediaCache } from '@/lib/useBlobMediaCache';
 import { buildMenuItems, renderMenuItem, ReactionBar, ReactionDetail, MENU_ITEM_HEIGHT, REACTION_BAR_HEIGHT, REACTION_BAR_WIDTH, REACTION_DETAIL_HEIGHT, REACTION_DETAIL_WIDTH, MENU_GAP, MENU_SCREEN_MARGIN, CTX_MENU_WIDTH } from '@/components/pages/shared/MessageMenuParts';
@@ -813,7 +814,8 @@ function EditBubbleOverlay({ rect, isMe, editText, setEditText, originalText, on
 // ─── MessageBubble — une bulle de message, isolée pour porter useLongPress proprement ──
 
 function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, onDoubleTapReact, isMenuTarget, liftPx, onEnterViewport, registerBubbleRef, animate, onListened, quotedMsg, onQuoteClick, coachName, coachAvatarUrl, coachInitials, myAvatarUrl, myInitials }: {
-  msg: Msg; userId: string; isContinued: boolean; isLast: boolean;
+  msg: Msg; userId: string;
+  isContinued: boolean; isLast: boolean;
   isEditing: boolean; editRect: DOMRect | null; editText: string; setEditText: (v: string) => void;
   onStartEdit: () => void; onCancelEdit: () => void; onSaveEdit: () => void;
   canEdit: boolean; canDelete: boolean;
@@ -1593,6 +1595,7 @@ export default function PageClientMessages() {
     };
     setMessages(prev => [...prev, optimistic]);
     setReplyingTo(null);
+
     const { data, error } = await supabase.from('messages').insert({
       client_id: clientId, sender_id: userId, text: text.trim(), type: 'text', reply_to_id: replyId,
     }).select('id, text, sender_id, created_at, type, audio_url, duration_s, read_at, listened_at, edited_at, caption, reply_to_id, reaction_emoji, reaction_by, file_size_bytes, page_count, thumbnail_url').single();
@@ -1601,9 +1604,14 @@ export default function PageClientMessages() {
       // Sans ce rollback, un échec (RLS, réseau, contrainte DB) laissait le message
       // optimiste affiché indéfiniment sans jamais se résoudre ni prévenir l'élève —
       // mêmes garanties que editMessage/deleteMessage juste en dessous.
+      //
+      // Pas de file de renvoi automatique : elle ne pourrait pas survivre à la
+      // fermeture de l'app sans stockage persistant, donc elle promettrait un
+      // envoi qu'elle ne peut pas toujours tenir. Un échec franc, avec le texte
+      // rendu à l'utilisateur, est plus honnête et sans maintenance.
       setMessages(prev => prev.filter(m => m.id !== optimisticId));
       setInput(text);
-      setActionError('Message non envoyé — réessaie.');
+      setActionError(isOnlineNow() ? 'Message non envoyé — réessaie.' : "Pas de connexion — ton message n'a pas été envoyé.");
     }
   }
 

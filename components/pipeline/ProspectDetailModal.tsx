@@ -25,6 +25,7 @@ interface TimelineEvent {
 
 const EVENT_STYLE: Record<string, { icon: Parameters<typeof Icon>[0]['name']; color: string }> = {
   hook_replied:        { icon: 'message-circle',        color: '#1a1815' },
+  lm_sent:             { icon: 'send',                    color: '#1a1815' },
   lm_clicked:          { icon: 'mouse-pointer-click',    color: '#1a1815' },
   calendly_link_sent:  { icon: 'calendar-plus',          color: '#1a1815' },
   link_clicked:        { icon: 'mouse-pointer-click',    color: '#1a1815' },
@@ -62,6 +63,47 @@ function resolveIgPostLink(
   return { linkLabel: caption, linkUrl: meta.permalink, thumbnail: meta.thumbnail };
 }
 
+// Ordre logique du parcours, utilise seulement pour departager deux evenements
+// simultanes. Un type inconnu prend un rang neutre au milieu plutot que d'etre
+// projete a une extremite.
+const FUNNEL_ORDER = [
+  'hook_replied', 'lm_sent', 'lm_clicked', 'calendly_link_sent', 'link_clicked',
+  'call_booked', 'rescheduled', 'no_show', 'call_canceled', 'showed_up', 'closed',
+];
+function funnelRank(type: string): number {
+  const i = FUNNEL_ORDER.indexOf(type);
+  return i === -1 ? FUNNEL_ORDER.length / 2 : i;
+}
+
+// ── labelForEvent ────────────────────────────────────────────────────────────
+// Libelle lisible de chaque event_type. La cascade de if/else qui tenait ce
+// role ne couvrait pas `lm_sent`, et la valeur par defaut etait la cle brute :
+// la timeline affichait litteralement "lm_sent" — 2e type le plus frequent en
+// base. Une table rend l'oubli visible, et le repli met en forme la cle plutot
+// que de l'afficher telle quelle, pour qu'un futur type non declare reste
+// presentable.
+const EVENT_LABELS: Record<string, string> = {
+  hook_replied:       "Réponse à l'accroche",
+  lm_sent:            'Lead magnet envoyé',
+  lm_clicked:         'Lead magnet ouvert',
+  calendly_link_sent: 'Lien Calendly envoyé',
+  link_clicked:       'Lien Calendly cliqué',
+  call_booked:        'Call booké',
+  no_show:            'No-show',
+  rescheduled:        'Call reporté',
+  call_canceled:      'Call annulé',
+  showed_up:          'Call honoré',
+  closed:             'Deal closé',
+};
+
+function labelForEvent(type: string): string {
+  const known = EVENT_LABELS[type];
+  if (known) return known;
+  // Repli : "some_new_type" -> "Some new type".
+  const readable = type.replace(/_/g, ' ');
+  return readable.charAt(0).toUpperCase() + readable.slice(1);
+}
+
 // ── buildProspectTimeline ────────────────────────────────────────────────────
 // Assemble la timeline d'un prospect : d'abord les prospect_events réels (source
 // fiable), puis injecte les événements dérivés absents de prospect_events, déduits
@@ -73,17 +115,7 @@ function buildProspectTimeline(ctx: ProspectContext): TimelineEvent[] {
   const now = new Date();
 
   for (const e of ctx.events) {
-    let label = e.event_type;
-    if (e.event_type === 'hook_replied') label = "Réponse à l'accroche";
-    else if (e.event_type === 'lm_clicked') label = 'Lead magnet ouvert';
-    else if (e.event_type === 'calendly_link_sent') label = 'Lien Calendly envoyé';
-    else if (e.event_type === 'link_clicked') label = 'Lien Calendly cliqué';
-    else if (e.event_type === 'call_booked') label = 'Call booké';
-    else if (e.event_type === 'no_show') label = 'No-show';
-    else if (e.event_type === 'rescheduled') label = 'Call reporté';
-    else if (e.event_type === 'showed_up') label = 'Call honoré';
-    else if (e.event_type === 'closed') label = 'Deal closé';
-    events.push({ id: e.id, type: e.event_type, occurredAt: e.occurred_at, source: 'event', label });
+    events.push({ id: e.id, type: e.event_type, occurredAt: e.occurred_at, source: 'event', label: labelForEvent(e.event_type) });
   }
 
   // Chaque lead magnet réclamé, à sa propre date (detected_at) — un lead peut en
@@ -282,7 +314,18 @@ function buildProspectTimeline(ctx: ProspectContext): TimelineEvent[] {
     }
   }
 
-  return events.sort((a, b) => new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime());
+  // Tri chronologique, departage par l'ordre logique de l'entonnoir quand deux
+  // evenements portent le MEME horodatage. Ce cas est courant, pas theorique :
+  // le commentaire detecte et l'envoi du lead magnet sont ecrits avec le meme
+  // timestamp a la milliseconde (constate le 19/08 a 12:55:35), et le tri
+  // n'ayant rien pour les departager laissait l'ordre d'insertion decider —
+  // "Lead magnet envoye" s'affichait AVANT "Commentaire detecte", ce qui se lit
+  // comme une impossibilite.
+  return events.sort((a, b) => {
+    const dt = new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime();
+    if (dt !== 0) return dt;
+    return funnelRank(a.type) - funnelRank(b.type);
+  });
 }
 
 // ── TimelineList ─────────────────────────────────────────────────────────────

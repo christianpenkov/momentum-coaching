@@ -188,7 +188,22 @@ export async function GET(request: Request) {
     ? avgViewDurationWeighted
     : (views30d > 0 ? Math.round((watchTime30d * 60) / views30d) : 0);
 
-  const chartData = rows.map((r: any) => ({
+  // Total d'abonnes JOUR PAR JOUR — l'API Analytics ne fournit que les gains et pertes,
+  // jamais le total. On le reconstitue en partant du total actuel (Data API v3) et en
+  // remontant le temps : total du jour = total du lendemain - gains + pertes.
+  //
+  // Sans ce champ, la courbe de la carte « Abonnes » etait VIDE en periode courante :
+  // elle lit chartData.subscribers, que le chemin snapshot fournit mais pas celui-ci
+  // (constate le 2026-08-21).
+  const subscribersNow = parseInt(stats?.subscriberCount || '0') || 0;
+  const subsByDay: number[] = new Array(rows.length).fill(subscribersNow);
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (i === rows.length - 1) { subsByDay[i] = subscribersNow; continue; }
+    const next = rows[i + 1];
+    subsByDay[i] = subsByDay[i + 1] - (next[3] || 0) + (next[4] || 0);
+  }
+
+  const chartData = rows.map((r: any, i: number) => ({
     date: r[0],
     views: r[1] || 0,
     watchTime: r[2] || 0,
@@ -198,6 +213,7 @@ export async function GET(request: Request) {
     likes: r[5] || 0,
     comments: r[6] || 0,
     shares: r[7] || 0,
+    subscribers: subsByDay[i],
   }));
 
   // Sources de trafic
@@ -284,7 +300,8 @@ export async function GET(request: Request) {
     for (const row of analyticsVideosData?.rows || []) {
       analyticsByVideo[row[0]] = {
         views30d: row[1] || 0,
-        watchTime30d: Math.round((row[2] || 0) / 60),
+        // Déjà en minutes — même correction que poll-leads/index.ts et yt-fetch.ts.
+        watchTime30d: Math.round(row[2] || 0),
         avgViewPct: parseFloat(((row[3] || 0)).toFixed(1)),
         likes30d: row[4] || 0,
         comments30d: row[5] || 0,

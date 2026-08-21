@@ -46,6 +46,49 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Échéance déjà payée' }, { status: 409 });
   }
 
+  // ── Échéance encaissée hors Stripe ─────────────────────────────────────────
+  // Virement, espèces : aucun webhook ne viendra jamais confirmer ce paiement,
+  // c'est l'élève qui déclare l'avoir reçu. `match_method = 'manual'` garde la
+  // trace que ce montant est DÉCLARÉ et non constaté par Stripe — la
+  // distinction ne doit jamais se perdre dans les chiffres.
+  if (body.received === true) {
+    const { data: full } = await supa
+      .from('deal_installments')
+      .select('id, deal_id, amount, rank')
+      .eq('id', body.installmentId)
+      .single();
+    if (!full) return NextResponse.json({ error: 'Échéance introuvable' }, { status: 404 });
+
+    const { error: payErr } = await supa.from('deal_payments').insert({
+      deal_id: full.deal_id,
+      installment_id: full.id,
+      stripe_payment_id: `offline_${full.id}`,
+      amount: full.amount,
+      currency: 'eur',
+      paid_at: new Date().toISOString(),
+      status: 'succeeded',
+      match_method: 'manual',
+    });
+    if (payErr) return NextResponse.json({ error: payErr.message }, { status: 500 });
+
+    await supa.from('deal_installments')
+      .update({ status: 'paid' })
+      .eq('id', full.id);
+
+    // Le deal passe à « payé » quand plus aucune échéance n'est en attente.
+    const { count: restantes } = await supa
+      .from('deal_installments')
+      .select('id', { count: 'exact', head: true })
+      .eq('deal_id', full.deal_id)
+      .neq('status', 'paid');
+
+    if ((restantes ?? 0) === 0) {
+      await supa.from('deals').update({ status: 'paid' }).eq('id', full.deal_id);
+    }
+
+    return NextResponse.json({ ok: true, received: true, remaining: restantes ?? 0 });
+  }
+
   const sent = body.sent !== false;
 
   const { error } = await supa.from('deal_installments').update({

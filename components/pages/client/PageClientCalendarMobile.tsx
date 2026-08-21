@@ -2,6 +2,7 @@
 import InlineLoader from '@/components/ui/InlineLoader';
 
 import { useMemo, useState } from 'react';
+import { useEscapeKey } from '@/lib/useEscapeKey';
 import { createPortal } from 'react-dom';
 import { useClientSelfData } from '@/lib/supabase/useCoachData';
 import { useClientAllCalls } from '@/lib/supabase/useClientAllCalls';
@@ -22,6 +23,9 @@ export default function PageClientCalendarMobile() {
   );
   const [cursor, setCursor] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  // Le detail d'un jour est une couche modale : Echap doit la fermer. Actif
+  // seulement quand elle est ouverte, sinon un Echap ailleurs la ciblerait.
+  useEscapeKey(() => setSelectedDay(null), selectedDay !== null);
 
   function getCallCounterpart(call: Call) {
     if (isCoachingCall(call)) {

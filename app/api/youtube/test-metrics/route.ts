@@ -13,6 +13,24 @@ function getStartDate(daysAgo: number) {
   return d.toISOString().split('T')[0];
 }
 
+// ── Metriques YouTube indisponibles sur ce compte (verifie le 2026-08-20) ───────
+//
+// Trois requetes de cette route echouent, et c'est NORMAL — aucune n'alimente Mes Stats :
+//
+//   ctr_standard            « Unknown identifier (impressions) » — la metrique
+//                           `impressions` exige le scope yt-analytics-monetary, donc une
+//                           chaine monetisee. Celle-ci ne l'est pas
+//                           (isChannelMonetizationEnabled: false).
+//   ctr_video_method        « query is not supported » — videoThumbnailImpressionsClickRate
+//                           n'est pas disponible sur les rapports de cette chaine.
+//   relative_retention_...  « query is not supported » AVEC dimensions=video, mais
+//                           FONCTIONNE avec dimensions=elapsedVideoTimeRatio (100 points
+//                           reels renvoyes) — la retention se lit a l'interieur d'une
+//                           video, pas jour par jour.
+//
+// Le CTR affiche dans Mes Stats ne vient pas de la : il passe par l'API Reporting
+// (rapport channel_reach_basic_a1, table youtube_video_ctr), qui fonctionne sans
+// monetisation. Ces trois requetes restent ici comme trace de ce qui a ete teste.
 export async function GET(request: Request) {
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -347,6 +365,36 @@ export async function GET(request: Request) {
       },
       separate: separateResults,
     };
+  }
+
+  // ── Test : durée moyenne de visionnage PAR JOUR, séparée Shorts / vidéos longues ──
+  // La doc annonce `creatorContentType` (SHORTS | VIDEO_ON_DEMAND | LIVE_STREAM | STORY)
+  // combinable avec `day`. Vérification sur la vraie chaîne avant d'en dépendre : une
+  // API peut documenter une combinaison qu'elle refuse en pratique (quota, chaîne trop
+  // petite, dimension non supportée sur ce type de rapport).
+  {
+    const start = getStartDate(30);
+    const end = getToday();
+    const tests: Record<string, string> = {
+      day_seul: `metrics=views,averageViewDuration&dimensions=day&sort=day`,
+      day_x_contentType: `metrics=views,averageViewDuration,estimatedMinutesWatched&dimensions=day,creatorContentType&sort=day`,
+      contentType_seul: `metrics=views,averageViewDuration,estimatedMinutesWatched&dimensions=creatorContentType`,
+    };
+    results.avg_duration_by_content_type = {};
+    for (const [label, q] of Object.entries(tests)) {
+      const r = await fetch(
+        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${start}&endDate=${end}&${q}`,
+        { headers: h }
+      );
+      const d = await r.json();
+      (results.avg_duration_by_content_type as Record<string, any>)[label] = {
+        httpStatus: r.status,
+        error: d.error?.message ?? null,
+        columnHeaders: d.columnHeaders?.map((c: any) => c.name) ?? null,
+        rowCount: d.rows?.length ?? 0,
+        sampleRows: (d.rows ?? []).slice(0, 6),
+      };
+    }
   }
 
   return NextResponse.json(results, { status: 200 });

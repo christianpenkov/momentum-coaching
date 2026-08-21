@@ -56,8 +56,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Nombre d\'échéances invalide' }, { status: 400 });
   }
 
-  const access = await getStripeAccess(profileId);
-  if (!access) {
+  // Encaissement HORS Stripe — virement, espèces, tout ce qui ne transite pas
+  // par la plateforme. Personne ne peut alors confirmer le paiement
+  // automatiquement : c'est l'élève qui déclare.
+  //
+  // Comptant  → le paiement est enregistré tout de suite (l'argent est là).
+  // Plusieurs → l'échéancier est créé sans lien Stripe, et chaque échéance
+  //             remonte dans Relances à sa date pour être cochée « reçu ».
+  //
+  // Le deal existe dans tous les cas : sans lui il manquerait au cash et à
+  // l'attribution par contenu, alors que la vente a bien eu lieu.
+  const offline = body.offline === true || body.skipLink === true;
+
+  const access = offline ? null : await getStripeAccess(profileId);
+  if (!offline && !access) {
     return NextResponse.json(
       { error: 'Stripe non connecté', code: 'stripe_disconnected' },
       { status: 409 },
@@ -112,8 +124,13 @@ export async function POST(request: NextRequest) {
     attributionSource = 'client_existant';
   }
 
-  // Élève de la plateforme ou client externe — alimente la colonne « Type » côté coach.
-  const buyerKind = body.clientId ? "student" : (igLeadId || prospectId) ? null : "external";
+  // Alimente la colonne « Type » côté coach : élève Momentum ou client direct.
+  // Un deal issu d'un CALL vient du pipeline, même sans lead Instagram rattaché
+  // (prospect YouTube, call pris hors DM) — le classer « client direct » le
+  // faisait passer pour une vente hors pipeline dans les stats du coach.
+  const buyerKind = body.clientId ? 'student'
+    : (igLeadId || prospectId || body.callId) ? null
+    : 'external';
 
   const { data: deal, error: dealErr } = await supa.from('deals').insert({
     profile_id: profileId,
@@ -138,6 +155,102 @@ export async function POST(request: NextRequest) {
 
   if (dealErr) return NextResponse.json({ error: dealErr.message }, { status: 500 });
 
+  // ── Encaissement hors Stripe ───────────────────────────────────────────────
+  if (offline || !access) {
+    // `alreadyReceived` : l'argent est DÉJÀ là (virement reçu avant le call,
+    // espèces en main) — par opposition à un paiement simplement convenu, qui
+    // n'arrivera que plus tard. Enregistrer les deux pareil gonflerait le cash
+    // collecté d'un argent qui n'est pas encore entré.
+    const alreadyReceived = body.alreadyReceived === true;
+
+    if (plan === 'one_shot' || !count) {
+      // Encaissé : on enregistre le paiement. `match_method = manual` distingue
+      // pour toujours ce montant DÉCLARÉ d'un montant CONSTATÉ par Stripe.
+      if (alreadyReceived) {
+        await supa.from('deal_payments').insert({
+          deal_id: deal.id,
+          // Pas d'id Stripe puisqu'il n'y a pas de transaction Stripe ; l'id du
+          // deal garantit l'unicité de la clé (deal_id, stripe_payment_id).
+          stripe_payment_id: `offline_${deal.id}`,
+          amount,
+          currency: 'eur',
+          paid_at: new Date().toISOString(),
+          status: 'succeeded',
+          match_method: 'manual',
+        });
+        await supa.from('deals').update({ status: 'paid' }).eq('id', deal.id);
+        return NextResponse.json({ dealId: deal.id, mode: 'offline_paid', url: null });
+      }
+
+      // Attendu : une échéance unique à la date convenue. Elle remonte dans
+      // Relances et déclenche les rappels comme n'importe quelle autre — sans
+      // elle, un virement promis serait oublié faute de trace.
+      const { error: instErr } = await supa.from('deal_installments').insert({
+        deal_id: deal.id,
+        rank: 1,
+        amount,
+        due_on: body.dueOn ?? new Date().toISOString().slice(0, 10),
+        status: 'pending',
+      });
+      if (instErr) return NextResponse.json({ error: instErr.message }, { status: 500 });
+
+      // Le deal reste `one_shot` : un versement unique n'est pas un échéancier,
+      // et la contrainte deals_installments_count_check impose > 1. C'est la
+      // ligne deal_installments seule qui porte la date attendue et fait
+      // remonter le paiement dans Relances.
+      return NextResponse.json({ dealId: deal.id, mode: 'offline_pending', url: null });
+    }
+
+    // Plusieurs fois : Momentum porte l'échéancier, puisque ni Stripe ni
+    // personne d'autre ne le détient. Sans lui, impossible de savoir quelle
+    // échéance reste à encaisser.
+    const per = Math.round((amount / count) * 100) / 100;
+    const first = Math.round((amount - per * (count - 1)) * 100) / 100;
+    const signedAt = new Date();
+    const rows = Array.from({ length: count }, (_, i) => {
+      const rank = i + 1;
+      const due = new Date(signedAt.getTime() + i * INTERVAL_DAYS[interval] * 86400_000);
+      return {
+        deal_id: deal.id,
+        rank,
+        amount: rank === 1 ? first : per,
+        due_on: due.toISOString().slice(0, 10),
+        status: 'pending',
+      };
+    });
+    const { data: created, error: instErr } = await supa
+      .from('deal_installments').insert(rows).select('id, rank, amount');
+    if (instErr) return NextResponse.json({ error: instErr.message }, { status: 500 });
+
+    // Acompte déjà versé : le premier versement est souvent encaissé le jour de
+    // la signature. Le laisser « à encaisser » ferait remonter dans Relances
+    // une action déjà faite, et sous-estimerait le cash collecté.
+    if (alreadyReceived) {
+      const first1 = (created ?? []).find(i => i.rank === 1);
+      if (first1) {
+        await supa.from('deal_payments').insert({
+          deal_id: deal.id,
+          installment_id: first1.id,
+          stripe_payment_id: `offline_${first1.id}`,
+          amount: first1.amount,
+          currency: 'eur',
+          paid_at: new Date().toISOString(),
+          status: 'succeeded',
+          match_method: 'manual',
+        });
+        await supa.from('deal_installments')
+          .update({ status: 'paid' }).eq('id', first1.id);
+      }
+    }
+
+    return NextResponse.json({
+      dealId: deal.id, mode: 'offline_installments', url: null, installments: count,
+    });
+  }
+
+  // Au-delà d'ici `access` est garanti non-null par le retour ci-dessus ; la
+  // constante le rend explicite pour le typage des appels Stripe.
+  const stripeAccess = access;
   const productName = `Accompagnement — ${buyerName}`;
 
   try {
@@ -173,7 +286,7 @@ export async function POST(request: NextRequest) {
           installmentId: inst.id,
           contentId: firstTouch,
           prospectHandle: body.prospectHandle ?? null,
-        }, access);
+        }, stripeAccess);
 
         await supa.from('deal_installments').update({
           stripe_payment_link_id: link.paymentLinkId,
@@ -210,7 +323,7 @@ export async function POST(request: NextRequest) {
       installments: plan === 'installments_auto' && count
         ? { count, interval }
         : null,
-    }, access);
+    }, stripeAccess);
 
     await supa.from('deals').update({
       stripe_payment_link_id: link.paymentLinkId,

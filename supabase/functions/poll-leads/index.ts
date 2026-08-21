@@ -414,9 +414,37 @@ async function getYtToken(profileId: string): Promise<string | null> {
 
 async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate: string) {
   const auth = { Authorization: `Bearer ${accessToken}` };
-  const [channelRes, analyticsRes] = await Promise.all([
+  // 30 jours glissants avant endDate — fenetre des repartitions (voir plus bas).
+  const repartitionStart = new Date(new Date(endDate).getTime() - 30 * 86400_000)
+    .toISOString().split('T')[0];
+  const [channelRes, analyticsRes, byTypeRes, trafficRes, devicesRes, demoRes, keywordsRes] = await Promise.all([
     fetch('https://www.googleapis.com/youtube/v3/channels?part=statistics&mine=true', { headers: auth }),
     fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,estimatedMinutesWatched,subscribersGained,subscribersLost,likes,comments,shares,averageViewDuration&dimensions=day&sort=day`, { headers: auth }),
+    // ⚠️ Équivalent Deno de la requête ventilée de lib/yt-fetch.ts — même fenêtre,
+    // découpée par format (creatorContentType). Toute modification ici doit y être
+    // répercutée. Sert la courbe « Watch time moyen », qui distingue Shorts et vidéos
+    // longues — distinction que yt_avg_view_duration_sec (tous formats confondus) ne
+    // permet pas, et qui était donc simulée jusqu'au 2026-08-20.
+    fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,averageViewDuration&dimensions=day,creatorContentType&sort=day`, { headers: auth }),
+    // Sources de trafic, appareils et demographie : repartitions CUMULEES, pas des
+    // series journalieres. Stockees en JSONB sur la ligne du dernier jour, que
+    // l'affichage lit en mode historique.
+    //
+    // ⚠️ Fenetre de 30 JOURS, pas celle passee en parametre : le cron n'interroge que
+    // les 3 derniers jours pour les metriques journalieres (suffisant, elles sont
+    // reecrites chaque jour), mais une repartition sur 3 jours ne veut rien dire —
+    // l'affichage attend « les sources de trafic des 30 derniers jours ». Constate le
+    // 2026-08-21 : la base ne contenait qu'une source (YT_SEARCH, 1 vue) la ou l'API
+    // sur 30 jours en renvoie sept.
+    //
+    // Ces trois colonnes existaient et etaient LUES par PageClientStats, mais aucun code
+    // ne les ecrivait : 266 lignes en base, 0 remplie.
+    fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=views,estimatedMinutesWatched&dimensions=insightTrafficSourceType&sort=-views`, { headers: auth }),
+    fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=views,estimatedMinutesWatched&dimensions=deviceType&sort=-views`, { headers: auth }),
+    fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=viewerPercentage&dimensions=ageGroup,gender`, { headers: auth }),
+    // Top 10 des termes de recherche. Meme fenetre de 30 jours que les autres
+    // repartitions : un « top des termes du 15 aout » n'aurait pas de sens.
+    fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=views&dimensions=insightTrafficSourceDetail&filters=insightTrafficSourceType==YT_SEARCH&sort=-views&maxResults=10`, { headers: auth }),
   ]);
   // D1 : un statut HTTP non-2xx sur l'Analytics API (429 rate limit, 5xx...) doit
   // être une vraie erreur, pas silencieusement traité comme "pas encore de données".
@@ -426,7 +454,29 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
     const errBody = await analyticsRes.text().catch(() => '');
     throw new Error(`yt_analytics_http_${analyticsRes.status}: ${errBody.slice(0, 300)}`);
   }
-  const [channelData, analyticsData] = await Promise.all([safeJson(channelRes), safeJson(analyticsRes)]);
+  const [channelData, analyticsData, byTypeData, trafficData, devicesData, demoData, keywordsData] = await Promise.all([
+    safeJson(channelRes), safeJson(analyticsRes), safeJson(byTypeRes),
+    safeJson(trafficRes), safeJson(devicesRes), safeJson(demoRes), safeJson(keywordsRes),
+  ]);
+  // Mis en forme au format attendu par PageClientStats (cf. types YTStats). Pas de throw
+  // si l'une echoue : ces repartitions sont un complement, leur absence ne doit pas faire
+  // perdre les metriques principales du jour.
+  const ytTrafficSources = ((trafficData?.rows ?? []) as any[]).map(r => ({ source: r[0], views: r[1] ?? 0, watchMinutes: r[2] ?? 0 }));
+  const ytDevices        = ((devicesData?.rows ?? []) as any[]).map(r => ({ device: r[0], views: r[1] ?? 0, watchMinutes: r[2] ?? 0 }));
+  const ytDemographics   = ((demoData?.rows ?? []) as any[]).map(r => ({ ageGroup: r[0], gender: r[1], viewerPct: r[2] ?? 0 }));
+  const ytSearchKeywords = ((keywordsData?.rows ?? []) as any[]).map(r => ({ term: r[0], views: r[1] ?? 0 }));
+  // day -> ventilation par format. L'API n'émet une ligne que pour les formats ayant eu
+  // des vues ce jour-là : null quand le format est absent, jamais un faux 0.
+  // Pas de throw si cette requête échoue : la ventilation est un complément, son absence
+  // ne doit pas faire perdre les métriques principales du jour.
+  const byType = new Map<string, { shortsDur: number | null; longDur: number | null; shortsViews: number | null; longViews: number | null }>();
+  for (const br of (byTypeData?.rows ?? []) as any[]) {
+    const [bday, btype, bviews, bavg] = br;
+    const cur = byType.get(bday) ?? { shortsDur: null, longDur: null, shortsViews: null, longViews: null };
+    if (btype === 'shorts') { cur.shortsDur = bavg ?? null; cur.shortsViews = bviews ?? null; }
+    else if (btype === 'videoOnDemand') { cur.longDur = bavg ?? null; cur.longViews = bviews ?? null; }
+    byType.set(bday, cur);
+  }
   // ?? plutôt que || : un vrai 0 (0 vue, 0 like, 0 commentaire...) est une donnée
   // légitime, pas une absence de donnée — || le convertissait à tort en null.
   const subscribers = parseInt(channelData?.items?.[0]?.statistics?.subscriberCount ?? '0') ?? null;
@@ -437,12 +487,31 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
   if (!rows.some((r: any) => r[0] === startDate)) {
     console.error(`[poll-leads] yt_missing_oldest_day: startDate=${startDate} endDate=${endDate} reçu=${rows.length} jour(s), startDate absent de la réponse Analytics API`);
   }
-  return rows.map((r: any) => ({
+  return rows.map((r: any, i: number) => ({
     date: r[0], yt_views: r[1] ?? null,
-    yt_watch_time_min: Math.round((r[2] ?? 0) / 60) ?? null,
+    // `estimatedMinutesWatched` est DÉJÀ en minutes (le nom de la métrique le dit).
+    // Le /60 qui était ici la traitait comme des secondes : tout jour sous 30 minutes
+    // de visionnage était arrondi à 0. Sur le profil de test, 45 jours avec des vues
+    // affichaient 0 min pour ~82 min réelles. Corrigé le 2026-08-20 ; deux autres
+    // chemins traitaient déjà cette valeur sans diviser (poll-leads:1045 par vidéo,
+    // app/api/youtube/stats:177).
+    // Pas d'arrondi : la colonne est numeric(12,2). Arrondir à l'entier reperdrait
+    // toute journée sous 1 minute — le défaut même qu'on corrige.
+    yt_watch_time_min: r[2] ?? null,
     yt_subscribers: subscribers, yt_subs_gained: r[3] ?? null, yt_subs_lost: r[4] ?? null,
     yt_net_subs: ((r[3] ?? 0) - (r[4] ?? 0)) ?? null, yt_likes: r[5] ?? null,
     yt_comments: r[6] ?? null, yt_shares: r[7] ?? null, yt_avg_view_duration_sec: r[8] ?? null,
+    yt_avg_duration_shorts_sec: byType.get(r[0])?.shortsDur ?? null,
+    yt_avg_duration_long_sec:   byType.get(r[0])?.longDur ?? null,
+    yt_views_shorts:            byType.get(r[0])?.shortsViews ?? null,
+    yt_views_long:              byType.get(r[0])?.longViews ?? null,
+    // Agregats de fenetre : portes UNIQUEMENT par la derniere ligne. Les repartir sur
+    // chaque jour serait faux (ce sont des cumuls sur toute la periode), et l'affichage
+    // lit justement le dernier snapshot (lastSnap?.yt_traffic_sources).
+    yt_traffic_sources: i === rows.length - 1 ? ytTrafficSources : null,
+    yt_devices:         i === rows.length - 1 ? ytDevices        : null,
+    yt_demographics:    i === rows.length - 1 ? ytDemographics   : null,
+    yt_search_keywords: i === rows.length - 1 ? ytSearchKeywords  : null,
   }));
 }
 
@@ -1152,7 +1221,7 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
       (async () => {
         const ytRows = await fetchYtDayMetrics(ytToken, isoDate(3), yesterday);
         for (const row of ytRows) {
-          const { error } = await supa.from('analytics_daily_snapshots').upsert({ profile_id: profileId, date: row.date, yt_views: row.yt_views, yt_watch_time_min: row.yt_watch_time_min, yt_subscribers: row.yt_subscribers, yt_subs_gained: row.yt_subs_gained, yt_subs_lost: row.yt_subs_lost, yt_net_subs: row.yt_net_subs, yt_likes: row.yt_likes, yt_comments: row.yt_comments, yt_shares: row.yt_shares, yt_avg_view_duration_sec: row.yt_avg_view_duration_sec, backfill_source: 'cron' }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
+          const { error } = await supa.from('analytics_daily_snapshots').upsert({ profile_id: profileId, date: row.date, yt_views: row.yt_views, yt_watch_time_min: row.yt_watch_time_min, yt_subscribers: row.yt_subscribers, yt_subs_gained: row.yt_subs_gained, yt_subs_lost: row.yt_subs_lost, yt_net_subs: row.yt_net_subs, yt_likes: row.yt_likes, yt_comments: row.yt_comments, yt_shares: row.yt_shares, yt_avg_view_duration_sec: row.yt_avg_view_duration_sec, yt_avg_duration_shorts_sec: row.yt_avg_duration_shorts_sec, yt_avg_duration_long_sec: row.yt_avg_duration_long_sec, yt_views_shorts: row.yt_views_shorts, yt_views_long: row.yt_views_long, ...(row.yt_traffic_sources ? { yt_traffic_sources: row.yt_traffic_sources } : {}), ...(row.yt_devices ? { yt_devices: row.yt_devices } : {}), ...(row.yt_demographics ? { yt_demographics: row.yt_demographics } : {}), ...(row.yt_search_keywords ? { yt_search_keywords: row.yt_search_keywords } : {}), backfill_source: 'cron' }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
           if (error) throw new Error(`yt_upsert_${row.date}: ${error.message}`);
         }
       })(),

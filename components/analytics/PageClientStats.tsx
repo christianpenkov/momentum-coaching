@@ -1,10 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import InlineLoader from '@/components/ui/InlineLoader';
 import { useQuery } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
+import { useEscapeKey } from '@/lib/useEscapeKey';
 import { createClient } from '@/lib/supabase/client';
+import { isOnlineNow } from '@/lib/useOnline';
 import AreaChart, { todayDotFactory, lastRealPointKey } from '@/components/charts/AreaChart';
 import BarChart from '@/components/charts/BarChart';
 import Heatmap from '@/components/charts/Heatmap';
@@ -69,7 +71,11 @@ interface YTStats {
   totalViews: number; videoCount: number;
   views30d: number; watchTime30d: number; avgViewDurationSec?: number; likes30d: number; comments30d: number;
   shares30d: number; subsGained30d: number; subsLost30d: number; netSubs30d: number;
-  chartData: { date: string; views: number; watchTime: number; subsGained?: number; subsLost?: number; netSubs?: number; likes?: number; comments?: number; shares?: number }[];
+  // avgDurationShorts/Long : durée moyenne de visionnage du jour, par format
+  // (colonnes yt_avg_duration_shorts_sec / _long_sec, alimentées depuis la dimension
+  // creatorContentType de l'API). null quand le format n'a eu aucune vue ce jour-là —
+  // jamais 0, qui se lirait « personne n'a regardé ».
+  chartData: { date: string; views: number; watchTime: number; subsGained?: number; subsLost?: number; netSubs?: number; likes?: number; comments?: number; shares?: number; subscribers?: number | null; avgViewDurationSec?: number | null; avgDurationShorts?: number | null; avgDurationLong?: number | null; viewsShorts?: number | null; viewsLong?: number | null }[];
   videos: YTVideo[]; trafficSources: { source: string; views: number; watchMinutes: number }[];
   devices: { device: string; views: number; watchMinutes: number }[];
   demographics: { ageGroup: string; gender: string; viewerPct: number }[];
@@ -81,6 +87,10 @@ interface YTVideo {
   views: number; likes: number; comments: number;
   views30d: number; watchTime30d: number; avgViewPct: number;
   likes30d: number; comments30d: number; shares30d: number; url: string;
+  /** CTR de la miniature, en RATIO (0-1) tel que stocké dans
+   *  analytics_yt_videos_history.ctr — multiplier par 100 pour l'affichage.
+   *  null quand YouTube n'a pas encore produit de rapport pour cette vidéo. */
+  ctr?: number | null;
 }
 interface CallRecord {
   id: string; scheduled_at: string; status: 'active' | 'canceled';
@@ -143,6 +153,49 @@ const isIGCall = (c: { source?: string | null }) => {
 const isYTCall = (c: { source?: string | null }) => {
   const s = (c.source || '').toLowerCase();
   return s.startsWith('yt') || s.startsWith('youtube');
+};
+
+/**
+ * Bandeau « données disponibles depuis le … ».
+ *
+ * Les graphiques s'arrêtent à la date de démarrage de l'élève (un trou, pas un zéro),
+ * mais un graphique tronqué ne dit pas POURQUOI il est tronqué. Les élèves arrivent en
+ * milieu de mois — le 9, 28, 13 et 16 pour les quatre en base au 2026-08-20 — donc un
+ * mois où l'élève n'était là que quatre jours se lit comme un mois faible.
+ *
+ * Posé UNE FOIS au niveau du conteneur d'onglets plutôt que recopié dans chacun : c'est
+ * la même règle pour tous, et une règle recopiée finit toujours par diverger.
+ * Ne s'affiche que si la période commence réellement avant l'arrivée.
+ */
+function CoverageNotice({ periodStartStr, integrationsReadyAt }: {
+  periodStartStr: string | null;
+  integrationsReadyAt?: string | null;
+}) {
+  if (!integrationsReadyAt || !periodStartStr) return null;
+  const arrival = new Date(integrationsReadyAt).toISOString().slice(0, 10);
+  if (periodStartStr >= arrival) return null;
+  return (
+    <div style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6, padding: '0 2px 10px' }}>
+      <span aria-hidden style={{ opacity: .6 }}>◷</span>
+      <span>
+        Données disponibles depuis le{' '}
+        <strong style={{ color: 'var(--ink-2)' }}>
+          {new Date(arrival).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
+        </strong>
+        {' '}— le début de la période affichée n'est pas couvert.
+      </span>
+    </div>
+  );
+}
+
+/** Un deal, tel que le cash contracté en a besoin. `call_id` est null pour un deal
+ *  créé hors pipeline (upsell, vente directe) — c'est précisément le cas que la somme
+ *  des `calls.revenue` ne voyait pas. */
+type DealRecord = {
+  amount_total: number | string;
+  status?: string | null;
+  signed_at?: string | null;
+  call_id?: string | null;
 };
 
 // Date de rattachement d'un call à une période : la RÉSERVATION, pas la tenue du
@@ -896,6 +949,16 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
   const [selectedSequence, setSelectedSequence] = useState<any | null>(null);
   const [selectedStory, setSelectedStory] = useState<any | null>(null);
 
+  // Trois modales dans ce meme composant (post, sequence, story). Elles ne
+  // s'ouvrent pas ensemble en pratique, mais l'ordre ci-dessous garantit un
+  // comportement previsible si un chemin les superposait : on ne ferme que la
+  // couche affichee, jamais les trois d'un coup.
+  useEscapeKey(() => {
+    if (selectedStory) { setSelectedStory(null); return; }
+    if (selectedSequence) { setSelectedSequence(null); return; }
+    if (selectedPost) setSelectedPost(null);
+  }, !!selectedPost || !!selectedSequence || !!selectedStory);
+
   const { data: sequencesData } = useQuery({
     queryKey: ['story-sequences-stats-all', profileId],
     // Sans profileId (élève consultant sa propre page), ne pas envoyer "?profileId=undefined"
@@ -1293,7 +1356,11 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
               const statModalTickInterval = period === 7 ? 0 : Math.max(1, Math.ceil(statModal.data.length / 9) - 1);
               return (
             <ResponsiveContainer width="100%" height={220}>
-              {statModal.label === 'Abonnés nets' ? (
+              {/* Rendu « abonnés nets » : axe pouvant descendre sous zéro, signe + explicite
+                  dans l'infobulle, courbe linéaire sans lissage. Les DEUX cartes y ont
+                  droit — Instagram et YouTube mesurent la même chose, il n'y a aucune
+                  raison que l'une soit rendue différemment de l'autre. */}
+              {(statModal.label === 'Abonnés nets' || statModal.label === 'Abonnés nets YT') ? (
                 <ReAreaChart data={statModal.data} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                   <defs>
                     <linearGradient id="grad-ig-stat-modal-net" x1="0" y1="0" x2="0" y2="1">
@@ -1539,11 +1606,17 @@ function StorySequenceDetailModal({ profileId, sequence, onClose }: { profileId?
 
 function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceConnection }: { yt: YTStats | null; period: Period; profileId?: string; periodIndex?: number; ytIsFallback?: boolean; sinceConnection?: boolean }) {
   const [selectedVideo, setSelectedVideo] = useState<YTVideo | null>(null);
+  useEscapeKey(() => setSelectedVideo(null), !!selectedVideo);
   const [videosTypeFilter, setVideosTypeFilter] = useState<'all' | 'short' | 'long'>('all');
   const [videosSortKey, setVideosSortKey] = useState<'views' | 'views30d' | 'avgViewPct' | 'likes' | 'publishedAt'>('publishedAt');
+  // Liste repliee par defaut : les 32 videos affichees d'un coup repoussaient « Sources
+  // de trafic », « Mots-cles » et « Demographie » si bas que Chris ignorait leur
+  // existence. 5 lignes laissent voir le haut des blocs suivants.
+  const [showAllVideos, setShowAllVideos] = useState(false);
+  const VIDEOS_PREVIEW = 5;
   const [videosSortDir, setVideosSortDir] = useState<'desc' | 'asc'>('desc');
   const [retention, setRetention] = useState<{ ratio: number; watchRatio: number }[] | null>(null);
-  const [retentionSummary, setRetentionSummary] = useState<{ avgViewDurationSec: number | null; avgViewPercentage: number | null; watchTimeMin: number | null; likes: number | null; comments: number | null; shares: number | null } | null>(null);
+  const [retentionSummary, setRetentionSummary] = useState<{ avgViewDurationSec: number | null; avgViewPercentage: number | null; watchTimeMin: number | null; likes: number | null; comments: number | null; shares: number | null; viewsPeriod: number | null; engagedViews: number | null } | null>(null);
   const [loadingRetention, setLoadingRetention] = useState(false);
   const [videoCtr, setVideoCtr] = useState<number | null>(null);
   const [jobCreatedAt, setJobCreatedAt] = useState<string | null>(null);
@@ -1568,6 +1641,8 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
         likes: retData.likes ?? null,
         comments: retData.comments ?? null,
         shares: retData.shares ?? null,
+        viewsPeriod: retData.viewsPeriod ?? null,
+        engagedViews: retData.engagedViews ?? null,
       });
       if (ctrRes.ok) {
         const ctrData = await ctrRes.json();
@@ -1613,6 +1688,19 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   // vraie fenêtre déjà présente dans ytDaysRaw (pas de recalcul de bornes calendaires).
   const ytDayByDate = new Map(ytDaysRaw.map(d => [d.date, d]));
   const ytDaysNoDataSet = new Set<string>();
+  // En All-Time, ytDaysRaw est pris tel quel et le filet ytDaysNoDataSet reste vide.
+  //
+  // Sans consequence dans ce mode, et c'est une nuance qui merite d'etre ecrite : les
+  // deux sources de chartData n'emettent PAS de ligne pour un jour sans donnee (l'API
+  // YouTube n'en renvoie pas, et le snapshot n'a pas de ligne a lire). Le jour est donc
+  // ABSENT du tableau, pas present a zero — la courbe n'a aucun point a cet endroit,
+  // ce qui produit deja le trou recherche.
+  //
+  // Le filet ne sert qu'au mode calendaire ci-dessous, qui reconstruit une plage
+  // complete jour par jour et doit donc marquer explicitement ceux qu'il a inventes.
+  //
+  // Ne pas « corriger » en testant d.views == null : les deux constructions appliquent
+  // `?? 0`, ce test ne se declencherait jamais.
   const ytDays: typeof ytDaysRaw = sinceConnection ? ytDaysRaw : (() => {
     const days: typeof ytDaysRaw = [];
     let d = ytPeriodStart;
@@ -1626,14 +1714,28 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
     return days;
   })();
 
-  // Dernière date où likes/comments/shares sont réellement disponibles (pas juste
-  // "vues" qui n'a pas ce délai) — sert au badge "J-3" sur les cartes Likes/Commentaires/
-  // Partages, pour rassurer que l'absence des tout derniers jours est le délai normal
-  // de traitement de la YouTube Analytics API (2-3 jours documenté par Google), pas un bug.
+  // Derniere date reellement disponible cote YouTube Analytics.
+  //
+  // ⚠️ Le delai de traitement touche TOUTES les metriques, pas seulement l'engagement :
+  // verifie le 2026-08-21, vues, watch time, abonnes, duree moyenne, likes, commentaires
+  // et partages s'arretent tous au meme jour (J-3). Le cron demande pourtant jusqu'a
+  // hier — c'est l'API qui ne renvoie rien pour les jours recents.
+  //
+  // Le commentaire precedent affirmait que « vues » n'avait pas ce delai : c'etait faux,
+  // et le badge n'etait affiche que sur trois cartes. Il l'est desormais sur toutes
+  // celles qui lisent des donnees journalieres.
+  //
+  // Calcule sur `views` plutot que `likes` : une journee peut legitimement n'avoir aucun
+  // like tout en ayant des vues, auquel cas filtrer sur les likes sous-estimerait la
+  // fraicheur reelle.
   const ytLastEngagementDate = [...yt.chartData]
-    .filter(d => d.likes != null)
+    .filter(d => d.views != null)
     .sort((a, b) => a.date.localeCompare(b.date))
     .at(-1)?.date;
+  // Retard reel en jours — sert a n'afficher le badge que s'il y en a un.
+  const ytDataLagDays = ytLastEngagementDate
+    ? Math.round((Date.now() - new Date(ytLastEngagementDate + 'T12:00:00Z').getTime()) / 86400000)
+    : 0;
   const ytLastEngagementDateFmt = ytLastEngagementDate
     ? new Date(ytLastEngagementDate + 'T12:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
     : null;
@@ -1644,33 +1746,46 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   const ytSubsGainedP = ytDays.reduce((s, d) => s + (d.subsGained ?? 0), 0);
   const ytSubsLostP = ytDays.reduce((s, d) => s + (d.subsLost ?? 0), 0);
   const ytNetSubsP = ytSubsGainedP - ytSubsLostP;
+  // Likes / commentaires / partages sur la PERIODE affichee. Les cartes utilisaient
+  // yt.likes30d & co — des valeurs figees sur 30 jours — tout en affichant l'etiquette
+  // « ${period}j » : sur une vue a 7 jours, elles montraient 30 jours de donnees sous un
+  // libelle « 7j ». Les quatre autres cartes de la meme rangee utilisent bien des
+  // valeurs de periode (ytViewsP, ytNetSubsP...), d'ou l'incoherence.
+  const ytLikesP = ytDays.reduce((s, d) => s + (d.likes ?? 0), 0);
+  const ytCommentsP = ytDays.reduce((s, d) => s + (d.comments ?? 0), 0);
+  const ytSharesP = ytDays.reduce((s, d) => s + (d.shares ?? 0), 0);
 
   const conversionRate = ytViewsP > 0 ? ((ytSubsGainedP / ytViewsP) * 100).toFixed(3) : '0';
-  const watchTimeH = Math.round(ytWatchTimeP / 60);
+  // Affichage adaptatif : « 20 min » et non « 0h ». Math.round(minutes / 60) ecrasait
+  // a 0 tout watch time sous 30 minutes — exactement le motif du bug de collecte
+  // corrige le 2026-08-20, reproduit ici a l'affichage. Meme regle que le tableau des
+  // videos, qui bascule en heures a partir de 60 minutes.
+  const watchTimeLabel = ytWatchTimeP >= 60
+    ? `${Math.round(ytWatchTimeP / 60)}h`
+    : `${Math.round(ytWatchTimeP)} min`;
 
   // Vues/sub par type de contenu (depuis les vidéos de la période)
-  const shortsViewsP = yt.videos.filter(v => v.isShort).reduce((s, v) => s + v.views30d, 0);
-  const longViewsP = yt.videos.filter(v => !v.isShort).reduce((s, v) => s + v.views30d, 0);
+  // Vues par format sur la PERIODE AFFICHEE (colonnes yt_views_shorts / _long, ajoutees
+  // le 2026-08-20 depuis la dimension creatorContentType).
+  //
+  // Auparavant : somme de v.views30d, un cumul FIGE sur 30 jours glissants cote cron —
+  // independant de la periode choisie. Sur une vue a 7 jours, « vues pour 1 abonne »
+  // divisait donc 30 jours de vues par 7 jours d'abonnes gagnes : deux fenetres
+  // melangees, ratio surevalue d'un facteur ~4.
+  //
+  // Repli sur l'ancien calcul si la ventilation manque (jours anterieurs a la collecte).
+  const shortsViewsFromDays = ytDays.reduce((s, d) => s + ((d as any).viewsShorts ?? 0), 0);
+  const longViewsFromDays   = ytDays.reduce((s, d) => s + ((d as any).viewsLong ?? 0), 0);
+  const hasFormatBreakdown  = shortsViewsFromDays > 0 || longViewsFromDays > 0;
+  const shortsViewsP = hasFormatBreakdown
+    ? shortsViewsFromDays
+    : yt.videos.filter(v => v.isShort).reduce((s, v) => s + v.views30d, 0);
+  const longViewsP = hasFormatBreakdown
+    ? longViewsFromDays
+    : yt.videos.filter(v => !v.isShort).reduce((s, v) => s + v.views30d, 0);
   const subsRef = ytSubsGainedP > 0 ? ytSubsGainedP : (yt.subsGained30d > 0 ? yt.subsGained30d : 0);
   const viewsPerSubShorts = subsRef > 0 && shortsViewsP > 0 ? Math.round(shortsViewsP / subsRef) : null;
   const viewsPerSubLong = subsRef > 0 && longViewsP > 0 ? Math.round(longViewsP / subsRef) : null;
-  const mockFromTotalYT = (total: number, seed: number) => {
-    // Répartition (simulée) uniquement sur les jours déjà écoulés — sans ça, une part du
-    // total se retrouvait étalée sur des jours futurs, et la ligne continuait au-delà
-    // du point pulsant jusqu'à la fin du mois/semaine calendaire.
-    const pastDays = ytDays.filter(d => !isFutureDayYT(d.date));
-    if (total === 0 || pastDays.length === 0) return ytDays.map(d => ({ date: d.date, v: isFutureDayYT(d.date) ? (null as any) : 0 }));
-    const pts = pastDays.map((_, i) => Math.max(0, Math.sin(i * 1.7 + seed) * 0.5 + 0.5));
-    const sum = pts.reduce((a, b) => a + b, 0);
-    let vals = pts.map(p => Math.round((p / sum) * total));
-    // Le résidu d'arrondi compense la somme sur le dernier jour — jamais en-dessous de 0
-    // (compteur de likes/vues, jamais négatif), sinon un petit total réparti sur peu de
-    // jours peut générer un résidu négatif qui plonge le dernier point.
-    const residual = total - vals.reduce((a, b) => a + b, 0);
-    vals[vals.length - 1] = Math.max(0, vals[vals.length - 1] + residual);
-    const valByDate = new Map(pastDays.map((d, i) => [d.date, vals[i]]));
-    return ytDays.map(d => ({ date: d.date, v: valByDate.has(d.date) ? valByDate.get(d.date)! : (null as any) }));
-  };
 
   const videosInPeriod = yt.videos.filter(v => {
     const t = new Date(v.publishedAt).getTime();
@@ -1694,6 +1809,10 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   // v.watchTime30d vient de row.watch_time_min (des minutes, cf. ligne ~4903) — *60 pour
   // repasser en secondes avant division, sinon fmtSec() (qui attend des secondes) affiche
   // toujours "0m00s" (ex: 500min de watch time / 10000 vues = 0.05 arrondi à 0).
+  // Ratio watch time / vues : les deux termes viennent de la MEME fenetre (views30d et
+  // watchTime30d, cumuls 30j du cron), donc le ratio est juste meme si la fenetre n'est
+  // pas celle affichee. A ne pas confondre avec « vues pour 1 abonne » ci-dessus, qui
+  // melangeait bien deux fenetres differentes.
   const avgWatchShorts = shortsVideos.length > 0 && shortsVideos.reduce((s,v) => s + v.views30d, 0) > 0
     ? Math.round(shortsVideos.reduce((s,v) => s + v.watchTime30d * 60, 0) / shortsVideos.reduce((s,v) => s + v.views30d, 0))
     : null;
@@ -1701,37 +1820,79 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
     ? Math.round(longVideos.reduce((s,v) => s + v.watchTime30d * 60, 0) / longVideos.reduce((s,v) => s + v.views30d, 0))
     : null;
 
-  const mockAroundAvgYT = (avg: number, seed: number, variancePct = 0.2) => {
-    if (!avg) return ytDays.map(d => ({ date: d.date, v: isFutureDayYT(d.date) ? (null as any) : 0 }));
-    return ytDays.map((d, i) => ({
-      date: d.date,
-      v: isFutureDayYT(d.date) ? (null as any) : Math.round(avg * (1 + Math.sin(i * 1.7 + seed) * variancePct)),
-    }));
-  };
-
   const ytStatSeries: Record<string, { data: { date: string; v: number }[]; color: string; unit?: string }> = {
     'Vidéos publiées':    { data: ytPubsByDay.map(d => ({ date: d.date, v: isFutureDayYT(d.date) ? (null as any) : d.shorts + d.longues })), color: YT_COLOR },
     'Vues 30j':           { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : d.views })), color: RED },
-    'Watch time':         { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : Math.round(d.watchTime / 60) })), color: AMBER, unit: 'h' },
-    'Watch time moyen':   { data: mockFromTotalYT(avgWatchShorts ?? 0, 5), color: '#f43f5e', unit: 's' },
-    'Subs gagnés':        { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.subsGained ?? 0) })), color: GREEN },
-    'Subs perdus':        { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.subsLost ?? 0) })), color: RED },
-    'Subs nets':          { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.netSubs ?? 0) })), color: yt.netSubs30d >= 0 ? GREEN : RED },
+    // En MINUTES, pas en heures : le watch time quotidien de cette chaine va de 1 a
+    // 16 minutes, donc Math.round(x / 60) ecrasait toute la courbe a zero. Meme motif
+    // que la carte « Watch time » juste au-dessus et que le bug de collecte du
+    // 2026-08-20 — une conversion en heures detruit les petites valeurs.
+    'Watch time':         { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : Math.round(d.watchTime) })), color: AMBER, unit: 'min' },
+    // Vignette : durée moyenne réelle du jour, tous formats confondus
+    // (yt_avg_view_duration_sec). La ventilation Shorts / longues est dans la modale,
+    // au clic. Remplace mockFromTotalYT, qui étalait le total avec un sinus.
+    'Watch time moyen':   {
+      data: ytDays.map(d => ({
+        date: d.date,
+        v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).avgViewDurationSec ?? null),
+      })),
+      color: '#f43f5e', unit: 's',
+    },
+    'Abonnés gagnés':        { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.subsGained ?? 0) })), color: GREEN },
+    'Abonnés perdus':        { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.subsLost ?? 0) })), color: RED },
+    'Abonnés nets YT':          { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.netSubs ?? 0) })), color: yt.netSubs30d >= 0 ? GREEN : RED },
     'Likes':              { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.likes ?? 0) })), color: 'var(--accent-brand)' },
     'Commentaires':       { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.comments ?? 0) })), color: BLUE },
     'Partages':           { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.shares ?? 0) })), color: GREEN },
-    'Conv. vue→sub':      { data: mockFromTotalYT(parseFloat(conversionRate), 4), color: 'var(--accent-brand)', unit: '%' },
-    'Abonnés YT':         { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.subsGained ?? 0) })), color: RED },
+    // Vraie conversion par jour (subs gagnés / vues), plus une courbe générée à partir
+    // du total. mockFromTotalYT répartissait le taux global avec un sinus : la courbe
+    // dessinait des variations là où la réalité peut être parfaitement plate (0 abonné
+    // gagné sur les 62 jours du profil de test). Corrigé le 2026-08-20.
+    'Conv. vue→abonné': {
+      data: ytDays.map(d => ({
+        date: d.date,
+        v: ytDaysNoDataSet.has(d.date)
+          ? (null as any)
+          : (d.views > 0 ? Math.round(((d.subsGained ?? 0) / d.views) * 100 * 1000) / 1000 : 0),
+      })),
+      color: 'var(--accent-brand)', unit: '%',
+    },
+    // La carte affiche le TOTAL d'abonnés (49), sa courbe doit donc suivre ce total —
+    // exactement comme la carte « Abonnés » d'Instagram, qui trace followerCount.
+    // Elle traçait subsGained (les abonnés GAGNÉS par jour, à 0 sur cette chaîne) : on
+    // cliquait sur « 49 abonnés » et on voyait une courbe plate à zéro. Deux métriques
+    // différentes sous le même nom. Corrigé le 2026-08-21.
+    'Abonnés YT':         { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).subscribers ?? null) })), color: RED },
   };
 
   const openStatModal = (label: string, value: string) => {
     const s = ytStatSeries[label];
     if (!s) return;
     if (label === 'Watch time moyen') {
+      // Vraies durées moyennes par jour et par format (colonnes yt_avg_duration_*_sec,
+      // alimentées depuis la dimension creatorContentType de l'API — vérifiée sur une
+      // vraie chaîne le 2026-08-20).
+      //
+      // Remplace mockAroundAvgYT, qui dessinait un sinus autour de la moyenne globale et
+      // se rabattait sur des valeurs INVENTÉES quand la donnée manquait (45 s pour les
+      // Shorts, 480 s pour les longues — des chiffres sans source).
+      //
+      // null hors couverture ET quand le format n'a eu aucune vue : la courbe fait un
+      // trou plutôt que de descendre à 0, qui se lirait « regardé 0 seconde ».
       setStatModal({
-        label: 'Watch time moyen / vue', value: avgWatchShorts !== null ? fmtSec(avgWatchShorts) : '—',
-        color: '#e8a838', data: mockAroundAvgYT(avgWatchShorts ?? 45, 5),
-        label2: 'Vidéos longues', data2: mockAroundAvgYT(avgWatchLong ?? 480, 6), color2: '#64748b',
+        label: 'Watch time moyen / vue — Shorts',
+        value: avgWatchShorts !== null ? fmtSec(avgWatchShorts) : '—',
+        color: '#e8a838',
+        data: ytDays.map(d => ({
+          date: d.date,
+          v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).avgDurationShorts ?? null),
+        })),
+        label2: 'Vidéos longues',
+        data2: ytDays.map(d => ({
+          date: d.date,
+          v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).avgDurationLong ?? null),
+        })),
+        color2: '#64748b',
         unit: 's',
       });
       return;
@@ -1758,16 +1919,19 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
       {/* Ligne 1 — audience & portée */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
         {[
-          { label: 'Abonnés', value: fmt(yt.subscribers), sub: 'all time', color: 'var(--ink)', key: 'Abonnés YT' },
+          // Pas de sous-titre de periode : c'est le total actuel de la chaine, lu en
+          // direct via la Data API v3. « all time » induisait en erreur — la carte ne
+          // cumule rien sur une periode, elle affiche un compteur.
+          { label: 'Abonnés', value: fmt(yt.subscribers), color: 'var(--ink)', key: 'Abonnés YT' },
           { label: 'Vidéos publiées', value: fmt(ytVideosInPeriodCount), sub: `${period}j`, color: YT_COLOR, key: 'Vidéos publiées' },
-          { label: 'Subs nets', value: `${ytNetSubsP >= 0 ? '+' : ''}${fmt(ytNetSubsP)}`, sub: `${period}j`, color: ytNetSubsP >= 0 ? GREEN : RED, key: 'Subs nets' },
+          { label: 'Abonnés nets YT', value: `${ytNetSubsP >= 0 ? '+' : ''}${fmt(ytNetSubsP)}`, sub: `${period}j`, color: ytNetSubsP >= 0 ? GREEN : RED, key: 'Abonnés nets YT' },
           { label: 'Vues', value: fmt(ytViewsP), sub: `${period}j`, color: 'var(--ink)', key: 'Vues 30j' },
           null, // carte Vues/sub custom Shorts vs Vidéos
         ].map((s, i) => {
           if (s === null) return (
             <div key="vues-sub" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
               <div style={{ marginBottom: 10 }}>
-                <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>Vues pour 1 sub gagné</span>
+                <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>Vues pour 1 abonné gagné</span>
                 <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{period}j</span>
               </div>
               <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
@@ -1793,7 +1957,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             </div>
             <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1, marginBottom: s.label === 'Vidéos publiées' ? 8 : 0 }}>
               {s.value}
-              {s.label === 'Subs nets' && (
+              {s.label === 'Abonnés nets YT' && (
                 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>
                   {' ('}
                   <span style={{ color: GREEN }}>+{fmt(ytSubsGainedP)}</span>
@@ -1823,11 +1987,11 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
       {/* Ligne 2 — engagement & watch time */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
         {[
-          { label: 'Watch time', value: `${watchTimeH}h`, sub: `${period}j`, color: AMBER, key: 'Watch time' },
+          { label: 'Watch time', value: watchTimeLabel, sub: `${period}j`, color: AMBER, key: 'Watch time' },
           null, // carte Watch time moyen custom
-          { label: 'Likes', value: fmt(yt.likes30d), sub: ytIsFallback ? '30j' : `${period}j`, color: 'var(--ink)', key: 'Likes' },
-          { label: 'Commentaires', value: fmt(yt.comments30d), sub: ytIsFallback ? '30j' : `${period}j`, color: 'var(--ink)', key: 'Commentaires' },
-          { label: 'Partages', value: fmt(yt.shares30d), sub: ytIsFallback ? '30j' : `${period}j`, color: 'var(--ink)', key: 'Partages' },
+          { label: 'Likes', value: fmt(ytIsFallback ? yt.likes30d : ytLikesP), sub: ytIsFallback ? '30j' : `${period}j`, color: 'var(--ink)', key: 'Likes' },
+          { label: 'Commentaires', value: fmt(ytIsFallback ? yt.comments30d : ytCommentsP), sub: ytIsFallback ? '30j' : `${period}j`, color: 'var(--ink)', key: 'Commentaires' },
+          { label: 'Partages', value: fmt(ytIsFallback ? yt.shares30d : ytSharesP), sub: ytIsFallback ? '30j' : `${period}j`, color: 'var(--ink)', key: 'Partages' },
         ].map((s, i) => {
           if (s === null) return (
             <div key="wt-moyen" onClick={() => openStatModal('Watch time moyen', '')} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: 'pointer', transition: 'background .15s' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'} onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}>
@@ -1858,12 +2022,22 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
               <div style={{ marginBottom: 8 }}>
                 <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>{s.label}</span>
                 {s.sub && <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{s.sub}</span>}
-                {['Likes', 'Commentaires', 'Partages'].includes(s.label) && (
+                {/* Badge de fraicheur — pose selon la SOURCE de la carte, pas son nom.
+                    YouTube expose trois APIs aux delais differents :
+                      - Data API v3 (youtube/v3)        : totaux, TEMPS REEL ;
+                      - Analytics API (youtubeanalytics) : donnees par jour, J-3 ;
+                      - Reporting API (youtubereporting) : CTR, ~J-2.
+                    Le badge ne concerne que les cartes lisant l'Analytics API. Deux
+                    exceptions : « Abonnes » (total de chaine, Data API v3) et « Videos
+                    publiees » (compte par date de publication, connue immediatement).
+                    Le nombre de jours est calcule : si Google rattrape, le badge
+                    disparait tout seul. */}
+                {ytDataLagDays >= 2 && !['Abonnés', 'Vidéos publiées'].includes(s.label) && (
                   <span
-                    title={`Délai de traitement Google : 2-3 jours.${ytLastEngagementDateFmt ? ` Dernière donnée disponible : ${ytLastEngagementDateFmt}.` : ''}`}
+                    title={`Délai de traitement de YouTube Analytics.${ytLastEngagementDateFmt ? ` Dernière donnée disponible : ${ytLastEngagementDateFmt}.` : ''}`}
                     style={{ fontSize: 9, fontWeight: 700, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 4px', marginLeft: 5, cursor: 'help' }}
                   >
-                    J-3
+                    J-{ytDataLagDays}
                   </span>
                 )}
               </div>
@@ -1874,7 +2048,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18 }}>
-        <Card title="Vues / jour" sub={`${period} jours · données J-3`}>
+        <Card title="Vues / jour" sub={`${period} jours${ytDataLagDays >= 2 ? ` · données J-${ytDataLagDays}` : ''}`}>
           {(() => {
             // null (pas 0) sur les jours sans vraie donnée — même traitement que
             // "Abonnés nets / jour" juste en dessous : sinon une barre à 0 est
@@ -1913,7 +2087,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
         </Card>
       </div>
 
-      <Card title="Abonnés nets / jour" sub={`${period} jours · données J-3`}>
+      <Card title="Abonnés nets / jour" sub={`${period} jours${ytDataLagDays >= 2 ? ` · données J-${ytDataLagDays}` : ''}`}>
         {(() => {
           // null (pas 0) sur les jours sans vraie donnée — sinon la ligne continue à plat
           // jusqu'à la fin de la période au lieu de s'arrêter au dernier point réel, même
@@ -1940,7 +2114,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : "preserveStartEnd"} />
                 <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
                 <Tooltip content={<ChartTooltip />} />
-                <Area type="monotone" dataKey="netSubs" name="Subs nets" stroke={GREEN} strokeWidth={2} fill="url(#grad-yt-netsubs)" dot={todayDotFactory(GREEN, 'date', lastRealPointKey(netSubsForChart, 'date', 'netSubs'))} activeDot={{ r: 4, strokeWidth: 0, fill: GREEN }} isAnimationActive={false} />
+                <Area type="monotone" dataKey="netSubs" name="Abonnés nets" stroke={GREEN} strokeWidth={2} fill="url(#grad-yt-netsubs)" dot={todayDotFactory(GREEN, 'date', lastRealPointKey(netSubsForChart, 'date', 'netSubs'))} activeDot={{ r: 4, strokeWidth: 0, fill: GREEN }} isAnimationActive={false} />
               </ReAreaChart>
             </ResponsiveContainer>
           );
@@ -1988,6 +2162,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 const bv = videosSortKey === 'publishedAt' ? new Date(b.publishedAt).getTime() : (b[videosSortKey] ?? 0);
                 return videosSortDir === 'desc' ? bv - av : av - bv;
               })
+              .slice(0, showAllVideos ? undefined : VIDEOS_PREVIEW)
               .map(v => (
               <tr key={v.id} onClick={() => { setSelectedVideo(v); setJobCreatedAt(null); setVideoCtr(null); setCtrPending(false); setRetention(null); setRetentionSummary(null); loadRetention(v.id, v.publishedAt); }}
                 style={{ cursor: 'pointer' }}
@@ -2014,9 +2189,25 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             ))}
           </tbody>
         </table>
+        {yt.videos.length > VIDEOS_PREVIEW && (
+          <button
+            type="button"
+            onClick={() => setShowAllVideos(v => !v)}
+            style={{
+              display: 'block', width: '100%', marginTop: 10, padding: '8px 0',
+              background: 'none', border: 'none', cursor: 'pointer',
+              fontSize: 12, fontWeight: 600, color: 'var(--accent-brand)', fontFamily: 'inherit',
+            }}
+          >
+            {showAllVideos ? 'Replier' : `Voir toutes les vidéos (${yt.videos.length})`}
+          </button>
+        )}
       </Card>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+      {/* Trois colonnes : ces blocs etaient sous la liste complete des videos, donc
+          invisibles sans un long scroll. La demographie les rejoint plutot que d'ouvrir
+          une quatrieme ligne. */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 18 }}>
         <Card title="Sources de trafic" sub="Vues par source">
           {trafficData.map((s, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
@@ -2036,6 +2227,28 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             </div>
           ))}
           {yt.searchKeywords.length === 0 && <Empty msg="Pas encore de données de recherche" />}
+        </Card>
+
+        {/* Repartition de l'audience par age et sexe. La donnee etait chargee depuis
+            l'API mais n'etait affichee NULLE PART. YouTube ne la divulgue qu'au-dela
+            d'un seuil de spectateurs (confidentialite) : d'ou le message explicite
+            plutot qu'un bloc vide, tant que la chaine n'y est pas. */}
+        <Card title="Démographie" sub="Âge et sexe des spectateurs">
+          {[...yt.demographics]
+            .sort((a, b) => b.viewerPct - a.viewerPct)
+            .slice(0, 10)
+            .map((d, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <div style={{ fontSize: 11, color: 'var(--muted)', width: 96 }}>
+                  {d.ageGroup.replace('age', '')} {d.gender === 'male' ? 'H' : d.gender === 'female' ? 'F' : ''}
+                </div>
+                <div style={{ flex: 1, height: 6, background: 'var(--border)', borderRadius: 3 }}>
+                  <div style={{ height: 6, width: `${Math.min(100, d.viewerPct)}%`, background: 'var(--accent-brand)', borderRadius: 3 }} />
+                </div>
+                <div style={{ fontSize: 11, fontWeight: 600, width: 40, textAlign: 'right' }}>{d.viewerPct.toFixed(1)}%</div>
+              </div>
+            ))}
+          {yt.demographics.length === 0 && <Empty msg="Pas encore assez de spectateurs — YouTube ne fournit cette donnée qu'au-delà d'un seuil" />}
         </Card>
       </div>
 
@@ -2195,6 +2408,16 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
               {[
                 ['Vues totales', fmt(selectedVideo.views)],
+                // Vues engagees : spectateurs qui ont vraiment regarde, par opposition a
+                // une vue comptee des les premieres secondes. Le ratio dit combien de
+                // curieux sont devenus de vrais spectateurs.
+                ['Vues engagées', loadingRetention ? <MiniLoadingDots /> : (() => {
+                  const ev = retentionSummary?.engagedViews;
+                  const vp = retentionSummary?.viewsPeriod;
+                  if (ev == null) return '—';
+                  if (!vp) return fmt(ev);
+                  return `${fmt(ev)} (${Math.round((ev / vp) * 100)}%)`;
+                })()],
                 ['Watch time total', loadingRetention ? <MiniLoadingDots /> : (() => {
                   const min = retentionSummary?.watchTimeMin ?? null;
                   if (min === null) return '—';
@@ -3112,7 +3335,7 @@ function CashByOrigin({ profileId, periodStart, periodEnd, sinceConnection }: {
   );
 }
 
-function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing, sinceConnection, profileId }: { stripe: StripeStats | null; calls: CallRecord[]; period: Period; periodIndex: number; onRefresh?: () => void; refreshing?: boolean; sinceConnection?: boolean; profileId?: string }) {
+function TabRevenues({ stripe, calls, deals, period, periodIndex, onRefresh, refreshing, sinceConnection, profileId }: { stripe: StripeStats | null; calls: CallRecord[]; deals?: DealRecord[]; period: Period; periodIndex: number; onRefresh?: () => void; refreshing?: boolean; sinceConnection?: boolean; profileId?: string }) {
   if (!stripe) return (
     <div style={{ textAlign: 'center', padding: '48px 24px' }}>
       <div style={{ fontSize: 14, color: 'var(--muted)', marginBottom: 16 }}>Connecte ton compte Stripe pour voir les revenus.</div>
@@ -3154,8 +3377,30 @@ function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing
   // La convergence passe par le chantier « cash sur la table deals » (les deals sans
   // call, upsells, sont aussi invisibles ici) — voir docs/perimetre-stats-referentiel.md,
   // section « Ce qui reste ouvert ».
+  // Cash contracté : somme des DEALS signés dans la période, plus des `calls.revenue`.
+  //
+  // Un deal peut exister SANS call — upsell, vente hors pipeline. Le sommer depuis les
+  // calls le rendait invisible : c'était le dernier écart à impact financier réel
+  // (identifié le 2026-08-19 ; 0 cas en base à cette date, 6 600 € des deux côtés,
+  // donc aucun chiffre ne bouge aujourd'hui).
+  //
+  // Découpé sur `signed_at`, volontairement une AUTRE date que les calls : un deal
+  // signé ce mois sur un call du mois dernier appartient au cash de ce mois — c'est le
+  // mois où l'argent a été engagé. Même règle que useCoachData : les deux écrans
+  // convergent désormais sur la même source ET la même date.
+  //
+  // Deals annulés exclus (une vente annulée n'a pas été signée), même filtre que
+  // computeDealTotals dans lib/salesCallStats.ts.
+  const dealsInPeriod = (deals ?? []).filter(d => {
+    if (d.status === 'canceled') return false;
+    if (sinceConnection) return true;
+    if (!d.signed_at) return false;
+    const ds = new Date(d.signed_at);
+    return ds >= periodStart && ds <= periodEnd;
+  });
+  const cashContracte = dealsInPeriod.reduce((s, d) => s + Number(d.amount_total || 0), 0);
+  // Conservé : le panier moyen et le compte de ventes raisonnent en calls closés.
   const dealsClosed = callsInPeriod.filter(c => c.deal_closed);
-  const cashContracte = dealsClosed.reduce((s, c) => s + (c.revenue || 0), 0);
 
   // Number() explicite : les numeric Postgres arrivent en chaîne, et une
   // concaténation silencieuse ("10" + "20" = "1020") passerait le typage.
@@ -3181,7 +3426,12 @@ function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing
       // Même date que callsInPeriod, qui alimente dealsClosed (callPeriodDate, donc
       // booked_at) : sans ça, la somme des barres du graphique ne vaudrait plus le
       // total « Cash contracté » affiché au-dessus.
-      const contracte = dealsClosed.filter(c => callPeriodDate(c).startsWith(iso)).reduce((s, c) => s + (c.revenue || 0), 0);
+      // Même source ET même date que le total affiché au-dessus : les deals, découpés
+      // sur signed_at. Garder les calls ici ferait diverger la somme des barres du
+      // total dès qu'un deal existe sans call.
+      const contracte = dealsInPeriod
+        .filter(d => (d.signed_at ?? '').startsWith(iso))
+        .reduce((s, d) => s + Number(d.amount_total || 0), 0);
       rows.push({ date: iso, ca, contracte });
       d = parisAddDays(d, 1);
     }
@@ -3292,7 +3542,7 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, callsAllTime, leadIdToMediaId, igLive, ytLive, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, selectedMetric, setSelectedMetric, chartFilter, setChartFilter, sinceConnection }: {
+function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, callsAllTime, leadIdToMediaId, igLive, ytLive, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, selectedMetric, setSelectedMetric, chartFilter, setChartFilter, sinceConnection, integrationsReadyAt }: {
   shortio: ShortioStats | null;
   shortioLoading?: boolean;
   ig: IGStats | null;
@@ -3330,6 +3580,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   chartFilter: 'all' | 'dm' | 'content' | 'bio';
   setChartFilter: (f: 'all' | 'dm' | 'content' | 'bio') => void;
   sinceConnection?: boolean;
+  integrationsReadyAt?: string | null;
 }) {
   const now = new Date();
   // Stories individuelles avec CTA (LM ou Calendly) — pour afficher titre/miniature des
@@ -3386,6 +3637,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const [filterHas, setFilterHas] = useState<Set<SortKey>>(new Set());
   const [filterSearch, setFilterSearch] = useState('');
   const [showAllTable, setShowAllTable] = useState(false);
+  // Modale "Voir tout" (performance par contenu) : Echap la ferme. Les autres
+  // couches de cette page (post, video, story selectionnes) vivent dans des
+  // sous-composants distincts et sont a traiter separement.
+  useEscapeKey(() => setShowAllTable(false), showAllTable);
   // Modal détail contenu
   const [detailModal, setDetailModal] = useState<any | null>(null);
 
@@ -3555,11 +3810,19 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   })();
   const todayUTCStr = utcDateStr(new Date());
   const isFutureDay = (date: string) => date > todayUTCStr;
+  // Jour antérieur à l'arrivée de l'élève : même traitement qu'un jour futur — un trou,
+  // pas un zéro. Un zéro affirme « il ne s'est rien passé » alors que la vérité est
+  // « l'élève n'était pas encore là ». Les 4 élèves en base sont arrivés en milieu de
+  // mois (le 9, 28, 13, 16) : pour celui du 28 juillet, le graphique de juillet
+  // montrait 13 jours plats qui se lisaient comme une mauvaise performance.
+  const arrivalDayStr = integrationsReadyAt ? utcDateStr(new Date(integrationsReadyAt)) : null;
+  const isBeforeArrival = (date: string) => arrivalDayStr != null && date < arrivalDayStr;
+  const isOutsideCoverage = (date: string) => isFutureDay(date) || isBeforeArrival(date);
 
   // 1. Clics totaux — déjà par jour dans shortioChartHistory, filtrer sur la fenêtre
   const clicsSeries = dayRange.map(date => ({
     date,
-    v: isFutureDay(date) ? null : ((shortioChartHistory ?? []).find(d => d.date === date)?.clicks ?? 0),
+    v: isOutsideCoverage(date) ? null : ((shortioChartHistory ?? []).find(d => d.date === date)?.clicks ?? 0),
   }));
   const clicsSeriesHasData = (shortioChartHistory ?? []).length > 0;
 
@@ -3571,7 +3834,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const day = utcDateStr(new Date(h.detected_at));
     leadsPerDay.set(day, (leadsPerDay.get(day) ?? 0) + 1);
   }
-  const leadsSeries = dayRange.map(date => ({ date, v: isFutureDay(date) ? null : (leadsPerDay.get(date) ?? 0) }));
+  const leadsSeries = dayRange.map(date => ({ date, v: isOutsideCoverage(date) ? null : (leadsPerDay.get(date) ?? 0) }));
 
   // 3. Réponses accroche LM DM — vrai timestamp hook_replied_at (ajouté au select ci-dessus)
   const hookRepliesPerDay = new Map<string, number>();
@@ -3581,7 +3844,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const day = utcDateStr(new Date(l.hookRepliedAt));
     hookRepliesPerDay.set(day, (hookRepliesPerDay.get(day) ?? 0) + 1);
   }
-  const hookReplySeries = dayRange.map(date => ({ date, v: isFutureDay(date) ? null : (hookRepliesPerDay.get(date) ?? 0) }));
+  const hookReplySeries = dayRange.map(date => ({ date, v: isOutsideCoverage(date) ? null : (hookRepliesPerDay.get(date) ?? 0) }));
 
   // 4. Liens Calendly envoyés DM — calendly_link_sent_at ?? created_at, sur calendlyLinksSent (déjà filtré période)
   const calendlyLinksPerDay = new Map<string, number>();
@@ -3590,7 +3853,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const day = utcDateStr(new Date(ts));
     calendlyLinksPerDay.set(day, (calendlyLinksPerDay.get(day) ?? 0) + 1);
   }
-  const calendlyLinksSeries = dayRange.map(date => ({ date, v: isFutureDay(date) ? null : (calendlyLinksPerDay.get(date) ?? 0) }));
+  const calendlyLinksSeries = dayRange.map(date => ({ date, v: isOutsideCoverage(date) ? null : (calendlyLinksPerDay.get(date) ?? 0) }));
 
   // 5. Taux d'activation DM — deux ratios par jour, comme la KPI card (LM et Calendly) :
   // LM = clics lead magnet / LM envoyés (jour = commentedAt), Calendly = clics lien
@@ -3606,7 +3869,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     if (l.id && lmClickedByLeadId?.has(l.id)) lmClicsPerDay.set(day, (lmClicsPerDay.get(day) ?? 0) + 1);
   }
   const activationLmSeries = dayRange.map(date => {
-    if (isFutureDay(date)) return { date, v: null as any };
+    if (isOutsideCoverage(date)) return { date, v: null as any };
     const sent = lmEnvoyesPerDay.get(date) ?? 0;
     const clicked = lmClicsPerDay.get(date) ?? 0;
     return { date, v: sent > 0 ? Math.round((clicked / sent) * 100) : 0 };
@@ -3619,7 +3882,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     calendlyClicsPerDay.set(day, (calendlyClicsPerDay.get(day) ?? 0) + 1);
   }
   const activationCalendlySeries = dayRange.map(date => {
-    if (isFutureDay(date)) return { date, v: null as any };
+    if (isOutsideCoverage(date)) return { date, v: null as any };
     const sent = calendlyLinksPerDay.get(date) ?? 0;
     const clicked = calendlyClicsPerDay.get(date) ?? 0;
     return { date, v: sent > 0 ? Math.round((clicked / sent) * 100) : 0 };
@@ -3645,7 +3908,12 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     cur.revenue += c.revenue || 0;
     callsPerDay.set(day, cur);
   }
-  const callsSeries = dayRange.map(date => ({ date, ...(callsPerDay.get(date) ?? { booked: 0, honored: 0, closed: 0, revenue: 0 }) }));
+  // null (trou) hors couverture, comme les autres séries : avant l'arrivée de l'élève
+  // ou après aujourd'hui, un 0 se lirait comme « aucun call » au lieu de « pas de
+  // donnée ».
+  const callsSeries = dayRange.map(date => isOutsideCoverage(date)
+    ? { date, booked: null, honored: null, closed: null, revenue: null }
+    : { date, ...(callsPerDay.get(date) ?? { booked: 0, honored: 0, closed: 0, revenue: 0 }) });
 
   // ── Graphique filtré — sur la vraie période sélectionnée (dayRange), pas une fenêtre
   // glissante fixe de 30 jours indépendante de periodStart/periodEnd. Avant ce fix,
@@ -3656,17 +3924,17 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // l'historique). Source : mêmes tables shortio_link_daily_snapshots par catégorie
   // que shortioChartHistory (total), déjà filtrées sur periodStart/periodEnd.
   const chartDataBio: { date: string; ig: number | null; yt: number | null }[] = dayRange.map(date => {
-    if (isFutureDay(date)) return { date, ig: null, yt: null };
+    if (isOutsideCoverage(date)) return { date, ig: null, yt: null };
     const row = (shortioChartHistoryBio ?? []).find(d => d.date === date);
     return { date, ig: row?.ig ?? 0, yt: row?.yt ?? 0 };
   });
   const chartDataContent: { date: string; ig: number | null; yt: number | null }[] = dayRange.map(date => {
-    if (isFutureDay(date)) return { date, ig: null, yt: null };
+    if (isOutsideCoverage(date)) return { date, ig: null, yt: null };
     const row = (shortioChartHistoryContent ?? []).find(d => d.date === date);
     return { date, ig: row?.ig ?? 0, yt: row?.yt ?? 0 };
   });
   const chartDataDm: { date: string; calendly: number | null; lm: number | null }[] = dayRange.map(date => {
-    if (isFutureDay(date)) return { date, calendly: null, lm: null };
+    if (isOutsideCoverage(date)) return { date, calendly: null, lm: null };
     const row = (shortioChartHistoryDm ?? []).find(d => d.date === date);
     return { date, calendly: row?.calendly ?? 0, lm: row?.lm ?? 0 };
   });
@@ -4988,7 +5256,13 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                       const metrics: [string, any][] = [
                         ['Vues', ytVideo.views], ['Likes', ytVideo.likes], ['Commentaires', ytVideo.comments],
                         ['Partages', ytVideo.shares30d], ['Watch time moy.', (() => { const sec = Math.round(ytVideo.watchTime30d * 60 / (ytVideo.views30d || 1)); return sec >= 3600 ? `${Math.round(sec/3600)}h` : `${Math.floor(sec/60)}m${String(sec%60).padStart(2,'0')}s`; })()],
-                        ['% vu moy.', `${ytVideo.avgViewPct}%`], ['CTR miniature', '4,2%'],
+                        ['% vu moy.', `${ytVideo.avgViewPct}%`],
+                        // Vrai CTR de cette vidéo, plus une valeur codée en dur : cette
+                        // case affichait '4,2%' pour TOUTES les vidéos, quelle que soit
+                        // leur performance réelle (constaté le 2026-08-20 — les CTR réels
+                        // en base vont de 1,7 % à 3,1 %).
+                        // La colonne est un ratio (0-1), d'où le ×100.
+                        ['CTR miniature', ytVideo.ctr != null ? `${(ytVideo.ctr * 100).toFixed(1).replace('.', ',')}%` : null],
                       ];
                       return metrics.map(([label, val], i) => (
                         <div key={i} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 12px' }}>
@@ -5454,6 +5728,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     stripeRes,
     shortioResult,
     shortioClicksRes,
+    dealsRes,
   ] = await Promise.allSettled([
     // archived_at : les lignes d'un compte Instagram précédent sont archivées à la
     // bascule (app/api/oauth/instagram/callback/route.ts). Sans ce filtre, tout cet
@@ -5488,10 +5763,13 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       p_start_date: startDateStr,
       p_end_date: endDateStr,
     }),
+    // Borné sur booked_at (date de RÉSERVATION) comme le reste de la page : cette
+    // requête filtrait encore sur scheduled_at, donc un call réservé le 29/08 pour le
+    // 02/09 sortait du snapshot d'août alors que le mode live l'y comptait.
+    // Repli sur scheduled_at pour les calls importés sans booked_at.
     supabase.from('calls').select('*')
       .eq('coach_id', targetId)
-      .gte('scheduled_at', periodStart.toISOString())
-      .lte('scheduled_at', periodEnd.toISOString())
+      .or(`and(booked_at.gte.${periodStart.toISOString()},booked_at.lte.${periodEnd.toISOString()}),and(booked_at.is.null,scheduled_at.gte.${periodStart.toISOString()},scheduled_at.lte.${periodEnd.toISOString()})`)
       .eq('call_type', 'calendly')
       .neq('ignored', true)
       .order('scheduled_at', { ascending: false }),
@@ -5517,6 +5795,19 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       p_start_date: startDateStr,
       p_end_date: endDateStr,
     }),
+    // Deals signés dans la période — source du CASH CONTRACTÉ, en remplacement de la
+    // somme des `calls.revenue`. Un deal peut exister SANS call (upsell, vente hors
+    // pipeline) : le sommer depuis les calls le rendait invisible.
+    //
+    // Découpé sur `signed_at`, volontairement une autre date que les calls : un deal
+    // signé ce mois sur un call du mois dernier appartient au cash de ce mois — c'est
+    // le mois où l'argent a été engagé. Même règle que useCoachData.
+    supabase
+      .from('deals')
+      .select('amount_total, status, signed_at, call_id')
+      .eq('profile_id', targetId)
+      .gte('signed_at', periodStart.toISOString())
+      .lte('signed_at', periodEnd.toISOString()),
   ]);
 
   const snaps = snapsRes.status === 'fulfilled' ? (snapsRes.value.data ?? []) : [];
@@ -5632,6 +5923,14 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   // passés) : on cherche le snapshot le plus récent qui a réellement une valeur.
   const lastSnap = snaps[0] ?? null;
   const lastSnapWithYtSubs = snaps.find(r => r.yt_subscribers != null) ?? null;
+  // Repartitions (trafic / appareils / demographie) : portees par UNE seule ligne de la
+  // periode, celle du dernier jour traite par le cron. Prendre lastSnap tout court
+  // renvoyait un tableau vide des que ce n'etait pas la premiere ligne — meme motif que
+  // lastSnapWithYtSubs juste au-dessus.
+  const lastSnapWithTraffic = snaps.find(r => r.yt_traffic_sources != null) ?? null;
+  const lastSnapWithDevices = snaps.find(r => r.yt_devices != null) ?? null;
+  const lastSnapWithDemo    = snaps.find(r => r.yt_demographics != null) ?? null;
+  const lastSnapWithKeywords = snaps.find(r => r.yt_search_keywords != null) ?? null;
 
   // ── IG ──────────────────────────────────────────────────────────────────────
   const igReachTotal  = snaps.reduce((s, r) => s + (r.ig_reach ?? 0), 0);
@@ -5766,12 +6065,23 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       likes:      r.yt_likes ?? 0,
       comments:   r.yt_comments ?? 0,
       shares:     r.yt_shares ?? 0,
+      // ?? null et non ?? 0 : un format sans vue ce jour-là n'a pas de durée moyenne,
+      // et un 0 se lirait « regardé 0 seconde » au lieu de « pas de vue sur ce format ».
+      // Total d'abonnés du jour — équivalent YouTube de followerCount côté Instagram.
+      // Sert la courbe de la carte « Abonnés », qui doit suivre le TOTAL et non les
+      // abonnés gagnés (voir le commentaire sur la série plus bas).
+      subscribers: r.yt_subscribers ?? null,
+      avgViewDurationSec: r.yt_avg_view_duration_sec ?? null,
+      avgDurationShorts: r.yt_avg_duration_shorts_sec ?? null,
+      avgDurationLong:   r.yt_avg_duration_long_sec ?? null,
+      viewsShorts:       r.yt_views_shorts ?? null,
+      viewsLong:         r.yt_views_long ?? null,
     })),
     videos: ytVideos,
-    trafficSources: lastSnap?.yt_traffic_sources ?? [],
-    devices:         lastSnap?.yt_devices ?? [],
-    demographics:    lastSnap?.yt_demographics ?? [],
-    searchKeywords:  [],
+    trafficSources: lastSnapWithTraffic?.yt_traffic_sources ?? [],
+    devices:         lastSnapWithDevices?.yt_devices ?? [],
+    demographics:    lastSnapWithDemo?.yt_demographics ?? [],
+    searchKeywords:  lastSnapWithKeywords?.yt_search_keywords ?? [],
     channelName: null,
     channelThumbnail: null,
     totalViews: 0,
@@ -5810,6 +6120,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     ytHist,
     shortioHist,
     callsHist: callsRes.status === 'fulfilled' ? (callsRes.value.data ?? []) : [],
+    dealsHist: dealsRes.status === 'fulfilled' ? (dealsRes.value.data ?? []) : [],
     stripeHist,
     msgsHist,
     snapshotDate: endDateStr,
@@ -6133,6 +6444,19 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
   });
   const callsRes = { data: callsRawRows };
 
+  // Deals — source du CASH CONTRACTÉ, en remplacement de la somme des `calls.revenue`.
+  // Un deal peut exister SANS call (upsell, vente hors pipeline) : le sommer depuis les
+  // calls le rendait invisible. Même périmètre que les calls (integrations_ready_at),
+  // mais découpé sur `signed_at` : un deal signé ce mois sur un call du mois dernier
+  // appartient au cash de ce mois. Voir docs/perimetre-stats-referentiel.md.
+  const dealsRows = await fetchAllPages<any>(() => {
+    const q = supabase.from('deals')
+      .select('amount_total, status, signed_at, call_id')
+      .eq('profile_id', targetId)
+      .order('signed_at', { ascending: false });
+    return integrationsReadyAt ? q.gte('signed_at', integrationsReadyAt) : q;
+  });
+
   // Déduplique leads par ig_user_id — dernière interaction
   const seen = new Set<string>();
   const igLeads: MockLead[] = leadsRows
@@ -6348,7 +6672,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     }
   }
 
-  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, integrationsReadyAt };
+  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, deals: dealsRows, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, integrationsReadyAt };
   } catch { return null; }
 }
 
@@ -6427,6 +6751,9 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   const [, setModalOpen] = useState(false);
   const [stripeRefreshing, setStripeRefreshing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  // Message affiché quand le rafraîchissement ne peut pas aboutir faute de
+  // réseau — sans lui l'échec était totalement silencieux.
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   // Remonté ici (au lieu d'un state local à TabShortioB) car ce composant est
   // démonté/remonté à chaque changement de période (loading passe par true le
   // temps du refetch) — un state local y serait reset à 'clics' à chaque fois.
@@ -6452,6 +6779,9 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   const leadMagnets: LeadMagnet[] = supaData?.leadMagnets ?? [];
   const destinations: DestinationLink[] = supaData?.destinations ?? [];
   const calls: CallRecord[] = supaData?.calls ?? [];
+  // Deals du mode courant. En All-Time et sur les périodes passées, dealsEff bascule
+  // sur le snapshot (voir plus bas) — même mécanique que callsEff.
+  const deals: DealRecord[] = supaData?.deals ?? [];
   const lmHistory: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[] = supaData?.lmHistory ?? [];
   const integrationsReadyAt: string | null = supaData?.integrationsReadyAt ?? null;
   const leadIdToMediaId: Map<string, string> = supaData?.leadIdToMediaId ?? new Map();
@@ -6672,10 +7002,21 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
 
   async function handleRefresh() {
     if (inCooldown || refreshing) return;
+
+    // Hors connexion, les fetch ci-dessous échouent — mais Promise.allSettled
+    // ne rejette jamais, donc le code continuait comme si tout s'était bien
+    // passé : le bouton reprenait son état normal ET un cooldown se déclenchait,
+    // bloquant l'utilisateur alors que rien n'avait été rafraîchi.
+    if (!isOnlineNow()) {
+      setRefreshError('Pas de connexion — réessaie une fois le réseau revenu.');
+      setTimeout(() => setRefreshError(null), 4000);
+      return;
+    }
+
     setRefreshing(true);
     const body = profileId ? JSON.stringify({ profile_id: profileId }) : JSON.stringify({});
     // Refresh snapshots DB (instagram, youtube, shortio, calendly)
-    await Promise.allSettled([
+    const results = await Promise.allSettled([
       fetch('/api/instagram/refresh-today', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }),
       fetch('/api/youtube/refresh-today', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }),
       fetch('/api/shortio/refresh-today', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }),
@@ -6683,8 +7024,19 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
       // Force le re-fetch du cache shortio_stats_cache en bypassant le SWR
       fetch(`/api/shortio/stats${q}${q ? '&' : '?'}force=1`),
     ]);
-    startCooldown();
+    // Le réseau a pu tomber PENDANT le rafraîchissement : si tout a échoué, on
+    // ne déclenche pas le cooldown, sinon l'utilisateur serait bloqué sans avoir
+    // rien obtenu. Un échec partiel reste un succès (les autres sources ont
+    // répondu), donc on ne teste que le cas où rien n'est passé.
+    const allFailed = results.every(r => r.status === 'rejected');
     setRefreshing(false);
+    if (allFailed) {
+      setRefreshError('Rafraîchissement impossible — vérifie ta connexion.');
+      setTimeout(() => setRefreshError(null), 4000);
+      return;
+    }
+
+    startCooldown();
     refetchIntegStatus();
     await Promise.all([refetchSupa(), refetchIg(), refetchShortio()]);
   }
@@ -6699,7 +7051,36 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   const shortioEff = (sinceConnection ? (sinceConnSnap?.shortioHist ?? null) : (periodIndex > 0 ? (snapData?.shortioHist ?? null) : shortio)) as ShortioStats | null;
   const stripeEff  = (sinceConnection ? (sinceConnSnap?.stripeHist  ?? null) : (periodIndex > 0 ? (snapData?.stripeHist  ?? null) : stripe))  as StripeStats | null;
   const msgsEff    = (sinceConnection ? (sinceConnSnap?.msgsHist    ?? null) : (periodIndex > 0 ? (snapData?.msgsHist    ?? null) : msgs))    as IGMessages | null;
-  const callsEff   = sinceConnection ? (sinceConnSnap?.callsHist ?? []) : (periodIndex > 0 ? (snapData?.callsHist ?? []) : calls);
+  const callsRaw   = sinceConnection ? (sinceConnSnap?.callsHist ?? []) : (periodIndex > 0 ? (snapData?.callsHist ?? []) : calls);
+  const dealsEff   = (sinceConnection ? (sinceConnSnap?.dealsHist ?? []) : (periodIndex > 0 ? (snapData?.dealsHist ?? []) : deals)) as DealRecord[];
+
+  // `deals` est la source du cash depuis la migration ; `calls.revenue` n'est
+  // plus qu'une écriture miroir en attendant de disparaître. Plutôt que de
+  // réécrire la vingtaine d'agrégations de cet écran (revenu par post, par
+  // séquence, par jour, par source…), on injecte le montant du deal DANS le
+  // call : leur logique de filtrage — souvent subtile, croisée avec utm_content
+  // et media_id — reste intacte, seule la valeur sommée change de source.
+  //
+  // Somme et non premier deal trouvé : un call peut en porter plusieurs (upsell
+  // signé sur le même rendez-vous). Aucun cas en base aujourd'hui, mais rien ne
+  // l'interdit.
+  //
+  // Un deal SANS call (upsell, vente directe) reste absent de ces agrégations,
+  // et c'est voulu : « revenu par post » ou « cash par call honoré » n'ont pas
+  // de sens pour une vente qui n'a ni contenu d'origine ni rendez-vous. Ce cash
+  // est compté dans l'onglet Revenus et la page Paiements, qui lisent `deals`
+  // directement — voir le bloc « Cash encaissé par origine ».
+  const callsEff = useMemo(() => {
+    const byCall = new Map<string, number>();
+    for (const d of dealsEff) {
+      if (!d.call_id || d.status === 'canceled') continue;
+      byCall.set(d.call_id, (byCall.get(d.call_id) ?? 0) + Number(d.amount_total || 0));
+    }
+    if (byCall.size === 0) return callsRaw;
+    return callsRaw.map((c: CallRecord) =>
+      byCall.has(c.id) ? { ...c, revenue: byCall.get(c.id)! } : c
+    );
+  }, [callsRaw, dealsEff]);
   // Alias pour compat. TabFunnel (déjà existant)
   const funnelIg      = igEff;
   const funnelYt      = ytEff;
@@ -6759,7 +7140,20 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
         </div>
 
         {/* Droite : bouton Rafraîchir + sélecteur période sur une ligne, même hauteur */}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', flexShrink: 0, position: 'relative' }}>
+          {/* Explique pourquoi le rafraîchissement n'a pas eu lieu. Sans ce
+              message, l'échec réseau était totalement silencieux : le bouton
+              reprenait son état normal comme si tout avait fonctionné. */}
+          {refreshError && (
+            <div style={{
+              position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 20,
+              padding: '7px 12px', borderRadius: 8, whiteSpace: 'nowrap',
+              background: 'var(--amber-soft)', border: '1px solid var(--amber)',
+              color: 'var(--amber)', fontSize: 11.5, fontWeight: 600,
+            }}>
+              {refreshError}
+            </div>
+          )}
           <button
             onClick={handleRefresh}
             disabled={inCooldown || refreshing || backfillInProgress}
@@ -6791,14 +7185,25 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
 
       <Tabs tabs={TABS} active={tab} onChange={setTab} />
 
+      {/* Bandeau commun à tous les onglets : posé ici plutôt que recopié dans chacun.
+          En All-Time la fenêtre part déjà de integrations_ready_at, donc jamais avant
+          l'arrivée — le bandeau ne s'affiche que sur une période calendaire (mois ou
+          semaine) qui commence avant. */}
+      {!loading && (
+        <CoverageNotice
+          periodStartStr={sinceConnection ? null : parisDateStr(getPeriodWindow(periodIndex, period === 7 ? 'week' : 'month').periodStart)}
+          integrationsReadyAt={integrationsReadyAt}
+        />
+      )}
+
       {loading ? <InlineLoader /> : (
         <>
           {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} stripe={stripeEff} msgs={msgsEff} calls={callsEff} callsAllTime={calls} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} />}
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} />}
-          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={calls} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} />}
-          {tab === 5 && <TabRevenues stripe={stripeEff} calls={callsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} />}
+          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={calls} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} />}
+          {tab === 5 && <TabRevenues stripe={stripeEff} calls={callsEff} deals={dealsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} />}
         </>
       )}
     </div>

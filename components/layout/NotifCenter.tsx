@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEscapeKey } from '@/lib/useEscapeKey';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 import { AppNotif } from '@/lib/useNotifications';
-import RapportModal from '@/components/ui/RapportModal';
-import SessionRapportModal from '@/components/ui/SessionRapportModal';
+import RapportModal from '@/components/ui/RapportModalLoader';
+import SessionRapportModal from '@/components/ui/SessionRapportModalLoader';
 import { createClient } from '@/lib/supabase/client';
 
 interface Props {
@@ -18,6 +19,7 @@ interface Props {
 type RespondState = 'idle' | 'accepting' | 'declining' | 'done' | 'stale';
 
 export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh }: Props) {
+  useEscapeKey(onClose);
   const ref = useRef<HTMLDivElement>(null);
   const [rapportNotif, setRapportNotif] = useState<AppNotif | null>(null);
   const [sessionRapportNotif, setSessionRapportNotif] = useState<AppNotif | null>(null);
@@ -182,6 +184,10 @@ function NotifItem({ notif, onAction, onDismiss, onRefresh }: { notif: AppNotif;
 
       {/* Contenu */}
       <div style={{ flex: 1, minWidth: 0 }}>
+        {/* Pas de badge Coaching/Prospect ici, contrairement à la carte de l'accueil
+            coach : depuis que les titres sont explicites ("Rapport de session de
+            coaching" / "Rapport de call de vente"), le badge répétait le titre mot
+            pour mot, et sa longueur le poussait sur une seconde ligne. */}
         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)', marginBottom: 2 }}>{notif.title}</div>
         <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>{notif.body}</div>
         {notif.scheduledAt && (

@@ -9,6 +9,7 @@ import Icon, { IconName } from '../ui/Icon';
 const MORE_NAV: { href: string; icon: IconName; label: string }[] = [
   // En tête : écran consulté quotidiennement, contrairement aux réglages.
   { href: '/client/paiements', icon: 'circle-dollar-sign', label: 'Paiements' },
+  { href: '/client/pipeline', icon: 'trending-up', label: 'Pipeline Leads' },
   { href: '/client/calendar-mobile', icon: 'calendar', label: 'Calendrier' },
   { href: '/client/liens', icon: 'link', label: 'Gérer mes liens' },
   { href: '/client/taches', icon: 'task-check', label: 'Tâches' },

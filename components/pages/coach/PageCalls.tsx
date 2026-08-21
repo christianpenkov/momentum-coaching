@@ -2,10 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useEscapeKey } from '@/lib/useEscapeKey';
 import Icon from '@/components/ui/Icon';
+import { Skeleton } from '@/components/ui/Skeleton';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
-import SessionRapportModal from '@/components/ui/SessionRapportModal';
-import RapportModal from '@/components/ui/RapportModal';
+import SessionRapportModal from '@/components/ui/SessionRapportModalLoader';
+import RapportModal from '@/components/ui/RapportModalLoader';
 import CreateCallModal from '@/components/ui/CreateCallModal';
 import FathomUnmatchedTab from '@/components/ui/FathomUnmatchedTab';
 import CallInfosModal from '@/components/ui/CallInfosModal';
@@ -39,6 +41,8 @@ export default function PageCalls() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
+  // Confirmation d'annulation : couche modale, Echap la ferme.
+  useEscapeKey(() => setConfirmCancelId(null), confirmCancelId !== null);
 
   // Rapports de session Google Meet en attente — même condition que le badge élève
   const [openSessionRapportCall, setOpenSessionRapportCall] = useState<{ callId: string; clientName: string | null; scheduledAt: string | null; call: Call } | null>(null);
@@ -213,7 +217,12 @@ export default function PageCalls() {
             <Icon name="alert-triangle" size={13} />Rapport
           </button>
         )}
-        {!coaching && call.coach_id === userId && call.outcome == null && (
+        {/* `!canceled` : un call annulé n'a pas eu lieu, il n'y a rien à rapporter.
+            Le bouton s'affichait pourtant dans l'onglet Annulés, alors que son
+            équivalent coaching juste au-dessus était déjà protégé (la liste
+            pendingSessionRapportIds vient de getPendingSessionRapports, qui filtre
+            sur status === 'active'). */}
+        {!coaching && !canceled && call.coach_id === userId && call.outcome == null && (
           <button type="button" className="btn-ghost call-action-rapport"
             onClick={() => setOpenSalesRapportCall({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at, isFollowUp: call.is_follow_up === true })}>
             <Icon name="alert-triangle" size={13} />Rapport
@@ -334,10 +343,30 @@ export default function PageCalls() {
     );
   }
 
+  // Squelette calque sur la page : titre, chips de filtre, cartes de call.
   if (loading) return (
     <div className="page-content">
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '80px 0', gap: 8, color: 'var(--muted)', fontSize: 13 }}>
-        <span className="loading-dots"><span /><span /><span /></span>
+      <div className="page-header">
+        <Skeleton width={90} height={22} />
+      </div>
+      {/* Rangee de chips de filtre, puis cartes de call : avatar, identite,
+          heure a droite. Memes dimensions que le rendu reel. */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+        {[74, 82, 90, 96].map((w, i) => (
+          <Skeleton key={i} width={w} height={32} radius={20} />
+        ))}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="card" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px' }}>
+            <Skeleton width={38} height={38} radius={19} />
+            <div style={{ flex: 1 }}>
+              <Skeleton width={`${46 - i * 5}%`} height={13} />
+              <Skeleton width="28%" height={11} style={{ marginTop: 7 }} />
+            </div>
+            <Skeleton width={54} height={12} />
+          </div>
+        ))}
       </div>
     </div>
   );

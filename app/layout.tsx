@@ -3,6 +3,7 @@ import { Inter, IBM_Plex_Mono } from 'next/font/google';
 import './globals.css';
 import Providers from './Providers';
 import AppBootstrap from '@/components/AppBootstrap';
+import SplashHold from '@/components/ui/SplashHold';
 
 // display: 'swap' — le texte s'affiche immédiatement en police système puis bascule vers
 // Inter quand elle charge. Ce swap agrandit le contenu de la messagerie APRÈS le premier
@@ -66,7 +67,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="fr" className={`${inter.variable} ${ibmPlexMono.variable}`}>
+    // data-splash rendu côté serveur : l'écran de lancement est visible dès le
+    // premier octet de HTML, donc le marqueur qui masque les loaders doit y être
+    // aussi. Le poser uniquement en JS créait un écart d'hydratation (React
+    // compare les attributs de <html> comme ceux de n'importe quel élément).
+    <html lang="fr" data-splash="1" className={`${inter.variable} ${ibmPlexMono.variable}`}>
       <head>
         {/* Viewport app-native : pas de zoom, pas de bounce, width=device */}
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
@@ -109,15 +114,62 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){
+  // Marqueur posé avant React : masque les loaders de page tant que l'écran de
+  // lancement couvre l'écran (voir la règle html[data-splash] dans globals.css).
+  // Posé sur <html> et non sur <body> : React compare les attributs du body au
+  // rendu serveur et signalerait un écart d'hydratation.
+  // Sans lui, on aperçoit une fraction de seconde de spinner quand la page rend
+  // son loader pendant que l'overlay entame son fondu.
+  document.documentElement.setAttribute('data-splash', '1');
+
+  // Aligne le logo de l'overlay sur celui du splash système.
+  //
+  // En PWA installée, le système centre son logo sur l'ÉCRAN (screen.height),
+  // alors que la fenêtre de l'app commence plus bas — mesuré sur iPhone 13 :
+  // screen.height 844, innerHeight 797, soit 47px d'écart et 23px de décalage
+  // entre les deux centres. C'est ce saut qu'on voit au raccord.
+  //
+  // env(safe-area-inset-top) ne peut PAS servir à corriger ça : il est rapporté
+  // à 0px en portrait (vérifié sur l'appareil), d'où l'échec des tentatives
+  // précédentes. On calcule donc l'écart réel à partir de deux valeurs
+  // disponibles partout — aucune constante par modèle, aucun cas particulier
+  // iOS ou Android : là où les deux hauteurs coïncident, le décalage vaut zéro
+  // et rien ne bouge.
+  // UNIQUEMENT en app installée : dans un navigateur, l'écart entre l'écran
+  // physique et la fenêtre vaut la barre d'onglets, la barre des tâches et les
+  // bordures — rien à voir avec un splash système, qui n'existe pas là. Y
+  // appliquer le décalage remontait le logo hors du centre.
+  try {
+    var installed = window.matchMedia('(display-mode: standalone)').matches
+      || window.navigator.standalone === true;
+    if (installed) {
+      var gap = (window.screen.height - window.innerHeight) / 2;
+      if (gap > 0 && gap < 120) {
+        document.documentElement.style.setProperty('--splash-logo-shift', gap + 'px');
+      }
+    }
+  } catch (e) {}
+
   var MAX_MS = 6000;
   setTimeout(function(){
     var el = document.getElementById('app-splash');
     if (el) el.setAttribute('data-force-hide', '1');
+    // Le marqueur part avec l'écran, sinon les loaders resteraient masqués
+    // pour toute la session si le JS applicatif n'a jamais démarré.
+    document.documentElement.removeAttribute('data-splash');
   }, MAX_MS);
+
 })();`,
           }}
         />
         <Providers>{children}</Providers>
+        {/* Filet de rendu : les layouts (client) et (coach) montent leur propre
+            SplashHold, piloté par l'état de session. Mais /login, /signup,
+            /invite et / n'ont aucun de ces layouts — sans celui-ci, l'écran de
+            lancement y restait affiché jusqu'au filet de 6s. Ces pages
+            n'attendent aucune session : elles sont prêtes dès le rendu, donc
+            show reste à false et le splash part après sa durée minimale. */}
+        <SplashHold />
         <AppBootstrap />
       </body>
     </html>

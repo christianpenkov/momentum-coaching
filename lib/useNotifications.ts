@@ -116,7 +116,10 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
         sessionRapportNotifs = pendingSessionCalls.map(c => ({
           id: `session_rapport_${c.id}`,
           type: 'session_rapport' as NotifType,
-          title: 'Rapport de session',
+          // « de coaching » explicite : dans la cloche, les rapports de session et
+          // de vente s'empilent dans la même liste, et « session » seul ne disait
+          // pas de quel type de call il s'agissait.
+          title: 'Rapport de session de coaching',
           body: `Comment s'est passée ta session${c.client_id && nameById[c.client_id] ? ` avec ${nameById[c.client_id]}` : ''} ?`,
           callId: c.id,
           inviteeName: c.client_id ? (nameById[c.client_id] ?? null) : null,
@@ -147,7 +150,10 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
         .map(c => ({
           id: `rapport_${c.id}`,
           type: 'rapport_call' as NotifType,
-          title: 'Rapport de call',
+          // « de vente » explicite : « call » seul ne disait pas de quel type de
+          // call il s'agissait. Le même titre est construit plus bas pour l'élève
+          // (branche `rapportNotifs`) — les deux doivent rester identiques.
+          title: 'Rapport de call de vente',
           body: `Comment s'est passé ton appel${c.invitee_name ? ` avec ${c.invitee_name}` : ''} ?`,
           callId: c.id,
           inviteeName: c.invitee_name,
@@ -203,7 +209,9 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       .map(c => ({
         id: `rapport_${c.id}`,
         type: 'rapport_call' as NotifType,
-        title: 'Rapport de call',
+        // Doit rester identique au titre de la branche coach ci-dessus : c'est le
+        // même objet vu des deux côtés, deux libellés différents dérouteraient.
+        title: 'Rapport de call de vente',
         body: `Comment s'est passé ton appel${c.invitee_name ? ` avec ${c.invitee_name}` : ''} ?`,
         callId: c.id,
         inviteeName: c.invitee_name,

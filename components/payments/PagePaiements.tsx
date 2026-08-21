@@ -30,6 +30,15 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
   const [search, setSearch] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
   const [openDeal, setOpenDeal] = useState<string | null>(null);
+
+  // ?deal=<id> ouvre directement le panneau de détail : une notification de
+  // rappel doit mener à la personne concernée, pas à une liste où il faut la
+  // retrouver. Lu une seule fois au montage — ensuite l'état local prime, pour
+  // que fermer le panneau ne le rouvre pas au rendu suivant.
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('deal');
+    if (id) setOpenDeal(id);
+  }, []);
   const [creating, setCreating] = useState(false);
   const isMobile = useIsMobile();
 
@@ -117,7 +126,9 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
             sub={k ? `${k.collectedRate} % du contracté` : ''} color="var(--green)" />
           <Kpi label="Reste à encaisser" value={k ? fmtEur(k.remaining) : '—'} sub="échéances à venir" />
           <Kpi label="Impayés" value={k ? fmtEur(k.unpaid) : '—'}
-            sub={k && k.failedCount > 0 ? `${k.failedCount} carte refusée` : 'tout est à jour'}
+            sub={k && k.failedCount > 0
+              ? `${k.failedCount} paiement${k.failedCount > 1 ? 's' : ''} en échec`
+              : 'tout est à jour'}
             color={k && k.unpaid > 0 ? 'var(--red)' : 'var(--green)'} />
         </div>
       )}
@@ -177,7 +188,7 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
             : deals.length === 0
               ? <EmptyDeals onCreate={() => setCreating(true)} />
               : isMobile
-                ? <DealCards rows={filtered} onOpen={setOpenDeal} />
+                ? <DealCards rows={filtered} onOpen={setOpenDeal} isCoach={isCoach} />
                 : <DealsTable rows={filtered} isCoach={isCoach} onOpen={setOpenDeal} />}
         </>
       ) : tab === 'reconcile' ? (
@@ -188,12 +199,17 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
 
       </>}
 
-      {openDeal && data && (
+      {/* Le deal doit exister : depuis qu'un ?deal=<id> peut venir d'une
+          notification, l'id peut désigner un deal supprimé ou d'un autre
+          profil — sans cette garde, DealPanel recevrait undefined et
+          planterait à l'ouverture de la page. */}
+      {openDeal && data && deals.some(d => d.id === openDeal) && (
         <DealPanel
           deal={deals.find(d => d.id === openDeal)!}
           detail={data.details[openDeal]}
           onClose={() => setOpenDeal(null)}
           onChange={refetch}
+          isCoach={isCoach}
         />
       )}
 
@@ -355,7 +371,7 @@ function DealRowView({ d, isCoach, onOpen }: { d: DealRow; isCoach: boolean; onO
           <span style={{ minWidth: 0 }}>
             <span style={{ display: 'block', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.buyerName}</span>
             <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {[d.buyerSubtitle, fmtDate(d.signedAt)].filter(Boolean).join(' · ')}
+              {[isCoach ? d.buyerSubtitleCoach : d.buyerSubtitle, fmtDate(d.signedAt)].filter(Boolean).join(' · ')}
             </span>
           </span>
         </span>
@@ -375,7 +391,9 @@ function DealRowView({ d, isCoach, onOpen }: { d: DealRow; isCoach: boolean; onO
         <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 5 }}>{progressLabel(d)}</span>
       </td>
       <td><Pill label={st.label} tone={st.tone} /></td>
-      {isCoach && <td><Pill label={d.buyerKind === 'student' ? 'Élève' : 'Externe'} tone="neutral" /></td>}
+      {/* « Externe » se lisait « paie hors Stripe » — on nomme ce qu'est la
+          personne : un client du coach sans compte élève sur Momentum. */}
+      {isCoach && <td><Pill label={d.buyerKind === 'student' ? 'Élève' : 'Client direct'} tone="neutral" /></td>}
       <td style={{ textAlign: 'right' }}>
         <button className="btn-ghost" style={{ fontSize: 12, padding: '5px 11px', border: '1px solid var(--ink)', color: 'var(--ink)', borderRadius: 7 }}
           onClick={() => onOpen(d.id)}>Détails</button>
@@ -432,7 +450,7 @@ function CashCollectedHero({ k }: { k: PaymentsData['kpis'] | undefined }) {
         {/* La piste reste visible à 0 % : c'est elle qui donne l'échelle. */}
         <div style={{
           height: '100%', width: `${barWidth}%`, background: 'var(--green)', borderRadius: 2,
-          transition: reduceMotion ? undefined : 'width 900ms var(--ease-out)',
+          transition: reduceMotion ? undefined : `width ${HERO_ANIM_MS}ms var(--ease-out)`,
         }} />
       </div>
       {/* Pas de mention de période : cette carte porte sur tous les deals, pas
@@ -448,7 +466,15 @@ function CashCollectedHero({ k }: { k: PaymentsData['kpis'] | undefined }) {
   );
 }
 
-/** Count-up ~1s, easing cubique sortant — le chiffre se pose au lieu d'apparaître. */
+/**
+ * Durée du count-up ET de la barre : les deux se terminent ensemble, sinon le
+ * chiffre se fige pendant que la barre court encore. 600ms plutôt que la
+ * seconde de la spec : sur un écran consulté plusieurs fois par jour, une
+ * animation trop longue se subit au lieu de se remarquer.
+ */
+const HERO_ANIM_MS = 700;
+
+/** Count-up en easing cubique sortant — le chiffre se pose au lieu d'apparaître. */
 function useCountUp(target: number, enabled: boolean): number {
   const [value, setValue] = useState(enabled ? 0 : target);
 
@@ -457,7 +483,7 @@ function useCountUp(target: number, enabled: boolean): number {
     let raf = 0;
     const start = performance.now();
     const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / 1000);
+      const t = Math.min(1, (now - start) / HERO_ANIM_MS);
       setValue(target * (1 - Math.pow(1 - t, 3)));
       if (t < 1) raf = requestAnimationFrame(tick);
     };
@@ -498,7 +524,7 @@ function MiniKpi({ label, value, color }: { label: string; value: string; color?
  * de l'autre). La carte entière est cliquable : la cible tactile fait toute la
  * ligne plutôt qu'un bouton de 30px.
  */
-function DealCards({ rows, onOpen }: { rows: DealRow[]; onOpen: (id: string) => void }) {
+function DealCards({ rows, onOpen, isCoach }: { rows: DealRow[]; onOpen: (id: string) => void; isCoach?: boolean }) {
   if (rows.length === 0) {
     return <div style={{ padding: 40, textAlign: 'center', fontSize: 13, color: 'var(--muted)' }}>Aucun deal ne correspond.</div>;
   }
@@ -630,8 +656,18 @@ function EmptyDeals({ onCreate }: { onCreate: () => void }) {
 
 function statusOf(d: DealRow): { label: string; tone: 'green' | 'amber' | 'red'; barColor: string } {
   if (d.status === 'paid') return { label: 'Payé', tone: 'green', barColor: 'var(--green)' };
-  if (d.hasFailure || d.status === 'past_due') return { label: 'Carte refusée', tone: 'red', barColor: 'var(--red)' };
-  if (d.paymentPlan === 'installments_manual' && d.paidCount > 0) return { label: 'À envoyer', tone: 'amber', barColor: 'var(--amber)' };
+  // « Carte refusée » n'a de sens qu'avec un moyen de paiement Stripe : hors
+  // Stripe (virement, espèces), aucune carte n'est en jeu.
+  if (d.hasFailure || d.status === 'past_due') {
+    return { label: d.hasLinks ? 'Carte refusée' : 'Paiement en échec', tone: 'red', barColor: 'var(--red)' };
+  }
+  // « À envoyer » suppose un lien à transmettre. Hors Stripe il n'y en a
+  // aucun : le versement suivant est à constater, pas à envoyer.
+  if (d.paymentPlan === 'installments_manual' && d.paidCount > 0) {
+    return d.hasLinks
+      ? { label: 'À envoyer', tone: 'amber', barColor: 'var(--amber)' }
+      : { label: 'À encaisser', tone: 'amber', barColor: 'var(--amber)' };
+  }
   if (d.collected > 0) return { label: 'En cours', tone: 'amber', barColor: 'var(--amber)' };
   return { label: 'En attente', tone: 'amber', barColor: 'var(--amber)' };
 }
