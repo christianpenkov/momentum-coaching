@@ -1,5 +1,7 @@
 'use client';
 
+import Icon from '@/components/ui/Icon';
+
 /**
  * Une question du rapport de vente : un titre, une aide, une colonne de choix.
  *
@@ -61,22 +63,28 @@ export default function RapportChoiceStep<T extends string>({
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {choices.map(choice => {
           const selected = value != null && value === choice.value;
+          // Une réponse a déjà été donnée, mais ce n'est pas celle-ci.
+          const otherChosen = value != null && !selected;
           const tone = choice.tone ?? 'neutral';
 
-          // La sélection l'emporte sur la nuance : une réponse retenue se lit en
-          // bleu plein quelle que soit sa nature, comme le bouton principal. Sans
-          // ça, revenir sur « Date pas encore connue » n'aurait rien montré.
+          // Marquer la sélection par la seule couleur ne suffisait pas : un bouton
+          // « primary » est déjà bleu plein qu'il soit choisi ou non, donc revenir
+          // en arrière ne montrait rien. La coche tranche sans ambiguïté, et les
+          // options écartées s'estompent pour que la réponse retenue ressorte.
+          const marque = selected ? <Icon name="check" size={16} style={{ flexShrink: 0 }} /> : null;
+          const attenue = otherChosen ? { opacity: 0.45 } : {};
+
           if (selected) {
             return (
               <button
                 key={choice.value}
                 type="button"
                 className="btn-primary-brand"
-                style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700 }}
+                style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
                 disabled={disabled}
                 onClick={() => onChoose(choice.value)}
               >
-                {choice.label}
+                {marque}{choice.label}
               </button>
             );
           }
@@ -87,7 +95,7 @@ export default function RapportChoiceStep<T extends string>({
                 key={choice.value}
                 type="button"
                 className="btn-primary-brand"
-                style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700 }}
+                style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700, ...attenue }}
                 disabled={disabled}
                 onClick={() => onChoose(choice.value)}
               >
@@ -107,6 +115,7 @@ export default function RapportChoiceStep<T extends string>({
                 fontSize: 14,
                 color: tone === 'warning' ? '#d97706' : tone === 'muted' ? 'var(--muted)' : 'var(--accent)',
                 border: tone === 'warning' ? '1px solid #fcd34d' : '1px solid var(--border)',
+                ...attenue,
               }}
               disabled={disabled}
               onClick={() => onChoose(choice.value)}

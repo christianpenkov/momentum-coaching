@@ -220,22 +220,7 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
               )}
             </div>
           </div>
-          {/* « Recommencer » n'apparaît que s'il y a quelque chose à effacer, et
-              jamais sur l'écran de confirmation finale. Discret : c'est une sortie
-              de secours, pas une action courante. */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-            {step !== 'done' && hasAnything && (
-              <button
-                type="button"
-                onClick={() => { setRestartChecked(false); setConfirmRestart(true); }}
-                className="btn-ghost"
-                style={{ fontSize: 12, padding: '6px 10px', color: 'var(--muted)' }}
-              >
-                Recommencer
-              </button>
-            )}
-            <button onClick={requestClose} type="button" className="icon-btn" aria-label="Fermer"><Icon name="x" size={18} /></button>
-          </div>
+          <button onClick={requestClose} type="button" className="icon-btn" aria-label="Fermer" style={{ flexShrink: 0 }}><Icon name="x" size={18} /></button>
         </div>
 
         <div style={{ padding: '26px 30px' }}>
@@ -398,19 +383,35 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
         </div>
 
         {step === 'topic_notes' && (
-          <div style={{ padding: '0 30px 26px', display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-            {!isEdit && (
-              <button onClick={() => goTo('attended')} className="btn-ghost" type="button" disabled={saving} style={{ fontSize: 14 }}>Retour</button>
-            )}
+          <div style={{ padding: '0 30px 26px' }}>
             <button
               onClick={handleSubmitTopicNotes}
               className="btn-primary-brand"
               type="button"
               disabled={saving}
-              style={{ fontSize: 14 }}
+              style={{ width: '100%', fontSize: 14, padding: '14px' }}
             >
               {saving ? 'Enregistrement…' : isEdit ? 'Enregistrer les modifications' : 'Enregistrer le rapport'}
             </button>
+            {/* Retour et Recommencer côte à côte sous l'action principale, même
+                police et même encadré : deux actions de navigation de même rang,
+                seule leur portée diffère. */}
+            {(!isEdit || hasAnything) && (
+              <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+                {!isEdit && (
+                  <button onClick={() => goTo('attended')} className="btn-ghost" type="button" disabled={saving}
+                    style={{ flex: 1, fontSize: 13, padding: '12px', color: 'var(--muted)', border: '1px solid var(--border)' }}>
+                    ‹ Retour
+                  </button>
+                )}
+                {hasAnything && (
+                  <button onClick={() => { setRestartChecked(false); setConfirmRestart(true); }} className="btn-ghost" type="button" disabled={saving}
+                    style={{ flex: 1, fontSize: 13, padding: '12px', color: 'var(--muted)', border: '1px solid var(--border)' }}>
+                    Recommencer
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
 

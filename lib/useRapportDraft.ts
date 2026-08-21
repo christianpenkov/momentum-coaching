@@ -110,7 +110,12 @@ export function useRapportDraftWriter(callId: string) {
       // swipe-away de PWA sur iOS. Limite du standard : 64 Ko de corps, très
       // au-dessus de nos brouillons (bornés côté route).
       keepalive,
-    }).catch(err => console.warn('[rapport-draft] sauvegarde ignorée', err));
+    })
+      // Le brouillon vient de changer : les cartes doivent recalculer leur mention
+      // « Commencé · étape N/M ». Sans cet événement elle n'apparaissait qu'au
+      // rechargement suivant, `notifs-refresh` n'étant émis qu'à la soumission.
+      .then(() => window.dispatchEvent(new Event('notifs-refresh')))
+      .catch(err => console.warn('[rapport-draft] sauvegarde ignorée', err));
   }, [callId]);
 
   /** Sauvegarde tout de suite — à chaque changement d'étape. */
@@ -131,6 +136,9 @@ export function useRapportDraftWriter(callId: string) {
     if (timer.current) { clearTimeout(timer.current); timer.current = null; }
     latest.current = null;
     fetch(`/api/calls/${callId}/rapport-draft`, { method: 'DELETE', credentials: 'same-origin' })
+      // Même raison qu'à la sauvegarde : la mention « Commencé » doit disparaître
+      // des cartes tout de suite, pas au prochain chargement.
+      .then(() => window.dispatchEvent(new Event('notifs-refresh')))
       .catch(err => console.warn('[rapport-draft] suppression ignorée', err));
   }, [callId]);
 

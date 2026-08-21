@@ -519,9 +519,14 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Création impossible');
 
+      // Le commentaire a déjà été saisi ET le rapport déjà soumis : `payment` est
+      // maintenant la DERNIÈRE étape, plus une étape intermédiaire.
+      //
+      // ⚠️ Ne jamais revenir à `comment` ici : cette étape resoumet le rapport puis
+      // renvoie à `payment`, ce qui bouclait à l'infini et empêchait d'enregistrer
+      // (l'ordre des deux étapes a été inversé, ce retour n'a plus de sens).
       if (skipLink || !d.url) {
-        setAfterComment('celebration');
-        setStep('comment');
+        setStep('celebration');
       } else {
         setPaymentUrl(d.url);
       }
@@ -617,24 +622,9 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                 </div>
               )}
             </div>
-            {/* « Recommencer » n'apparaît que s'il y a quelque chose à effacer, et
-                jamais sur les écrans qui suivent la soumission. Discret : c'est une
-                sortie de secours, pas une action courante. */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-              {hasAnything && !NO_RESTART.includes(step) && (
-                <button
-                  type="button"
-                  onClick={() => { setRestartChecked(false); setConfirmRestart(true); }}
-                  className="btn-ghost"
-                  style={{ fontSize: 12, padding: '6px 10px', color: 'var(--muted)' }}
-                >
-                  Recommencer
-                </button>
-              )}
-              <button type="button" onClick={requestClose} aria-label="Fermer" className="icon-btn" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--muted)' }}>
-                <Icon name="x" size={18} />
-              </button>
-            </div>
+            <button type="button" onClick={requestClose} aria-label="Fermer" className="icon-btn" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--muted)', flexShrink: 0 }}>
+              <Icon name="x" size={18} />
+            </button>
           </div>
 
           {error && (
@@ -886,8 +876,19 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                     }}>
                     {linkCopied ? 'Copié ✓' : 'Copier le lien'}
                   </button>
+                  {/* Où retrouver ce lien plus tard : sans cette phrase, fermer la
+                      modale donne l'impression d'avoir perdu le lien, alors qu'il
+                      vit dans la page Paiements — avec un lien par échéance quand le
+                      paiement est en plusieurs fois. */}
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '11px 13px', background: 'var(--accent-brand-soft)', borderRadius: 10, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.55, marginBottom: 14 }}>
+                    <Icon name="info" size={14} style={{ flexShrink: 0, marginTop: 1, color: 'var(--accent-brand)' }} />
+                    <span>
+                      Tu retrouveras ce lien dans <strong>Paiements</strong>, sur la fiche de {inviteeName || 'ce client'}
+                      {plan > 1 ? <> — avec un lien par échéance, et le suivi de celles déjà payées.</> : <>.</>}
+                    </span>
+                  </div>
                   <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, border: '1px solid var(--border)' }}
-                    onClick={() => { setAfterComment('celebration'); setStep('comment'); }}>
+                    onClick={() => setStep('celebration')}>
                     Continuer
                   </button>
                 </>
@@ -1001,14 +1002,25 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
             </div>
           )}
 
-          {/* Retour, en bas et discret. Pas une flèche dans l'en-tête : la croix y
-              est déjà, et deux sorties côte à côte prêtent à confusion sur mobile.
-              Les réponses restent en place au retour — c'est tout l'intérêt. */}
-          {!NO_BACK.includes(step) && history.length > 0 && (
-            <button type="button" onClick={goBack} disabled={saving}
-              className="btn-ghost" style={{ fontSize: 13, marginTop: 16, padding: '10px 0', color: 'var(--muted)' }}>
-              ‹ Retour
-            </button>
+          {/* Retour et Recommencer côte à côte, en bas. Pas dans l'en-tête : la
+              croix y est déjà, et trois sorties alignées prêtent à confusion sur
+              mobile. Même police et même encadré pour les deux — ce sont deux
+              actions de navigation de même rang, seule leur portée diffère. */}
+          {((!NO_BACK.includes(step) && history.length > 0) || (hasAnything && !NO_RESTART.includes(step))) && (
+            <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+              {!NO_BACK.includes(step) && history.length > 0 && (
+                <button type="button" onClick={goBack} disabled={saving}
+                  className="btn-ghost" style={{ flex: 1, fontSize: 13, padding: '12px', color: 'var(--muted)', border: '1px solid var(--border)' }}>
+                  ‹ Retour
+                </button>
+              )}
+              {hasAnything && !NO_RESTART.includes(step) && (
+                <button type="button" onClick={() => { setRestartChecked(false); setConfirmRestart(true); }} disabled={saving}
+                  className="btn-ghost" style={{ flex: 1, fontSize: 13, padding: '12px', color: 'var(--muted)', border: '1px solid var(--border)' }}>
+                  Recommencer
+                </button>
+              )}
+            </div>
           )}
         </div>
         </ModalShell>
