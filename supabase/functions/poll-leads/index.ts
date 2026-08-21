@@ -1110,6 +1110,21 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
           ? /^PT(?:\d+S|[0-5]?\dS|[0-5]?\d[Ss])$/.test(detail.contentDetails.duration) ||
             /^PT0?[0-5]?\d[Ss]$/.test(detail.contentDetails.duration)
           : false;
+        // Duree en secondes, depuis le meme champ ISO 8601 qui sert deja a detecter les
+        // Shorts juste au-dessus.
+        //
+        // Elle etait ecrite `null` alors que la donnee etait la : les 2010 lignes du
+        // profil de test avaient duration_sec vide. En mode historique (toute periode
+        // passee, et l'All-Time), l'UI n'avait donc aucune duree, avec deux effets :
+        // la colonne « Duree » du tableau restait vide, et surtout l'axe des temps de la
+        // courbe de retention basculait silencieusement en pourcentage au lieu
+        // d'afficher « 0:45 », « 1:30 » — la meme courbe changeait d'unite selon la
+        // periode consultee (constate le 2026-08-21).
+        const durIso: string | undefined = detail?.contentDetails?.duration;
+        const durMatch = durIso ? durIso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/) : null;
+        const durationSec = durMatch
+          ? parseInt(durMatch[1] || '0') * 3600 + parseInt(durMatch[2] || '0') * 60 + parseInt(durMatch[3] || '0')
+          : null;
 
         const row: Record<string, any> = {
           profile_id: profileId,
@@ -1117,7 +1132,7 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
           title: detail?.snippet?.title || null,
           thumbnail: detail?.snippet?.thumbnails?.medium?.url || detail?.snippet?.thumbnails?.default?.url || null,
           published_at: detail?.snippet?.publishedAt ? new Date(detail.snippet.publishedAt).toISOString() : null,
-          duration_sec: null,
+          duration_sec: durationSec,
           is_short: isShort,
           // ?? plutôt que || : un vrai 0 (0 vue/like/commentaire) est une donnée
           // légitime qui ne doit pas être écrasée en null.
@@ -1241,10 +1256,22 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
         // valeur etait parfaitement connue. La courbe s'arretait 3 jours avant
         // aujourd'hui sans raison.
         //
-        // Ecrit sur aujourd'hui ET hier : hier peut ne pas avoir de ligne Analytics non
-        // plus, et un trou au milieu couperait la courbe.
+        // Ecrit sur toute la fenetre que l'Analytics ne couvre pas encore, pas seulement
+        // aujourd'hui et hier.
+        //
+        // La version precedente ecrivait sur [aujourd'hui, hier]. Ce cron tourne une
+        // fois par SEMAINE : les jours du milieu ne recevaient donc jamais leur total
+        // d'abonnes, alors que la Data API v3 le donne en temps reel. Sur le profil de
+        // test, le 19 aout etait vide entre un 18 et un 20 tous deux a 49 — un trou au
+        // milieu d'une courbe parfaitement plate (constate le 2026-08-21).
+        //
+        // La fenetre couvre les memes jours que la requete Analytics (isoDate(3) a
+        // hier), plus aujourd'hui. Un jour deja rempli par l'Analytics est simplement
+        // reecrit avec la meme valeur : l'upsert ne touche que cette colonne.
         if (ytSubsNow != null) {
-          for (const d of [todayStr, yesterday]) {
+          // J-0 (= todayStr) a J-3, la meme fenetre que la requete Analytics ci-dessus.
+          const joursAbonnes = [0, 1, 2, 3].map(isoDate);
+          for (const d of joursAbonnes) {
             const { error: subErr } = await supa.from('analytics_daily_snapshots')
               .upsert({ profile_id: profileId, date: d, yt_subscribers: ytSubsNow, backfill_source: 'cron' },
                        { onConflict: 'profile_id,date', ignoreDuplicates: false });

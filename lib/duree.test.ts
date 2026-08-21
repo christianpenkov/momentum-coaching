@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dureeDepuisSecondes, dureeDepuisMinutes, positionLecteur } from './duree.ts';
+import { dureeDepuisSecondes, dureeDepuisMinutes, positionLecteur, formaterDureeVideo } from './duree.ts';
 
 // Lancé par `npm test` (node --test, sans aucune dépendance à installer).
 // Fonctions pures : ni React, ni réseau, ni base.
@@ -58,4 +58,22 @@ test('valeurs aberrantes ne cassent pas l’affichage', () => {
   assert.equal(dureeDepuisMinutes(NaN), '—');
   assert.equal(positionLecteur(NaN), '—');
   assert.equal(dureeDepuisSecondes(-5), '0s', 'jamais de durée négative affichée');
+});
+
+// Durée totale d'une vidéo — doit reproduire à l'identique le rendu du mode direct
+// (parseDuration dans app/api/youtube/stats/route.ts), sinon la même vidéo change de
+// format entre la période courante et une période passée.
+test('durée vidéo — même rendu que le mode direct', () => {
+  assert.equal(formaterDureeVideo(45), '0:45');
+  assert.equal(formaterDureeVideo(90), '1:30');
+  assert.equal(formaterDureeVideo(225), '3:45');
+  assert.equal(formaterDureeVideo(3930), '1:05:30', 'au-delà d’une heure, trois segments');
+  assert.equal(formaterDureeVideo(3600), '1:00:00');
+  assert.equal(formaterDureeVideo(3599), '59:59', 'juste sous l’heure, deux segments');
+});
+
+test('durée vidéo — absence plutôt qu’une valeur fausse', () => {
+  assert.equal(formaterDureeVideo(NaN), '', 'chaîne vide : le tableau affiche une case vide');
+  assert.equal(formaterDureeVideo(-1), '');
+  assert.equal(formaterDureeVideo(0), '0:00', 'zéro est une durée légitime, pas une absence');
 });

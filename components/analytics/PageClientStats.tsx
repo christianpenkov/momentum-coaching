@@ -17,7 +17,7 @@ import {
 } from 'recharts';
 import { getPeriodWindow, parisDateStr, parisAddDays } from '@/lib/period';
 import { isCallHonored } from '@/lib/callHonored';
-import { dureeDepuisSecondes, dureeDepuisMinutes, positionLecteur } from '@/lib/duree';
+import { dureeDepuisSecondes, dureeDepuisMinutes, positionLecteur, formaterDureeVideo } from '@/lib/duree';
 
 // ─── Portal Modal ─────────────────────────────────────────────────────────────
 function usePortalMounted() {
@@ -2334,7 +2334,14 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             );
           })()}
         </Card>
-        <Card title="Appareils">
+        {/* Les quatre repartitions (ici, plus Sources de trafic / Mots-cles /
+            Demographie) sont collectees sur une fenetre FIXE de 30 jours glissants
+            (repartitionStart dans poll-leads), independamment de la periode choisie en
+            haut de page. Naviguer vers « Mars 2026 » ou « 7 derniers jours » ne les
+            change pas.
+            Rien ne le disait a l'ecran : tout le reste de la page suit la periode, ces
+            blocs non — l'ecart etait invisible (constate le 2026-08-21). */}
+        <Card title="Appareils" sub="30 derniers jours">
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
               <Pie data={deviceData} cx="50%" cy="50%" outerRadius={80} dataKey="views" nameKey="name" label={({ name, percent }: { name?: string; percent?: number }) => `${name ?? ''} ${((percent ?? 0) * 100).toFixed(0)}%`} labelLine={false}>
@@ -2464,7 +2471,10 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                   </span>
                 </td>
                 <td style={{ padding: '10px', fontSize: 13, fontWeight: 600 }}>{fmt(v.views)}</td>
-                <td style={{ padding: '10px', fontSize: 13, color: v.views30d > 0 ? GREEN : 'var(--muted)', fontWeight: 600 }}>+{fmt(v.views30d)}</td>
+                {/* Le « + » etait ecrit en dur : une video sans vue sur la periode
+                    affichait « +0 », ce qui se lit comme un gain nul annonce comme un
+                    gain. Zero n'a pas de signe. */}
+                <td style={{ padding: '10px', fontSize: 13, color: v.views30d > 0 ? GREEN : 'var(--muted)', fontWeight: 600 }}>{v.views30d > 0 ? `+${fmt(v.views30d)}` : fmt(v.views30d)}</td>
                 <td style={{ padding: '10px', fontSize: 13 }}>{v.avgViewPct ? fmtPct(v.avgViewPct) : '—'}</td>
                 <td style={{ padding: '10px', fontSize: 12, color: 'var(--muted)' }}>{v.duration}</td>
                 <td style={{ padding: '10px', fontSize: 13 }}>{fmt(v.likes)}</td>
@@ -2496,7 +2506,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
           qu'une seule avait moins de lignes (ou son message « pas encore de donnees »).
           180 px = 10 lignes de liste, le cas plein. */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 18, alignItems: 'stretch' }}>
-        <Card title="Sources de trafic" sub="Vues par source">
+        <Card title="Sources de trafic" sub="Vues par source · 30 derniers jours">
           <div style={{ minHeight: 180 }}>
           {trafficData.map((s, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
@@ -2512,7 +2522,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
           {trafficData.length === 0 && <Empty msg="Pas encore de données de trafic" />}
           </div>
         </Card>
-        <Card title="Mots-clés de recherche" sub="Top 10 termes">
+        <Card title="Mots-clés de recherche" sub="Top 10 termes · 30 derniers jours">
           <div style={{ minHeight: 180 }}>
           {yt.searchKeywords.slice(0, 10).map((k, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
@@ -2528,7 +2538,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             l'API mais n'etait affichee NULLE PART. YouTube ne la divulgue qu'au-dela
             d'un seuil de spectateurs (confidentialite) : d'ou le message explicite
             plutot qu'un bloc vide, tant que la chaine n'y est pas. */}
-        <Card title="Démographie" sub="Âge et sexe des spectateurs">
+        <Card title="Démographie" sub="Âge et sexe · 30 derniers jours">
           <div style={{ minHeight: 180 }}>
           {[...yt.demographics]
             .sort((a, b) => b.viewerPct - a.viewerPct)
@@ -6398,7 +6408,13 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     title: row.title ?? '',
     thumbnail: row.thumbnail ?? null,
     publishedAt: row.published_at ?? row.snapshot_date,
-    duration: '',
+    // Duree formatee depuis les secondes stockees. Elle valait '' en dur : la colonne
+    // « Duree » du tableau restait vide, et l'axe de la courbe de retention basculait en
+    // pourcentage faute de duree totale — la meme courbe changeait donc d'unite entre la
+    // periode courante et une periode passee. Reste '' tant que la colonne est vide
+    // (lignes collectees avant le 2026-08-21), ce qui redonne l'ancien comportement
+    // plutot qu'une duree fausse.
+    duration: row.duration_sec != null ? formaterDureeVideo(row.duration_sec) : '',
     isShort: row.is_short ?? false,
     views: row.views ?? 0,
     likes: row.likes ?? 0,

@@ -76,3 +76,25 @@ export function positionLecteur(sec: number): string {
     ? `${m + 1}:00`
     : `${m}:${String(reste).padStart(2, '0')}`;
 }
+
+/**
+ * Duree TOTALE d'une video, facon YouTube : « 3:45 », ou « 1:05:30 » au-dela d'une heure.
+ *
+ * Meme rendu que le mode direct, qui formate la chaine ISO 8601 de l'API
+ * (app/api/youtube/stats/route.ts, parseDuration) : le mode historique lit des
+ * secondes stockees en base et doit produire exactement la meme chose, sans quoi la
+ * meme video s'afficherait « 1:05:30 » sur une periode et « 65:30 » sur une autre.
+ *
+ * Distincte de positionLecteur, qui situe un INSTANT dans la video et n'a pas besoin
+ * du cas des heures.
+ */
+export function formaterDureeVideo(sec: number): string {
+  if (!Number.isFinite(sec) || sec < 0) return '';
+  const total = Math.round(sec);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+    : `${m}:${String(s).padStart(2, '0')}`;
+}
