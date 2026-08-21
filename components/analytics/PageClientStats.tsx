@@ -1721,7 +1721,13 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   const ytNetSubsP = ytSubsGainedP - ytSubsLostP;
 
   const conversionRate = ytViewsP > 0 ? ((ytSubsGainedP / ytViewsP) * 100).toFixed(3) : '0';
-  const watchTimeH = Math.round(ytWatchTimeP / 60);
+  // Affichage adaptatif : « 20 min » et non « 0h ». Math.round(minutes / 60) ecrasait
+  // a 0 tout watch time sous 30 minutes — exactement le motif du bug de collecte
+  // corrige le 2026-08-20, reproduit ici a l'affichage. Meme regle que le tableau des
+  // videos, qui bascule en heures a partir de 60 minutes.
+  const watchTimeLabel = ytWatchTimeP >= 60
+    ? `${Math.round(ytWatchTimeP / 60)}h`
+    : `${Math.round(ytWatchTimeP)} min`;
 
   // Vues/sub par type de contenu (depuis les vidéos de la période)
   // Vues par format sur la PERIODE AFFICHEE (colonnes yt_views_shorts / _long, ajoutees
@@ -1782,7 +1788,11 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   const ytStatSeries: Record<string, { data: { date: string; v: number }[]; color: string; unit?: string }> = {
     'Vidéos publiées':    { data: ytPubsByDay.map(d => ({ date: d.date, v: isFutureDayYT(d.date) ? (null as any) : d.shorts + d.longues })), color: YT_COLOR },
     'Vues 30j':           { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : d.views })), color: RED },
-    'Watch time':         { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : Math.round(d.watchTime / 60) })), color: AMBER, unit: 'h' },
+    // En MINUTES, pas en heures : le watch time quotidien de cette chaine va de 1 a
+    // 16 minutes, donc Math.round(x / 60) ecrasait toute la courbe a zero. Meme motif
+    // que la carte « Watch time » juste au-dessus et que le bug de collecte du
+    // 2026-08-20 — une conversion en heures detruit les petites valeurs.
+    'Watch time':         { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : Math.round(d.watchTime) })), color: AMBER, unit: 'min' },
     // Vignette : durée moyenne réelle du jour, tous formats confondus
     // (yt_avg_view_duration_sec). La ventilation Shorts / longues est dans la modale,
     // au clic. Remplace mockFromTotalYT, qui étalait le total avec un sinus.
@@ -1939,7 +1949,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
       {/* Ligne 2 — engagement & watch time */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
         {[
-          { label: 'Watch time', value: `${watchTimeH}h`, sub: `${period}j`, color: AMBER, key: 'Watch time' },
+          { label: 'Watch time', value: watchTimeLabel, sub: `${period}j`, color: AMBER, key: 'Watch time' },
           null, // carte Watch time moyen custom
           { label: 'Likes', value: fmt(yt.likes30d), sub: ytIsFallback ? '30j' : `${period}j`, color: 'var(--ink)', key: 'Likes' },
           { label: 'Commentaires', value: fmt(yt.comments30d), sub: ytIsFallback ? '30j' : `${period}j`, color: 'var(--ink)', key: 'Commentaires' },
