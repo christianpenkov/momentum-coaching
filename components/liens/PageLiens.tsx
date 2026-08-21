@@ -2288,7 +2288,9 @@ function PanneauActions({ post, profileId, activeDomain, domainsLoaded, calendly
               flexShrink: 0, fontSize: 11, fontWeight: 700, borderRadius: 999, padding: '4px 11px',
               color: 'var(--green)', background: 'var(--green-soft)',
             }}>
-              {post.lmKeyword ? `Séquence · ${post.lmKeyword.toUpperCase()}` : 'Séquence active'}
+              {/* « Lead magnet · MOTCLÉ » plutôt que « Séquence · MOTCLÉ » : sur
+                  cette page, séquence désigne aussi une suite de stories. */}
+              {post.lmKeyword ? `Lead magnet · ${post.lmKeyword.toUpperCase()}` : 'Lead magnet actif'}
             </span>
           )}
         </div>
@@ -3403,7 +3405,7 @@ function FiltresPlateforme({ value, onChange, compact, contentCount, compteurs, 
   sansSequence?: boolean;
   onSansSequence?: (v: boolean) => void;
 }) {
-  // flexWrap toujours à `wrap` : en `nowrap`, les 4 chips plus « Sans séquence »
+  // flexWrap toujours à `wrap` : en `nowrap`, les 4 chips plus « Sans lead magnet »
   // ne tiennent pas dans les 250px du menu déplié et débordent hors de la
   // colonne (les dernières sont coupées par le bord). Deux lignes valent mieux
   // qu'un filtre invisible.
@@ -3442,9 +3444,13 @@ function FiltresPlateforme({ value, onChange, compact, contentCount, compteurs, 
         );
       })}
 
-      {/* « Sans séquence » se combine aux filtres de plateforme au lieu de les
+      {/* « Sans lead magnet » se combine aux filtres de plateforme au lieu de les
           remplacer : « lesquels de mes Reels ne sont pas configurés ? » est la
-          question qui fait ouvrir cette page. D'où le filet de séparation. */}
+          question qui fait ouvrir cette page. D'où le filet de séparation.
+
+          Le filtre porte sur l'absence de mot-clé (`!lmKeyword`), pas sur les
+          séquences de stories — l'ancien nom « Sans séquence » se lisait comme
+          « stories non groupées », ce qu'il n'a jamais mesuré. */}
       {onSansSequence && compteurs && compteurs.sansSequence > 0 && (
         <>
           <span style={{ width: 1, height: compact ? 20 : 26, background: BORDER, margin: '0 3px', flexShrink: 0 }} />
@@ -3457,7 +3463,7 @@ function FiltresPlateforme({ value, onChange, compact, contentCount, compteurs, 
             color: sansSequence ? '#fff' : MUTED,
             transition: `all var(--dur-instant) var(--ease-out)`,
           }}>
-            Sans séquence
+            Sans lead magnet
             <span style={{ opacity: 0.55, fontSize: compact ? 10 : 11 }}>{compteurs.sansSequence}</span>
           </button>
         </>
@@ -4040,17 +4046,21 @@ function LigneContenu({ post, selected, checked, selectionMode, groupedElsewhere
             une colonne détachée à l'autre bout de la ligne. */}
         {!compact && (
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginTop: 6 }}>
-            {/* Mot-clé en tête : c'est ce qui déclenche la séquence DM, donc
-                l'information qu'on vient chercher en balayant la liste. Son
+            {/* Mot-clé en tête : c'est ce qui déclenche l'envoi du lead magnet,
+                donc l'information qu'on vient chercher en balayant la liste. Son
                 absence se dit en toutes lettres et en ambre, comme le hi-fi.
-                Rien sur YouTube, où le DM automatique n'existe pas. */}
+                Rien sur YouTube, où le DM automatique n'existe pas.
+
+                « Pas de lead magnet » et non « Pas de séquence » : sur cette page
+                le mot séquence désigne aussi une suite de stories, et l'ambiguïté
+                faisait lire ce badge comme un défaut de groupement de stories. */}
             {post.lmKeyword
               ? <span style={{ fontSize: 10, fontWeight: 700, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '2px 6px', letterSpacing: '.02em', whiteSpace: 'nowrap' }}>{post.lmKeyword.toUpperCase()}</span>
               : post.platform === 'YT'
                 ? null
                 : <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, color: AMBER, background: AMBER_SOFT, borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>
                     <span style={{ width: 4, height: 4, borderRadius: '50%', background: AMBER, flexShrink: 0 }} />
-                    Pas de séquence
+                    Pas de lead magnet
                   </span>}
 
             {isStory && (post.sequenceStoryCount ?? 0) > 1 && (
@@ -4565,7 +4575,7 @@ export default function PageLiens() {
 
   const [funnelOuvert, setFunnelOuvert] = useState(true);
 
-  // « Sans séquence » se combine aux filtres de plateforme plutôt que de les
+  // « Sans lead magnet » se combine aux filtres de plateforme plutôt que de les
   // remplacer : la question « lesquels de mes Reels ne sont pas configurés ? »
   // est justement celle qui fait ouvrir cette page.
   const [sansSequence, setSansSequence] = useState(false);
