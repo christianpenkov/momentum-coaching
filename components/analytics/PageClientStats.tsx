@@ -664,6 +664,10 @@ type Period = 7 | 30;
 // ─── TAB "Vue générale (B)" — version épurée ─────────────────────────────────
 
 function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, calendlyStaticClicsFromDb, igLive, ytLive, sinceConnection, leads, lmHistory, integrationsReadyAt }: { ig: IGStats | null; yt: YTStats | null; stripe: StripeStats | null; msgs: IGMessages | null; calls: CallRecord[]; callsAllTime?: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; calendlyStaticClicsFromDb?: number; igLive?: IGStats | null; ytLive?: YTStats | null; sinceConnection?: boolean; leads?: MockLead[]; lmHistory?: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[]; integrationsReadyAt?: string | null }) {
+  // Etiquette de fenetre. En All-Time les cartes affichaient « 30j » alors que le
+  // bandeau annonce « All-Time » — meme defaut que celui corrige dans les onglets
+  // Instagram et YouTube (2026-08-22).
+  const ovEtiquettePeriode = sinceConnection ? 'total' : `${period}j`;
   const [contentSort, setContentSort] = useState<ContentSortKey>('views');
   const [showAllContent, setShowAllContent] = useState(false);
   const _ovPIdx = periodIndex ?? 0;
@@ -863,7 +867,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
   // ── Signaux ────────────────────────────────────────────────────────────────
   const signalData: { type: SignalType; text: string }[] = [];
   if (nextCall) signalData.push({ type: 'green', text: `Prochain call : ${nextCall.invitee_name} — ${new Date(nextCall.scheduled_at).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` });
-  if (dealsCloses > 0) signalData.push({ type: 'green', text: `${dealsCloses} deal${dealsCloses > 1 ? 's' : ''} closé${dealsCloses > 1 ? 's' : ''} sur ${period}j — ${fmtEur(totalRev)} générés` });
+  if (dealsCloses > 0) signalData.push({ type: 'green', text: `${dealsCloses} deal${dealsCloses > 1 ? 's' : ''} closé${dealsCloses > 1 ? 's' : ''} sur ${sinceConnection ? 'toute la période' : period + ' jours'} — ${fmtEur(totalRev)} générés` });
   if (noShowRate > 20) signalData.push({ type: 'red', text: `Taux no-show élevé : ${fmt(noShowRate, 1)} % des calls bookés` });
   if (msgs && msgs.responseRate < 70) signalData.push({ type: 'amber', text: `Taux de réponse DM bas : ${fmt(msgs.responseRate, 1)} % — ${msgs.totalThreads30d - msgs.repliedThreads} conversations sans réponse` });
   if (closingRate > 0 && closingRate < 20) signalData.push({ type: 'amber', text: `Taux de closing à ${fmt(closingRate, 1)} % — sous le seuil cible de 25 %` });
@@ -971,7 +975,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
           { label: 'Abonnés YT', value: fmt(yt?.subscribers || 0), sub: 'total', color: YT_COLOR },
           null, // carte Publications custom
           'leads', // carte Leads custom (badge nouveaux à droite du chiffre)
-          { label: 'Calls bookés', value: fmt(callsBookes), sub: `${period}j`, color: 'var(--ink)' as string },
+          { label: 'Calls bookés', value: fmt(callsBookes), sub: ovEtiquettePeriode, color: 'var(--ink)' as string },
         ] as const).map((item, i) => {
           if (item === 'leads') return (
             <div key="leads" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
@@ -994,7 +998,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
             <div key="publications" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
               <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8 }}>
                 <span>Publications</span>
-                <span style={{ fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{period}j</span>
+                <span style={{ fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{ovEtiquettePeriode}</span>
               </div>
               <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--ink)', lineHeight: 1, marginBottom: 8 }}>{fmt(totalPosts)}</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'nowrap' }}>
@@ -1023,11 +1027,11 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
         {[
-          { label: 'Calls honorés', value: fmt(callsHonores), sub: `${period}j`, color: AMBER },
+          { label: 'Calls honorés', value: fmt(callsHonores), sub: ovEtiquettePeriode, color: AMBER },
           { label: 'No-show', value: `${fmt(noShowRate, 0)} %`, sub: `${noShows} calls`, color: noShowRate > 20 ? RED : noShowRate > 10 ? AMBER : GREEN },
           { label: 'Closing', value: `${fmt(closingRate, 0)} %`, sub: `${dealsCloses} deals closés`, color: closingRate >= 25 ? GREEN : closingRate >= 15 ? AMBER : RED },
           { label: 'Rev / call', value: fmtEur(revPerCall), sub: 'par call booké', color: GREEN },
-          { label: 'Revenue', value: fmtEur(totalRev), sub: `${period}j`, color: GREEN },
+          { label: 'Revenue', value: fmtEur(totalRev), sub: ovEtiquettePeriode, color: GREEN },
         ].map((item, i) => (
           <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
             <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8 }}>{item.label}</div>
@@ -1053,11 +1057,14 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
                   <span style={{ fontSize: 26, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{item.value}</span>
                   <span style={{ fontSize: 10, color: 'var(--muted)' }}>{item.unit}</span>
                 </div>
-                <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 2 }}>{period}j</div>
+                <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 2 }}>{ovEtiquettePeriode}</div>
               </div>
               <div style={{ width: 8, height: 8, borderRadius: '50%', background: item.color, marginTop: 4 }} />
             </div>
-            <div style={{ position: 'relative', height: 140 }}>
+            {/* minWidth: 0 — sans lui, le ResponsiveContainer en height="100%" a
+                l'interieur mesure une largeur negative au premier rendu et Recharts
+                avertit « width(-1) and height(-1) » dans la console. */}
+            <div style={{ position: 'relative', height: 140, width: '100%', minWidth: 0 }}>
               {allPending && (
                 <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1, pointerEvents: 'none' }}>
                   <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--faint)', background: 'var(--surface)', padding: '4px 10px', borderRadius: 6 }}>
@@ -1423,7 +1430,10 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
       {/* Ligne 1 — 4 stats audience */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
         {[
-          { label: 'Abonnés', value: fmt(ig.followers), sub: 'all time', color: 'var(--ink)', key: 'Abonnés' },
+          // « total » plutot que « all time » : c'est un compteur actuel, pas un cumul
+          // sur une periode, et le reste de la plateforme dit « total » (cf. la carte
+          // « Abonnés IG » de la vue generale).
+          { label: 'Abonnés', value: fmt(ig.followers), sub: 'total', color: 'var(--ink)', key: 'Abonnés' },
           { label: 'Publications', value: fmt(postsInPeriod), sub: igEtiquettePeriode, color: IG_COLOR, key: 'Publications' },
           { label: 'Reach · personnes', value: fmt(igReachP), sub: igEtiquettePeriode, color: 'var(--ink)', key: 'Reach' },
           { label: 'Interactions posts', value: fmt(igInteractionsP), sub: igEtiquettePeriode, color: 'var(--ink)', key: 'Interactions posts' },
