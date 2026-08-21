@@ -1617,6 +1617,28 @@ Deno.serve(async (req: Request) => {
   // couvrent déjà le détail par profil).
   if (Object.keys(allErrors).length) {
     console.error(`[poll-leads] run terminé avec des erreurs sur ${Object.keys(allErrors).length} profil(s):`, JSON.stringify(allErrors));
+    // Trace EN BASE, pas seulement dans les logs.
+    //
+    // Un console.error ne se voit que si quelqu'un ouvre les logs Supabase — ce que
+    // personne ne fait, et que la regle du projet deconseille explicitement pour
+    // investiguer. La plateforme pouvait donc casser en silence pendant des jours.
+    //
+    // Une ligne seulement quand il y a une erreur : ce cron tourne toutes les 5
+    // minutes, journaliser les passages reussis ferait 288 lignes/jour pour rien.
+    // La table se purge seule a 30 jours (trigger), donc rien a entretenir.
+    //
+    // Pour savoir si tout va bien :  select * from cron_runs order by ran_at desc;
+    // Table vide = aucun incident depuis 30 jours.
+    try {
+      await supa.from('cron_runs').insert({
+        fonction: 'poll-leads',
+        profils_en_erreur: Object.keys(allErrors).length,
+        erreurs: allErrors,
+      });
+    } catch (e) {
+      // Ne jamais faire echouer un run a cause de sa propre journalisation.
+      console.error('[poll-leads] cron_runs insert failed', e);
+    }
   }
 
   };
