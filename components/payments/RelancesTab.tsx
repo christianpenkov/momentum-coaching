@@ -303,7 +303,9 @@ function buildGroups(deals: DealRow[], details: Record<string, DealDetail>): Gro
           : 'Échéance à envoyer',
       tone: 'amber',
       help: dueNow.every(i => !i.url) && dueNow.length > 0
-        ? 'La date est passée. Vérifie que le virement est bien arrivé, puis marque-le comme reçu.'
+        // « le virement » présume un moyen que Momentum ignore : hors Stripe,
+        // ce peut être des espèces, PayPal, un chèque.
+        ? 'La date est passée. Vérifie que le paiement est bien arrivé, puis marque-le comme reçu.'
         : 'La date est passée et le lien n\'a pas encore été envoyé.',
       items: dueNow,
     },

@@ -130,7 +130,7 @@ Deno.serve(async (req) => {
           d.profile_id,
           `Échéance ${r.rank}/${total} dans 2 jours`,
           horsStripe
-            ? `${qui} · ${montant} à encaisser le ${fmtJour(r.due_on)}`
+            ? `${qui} · ${montant} à encaisser hors Stripe le ${fmtJour(r.due_on)}`
             : dejaEnvoye
               ? `${qui} · ${montant} — lien envoyé, paiement attendu le ${fmtJour(r.due_on)}`
               : `${qui} · ${montant} — pense à lui envoyer le lien de paiement`,
@@ -145,6 +145,11 @@ Deno.serve(async (req) => {
 
       // ── J+2 : toujours impayée ───────────────────────────────────────────
       if (!r.reminder_late_sent_at && r.due_on <= twoDaysAgo) {
+        // Midi UTC des deux côtés : `due_on` est une date nue, et comparer des
+        // instants décalés donnerait un jour de retard en trop ou en moins.
+        const joursDeRetard = Math.max(1, Math.round(
+          (Date.parse(`${today}T12:00:00Z`) - Date.parse(`${r.due_on}T12:00:00Z`)) / 86400_000
+        ));
         // Deux situations très différentes derrière un même retard : le lien
         // n'est jamais parti (l'élève doit l'envoyer), ou il est parti et le
         // client n'a pas payé (un message personnel vaut mieux qu'un rappel).
@@ -152,14 +157,24 @@ Deno.serve(async (req) => {
         // explicitement coché la case.
         await sendPushToProfile(
           d.profile_id,
-          // La date d'échéance plutôt qu'un « en retard » sans repère : elle dit
-          // d'un coup d'œil s'il s'agit de deux jours ou de trois semaines.
-          `Échéance ${r.rank}/${total} due le ${fmtJour(r.due_on)}`,
+          // L'ancienneté du retard se saisit d'un coup d'œil, là où une date
+          // seule demande de la comparer mentalement à aujourd'hui. Recalculé
+          // à chaque passage du cron, donc jamais figé.
+          `Échéance ${r.rank}/${total} due il y a ${joursDeRetard} jour${joursDeRetard > 1 ? 's' : ''}`,
+          // La date vient AVANT le motif : le service worker tronque le corps à
+          // 100 caractères, et un nom long la ferait sauter en fin de phrase.
+          // « le virement » présumait un moyen que Momentum ignore : hors
+          // Stripe, ce peut être des espèces, PayPal, Revolut, un chèque. On
+          // sait seulement qu'aucun lien n'a été créé.
+          //
+          // Forme interrogative pour les deux cas où l'information dépend d'une
+          // case cochée à la main : une question ne peut pas être fausse, une
+          // affirmation si — et elle invite à corriger la case au passage.
           horsStripe
-            ? `${qui} · ${montant} — le virement est-il arrivé ?`
+            ? `${qui} · ${montant} du ${fmtJour(r.due_on)} — le paiement est-il arrivé ?`
             : r.sent_at
-              ? `${qui} · ${montant} — lien envoyé, toujours pas payé`
-              : `${qui} · ${montant} — le lien n'a jamais été envoyé`,
+              ? `${qui} · ${montant} du ${fmtJour(r.due_on)} — lien envoyé, toujours pas payé`
+              : `${qui} · ${montant} du ${fmtJour(r.due_on)} — le lien de paiement a-t-il été envoyé ?`,
           `/paiements?deal=${d.id}`,
           // Tag propre à cette échéance : sans lui, deux rappels du même jour
           // se remplaceraient l'un l'autre dans le centre de notifications.
