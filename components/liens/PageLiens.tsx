@@ -1948,19 +1948,25 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
     { cle: 'vues', libelle: 'Vues', valeur: post.views ?? null },
     { cle: 'reach', libelle: 'Comptes touchés', valeur: post.reach ?? null },
     {
-      cle: 'commentaires', libelle: 'Commentaires', valeur: entonnoir.commentaires,
-      // Le chiffre principal est celui des commentaires PORTANT LE MOT-CLÉ :
-      // c'est lui qui déclenche la séquence, et lui qui alimente la marche
-      // suivante. Le total Instagram est rappelé en dessous.
+      // Deux chiffres dans la même case : le total à gauche, ceux qui portent le
+      // mot-clé à droite. C'est le seul endroit de l'entonnoir où la marche a
+      // deux lectures — « combien de gens ont réagi » et « combien ont déclenché
+      // la séquence » — et les séparer en deux cases casserait la progression.
       //
-      // « encore en ligne » et non « au total » : `post.comments` est l'état
+      // Le chiffre de DROITE est celui qui alimente la marche suivante : c'est
+      // lui qui compte pour le taux, d'où sa mise en avant.
+      //
+      // Les deux ne se comparent pas terme à terme : `post.comments` est l'état
       // actuel du post quand les leads sont un cumul historique. Un commentaire
-      // supprimé depuis disparaît du premier et reste dans le second — d'où des
-      // cas où le mot-clé dépasse le total (constaté : 3 leads de juin à août,
-      // 1 commentaire encore en ligne). Le dire évite de lire une contradiction.
-      precision: post.comments != null
-        ? `avec le mot-clé · ${post.comments.toLocaleString('fr-FR')} encore en ligne`
-        : 'avec le mot-clé',
+      // supprimé depuis disparaît du premier et reste dans le second, si bien que
+      // le mot-clé peut dépasser le total (constaté : 3 leads de juin à août,
+      // 1 commentaire encore en ligne). Les libellés le disent, sinon on lit une
+      // contradiction.
+      cle: 'commentaires', libelle: 'Commentaires', valeur: entonnoir.commentaires,
+      duo: post.comments != null
+        ? { gauche: post.comments, gaucheAide: 'en ligne', droite: entonnoir.commentaires, droiteAide: 'mot-clé' }
+        : undefined,
+      precision: post.comments != null ? undefined : 'avec le mot-clé',
     },
     // On ne montre PAS les DM1 envoyés : ils sont mécaniquement égaux aux
     // commentaires mot-clé (le DM1 part à la détection), donc une marche à 100 %
@@ -1973,7 +1979,10 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
     // pratique après elle — mais l'écrire « réponses au DM3 » promettrait une
     // précision que la donnée n'a pas.
     { cle: 'conversations', libelle: 'Conversations', valeur: entonnoir.conversations, precision: 'réponses après le DM3' },
-  ].filter(e => e.valeur != null) as { cle: string; libelle: string; valeur: number; precision?: string }[];
+  ].filter(e => e.valeur != null) as {
+    cle: string; libelle: string; valeur: number; precision?: string;
+    duo?: { gauche: number; gaucheAide: string; droite: number; droiteAide: string };
+  }[];
 
   const tauxEntre = (i: number): number | null => {
     if (i === 0) return null;
@@ -2001,9 +2010,34 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
                       padding: '9px 6px',
                     }}>
                       <div style={{ fontSize: 10, color: MUTED, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.libelle}</div>
-                      <div style={{ fontSize: 17, fontWeight: 700, color: INK, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>
-                        {e.valeur.toLocaleString('fr-FR')}
-                      </div>
+
+                      {e.duo ? (
+                        // Deux chiffres, séparés par un filet : le total à gauche,
+                        // celui qui déclenche la séquence à droite. Le droit porte
+                        // l'encre pleine — c'est lui qui alimente la marche
+                        // suivante et qui compte pour le taux ; le gauche reste en
+                        // gris, c'est un contexte.
+                        <div style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center', gap: 8, marginTop: 2 }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 17, fontWeight: 700, color: MUTED, fontVariantNumeric: 'tabular-nums' }}>
+                              {e.duo.gauche.toLocaleString('fr-FR')}
+                            </div>
+                            <div style={{ fontSize: 9, color: FAINT, marginTop: 1, lineHeight: 1.3 }}>{e.duo.gaucheAide}</div>
+                          </div>
+                          <span style={{ width: 1, background: BORDER, flexShrink: 0 }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 17, fontWeight: 700, color: INK, fontVariantNumeric: 'tabular-nums' }}>
+                              {e.duo.droite.toLocaleString('fr-FR')}
+                            </div>
+                            <div style={{ fontSize: 9, color: FAINT, marginTop: 1, lineHeight: 1.3 }}>{e.duo.droiteAide}</div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 17, fontWeight: 700, color: INK, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>
+                          {e.valeur.toLocaleString('fr-FR')}
+                        </div>
+                      )}
+
                       {e.precision && (
                         <div style={{ fontSize: 9, color: FAINT, marginTop: 2, lineHeight: 1.3 }}>{e.precision}</div>
                       )}
