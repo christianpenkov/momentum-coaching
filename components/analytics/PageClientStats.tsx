@@ -1255,6 +1255,10 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
   const { periodStart: igPeriodStart, periodEnd: igPeriodEnd } = getPeriodWindow(periodIndex ?? 0, period === 7 ? 'week' : 'month');
   // En mode "depuis connexion", ig.chartData est déjà borné [connectedAt, aujourd'hui]
   // par le fetch — ne pas re-clipper avec la fenêtre calendaire du mois/semaine en cours.
+  // Etiquette de fenetre des cartes. En mode All-Time elles affichaient « 30j » alors
+  // que le bandeau annonce « All-Time » et que les graphiques couvrent toute la periode
+  // depuis la connexion — meme defaut que celui corrige cote YouTube le 2026-08-21.
+  const igEtiquettePeriode = sinceConnection ? 'total' : `${period}j`;
   const igDaysSlice = sinceConnection ? ig.chartData : ig.chartData.filter(d => {
     const t = new Date(d.date + 'T12:00:00Z').getTime();
     return t >= igPeriodStart.getTime() && t <= igPeriodEnd.getTime();
@@ -1415,9 +1419,9 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
         {[
           { label: 'Abonnés', value: fmt(ig.followers), sub: 'all time', color: 'var(--ink)', key: 'Abonnés' },
-          { label: 'Publications', value: fmt(postsInPeriod), sub: `${period}j`, color: IG_COLOR, key: 'Publications' },
-          { label: 'Reach · personnes', value: fmt(igReachP), sub: `${period}j`, color: 'var(--ink)', key: 'Reach' },
-          { label: 'Interactions posts', value: fmt(igInteractionsP), sub: `${period}j`, color: 'var(--ink)', key: 'Interactions posts' },
+          { label: 'Publications', value: fmt(postsInPeriod), sub: igEtiquettePeriode, color: IG_COLOR, key: 'Publications' },
+          { label: 'Reach · personnes', value: fmt(igReachP), sub: igEtiquettePeriode, color: 'var(--ink)', key: 'Reach' },
+          { label: 'Interactions posts', value: fmt(igInteractionsP), sub: igEtiquettePeriode, color: 'var(--ink)', key: 'Interactions posts' },
         ].map(s => (
           <div key={s.key} onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: s.key ? 'pointer' : 'default', transition: 'background .15s' }}
             onMouseEnter={e => { if (s.key) e.currentTarget.style.background = 'var(--surface-2)'; }}
@@ -1433,7 +1437,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
       {/* Ligne 2 — 4 stats performance */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
         {[
-          { label: 'Abonnés nets', value: `${igFollowerDeltaP >= 0 ? '+' : ''}${fmt(igFollowerDeltaP)}`, sub: `${period}j`, color: igFollowerDeltaP >= 0 ? GREEN : RED, key: 'Abonnés nets' },
+          { label: 'Abonnés nets', value: `${igFollowerDeltaP >= 0 ? '+' : ''}${fmt(igFollowerDeltaP)}`, sub: igEtiquettePeriode, color: igFollowerDeltaP >= 0 ? GREEN : RED, key: 'Abonnés nets' },
           { label: "Taux d'engagement", value: fmtPct(engRate), sub: 'interactions / reach', color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, key: "Taux d'engagement" },
           { label: 'Followers reach rate', value: reachRate !== null ? fmtPct(reachRate) : 'N/D', sub: reachRate !== null ? 'abonnés uniques touchés / total' : 'seuil Meta non atteint', color: reachRate !== null ? 'var(--ink)' : 'var(--faint)', tooltip: 'Nombre réel de tes abonnés distincts touchés au moins une fois par tes contenus sur les 28 derniers jours (chaque abonné compté une seule fois, jamais deux fois même s\'il a vu plusieurs posts), rapporté à ton nombre total d\'abonnés. 100% = tous tes abonnés ont été atteints. Pas de détail jour par jour disponible (Meta ne fournit pas cette déduplication par jour, seulement sur la fenêtre totale).' },
           { label: 'Reach Non-Followers', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'vues non-abonnés / total' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', tooltip: 'Part des vues venant de personnes qui ne te suivent pas encore. Plus c\'est élevé, plus ton contenu est découvert par de nouvelles personnes. Pas de détail jour par jour disponible (Meta ne fournit pas cette déduplication par jour, seulement sur la fenêtre totale).' },
@@ -1454,10 +1458,10 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
-        <Card title="Reach par jour" sub={`${period} jours`}>
+        <Card title="Reach par jour" sub={`${sinceConnection ? 'Depuis la connexion' : period + ' jours'}`}>
           <AreaChart data={igDaysForChart} areas={[{ key: 'reach', label: 'Reach', color: 'var(--accent-brand)' }]} xKey="date" height={220} showWeekday={period === 7} pendingKey="pending" />
         </Card>
-        <Card title="Abonnés / jour" sub={`${period} jours`}>
+        <Card title="Abonnés / jour" sub={`${sinceConnection ? 'Depuis la connexion' : period + ' jours'}`}>
           <ResponsiveContainer width="100%" height={220}>
             <ReAreaChart data={igDays} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
               <defs>
@@ -1468,7 +1472,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
               </defs>
               {/* Intervalle calculé explicitement (pas 'preserveStartEnd') pour un espacement
                   régulier des labels de dates — même logique que le wrapper AreaChart. */}
-              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : Math.max(1, Math.ceil(igDays.length / 9) - 1)} />
+              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(igDays.length, period)} />
               <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} allowDecimals={false} domain={['auto', 'auto']} tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : String(Math.round(v))} width={40} />
               <Tooltip content={({ active, payload, label }) => {
                 if (!active || !payload?.length) return null;
@@ -1530,7 +1534,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                   </div>
                 </div>
                 <div style={{ padding: '8px 10px' }}>
-                  <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4 }}>{new Date(post.timestamp).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'Europe/Paris' })}</div>
+                  <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4 }}>{new Date(post.timestamp).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit', timeZone: 'Europe/Paris' })}</div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
                     <span>❤️ {post.likes ?? '—'}</span>
                     <span>👁 {post.reach ?? '—'}</span>
@@ -1559,7 +1563,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                   )}
                 </div>
                 <div style={{ padding: '8px 10px' }}>
-                  <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4 }}>{new Date(s.posted_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'Europe/Paris' })}</div>
+                  <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4 }}>{new Date(s.posted_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit', timeZone: 'Europe/Paris' })}</div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
                     <span>👁 {s.reach ?? '—'}</span>
                     <span>▶ {s.views ?? '—'}</span>
@@ -3292,7 +3296,7 @@ function periodLabel(period: number, index: number): string {
   // timeZone Europe/Paris (pas UTC) : periodStart/periodEnd (getPeriodWindow) sont des
   // instants UTC correspondant à minuit/23:59:59.999 heure de Paris, pas minuit UTC —
   // les lire en UTC affichait un jour "trop tôt" (ex: "30 juin" au lieu de "1 juil").
-  const fmt2 = (d: Date) => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'Europe/Paris' });
+  const fmt2 = (d: Date) => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit', timeZone: 'Europe/Paris' });
   return `${fmt2(periodStart)} – ${fmt2(periodEnd)}`;
 }
 
