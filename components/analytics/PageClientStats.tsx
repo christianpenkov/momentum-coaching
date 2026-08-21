@@ -2750,7 +2750,27 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                     affichait « +0 », ce qui se lit comme un gain nul annonce comme un
                     gain. Zero n'a pas de signe. */}
                 <td style={{ padding: '10px', fontSize: 13, color: v.views30d > 0 ? GREEN : 'var(--muted)', fontWeight: 600 }}>{v.views30d > 0 ? `+${fmt(v.views30d)}` : fmt(v.views30d)}</td>
-                <td style={{ padding: '10px', fontSize: 13 }}>{v.avgViewPct ? fmtPct(v.avgViewPct) : '—'}</td>
+                {/* Au-dela de 100 %, la valeur est JUSTE mais illisible sous un libelle
+                    « Retention » : elle se lit comme « 111 % de la video vue », ce qui
+                    n'a pas de sens. C'est en realite du re-visionnage — sur un Short de
+                    22 secondes, les spectateurs le regardent en boucle, et l'API compte
+                    chaque passage.
+                    Verifie contre l'API le 2026-08-21 : sur toute la vie de la chaine
+                    ces videos sont a 41,9 % et 75,9 %. C'est la fenetre de 30 JOURS du
+                    cron qui produit ces valeurs superieures a 100 %, sur un petit nombre
+                    de spectateurs recents.
+                    On affiche « >100 % » avec l'explication au survol : annoncer un
+                    chiffre precis donnerait une fausse impression d'exactitude. */}
+                <td style={{ padding: '10px', fontSize: 13 }}>
+                  {!v.avgViewPct ? '—' : v.avgViewPct > 100 ? (
+                    <span
+                      title={`${fmtPct(v.avgViewPct)} sur les 30 derniers jours : au-delà de 100 %, cela signifie que les spectateurs ont revu des passages. Fréquent sur les Shorts, qui tournent en boucle. Sur toute la vie de la vidéo, la rétention est plus basse.`}
+                      style={{ cursor: 'help', borderBottom: '1px dotted var(--muted)' }}
+                    >
+                      &gt;100&nbsp;%
+                    </span>
+                  ) : fmtPct(v.avgViewPct)}
+                </td>
                 <td style={{ padding: '10px', fontSize: 12, color: 'var(--muted)' }}>{v.duration}</td>
                 <td style={{ padding: '10px', fontSize: 13 }}>{fmt(v.likes)}</td>
                 <td style={{ padding: '10px', fontSize: 11, color: 'var(--muted)' }}>{new Date(v.publishedAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit' })}</td>
