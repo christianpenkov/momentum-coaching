@@ -94,6 +94,15 @@ function bandeauParDefaut(message: string) {
   }, 4000);
 }
 
+/**
+ * Affiche le même bandeau que `mutate`, pour les appels qui lisent déjà leur
+ * réponse (`data.url`, `data.ok`…) et n'ont donc pas besoin de `mutate`, mais
+ * qui échouaient en silence faute de le dire à l'utilisateur.
+ */
+export function notifyError(message: string) {
+  bandeauParDefaut(message);
+}
+
 export async function mutate(
   url: string,
   options: MutateOptions = {},

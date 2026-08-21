@@ -162,12 +162,18 @@ function TaskAttachmentsPanel({ taskId, onCountChange }: {
   }
 
   async function remove(attachmentId: string) {
+    let avant: TaskAttachment[] = [];
     setAttachments(prev => {
+      avant = prev;
       const next = prev.filter(a => a.id !== attachmentId);
       onCountChange?.(next.length);
       return next;
     });
-    await fetch(`/api/tasks/attachments/${attachmentId}`, { method: 'DELETE' });
+    await mutate(`/api/tasks/attachments/${attachmentId}`, {
+      method: 'DELETE',
+      rollback: () => { setAttachments(avant); onCountChange?.(avant.length); },
+      erreur: "La pièce jointe n'a pas pu être supprimée.",
+    });
   }
 
   return (

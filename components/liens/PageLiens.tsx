@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@/lib/UserContext';
+import { mutate } from '@/lib/mutate';
 import { createClient } from '@/lib/supabase/client';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import ModalShell from '@/components/ui/ModalShell';
@@ -431,10 +432,15 @@ function ModalParametres({ open, onClose, profileId, activeDomain, domainsLoaded
                                 <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
                                   {/* Cas 2 — supprimer le lien bio */}
                                   <button onClick={async () => {
-                                    await fetch('/api/client/lead-magnets', {
+                                    // L'ecran n'est mis a jour que si le serveur a
+                                    // confirme : sinon le lien disparaissait de
+                                    // l'affichage tout en restant en base.
+                                    const ok = await mutate('/api/client/lead-magnets', {
                                       method: 'PATCH', headers: { 'content-type': 'application/json' },
                                       body: JSON.stringify({ id: lm.id, [`bio_${p}_url`]: null, [`bio_${p}_source_url`]: null }),
+                                      erreur: "Le lien n'a pas pu être supprimé.",
                                     });
+                                    if (!ok) return;
                                     setLmBioUrls(prev => ({ ...prev, [lm.id]: { ...prev[lm.id], [p]: undefined } }));
                                     onLmUpdated({ ...lm, [`bio_${p}_url`]: null, [`bio_${p}_source_url`]: null });
                                   }} style={{ padding: '4px 8px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'none', color: RED, cursor: 'pointer', whiteSpace: 'nowrap' }}>
@@ -893,10 +899,16 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
         if (res.ok && saved.lead_magnet) { onLmCreated(saved.lead_magnet); resolvedLmId = saved.lead_magnet.id; }
       }
       // Sauvegarder dans content_links
-      await fetch('/api/client/content-links', {
+      // Le try/catch englobant ne suffit pas : `fetch` ne leve pas sur un
+      // statut 4xx/5xx, seulement sur une erreur reseau. Sans cette
+      // verification, une sauvegarde refusee par le serveur affichait quand
+      // meme le lien comme configure.
+      const savedOk = await mutate('/api/client/content-links', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ content_id: post.id, platform: post.platform, lm_id: resolvedLmId || null, lm_short_url: shortUrl, lm_url: lmUrl || null, lm_keyword: keyword, dm_opener_message: dmMessage || null, dm_lm_message: dm1Text || null, dm_button_text: buttonText || null }),
+        erreur: "La configuration n'a pas pu être enregistrée.",
       });
+      if (!savedOk) { setLoading(false); return; }
       setResult(shortUrl);
       setDm2Text(dmMessage || '');
       setDm2Saved(true);
@@ -2290,7 +2302,11 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
                   if (!target) return;
                   setDeletingId(target.id);
                   try {
-                    await fetch(`/api/client/prospect-links?id=${target.id}`, { method: 'DELETE' });
+                    const ok = await mutate(`/api/client/prospect-links?id=${target.id}`, {
+                      method: 'DELETE',
+                      erreur: "Le lien n'a pas pu être supprimé.",
+                    });
+                    if (!ok) return;
                     setHistory(prev => prev.filter(x => x.id !== target.id));
                     setDeleteTarget(null);
                   } finally { setDeletingId(null); }
@@ -3066,7 +3082,7 @@ export default function PageLiens() {
                       Créer une séquence stories
                     </button>
                     <button onClick={async () => {
-                      await fetch('/api/client/stories/live-refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profileId }) });
+                      await mutate('/api/client/stories/live-refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profileId }), erreur: "Les stories n'ont pas pu être actualisées." });
                       queryClient.invalidateQueries({ queryKey: ['stories', profileId] });
                     }} style={{ padding: '5px 12px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
                       ↻ Actualiser
@@ -3311,7 +3327,7 @@ export default function PageLiens() {
                       Créer une séquence stories
                     </button>
                     <button onClick={async () => {
-                      await fetch('/api/client/stories/live-refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profileId }) });
+                      await mutate('/api/client/stories/live-refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profileId }), erreur: "Les stories n'ont pas pu être actualisées." });
                       queryClient.invalidateQueries({ queryKey: ['stories', profileId] });
                     }} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
                       ↻ Actualiser

@@ -10,6 +10,7 @@ import Avatar, { getInitials } from '@/components/ui/Avatar';
 import InlineLoader from '@/components/ui/InlineLoader';
 import TaskModal from '@/components/ui/TaskModal';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
+import { mutate } from '@/lib/mutate';
 import type { Task, TaskAttachment } from '@/lib/supabase/types';
 import { formatFileSize, formatRelativeDate } from '@/lib/formatFileSize';
 import { isTaskOverdue, getTaskBucket } from '@/lib/clientSignals';
@@ -195,28 +196,43 @@ function PageTasksInner() {
   const [attachmentCounts, setAttachmentCounts] = useState<Record<string, number>>({});
   const [modalState, setModalState] = useState<{ mode: 'create' | 'edit'; clientId?: string; task?: Task } | null>(null);
 
+  // L'ecran est mis a jour AVANT la requete (l'action parait instantanee), et
+  // l'etat precedent est capture depuis le callback de setTasks pour pouvoir
+  // etre restaure si le serveur refuse — sans quoi l'affichage divergeait
+  // silencieusement de la base.
   async function toggle(taskId: string, done: boolean) {
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, done } : t));
-    await fetch(`/api/tasks/${taskId}`, {
+    let avant: TaskWithClient[] = [];
+    setTasks(prev => { avant = prev; return prev.map(t => t.id === taskId ? { ...t, done } : t); });
+    await mutate(`/api/tasks/${taskId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ done }),
+      rollback: () => setTasks(() => avant),
+      erreur: done ? "La tâche n'a pas pu être cochée." : "La tâche n'a pas pu être décochée.",
     });
   }
 
   async function updateDeadline(taskId: string, deadline: string | null) {
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, deadline } : t));
-    await fetch(`/api/tasks/${taskId}`, {
+    let avant: TaskWithClient[] = [];
+    setTasks(prev => { avant = prev; return prev.map(t => t.id === taskId ? { ...t, deadline } : t); });
+    await mutate(`/api/tasks/${taskId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ deadline }),
+      rollback: () => setTasks(() => avant),
+      erreur: "L'échéance n'a pas pu être enregistrée.",
     });
   }
 
   async function deleteTask(taskId: string) {
-    setTasks(prev => prev.filter(t => t.id !== taskId));
+    let avant: TaskWithClient[] = [];
+    setTasks(prev => { avant = prev; return prev.filter(t => t.id !== taskId); });
     setConfirmDeleteId(null);
-    await fetch(`/api/tasks/${taskId}`, { method: 'DELETE' });
+    await mutate(`/api/tasks/${taskId}`, {
+      method: 'DELETE',
+      rollback: () => setTasks(() => avant),
+      erreur: "La tâche n'a pas pu être supprimée.",
+    });
   }
 
   const groups: StudentGroup[] = useMemo(() => {

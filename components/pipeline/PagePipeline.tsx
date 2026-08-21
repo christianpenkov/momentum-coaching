@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 import PipelineFunnelMobile from './PipelineFunnelMobile';
 import Icon from '@/components/ui/Icon';
+import { mutate } from '@/lib/mutate';
 import Image from 'next/image';
 import { useQuery } from '@tanstack/react-query';
 import InlineLoader from '@/components/ui/InlineLoader';
@@ -1303,23 +1304,33 @@ export default function PagePipeline() {
   })();
 
   const saveOverride = useCallback(async (key: string, platform: 'ig' | 'yt' | 'other', stage: string, reason?: string, naturalAtOverride?: string) => {
+    // La carte se deplace a l'ecran AVANT la requete, pour que le geste
+    // paraisse instantane. L'etat precedent est capture pour la remettre a sa
+    // place si le serveur refuse : sinon le lead paraissait deplace alors
+    // qu'il etait reste a son etape en base, et le prochain rafraichissement
+    // le faisait "sauter" en arriere sans explication.
+    let avant: Override[] = [];
     setOverrides(prev => {
+      avant = prev;
       const idx = prev.findIndex(o => o.prospect_key === key && o.platform === platform);
       const entry: Override = { prospect_key: key, platform, stage, updated_at: new Date().toISOString(), reason, natural_at_override: naturalAtOverride ?? null };
       return idx >= 0 ? prev.map((o, i) => i === idx ? entry : o) : [...prev, entry];
     });
-    await fetch('/api/client/pipeline', {
+    await mutate('/api/client/pipeline', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ prospect_key: key, platform, stage, reason, natural_at_override: naturalAtOverride ?? null }),
+      rollback: () => setOverrides(avant),
+      erreur: "Le déplacement n'a pas pu être enregistré.",
     });
   }, []);
 
   const patchCall = useCallback(async (callId: string, fields: Record<string, any>) => {
-    await fetch(`/api/client/calls/${callId}`, {
+    await mutate(`/api/client/calls/${callId}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(fields),
+      erreur: "Le call n'a pas pu être mis à jour.",
     });
   }, []);
 
@@ -1772,10 +1783,11 @@ export default function PagePipeline() {
       // YT/Autre normal : cardKey = prospect_id
       body = { prospect_id: cardKey, not_a_lead: true };
     }
-    await fetch('/api/client/pipeline', {
+    await mutate('/api/client/pipeline', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      erreur: "La modification n'a pas pu être enregistrée.",
     });
     await refetch();
   }, [refetch]);
@@ -1888,10 +1900,15 @@ export default function PagePipeline() {
     setConfirmModal(null);
 
     if (modalCase === 'backward_pre_call') {
-      await fetch('/api/client/pipeline/reset', {
+      // Pas de rollback ici : rien n'a ete modifie a l'ecran avant l'appel,
+       // c'est le refetch qui rafraichira. Le risque n'est donc pas un
+       // affichage divergent mais un echec TOTALEMENT invisible — le lead ne
+       // bouge pas et l'utilisateur ignore pourquoi. `mutate` le signale.
+      await mutate('/api/client/pipeline/reset', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ig_username: cardKey, target_stage: targetStageKey }),
+        erreur: "Le lead n'a pas pu être ramené à cette étape.",
       });
       setOverrides(prev => prev.filter(o => !(o.prospect_key === cardKey && o.platform === 'ig')));
       await refetch();
@@ -1900,10 +1917,11 @@ export default function PagePipeline() {
 
     if (modalCase === 'forward_pre_call') {
       // Injection des signaux réels correspondant au stage cible
-      await fetch('/api/client/pipeline/advance', {
+      await mutate('/api/client/pipeline/advance', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ig_username: cardKey, target_stage: targetStageKey, current_stage: confirmModal.currentStageKey }),
+        erreur: "Le lead n'a pas pu être avancé à cette étape.",
       });
       setOverrides(prev => prev.filter(o => !(o.prospect_key === cardKey && o.platform === 'ig')));
       await refetch();
@@ -1912,7 +1930,10 @@ export default function PagePipeline() {
 
     if (modalCase === 'backward_from_post_call') {
       if (callId) {
-        await fetch(`/api/client/calls/${callId}`, { method: 'DELETE' });
+        await mutate(`/api/client/calls/${callId}`, {
+          method: 'DELETE',
+          erreur: "Le call n'a pas pu être supprimé.",
+        });
       }
       let bestStage: string;
       if (tab === 'ig') {
@@ -1925,9 +1946,10 @@ export default function PagePipeline() {
       await saveOverride(cardKey, platform, bestStage, reason, naturalKey);
     } else if (modalCase === 'forward_to_call_booked') {
       // Créer un vrai call en DB avec les infos saisies dans la modale
-      await fetch('/api/client/calls', {
+      await mutate('/api/client/calls', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
+        erreur: "Le call n'a pas pu être créé.",
         body: JSON.stringify({
           ig_username: cardKey,
           scheduled_at: extraData?.scheduledAt,
