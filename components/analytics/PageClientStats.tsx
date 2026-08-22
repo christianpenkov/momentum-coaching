@@ -509,6 +509,22 @@ function signeVariation(v: number): string {
 }
 
 /**
+ * Une story publiee il y a moins de 24 h a des chiffres encore en cours de
+ * consolidation cote Meta : les vues montent avant le reach (constate en direct
+ * le 2026-08-22 — API a `views: 5, reach: 0` dix minutes apres publication), et
+ * le detail de navigation n'est pas servi du tout au debut.
+ *
+ * Sert a afficher une mention sous la grille, pour que ces zeros ne se lisent pas
+ * comme une story qui n'a interesse personne.
+ */
+function estStoryRecente(postedAt: string | null | undefined): boolean {
+  if (!postedAt) return false;
+  const t = new Date(postedAt).getTime();
+  if (!Number.isFinite(t)) return false;
+  return Date.now() - t < 24 * 60 * 60 * 1000;
+}
+
+/**
  * Reserve la hauteur d'un graphique quel que soit son etat.
  *
  * Un bloc qui affiche tour a tour un loader (~40 px), un message vide (~77 px)
@@ -1869,9 +1885,13 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                 stocke douze et la route des SEQUENCES en exposait deja neuf, alors que
                 celle des stories n'en remontait que deux (demande de Chris, 2026-08-22).
 
-                Une metrique absente n'est pas affichee du tout, plutot que montree a
-                « — » : sur une story, la plupart des compteurs sont naturellement vides,
-                et une grille de tirets n'apprend rien. */}
+                Toutes sont affichees, y compris absentes — un « — » dit « on ne sait
+                pas », un « 0 » affirme « personne ». Masquer les absentes ferait
+                disparaitre des cartes au fil des heures, ce qui se lit comme un bug.
+
+                Meta consolide ces chiffres pendant les 24 h de vie de la story : le
+                reach reste a 0 plusieurs heures alors que les vues montent deja, et le
+                detail de navigation n'arrive qu'apres coup. D'ou la mention. */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
               {([
                 ['Reach', selectedStory.reach],
@@ -1885,14 +1905,21 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                 ['Précédentes', selectedStory.navigation_taps_back],
                 ['Sorties', selectedStory.navigation_exits],
               ] as [string, number | null | undefined][])
-                .filter(([, v]) => v != null)
                 .map(([label, value], i) => (
                 <div key={i} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 12px' }}>
                   <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 2 }}>{label}</div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>{fmt(value as number)}</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: value == null ? 'var(--muted)' : 'var(--ink)' }}>
+                    {value == null ? '—' : fmt(value)}
+                  </div>
                 </div>
               ))}
             </div>
+            {estStoryRecente(selectedStory.posted_at) && (
+              <div style={{ marginTop: 10, fontSize: 11, color: 'var(--muted)', lineHeight: 1.4 }}>
+                Story publiée il y a moins de 24 h : Instagram consolide ces chiffres
+                progressivement. Le reach et le détail de navigation arrivent après les vues.
+              </div>
+            )}
             {/* Aucune metrique : Meta ne fournit les insights d'une story que 24 h, et
                 seulement au-dela d'un seuil de spectateurs. Le dire vaut mieux qu'une
                 grille vide. */}
