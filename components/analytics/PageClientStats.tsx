@@ -1879,8 +1879,6 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                 ['Interactions', selectedStory.total_interactions],
                 ['Réponses', selectedStory.replies],
                 ['Partages', selectedStory.shares],
-                ['Repartages', selectedStory.reposts],
-                ['Clics sur lien', selectedStory.link_clicks],
                 ['Abonnements', selectedStory.follows],
                 ['Visites du profil', selectedStory.profile_visits],
                 ['Suivantes', selectedStory.navigation_taps_forward],
@@ -1899,8 +1897,8 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                 seulement au-dela d'un seuil de spectateurs. Le dire vaut mieux qu'une
                 grille vide. */}
             {[selectedStory.reach, selectedStory.views, selectedStory.total_interactions,
-              selectedStory.replies, selectedStory.shares, selectedStory.reposts,
-              selectedStory.link_clicks, selectedStory.follows, selectedStory.profile_visits,
+              selectedStory.replies, selectedStory.shares,
+              selectedStory.follows, selectedStory.profile_visits,
               selectedStory.navigation_taps_forward, selectedStory.navigation_taps_back,
               selectedStory.navigation_exits].every(v => v == null) && (
               <div style={{ fontSize: 12, color: 'var(--faint)', textAlign: 'center', padding: '18px 0', lineHeight: 1.5 }}>

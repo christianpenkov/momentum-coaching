@@ -53,7 +53,7 @@ export async function GET(request: Request) {
         // Toutes les metriques collectees, pas seulement reach et vues : la modale de
         // story n'en affichait que deux sur les douze presentes en base (demande de
         // Chris, 2026-08-22).
-        .select('ig_story_id, reach, views, replies, shares, reposts, link_clicks, follows, profile_visits, total_interactions, navigation_taps_forward, navigation_taps_back, navigation_exits, snapshot_date')
+        .select('ig_story_id, reach, views, replies, shares, follows, profile_visits, total_interactions, navigation_taps_forward, navigation_taps_back, navigation_exits, snapshot_date')
         .eq('profile_id', targetProfileId)
         .in('ig_story_id', storyIds)
         .order('snapshot_date', { ascending: false })
@@ -61,7 +61,7 @@ export async function GET(request: Request) {
 
   type MetriquesStory = {
     reach: number | null; views: number | null; replies: number | null;
-    shares: number | null; reposts: number | null; link_clicks: number | null;
+    shares: number | null;
     follows: number | null; profile_visits: number | null;
     total_interactions: number | null;
     navigation_taps_forward: number | null; navigation_taps_back: number | null;
@@ -108,8 +108,7 @@ export async function GET(request: Request) {
     // remontait que deux, si bien que la modale de story affichait « — » partout
     // ailleurs alors que la donnee etait en base.
     ...(latestSnapshotByStory.get(s.ig_story_id) ?? {
-      reach: null, views: null, replies: null, shares: null, reposts: null,
-      link_clicks: null, follows: null, profile_visits: null,
+      reach: null, views: null, replies: null, shares: null, follows: null, profile_visits: null,
       total_interactions: null, navigation_taps_forward: null,
       navigation_taps_back: null, navigation_exits: null,
     }),

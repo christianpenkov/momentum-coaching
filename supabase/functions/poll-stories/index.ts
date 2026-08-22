@@ -165,7 +165,16 @@ async function pollProfileStories(profileId: string, token: string, igAccountId:
       // pour STORY ("The metric total_views is not available on this endpoint.", idem
       // link_clicks). Colonnes DB conservées (toujours null) au cas où Meta les active un jour.
       const m: Record<string, number> = {};
-      Object.assign(m, await safeStoryInsights(igStoryId, token, 'reach,shares,views,follows,profile_visits,total_interactions'));
+      // `replies` ajoutee le 2026-08-22 : la colonne existait en base mais n'etait
+      // jamais demandee. Verifie contre l'API sur une vraie story publiee — elle
+      // repond normalement.
+      //
+      // Les trois autres colonnes vides de cette table ne sont PAS recuperables, teste
+      // sur la meme story :
+      //   total_views  -> « not available on this endpoint »
+      //   link_clicks  -> « not available on this endpoint »
+      //   reposts      -> « Instagram Insights Media API endpoint does not support »
+      Object.assign(m, await safeStoryInsights(igStoryId, token, 'reach,shares,views,follows,profile_visits,total_interactions,replies'));
 
       // Format confirmé empiriquement le 2026-07-25 (voir /api/instagram/test-stories) :
       // total_value.breakdowns[0].results[] avec dimension_values en snake_case minuscule
@@ -191,6 +200,10 @@ async function pollProfileStories(profileId: string, token: string, igAccountId:
         reach: m['reach'] ?? null,
         shares: m['shares'] ?? null,
         views: m['views'] ?? null,
+        // Reponses en DM a la story. Colonne presente depuis le debut mais jamais
+        // alimentee : la metrique n'etait simplement pas demandee. Verifie disponible
+        // le 2026-08-22 sur une story publiee pour l'occasion.
+        replies: m['replies'] ?? null,
         total_views: null, // metric rejetée par l'API sur cet endpoint — colonne conservée pour usage futur
         follows: m['follows'] ?? null,
         profile_visits: m['profile_visits'] ?? null,
