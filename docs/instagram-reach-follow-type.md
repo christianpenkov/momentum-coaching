@@ -813,3 +813,408 @@ compté plusieurs fois et le taux peut dépasser 100 %, ce qui n'a aucun sens.
 Le *Reach Non-Followers*, lui, est indifférent à la méthode : il pourrait être
 alimenté depuis l'historique journalier déjà en base, sans appel supplémentaire, ce
 qui rendrait possible une courbe d'évolution.
+
+---
+
+## Le figeage du breakdown au-delà d'un an — recherche documentaire
+
+Recherche du 2026-08-26, **sources primaires uniquement**. Objectif : trouver dans
+la documentation Meta une trace du phénomène mesuré — la somme du breakdown
+`follow_type` se fige à 971 dès 367 jours pendant que `total_value` continue de
+croître jusqu'à 5 505 à 540 jours, sans aucune erreur d'API.
+
+### Résultat principal : le phénomène n'est pas documenté pour Instagram, mais il l'est pour la Marketing API
+
+C'est le résultat le plus important de cette recherche, et il demande d'être lu
+avec précaution : **Meta documente noir sur blanc, sur la Marketing API, un
+comportement dont la description correspond presque mot pour mot à ce qui a été
+mesuré sur Instagram.** Ce n'est pas la même API, donc ce n'est pas une preuve —
+mais c'est un faisceau beaucoup plus solide qu'une simple analogie.
+
+#### Ce que Meta annonce le 2025-03-10, effectif le 2025-06-10
+
+> "To improve overall API performance, `reach` will no longer be returned for
+> queries that apply breakdowns and use `start_date`s more than 13 months old;
+> developers may leverage asynchronous jobs to request such data."
+> — [Marketing API — Out-of-Cycle Changes 2025](https://developers.facebook.com/docs/marketing-api/out-of-cycle-changes/occ-2025/)
+
+Repris dans la page de bonnes pratiques, avec le détail du comportement :
+
+> "Responses to such requests will omit `reach` and related fields, such as
+> `frequency` and `cpp`."
+> — [Marketing API — Limits & Best Practices](https://developers.facebook.com/docs/marketing-api/insights/best-practices/)
+
+Quatre éléments de cette annonce recoupent la mesure du 2026-08-26 :
+
+| Élément documenté (Marketing API) | Mesure Instagram du 2026-08-26 |
+|---|---|
+| La restriction vise **`reach` spécifiquement**, pas les autres métriques | C'est bien `reach` qui décroche |
+| Elle ne s'applique **que quand un breakdown est demandé** | Sans breakdown, `total_value` monte normalement jusqu'à 2 ans |
+| Le seuil est une **ancienneté de `start_date`**, ~13 mois | Décrochage à 367 jours (~12 mois) |
+| La dégradation est **silencieuse** (champs omis, pas d'erreur) | Aucune erreur d'API, breakdown figé |
+| Motif invoqué : **« improve overall API performance »** | — |
+
+**Ce que ça n'établit pas :** la Marketing API et l'Instagram Platform API sont
+deux produits distincts, avec des pages de documentation, des versions et des
+changelogs séparés. Meta n'a **jamais** publié cette restriction pour
+`/{ig-user-id}/insights`. Écrire « Instagram applique la règle des 13 mois »
+serait une extrapolation — elle n'est pas faite ici. Ce qui est établi, c'est que
+**le mécanisme existe chez Meta, est assumé, et est délibérément silencieux.**
+
+#### La distinction totaux / breakdowns est explicite chez Meta
+
+Le point le plus éclairant est une annonce du 2025-10-16, effective le
+2026-01-12, qui sépare formellement les deux rétentions :
+
+> "All breakdowns for unique-count fields (like `unique_actions` and
+> `cost_per_unique_action_type`) will be limited to 13-month's of historical data."
+>
+> "Consistent with Ads Manager behavior, total values for API fields are
+> unaffected by the above changes and will continue to be available for up to
+> 37 months."
+> — [Blog Meta for Developers, 2025-10-16 — Ads Insights API Metric Availability Updates](https://developers.facebook.com/blog/post/2025/10/16/ads-insights-api-metric-availability-updates/)
+
+**C'est exactement la forme du symptôme mesuré** : un total qui reste disponible
+très loin dans le passé, et une ventilation qui s'arrête beaucoup plus tôt. Meta
+confirme donc qu'il existe chez lui une architecture où le total et sa
+ventilation n'ont **pas la même profondeur d'historique**, et que la ventilation
+est la plus courte des deux.
+
+Noter la catégorie employée : **« unique-count fields »**. `reach` est par
+définition un compte de comptes uniques (« The number of unique accounts that
+have seen your content ») et il est marqué *« This metric is estimated »* sur la
+page de référence Instagram. Il appartient donc à la même famille de métriques
+que celles visées par la restriction — celles dont la ventilation exige une
+déduplication coûteuse. **Meta ne nomme cependant pas `reach` dans cette
+annonce-ci**, et ne parle pas d'Instagram.
+
+### Question 1 — limite de plage spécifique aux breakdowns : NON DOCUMENTÉ côté Instagram, DOCUMENTÉ côté Marketing API
+
+#### Côté Instagram : vérification négative
+
+Le mot `breakdown` n'apparaît jamais à proximité de `range`, `maximum`, `limit`,
+`365`, `year` ou `date` sur aucune des pages Instagram consultées.
+
+| Page | Ce qu'elle documente sur les plages | Limite propre au breakdown ? |
+|---|---|---|
+| [Instagram User Insights — API reference](https://developers.facebook.com/docs/instagram-platform/api-reference/instagram-user/insights/) | `since`/`until` définissent une plage ; repli à 24 h si absents. Section Limitations = 7 bullets (seuil 100 abonnés, `online_followers` 30 j, jeu vide au lieu de `0`, top 45 démographiques, somme démographique inférieure, latence 48 h) | **Aucune** |
+| [ig-user/insights — page miroir](https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/insights/) | idem ; `reach` marqué *« This metric is estimated »* | **Aucune** |
+| [Instagram Platform — Insights](https://developers.facebook.com/docs/instagram-platform/insights/) | « User Metrics data is stored for up to 90 days. » Aucune mention de plage maximale, de breakdown, ni de découpage | **Aucune** |
+| [Changelog Instagram Platform](https://developers.facebook.com/docs/instagram-platform/changelog) | `follower_count` 30 j (2020-11-10) ; retrait de 4 timeframes démographiques (2024-05-21) | **Aucune** |
+
+La seule règle de plage documentée sur les breakdowns Instagram est
+qualitative — quelles métriques acceptent quel breakdown — jamais quantitative.
+
+#### Côté Facebook Page Insights : une limite de plage existe, mais elle est différente
+
+La demande était de vérifier les pages Insights de l'API Facebook Page, les deux
+APIs partageant de l'infrastructure. Il y a bien une limite documentée, mais elle
+ne correspond pas au phénomène :
+
+> "Only 90 days of insights can be viewed at one time when using the `since` and
+> `until` parameters."
+>
+> "The value 'lifetime' means the time period for which the insights data is
+> available. By default, this time period is 2 years or shorter."
+> — [Page/insights — Graph API](https://developers.facebook.com/docs/graph-api/reference/insights/)
+
+**Cette limite de 90 jours n'est pas transposable** : elle est globale (elle vaut
+avec ou sans breakdown), elle vaut 90 jours et non 366, et surtout l'API
+Instagram accepte manifestement des plages de 2 ans sans broncher — la mesure le
+montre. C'est une limite d'un autre produit, citée ici parce qu'elle a été
+cherchée et trouvée, pas parce qu'elle explique quoi que ce soit.
+
+En revanche, la même page contient une phrase de principe qui, elle, résonne
+directement avec le §1 de ce document :
+
+> "Total page reach may not always be exactly equal to the sum of paid and
+> non-paid unique values."
+>
+> "Total page reach may not always be exactly equal to the sum of `viral_unique`
+> and `organic_unique`."
+> — [Page/insights — Graph API](https://developers.facebook.com/docs/graph-api/reference/insights/)
+
+**C'est la confirmation officielle la plus proche qu'on ait du principe « la somme
+d'une ventilation de reach n'égale pas forcément le total ».** Meta l'écrit pour
+les Pages Facebook, pas pour Instagram — mais il l'écrit. Cela valide l'écart de
+1 à 2 unités observé sur les fenêtres courtes (§ Déduplication). **Cela n'explique
+pas le décrochage à 56 %**, qui est d'une tout autre nature.
+
+### Question 2 — bug report ou discussion officielle : NON TROUVÉ
+
+Aucun fil du forum communautaire ni entrée du bug tracker décrivant ce figeage
+n'a pu être trouvé.
+
+**Termes cherchés** (via recherche restreinte à `developers.facebook.com` et
+recherche ouverte) : `breakdown stuck`, `breakdown not updating large date range`,
+`follow_type breakdown incorrect`, `insights breakdown sum mismatch`,
+`follow_type breakdown wrong values long period`, `instagram insights breakdown
+one year limit reach frozen`, `breakdown reach follower non_follower` sur
+`developers.facebook.com/support/bugs`.
+
+**Le seul fil pertinent trouvé** porte sur un tout autre symptôme :
+
+> [The follows_and_unfollows metric, follow_type breakdown not returned for the
+> last two days](https://developers.facebook.com/community/threads/297985066648003/)
+
+Il concerne une absence de données sur les **deux derniers jours** (donc la
+latence de 48 h documentée), sur la métrique `follows_and_unfollows`, et non un
+figeage sur longue plage. Plusieurs développeurs confirment le symptôme, **aucune
+réponse officielle Meta** n'y figure. Sans rapport avec le phénomène étudié, cité
+pour être complet.
+
+**Limite méthodologique à assumer :** le moteur de recherche du forum Meta n'est
+pas interrogeable directement par URL (`/community/threads/?q=...` renvoie un
+404). La couverture repose donc sur l'indexation par les moteurs de recherche,
+qui est notoirement partielle sur ce forum. **Une absence de résultat ici ne
+prouve pas l'absence de fil** — elle prouve seulement qu'aucun fil n'est
+accessible par ces chemins.
+
+### Question 3 — limite de buckets ou de points de données : NON DOCUMENTÉ
+
+Aucune limite de nombre de buckets, de lignes ou de points agrégés n'est
+documentée pour les breakdowns Instagram. Termes cherchés : `maximum number of`,
+`aggregation limit`, `buckets`.
+
+Les seules limites de cardinalité trouvées chez Meta sont ailleurs et d'une autre
+nature :
+
+- **Instagram, démographiques uniquement** : *« Demographic metrics only return
+  the top 45 performers »* — [Instagram User Insights](https://developers.facebook.com/docs/instagram-platform/api-reference/instagram-user/insights/).
+  C'est une limite sur le **nombre de valeurs distinctes** d'un breakdown (45
+  villes, 45 pays…), pas sur le nombre de jours agrégés. `follow_type` n'a que 3
+  valeurs possibles, il n'est structurellement pas concerné.
+- **Marketing API** : *« Avoid account-level queries that include high cardinality
+  breakdowns such as `action_target_id` or `product_id`, and wider date ranges
+  like lifetime »* — [Limits & Best Practices](https://developers.facebook.com/docs/marketing-api/insights/best-practices/).
+  Là encore, la cardinalité visée est celle des **valeurs du breakdown**, pas celle
+  des journées.
+
+**L'hypothèse « 366 = nombre maximal de buckets journaliers » n'a donc aucun
+appui documentaire.** Elle est plausible et cohérente avec la mesure, mais
+strictement rien chez Meta ne l'énonce. À traiter comme une hypothèse non
+vérifiée, pas comme une explication.
+
+### Question 4 — changements de changelog sur les breakdowns : RIEN côté Instagram, DEUX ENTRÉES côté Marketing API
+
+#### Changelog Instagram Platform — vérification négative
+
+Aucune entrée de 2024, 2025 ou 2026 ne mentionne `breakdown`, `total_value` ou
+`metric_type`. La seule entrée touchant une plage temporelle est celle déjà
+connue :
+
+> 2024-05-21 — "The `last_14_days`, `last_30_days`, `last_90_days` and
+> `prev_month` timeframes will no longer be supported for the
+> `reached_audience_demographics` and `engaged_audience_demographics` metrics."
+> — [Changelog Instagram Platform](https://developers.facebook.com/docs/instagram-platform/changelog)
+
+Elle vise les métriques démographiques, pas `reach`, et retire des `timeframe`
+nommés — pas une plage `since`/`until`.
+
+**Conclusion : le décrochage à 367 jours n'a été annoncé nulle part pour
+Instagram.** Ce n'est pas une régression documentée.
+
+#### Changelog Marketing API — deux entrées, toutes deux dans le sens du phénomène
+
+| Date annonce | Effet | Contenu |
+|---|---|---|
+| 2025-03-10 | **2025-06-10** | `reach` n'est plus renvoyé pour les requêtes **avec breakdown** dont le `start_date` a plus de **13 mois**. Champs omis, pas d'erreur. [Source](https://developers.facebook.com/docs/marketing-api/out-of-cycle-changes/occ-2025/) |
+| 2025-10-16 | **2026-01-12** | Breakdowns des **unique-count fields** limités à **13 mois** ; breakdowns horaires à 13 mois ; `frequency_value` à 6 mois ; **totaux inchangés à 37 mois**. [Source](https://developers.facebook.com/blog/post/2025/10/16/ads-insights-api-metric-availability-updates/) |
+
+Deux annonces indépendantes, à sept mois d'intervalle, qui vont dans le même
+sens : **chez Meta, en 2025-2026, les ventilations des métriques de comptage
+unique voient leur profondeur d'historique réduite, pendant que les totaux la
+conservent.** La mesure du 2026-08-26 sur Instagram est le même motif. Le lien
+reste **une convergence, pas une preuve** — le changelog Instagram est muet.
+
+### Question 5 — recommandation de découpage (chunking) : DOCUMENTÉ, mais pour la Marketing API seulement
+
+Meta recommande explicitement le découpage, en plusieurs endroits — tous sur la
+Marketing API :
+
+> "When it times out, try to break down the query into smaller queries by using
+> filters like date range."
+>
+> "Limit your query by limiting the date range or number of ad ids."
+>
+> "Avoid account-level queries that include high cardinality breakdowns such as
+> `action_target_id` or `product_id`, and wider date ranges like lifetime."
+>
+> "Use `date_preset` if possible. Custom date ranges are less efficient to run in
+> our system."
+> — [Marketing API — Limits & Best Practices](https://developers.facebook.com/docs/marketing-api/insights/best-practices/)
+
+Une recommandation proche existe sur les Page Insights :
+
+> "NOTE: If your request times out or some metrics are not returned, try reducing
+> the number of metrics in your API request."
+> — [Page/insights — Graph API](https://developers.facebook.com/docs/graph-api/reference/insights/)
+
+**Côté Instagram Platform : rien.** Aucune des pages consultées ne recommande de
+découper une requête `/{ig-user-id}/insights` en fenêtres plus courtes. Termes
+cherchés : `split your request`, `smaller date ranges`, `chunk`.
+
+**Attention au piège pratique :** le chunking est de toute façon **inapplicable
+ici**, et ce point est déjà tranché par la mesure plus haut dans ce document —
+une fenêtre d'une seule journée renvoie `total=0` et aucun breakdown. Découper
+365 jours en 365 appels d'un jour ne produirait rien d'exploitable, et découper
+en tranches de 366 jours ne permettrait pas de recoller les morceaux, puisque
+`reach` est dédupliqué sur la fenêtre : additionner deux ventilations de 366
+jours ne donne pas la ventilation de 732 jours. **La seule voie reste
+l'accumulation en base**, déjà en place.
+
+### Ce que la recherche ne permet toujours pas d'affirmer
+
+À ne pas combler par déduction, même si l'explication est tentante :
+
+1. **Que le seuil Instagram soit « 13 mois » ou une quelconque valeur voulue.** La
+   mesure donne 366/367 jours (~12 mois). Le 13 mois documenté est celui d'une
+   autre API. Le chiffre qui fait foi pour le code est **la mesure**, pas
+   l'analogie.
+2. **Que le mécanisme soit le même.** Sur la Marketing API, Meta *omet* les champs.
+   Sur Instagram, la mesure montre un breakdown **figé à une valeur non nulle**
+   (971) qui n'évolue plus — ce n'est pas une omission, c'est un plafonnement.
+   Les deux comportements ne sont pas identiques.
+3. **Que 971 corresponde à la ventilation d'une fenêtre de 366 jours.** La mesure
+   montre que 366 j donne bien 971, ce qui rend l'hypothèse « le breakdown est
+   silencieusement plafonné à 366 jours » très cohérente — mais aucune source ne
+   la confirme, et une coïncidence de valeur n'est pas une démonstration.
+4. **Que le comportement soit stable dans le temps.** Rien n'étant documenté, rien
+   n'empêche Meta de le changer sans annonce — comme pour `period=week` et
+   `reached_audience_demographics`, disparus sans entrée de changelog.
+
+**Conséquence opérationnelle, inchangée et renforcée : plafonner dans le code
+toute requête `breakdown=follow_type` à 366 jours.** La recherche documentaire ne
+fournit aucune garantie de substitution, et Meta a démontré à deux reprises en
+2025 qu'il dégrade ce type de requête **silencieusement**. Un garde-fou dans le
+code est la seule protection.
+
+### Sources de cette section
+
+**Primaires — Instagram Platform :**
+- [Instagram User Insights — API reference](https://developers.facebook.com/docs/instagram-platform/api-reference/instagram-user/insights/)
+- [ig-user/insights — page miroir](https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/insights/)
+- [Instagram Platform — Insights](https://developers.facebook.com/docs/instagram-platform/insights/)
+- [Instagram Platform — Changelog](https://developers.facebook.com/docs/instagram-platform/changelog)
+
+**Primaires — autres produits Meta (à ne pas confondre avec l'API Instagram) :**
+- [Page/insights — Graph API](https://developers.facebook.com/docs/graph-api/reference/insights/) — 90 j de plage max, 2 ans de rétention, somme des ventilations ≠ total
+- [Marketing API — Limits & Best Practices](https://developers.facebook.com/docs/marketing-api/insights/best-practices/) — `reach` + breakdown > 13 mois, omission silencieuse, jobs asynchrones, recommandations de découpage
+- [Marketing API — Out-of-Cycle Changes 2025](https://developers.facebook.com/docs/marketing-api/out-of-cycle-changes/occ-2025/) — annonce du 2025-03-10
+- [Blog Meta for Developers, 2025-10-16 — Ads Insights API Metric Availability Updates](https://developers.facebook.com/blog/post/2025/10/16/ads-insights-api-metric-availability-updates/) — breakdowns unique-count 13 mois vs totaux 37 mois
+- [Marketing API — Breakdowns](https://developers.facebook.com/docs/marketing-api/insights/breakdowns/) — vérifié, ne contient pas de limite de plage
+
+**Forum communautaire :**
+- [The follows_and_unfollows metric, follow_type breakdown not returned for the last two days](https://developers.facebook.com/community/threads/297985066648003/) — symptôme différent (latence 48 h), aucune réponse Meta
+
+**Aucune source secondaire n'a été utilisée dans cette section.**
+
+### Résumé
+
+1. **Limite de plage propre aux breakdowns — NON DOCUMENTÉ pour Instagram** (vérifié : référence Insights, page miroir, page Insights généraliste, changelog) ; **DOCUMENTÉ pour la Marketing API** : `reach` + breakdown > 13 mois n'est plus renvoyé ([occ-2025](https://developers.facebook.com/docs/marketing-api/out-of-cycle-changes/occ-2025/)), et breakdowns unique-count 13 mois vs totaux 37 mois ([blog 2025-10-16](https://developers.facebook.com/blog/post/2025/10/16/ads-insights-api-metric-availability-updates/)) — même motif, autre API, donc convergence et non preuve.
+2. **Bug report ou fil officiel — NON TROUVÉ** (4 formulations de symptôme cherchées sur le forum et le bug tracker ; seul fil proche = latence 48 h sur `follows_and_unfollows`, sans réponse Meta ; le moteur du forum n'étant pas interrogeable par URL, l'absence n'est pas concluante).
+3. **Limite de buckets ou de points de données — NON DOCUMENTÉ** (`maximum number of`, `aggregation limit`, `buckets` : seules trouvailles = top 45 démographiques et cardinalité des valeurs de breakdown, aucune limite sur le nombre de jours agrégés).
+4. **Changelog — RIEN sur les breakdowns Instagram en 2024-2026** ; deux entrées Marketing API en 2025 réduisant la profondeur des breakdowns tout en préservant les totaux.
+5. **Chunking — DOCUMENTÉ pour la Marketing API et les Page Insights, PAS pour Instagram** ; et inapplicable ici de toute façon, `reach` étant dédupliqué sur la fenêtre.
+
+---
+
+## Mesures complémentaires du 2026-08-26 — ce n'est pas un « figeage »
+
+Tests poussés à la demande de Chris. Ils **requalifient** le phénomène décrit
+plus haut : ce n'est pas la largeur de la fenêtre qui pose problème, c'est
+**l'ancienneté des données demandées**.
+
+### Le breakdown ne bouge plus du tout au-delà d'un an
+
+| Fenêtre | Total | FOLLOWER | NON_FOLLOWER |
+|---|---|---|---|
+| 400 j | 2 231 | 167 | 806 |
+| 500 j | 4 551 | 167 | 806 |
+| 600 j | 9 901 | 167 | 806 |
+| 700 j | 12 308 | 167 | 806 |
+| 729 j | 12 732 | 167 | 806 |
+
+Strictement constant sur 329 jours de fenêtres différentes, pendant que le total
+est multiplié par 5,7. Écart final : **93 %**.
+
+### Test décisif : fenêtres de largeur CONSTANTE, décalées dans le passé
+
+C'est ce test qui tranche. Toutes ces fenêtres font exactement 300 jours :
+
+| Période | Total | FOLLOWER | NON_FOLLOWER |
+|---|---|---|---|
+| 2025-10-30 → 2026-08-26 | 760 | 161 | 601 |
+| 2025-07-22 → 2026-05-18 | 2 155 | 146 | 736 |
+| 2025-04-13 → 2026-02-07 | 4 227 | 129 | 459 |
+| 2025-01-03 → 2025-10-30 | 9 309 | 105 | 197 |
+| 2024-09-25 → 2025-07-22 | 10 445 | **—** | **—** |
+
+À largeur identique, la ventilation se dégrade puis **disparaît entièrement**
+quand la fenêtre recule. Ce n'est donc pas une limite de largeur.
+
+### Où la ventilation s'arrête exactement
+
+Fenêtres de 7 jours placées de plus en plus loin :
+
+| Début de fenêtre | Total | Ventilation |
+|---|---|---|
+| 2025-08-29 | 70 | FOLLOWER 59, NON_FOLLOWER 11 |
+| 2025-08-19 | 1 491 | FOLLOWER 9, NON_FOLLOWER 127 |
+| **2025-08-14** | 7 | **AUCUNE** |
+| 2025-08-09 | 9 | **AUCUNE** |
+| 2025-07-25 | 9 | **AUCUNE** |
+
+**La ventilation n'existe plus avant ~2025-08-14**, soit environ 367 jours avant
+la mesure. Le reach total, lui, remonte à 2 ans.
+
+Le « figeage à 971 » n'était donc pas un bug : c'est **toute la ventilation
+disponible**, celle des 12 derniers mois. Sur une fenêtre de 500 jours, Meta
+totalise 500 jours mais ne ventile que la partie récente qu'il détient encore.
+
+### Rapprochement avec la doc Marketing API — analogie, pas preuve
+
+Meta documente sur la **Marketing API** (annonce 2025-10-16, effet 2026-01-12) :
+
+> "All breakdowns for unique-count fields will be limited to 13 month's of
+> historical data" — "total values for API fields are unaffected […] up to
+> 37 months"
+
+Deux rétentions distinctes, la ventilation plus courte que le total : c'est la
+forme exacte du symptôme mesuré ici.
+
+⚠️ **Ce n'est pas une preuve.** Marketing API et Instagram Insights sont deux
+produits, deux changelogs. Rien n'est documenté côté Instagram — zéro occurrence
+de `breakdown` dans le changelog 2024-2026. Ce qui fait foi pour le code reste la
+mesure (~367 jours), pas l'analogie (13 mois).
+
+### Effet des périodes sur les deux indicateurs
+
+Mesure sur le compte de test (255 abonnés) :
+
+| Fenêtre | Total | FOLLOWER | Followers reach rate | Part non-abonnés |
+|---|---|---|---|---|
+| 7 j | 28 | 23 | 9,0 % | 17,9 % |
+| 28 j | 124 | 109 | 42,7 % | 12,1 % |
+| 90 j | 212 | 137 | 53,7 % | 36,3 % |
+| 180 j | 272 | 149 | 58,4 % | 46,7 % |
+| 365 j | 826 | 167 | 65,5 % | 80,8 % |
+
+**Ces deux indicateurs ne sont pas comparables d'une période à l'autre.** Plus la
+fenêtre est longue, plus le taux monte, parce qu'on accumule des personnes
+distinctes. « 43 % ce mois-ci » contre « 65 % cette année » n'est pas une baisse :
+ce sont deux questions différentes (« qui m'a vu ce mois-ci » contre « qui m'a vu
+au moins une fois cette année »).
+
+`FOLLOWER` plafonne à 167 pour 255 abonnés : la déduplication fait converger vers
+« le nombre d'abonnés distincts touchés au moins une fois », qui ne peut jamais
+dépasser le nombre d'abonnés.
+
+### Conséquence pour la navigation par périodes
+
+| Période demandée | Faisable ? |
+|---|---|
+| 7 j, 28 j, mois en cours, mois précédent | ✅ |
+| « la semaine d'il y a 6 semaines », « il y a 3 mois » | ✅ — `since`/`until` sont libres |
+| 90 j, 6 mois, 12 mois | ✅ |
+| **All-Time** | ❌ **pour la ventilation** — inexistante au-delà de ~12 mois |

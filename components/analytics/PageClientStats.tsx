@@ -1508,13 +1508,22 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
           // reach ou le nombre d'abonnes. C'est le nombre d'ABONNES, la ou la carte
           // voisine divise par le REACH — d'ou l'impression que les deux
           // pourcentages devraient sommer a 100 % (question de Chris, 2026-08-26).
-          { label: 'Followers reach rate', value: reachRate !== null ? fmtPct(reachRate) : 'N/D', sub: reachRate !== null ? 'abonnés touchés / tous tes abonnés' : 'seuil Meta non atteint', color: reachRate !== null ? 'var(--ink)' : 'var(--faint)', tooltip: 'Nombre réel de tes abonnés distincts touchés au moins une fois par tes contenus sur les 28 derniers jours (chaque abonné compté une seule fois, jamais deux fois même s\'il a vu plusieurs posts), rapporté à ton nombre total d\'abonnés. 100% = tous tes abonnés ont été atteints. Pas de détail jour par jour disponible (Meta ne fournit pas cette déduplication par jour, seulement sur la fenêtre totale).' },
+          // « 30j » explicite : ces deux cartes interrogent une fenetre FIXE de
+          // 30 jours (stats/route.ts) et ne suivent pas la navigation par periodes.
+          // Sans la mention, elles semblaient repondre a la periode selectionnee.
+          //
+          // Elles ne sont d'ailleurs pas comparables d'une periode a l'autre : la
+          // deduplication fait monter le taux avec la longueur de la fenetre
+          // (9 % sur 7j, 43 % sur 28j, 65 % sur 365j sur le compte de test), car on
+          // accumule des personnes distinctes. Une fenetre fixe est donc le choix le
+          // plus lisible ici.
+          { label: 'Followers reach rate', value: reachRate !== null ? fmtPct(reachRate) : 'N/D', sub: reachRate !== null ? 'abonnés touchés (30j) / tous tes abonnés' : 'seuil Meta non atteint', color: reachRate !== null ? 'var(--ink)' : 'var(--faint)', tooltip: 'Nombre réel de tes abonnés distincts touchés au moins une fois par tes contenus sur les 28 derniers jours (chaque abonné compté une seule fois, jamais deux fois même s\'il a vu plusieurs posts), rapporté à ton nombre total d\'abonnés. 100% = tous tes abonnés ont été atteints. Pas de détail jour par jour disponible (Meta ne fournit pas cette déduplication par jour, seulement sur la fenêtre totale).' },
           // Libelle et tooltip disaient « vues » alors que le calcul porte sur le
           // REACH (comptes uniques), choix delibere documente ligne ~1315. L'ecart
           // n'est pas cosmetique : mesure le 2026-08-26 sur le compte de test,
           // 53 % sur les vues contre 9,9 % sur le reach. Un utilisateur qui
           // recoupait avec Instagram trouvait 53 % et croyait la plateforme fausse.
-          { label: 'Reach Non-Followers', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'comptes non-abonnés / reach' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', tooltip: 'Part des comptes touchés qui ne te suivent pas encore. Chaque compte est compté une seule fois, même s\'il a vu plusieurs contenus — c\'est donc une part de personnes, pas de vues. Plus c\'est élevé, plus ton contenu sort de ton audience existante. Pas de détail jour par jour disponible (Meta ne fournit cette déduplication que sur la fenêtre totale).' },
+          { label: 'Reach Non-Followers', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'comptes non-abonnés / reach (30j)' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', tooltip: 'Part des comptes touchés qui ne te suivent pas encore. Chaque compte est compté une seule fois, même s\'il a vu plusieurs contenus — c\'est donc une part de personnes, pas de vues. Plus c\'est élevé, plus ton contenu sort de ton audience existante. Pas de détail jour par jour disponible (Meta ne fournit cette déduplication que sur la fenêtre totale).' },
         ].map(s => (
           <div key={s.label}
             onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined}

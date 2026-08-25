@@ -33,7 +33,22 @@ export async function GET(request: Request) {
 
   const { token, igAccountId } = creds;
 
-  const since = Math.floor((Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000);
+  // ⚠️ Plafond dur pour toute requete portant un `breakdown` (voir
+  // docs/instagram-reach-follow-type.md). La ventilation follow_type n'existe que
+  // sur ~12 mois glissants, alors que le reach total remonte a 2 ans : au-dela,
+  // Meta totalise toute la fenetre mais ne ventile que la partie recente qu'il
+  // detient encore, SANS aucune erreur.
+  //
+  // Mesure du 2026-08-26 : a 729 jours, total 12 732 contre 973 ventiles, soit
+  // 93 % d'ecart. La ventilation est strictement constante de 400 a 729 jours.
+  //
+  // La fenetre est aujourd'hui figee a 30 jours, donc sans risque. Cette constante
+  // existe pour le jour ou elle deviendra dynamique : elle rend la faute
+  // impossible plutot que de compter sur la vigilance.
+  const MAX_JOURS_BREAKDOWN = 366;
+
+  const JOURS_FENETRE = Math.min(30, MAX_JOURS_BREAKDOWN);
+  const since = Math.floor((Date.now() - JOURS_FENETRE * 24 * 60 * 60 * 1000) / 1000);
   const until = Math.floor(Date.now() / 1000);
   // online_followers : fenêtre J-33→J-3 pour éviter les 48h de délai Meta (objets {} vides)
   const ofUntil = Math.floor((Date.now() - 3 * 24 * 60 * 60 * 1000) / 1000);
