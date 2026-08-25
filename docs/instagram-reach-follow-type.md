@@ -386,3 +386,372 @@ Sur toutes les fenêtres testées (7 j à 2 ans), seules `FOLLOWER` et
 `NON_FOLLOWER` sont renvoyées. L'énumération Meta prévoit `UNKNOWN` mais elle ne
 sort pas ici. Le code la trace désormais dans `webhook_debug_log` si elle
 apparaît, plutôt que de l'avaler en silence.
+
+---
+
+## Recherche complémentaire du 2026-08-26 — time_series, déduplication, alternatives
+
+Cinq points laissés ouverts par la recherche du 2026-08-25. Mêmes règles :
+**sources primaires uniquement**, URL pour chaque affirmation, et « non
+documenté » assumé comme réponse quand la doc est muette.
+
+### Verdict en une ligne par point
+
+| # | Question | Verdict |
+|---|---|---|
+| 1 | `time_series` + `breakdown` ? | **TRANCHÉ — impossible.** Phrase explicite de Meta. |
+| 2 | Déduplication sur la fenêtre ? | **TRANCHÉ pour le principe** (« unique accounts »), **NON DOCUMENTÉ** pour la ventilation par catégorie. |
+| 3 | Limite de plage du breakdown | **NON DOCUMENTÉ.** Aucune limite spécifique au breakdown nulle part. |
+| 4 | `followers_count` historique | **TRANCHÉ — instantané, pas d'historique.** `follower_count` (insights) n'existe plus dans la table de référence. |
+| 5 | Métrique « follower reach rate » officielle | **TRANCHÉ — n'existe pas.** `reached_audience_demographics` a disparu de la doc. |
+
+---
+
+### 1. `metric_type=time_series` avec `breakdown` — TRANCHÉ, c'est impossible
+
+La doc est explicite, et la phrase est la même mot pour mot sur les deux pages de
+référence :
+
+> "If you request `metric_type=time_series`, breakdowns will not be included in the response."
+
+Sources, vérifiées indépendamment l'une de l'autre :
+- [Instagram User Insights — API reference](https://developers.facebook.com/docs/instagram-platform/api-reference/instagram-user/insights/)
+- [ig-user/insights (page miroir)](https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/insights/)
+
+Définition complète du paramètre, verbatim :
+
+> `metric_type` — "Designates how you want results aggregated, either by time period or as a simple total (with breakdowns, if requested). Values can be: `time_series` — Tells the API to aggregate results by time period. `total_value` — Tells the API to return results as a simple total."
+
+Noter le **« (with breakdowns, if requested) »** accolé à « simple total » : la
+parenthèse ne s'applique qu'au cas `total_value`. Les deux formulations
+convergent.
+
+**Ce que ça veut dire pour le projet :** le graphique d'évolution jour par jour
+de la ventilation abonnés / non-abonnés **ne peut pas être obtenu en un appel**.
+Ce n'est pas une erreur silencieuse — c'est le comportement documenté : la
+requête aboutit, elle renvoie une série temporelle **sans** ventilation. C'est
+exactement le piège déjà rencontré sur `views` (§3, règle 1).
+
+**Deux contournements possibles, aucun gratuit :**
+
+| Approche | Coût | Verdict pour 30-40 élèves |
+|---|---|---|
+| N appels `total_value` + `breakdown`, un par jour (`since`/`until` = 1 journée) | N appels/élève/jour | ❌ **Inutilisable.** Mesuré le 2026-08-26 : une fenêtre d'une seule journée renvoie `total=0` et **aucun breakdown**. La brique de base ne fonctionne pas. |
+| Stocker chaque jour le `total_value` + breakdown sur une fenêtre glissante, et construire l'historique en base | 1 appel/élève/jour, déjà fait | ✅ **C'est déjà l'architecture du projet.** Le graphique d'évolution se construit depuis `ig_reach_follower` / `ig_reach_non_follower` en base, pas depuis l'API. |
+
+Conclusion : le graphique d'évolution est faisable, mais **par accumulation en
+base**, jamais par un appel `time_series`. Ce que le projet fait déjà. Aucun
+changement d'appel API à faire.
+
+---
+
+### 2. Sémantique de la déduplication — TRANCHÉ pour le total, NON DOCUMENTÉ pour la ventilation
+
+#### Ce que Meta dit du `reach` lui-même
+
+Définition officielle, verbatim :
+
+> `reach` — "The number of unique accounts that have seen your content, at least once, including in ads. Content includes posts, stories, reels, videos and live videos."
+> — [Instagram User Insights](https://developers.facebook.com/docs/instagram-platform/api-reference/instagram-user/insights/)
+
+et, en opposition explicite avec l'ancienne métrique `impressions` :
+
+> "Reach is different from impressions, which may include multiple views of your content by the same accounts."
+
+Les termes **« unique accounts »** et **« at least once »** sont dans la
+définition officielle. La métrique est aussi marquée **« This metric is
+estimated »** sur la page de référence.
+
+#### Somme des journées, ou déduplication sur la fenêtre ?
+
+**Meta ne l'énonce jamais explicitement pour un `total_value` sur une plage
+`since`/`until` multi-jours.** Aucune phrase du type « the total value is
+deduplicated across the requested range » n'existe sur aucune des pages de
+référence. Recherché sur les termes `unique`, `deduplicated`, `distinct
+accounts`, `counted once` : les seules occurrences sont celles citées ci-dessus,
+qui portent sur la définition de la métrique, pas sur l'agrégation d'une plage.
+
+Ce qu'on peut affirmer sans inventer :
+- **Documenté :** `reach` est un compte de comptes uniques (« unique accounts »).
+- **Documenté :** `total_value` renvoie « a simple total ».
+- **NON documenté :** si ce « simple total » sur 28 jours est une déduplication
+  sur les 28 jours ou une somme de 28 déduplications journalières.
+
+**La mesure du 2026-08-26 tranche indirectement en faveur de la déduplication sur
+la fenêtre.** Sur ce compte, 28 jours donnent 121 et 365 jours donnent 825 : une
+somme de reach journaliers sur un an dépasserait très largement 825 pour un
+compte à 255 abonnés. Mais c'est une **inférence à partir d'une mesure**, pas une
+citation. À traiter comme tel.
+
+#### Chaque catégorie est-elle dédupliquée indépendamment ?
+
+**NON DOCUMENTÉ.** Meta ne dit rien du mode de calcul d'un breakdown.
+
+Le seul indice officiel proche concerne **les métriques démographiques
+uniquement** :
+
+> "Summing demographic metric values may result in a value less than the follower count"
+> "Only viewers for whom we have demographic data are used in demographic metric calculations"
+> — [Limitations, Instagram User Insights](https://developers.facebook.com/docs/instagram-platform/api-reference/instagram-user/insights/)
+
+Ces phrases visent `follower_demographics` / `engaged_audience_demographics`.
+Les étendre à `reach × follow_type` serait une extrapolation — déjà refusée au
+§1 de ce document, refusée ici aussi. Et noter que ces phrases décrivent une
+somme **inférieure** au total, alors que la mesure observe une somme
+**supérieure** de 1 à 2 unités : le mécanisme n'est donc pas le même.
+
+**L'observation empirique (somme du breakdown dépassant le total de 1-2 unités
+sur les fenêtres 90/180/365 jours) reste la seule base pour l'hypothèse d'une
+déduplication indépendante par catégorie.** Elle est cohérente : un compte qui
+suit puis se désabonne au cours de la fenêtre peut légitimement être compté une
+fois dans `FOLLOWER` et une fois dans `NON_FOLLOWER`, tout en n'étant compté
+qu'une fois dans le total. C'est une explication plausible, **pas une explication
+confirmée par Meta**.
+
+**Conséquence pratique — inchangée par rapport au §1 :** ne jamais utiliser le
+`total_value` d'un appel comme dénominateur des catégories d'un autre appel. Si
+un pourcentage doit sommer à 100 %, le dénominateur doit être la somme des
+catégories effectivement renvoyées.
+
+---
+
+### 3. Limite de plage spécifique au breakdown — NON DOCUMENTÉ
+
+**Recherche exhaustive, résultat négatif.** Aucune page de la documentation
+officielle ne mentionne de limite de plage propre aux breakdowns.
+
+Ce qui a été vérifié :
+
+| Source | Ce qu'elle documente sur les plages | Limite breakdown ? |
+|---|---|---|
+| [Instagram User Insights — API reference](https://developers.facebook.com/docs/instagram-platform/api-reference/instagram-user/insights/) | `since` : "Unix timestamp indicating start of range" ; `until` : "Unix timestamp indicating end of range" ; "If you do not include these parameters, the API will look back 24 hours." | **Aucune** |
+| [Section Limitations, même page](https://developers.facebook.com/docs/instagram-platform/api-reference/instagram-user/insights/) | 7 bullets : seuil 100 abonnés (`follower_count`, `online_followers`), 30 j pour `online_followers`, jeu vide au lieu de `0`, top 45 démographiques, somme démographique inférieure, latence 48 h | **Aucune** |
+| [Instagram Platform — Insights](https://developers.facebook.com/docs/instagram-platform/insights/) | "User Metrics data is stored for up to 90 days." | **Aucune** |
+| [Changelog Instagram Platform](https://developers.facebook.com/docs/instagram-platform/changelog) | 2020-11-10 : `follower_count` "now returns a maximum of 30 days of data instead of 2 years" ; 2024-05-21 : retrait de 4 timeframes démographiques | **Aucune** |
+
+Le mot `breakdown` n'apparaît **jamais** à côté de `range`, `maximum`,
+`limitation` ou `date` dans la doc. Les seules limites de plage documentées sont
+attachées à des **métriques nommées** (`follower_count` 30 j, `online_followers`
+30 j), jamais à un paramètre de ventilation.
+
+**Verdict : le décrochage à 365 jours mesuré le 2026-08-26 (breakdown figé à 971
+pendant que le total monte à 2 231, soit 56 % d'écart, sans erreur d'API) n'est
+documenté nulle part.** C'est un comportement non documenté de l'API, et il est
+**silencieux** — donc impossible à détecter autrement que par la mesure.
+
+Deux remarques qui aggravent le cas :
+
+1. **La doc se contredit elle-même sur la rétention.** La page Insights annonce
+   90 jours (« User Metrics data is stored for up to 90 days »), alors que le
+   message d'erreur de l'API renvoie *« Metrics data is available for the last
+   2 years »* (mesuré le 2026-08-26). Les deux ne peuvent pas être vrais. C'est
+   un signal que cette zone de la doc n'est pas maintenue — raison de plus pour
+   ne rien déduire d'une absence de mention.
+2. **Aucune entrée de changelog** ne mentionne un changement de comportement des
+   breakdowns depuis 2024. Le décrochage n'est donc pas une régression annoncée.
+
+**Règle opérationnelle confirmée : plafonner toute requête
+`breakdown=follow_type` à 365 jours, et le faire dans le code, pas dans un
+commentaire.** Meta ne renverra jamais d'erreur pour le signaler.
+
+---
+
+### 4. `follower_count` vs `followers_count` — TRANCHÉ, aucun historique disponible
+
+C'est le point où la doc réserve la plus mauvaise surprise.
+
+#### `followers_count` (pluriel) — champ du nœud, instantané
+
+> `followers_count` — "Total number of Instagram users following the user."
+> — [IG User node](https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user)
+
+C'est tout. **Meta ne documente ni latence, ni cache, ni date de référence pour
+ce champ.** Il n'y a aucun paramètre `since`/`until` sur un champ de nœud : c'est
+structurellement une lecture à l'instant de l'appel. Aucune façon documentée
+d'obtenir sa valeur à une date passée.
+
+**Non documenté :** l'existence ou non d'une latence sur ce champ. La latence de
+48 h documentée porte explicitement sur les *insights* (« Data used to calculate
+metrics may be delayed up to 48 hours »), pas sur les champs du nœud IG User.
+
+#### `follower_count` (singulier, insights) — a disparu de la table de référence
+
+C'est le point le plus important, et il est contre-intuitif.
+
+**`follower_count` n'apparaît plus dans la table des métriques** de la page de
+référence à jour ([Instagram User Insights](https://developers.facebook.com/docs/instagram-platform/api-reference/instagram-user/insights/)).
+La table actuelle liste 11 métriques d'interaction (`accounts_engaged`,
+`comments`, `likes`, `profile_links_taps`, `reach`, `replies`, `reposts`,
+`saves`, `shares`, `total_interactions`, `views`) et 3 métriques
+démographiques / follower (`engaged_audience_demographics`,
+`follower_demographics`, `follows_and_unfollows`). **`follower_count` n'est dans
+aucune des deux.**
+
+Il ne survit que dans **un bullet de la section Limitations** :
+
+> "`follower_count` and `online_followers` metrics are not available on Instagram business or creator accounts with fewer than 100 followers."
+
+**C'est une incohérence de la documentation Meta**, pas une inférence de ma part :
+une métrique citée dans les limitations mais absente de la table qui définit ses
+`period`, `metric_type` et `breakdown` valides. Idem pour `online_followers`.
+
+Ce que le changelog dit de son passé :
+
+> 2020-11-10 — "`follower_count` now returns a maximum of 30 days of data instead of 2 years."
+> 2020-11-10 — "The `follower_count` values now align more closely with their corresponding values displayed in the Instagram app."
+> — [Changelog Instagram Platform](https://developers.facebook.com/docs/instagram-platform/changelog)
+
+**Gains quotidiens ou cumul ?** **NON DOCUMENTÉ dans la doc actuelle.** La
+définition de `follower_count` n'existe plus sur aucune page de référence à jour
+consultée. La seule chose qu'on puisse affirmer, c'est que `period=day` +
+rétention 30 jours + « align with the Instagram app » pointent vers une lecture
+journalière — mais la phrase de définition qui trancherait n'est **plus
+publiée**. Ne pas construire dessus sans mesure directe.
+
+#### Existe-t-il un moyen documenté d'avoir le nombre d'abonnés à une date passée ?
+
+**Non.** Bilan des trois pistes :
+
+| Piste | Statut |
+|---|---|
+| `followers_count` (champ nœud) | Instantané uniquement, pas de `since`/`until` |
+| `follower_count` (insights) | Absent de la table de référence ; historiquement 30 j max ; donnerait au mieux une variation, pas un stock |
+| `follower_demographics` | `period=lifetime`, renvoie une répartition démographique de l'audience **actuelle**, pas un total à une date |
+
+**Conséquence directe pour le « Followers reach rate » :** diviser un reach de
+28 jours par le `followers_count` d'aujourd'hui est **le seul calcul possible
+avec l'API**. Ce n'est pas un choix discutable qu'on pourrait améliorer — il n'y
+a pas d'alternative documentée. Le biais existe (le dénominateur est celui de
+J, le numérateur couvre J-28 à J) et il grandit avec la croissance du compte,
+mais il n'est pas corrigeable côté API.
+
+**La seule correction possible est côté projet :** si un historique de
+`followers_count` est déjà stocké en base par le cron quotidien, utiliser la
+valeur au **début** de la fenêtre (ou la moyenne sur la fenêtre) plutôt que celle
+d'aujourd'hui. C'est un travail de base de données, pas d'API — et c'est la seule
+voie. À vérifier avant de décider : est-ce qu'une colonne d'abonnés est
+historisée par jour dans les snapshots Instagram du projet ?
+
+---
+
+### 5. Métriques alternatives — TRANCHÉ, aucun « follower reach rate » officiel
+
+#### Il n'existe pas de métrique officielle de taux de portée sur les abonnés
+
+Aucune métrique de la table de référence ne renvoie un ratio. Meta n'expose que
+des numérateurs bruts. **Le « Followers reach rate » doit être calculé, il n'a
+pas d'équivalent natif.**
+
+#### `reached_audience_demographics` — a existé, n'est plus documenté
+
+La métrique **a existé** : le changelog en garde la trace.
+
+> 2024-05-21 — "The `last_14_days`, `last_30_days`, `last_90_days` and `prev_month` timeframes will no longer be supported for the `reached_audience_demographics` and `engaged_audience_demographics` metrics."
+> — [Changelog Instagram Platform](https://developers.facebook.com/docs/instagram-platform/changelog)
+
+Mais **elle n'apparaît plus sur aucune page de référence à jour** — ni la page
+[Instagram User Insights](https://developers.facebook.com/docs/instagram-platform/api-reference/instagram-user/insights/),
+ni la [page miroir ig-user/insights](https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/insights/),
+ni la [page Insights généraliste](https://developers.facebook.com/docs/instagram-platform/insights/).
+Seule `engaged_audience_demographics`, citée dans la même phrase du changelog, a
+survécu.
+
+**Aucune entrée de changelog n'annonce sa suppression.** C'est le même schéma que
+`period=week` / `days_28` (§2) : disparition silencieuse de la table de référence
+sans entrée dédiée. À traiter comme indisponible, sans compter dessus.
+
+De toute façon, elle n'aurait pas répondu au besoin : une ventilation
+démographique (âge, ville, pays, genre) de l'audience touchée ne dit rien du
+statut d'abonnement.
+
+#### Table de référence — métriques `/{ig-user-id}/insights` au 2026-08
+
+Source unique de ce tableau :
+[Instagram User Insights — API reference](https://developers.facebook.com/docs/instagram-platform/api-reference/instagram-user/insights/),
+recoupée sur la [page miroir](https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/insights/).
+
+**Métriques d'interaction** — toutes en `period=day`, `timeframe` non applicable :
+
+| Métrique | `metric_type` | `breakdown` | Description Meta (verbatim) |
+|---|---|---|---|
+| `accounts_engaged` | `total_value` | — | "The number of accounts that have interacted with your content, including in ads." *Estimated* |
+| `comments` | `total_value` | `media_product_type` | "The number of comments on your posts, reels, videos and live videos." *In development* |
+| `likes` | `total_value` | `media_product_type` | "The number of likes on your posts, reels, and videos." |
+| `profile_links_taps` | `total_value` | `contact_button_type` | "The number of taps on your business address, call button, email button and text button." |
+| **`reach`** | **`total_value`, `time_series`** | **`media_product_type`, `follow_type`** | **"The number of unique accounts that have seen your content, at least once, including in ads."** *Estimated* |
+| `replies` | `total_value` | — | "The number of replies you received from your story, including text replies and quick reaction replies." |
+| `reposts` | `total_value` | — | "The number of reposts of your posts, stories, reels, and videos." |
+| `saves` | `total_value` | `media_product_type` | "The number of saves of your posts, reels, and videos." |
+| `shares` | `total_value` | `media_product_type` | "The number of shares of your posts, stories, reels, videos and live videos." |
+| `total_interactions` | `total_value` | `media_product_type` | "The total number of post interactions, story interactions, reels interactions, video interactions and live video interactions." |
+| **`views`** | `total_value` | `follow_type`, `media_product_type` | "The number of times your content was played or displayed." *In development* |
+
+> ⚠️ **`reach` est la SEULE métrique de la table à accepter `time_series`.**
+> Toutes les autres sont `total_value` uniquement. Et — point 1 — ce
+> `time_series` est justement celui qui exclut les breakdowns. Les deux
+> capacités les plus intéressantes de `reach` sont mutuellement exclusives.
+
+> ⚠️ La page de référence orthographie le breakdown de `views` **`follower_type`**
+> (et non `follow_type` comme partout ailleurs). Le code du projet passe
+> `follow_type` sur `views` et la requête aboutit — c'est donc très probablement
+> une coquille de la doc. **Non tranché formellement**, mais ne pas « corriger »
+> le code vers `follower_type` sans mesure.
+
+**Métriques démographiques et follower :**
+
+| Métrique | `period` | `timeframe` valides | `breakdown` | `metric_type` | Note |
+|---|---|---|---|---|---|
+| `engaged_audience_demographics` | `lifetime` | `last_14_days`, `last_30_days`, `last_90_days`, `prev_month`, `this_month`, `this_week` | `age`, `city`, `country`, `gender` | `total_value` | Ne supporte **pas** `since`/`until` |
+| `follower_demographics` | `lifetime` | idem | `age`, `city`, `country`, `gender` | `total_value` | |
+| `follows_and_unfollows` | `day` | n/a | `follow_type` | `total_value` | Indisponible sous 100 abonnés |
+
+> Note sur les `timeframe` : le changelog du 2024-05-21 annonçait le retrait de
+> `last_14_days`, `last_30_days`, `last_90_days` et `prev_month`. **La table de
+> référence actuelle les liste pourtant toujours.** Contradiction non résolue
+> entre changelog et référence — tester avant de s'appuyer sur l'un des deux.
+
+**Métriques citées mais hors table (statut ambigu) :**
+
+| Métrique | Statut |
+|---|---|
+| `follower_count` | Citée dans Limitations, **absente de la table**. Historique 30 j max (changelog 2020). Définition plus publiée. |
+| `online_followers` | Citée dans Limitations ("only available for the last 30 days"), **absente de la table**. |
+| `reached_audience_demographics` | Citée dans le changelog 2024, **absente de toutes les pages de référence**. Traiter comme retirée. |
+| `impressions` | **Dépréciée** depuis le 2025-04-21, toutes versions. Remplacée par `views`. |
+
+#### Métriques ajoutées récemment — rien d'utile ici
+
+Le [changelog](https://developers.facebook.com/docs/instagram-platform/changelog)
+du 2025-12-03 introduit `reels_skip_rate`, `reposts`, `crossposted_views`,
+`facebook_views`. Le 2026-04-22 ajoute `total_like_count`,
+`total_comments_count`, `total_views_count` et trois champs d'engagement sur IG
+Media. Le 2026-06-22 ajoute `link_clicks` sur les Stories (Facebook Login
+uniquement).
+
+**Aucun de ces ajouts ne concerne le reach, la ventilation par statut
+d'abonnement, ni un ratio de portée.** Rien à récupérer de ce côté.
+
+---
+
+### Ce que ça change pour le projet — synthèse actionnable
+
+| Décision | Verdict |
+|---|---|
+| Graphique d'évolution de la ventilation | ✅ Faisable, **par accumulation en base** — l'appel `time_series` ne peut pas la fournir. C'est déjà l'architecture. Aucun changement d'appel API. |
+| Changer la période affichée (28 j) | ⚠️ Possible jusqu'à **365 jours maximum** pour le breakdown. Au-delà, chiffres faux et silencieux. Plafonner dans le code. |
+| Dénominateur du « Followers reach rate » | ⚠️ `followers_count` d'aujourd'hui est **le seul disponible via l'API**. Amélioration possible uniquement si les abonnés sont historisés en base par le cron — à vérifier. |
+| Basculer vers une métrique officielle de taux | ❌ **N'existe pas.** Calcul maison obligatoire. |
+| Récupérer `reached_audience_demographics` | ❌ Retirée de la doc sans annonce. Et n'aurait pas répondu au besoin. |
+| Faire 28 appels/jour/élève pour une série ventilée | ❌ **Techniquement impossible** (fenêtre 1 jour = 0 + aucun breakdown) **et** hors budget à 30-40 élèves. |
+
+### Sources primaires de cette section
+
+- [Instagram User Insights — API reference](https://developers.facebook.com/docs/instagram-platform/api-reference/instagram-user/insights/) — table des métriques, paramètres, Limitations, phrase `time_series`
+- [ig-user/insights — page miroir](https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/insights/) — confirmation indépendante de la phrase `time_series` et de la définition de `reach`
+- [IG User node](https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user) — définition de `followers_count`
+- [Instagram Platform — Insights](https://developers.facebook.com/docs/instagram-platform/insights/) — rétention 90 j (contredite par l'API)
+- [Instagram Platform — Changelog](https://developers.facebook.com/docs/instagram-platform/changelog) — `follower_count` 30 j (2020-11-10), timeframes démographiques (2024-05-21), dépréciation `impressions` (2025-01-21), métriques 2025-2026
+
+**Aucune source secondaire n'a été utilisée dans cette section.** Les quatre
+points marqués « non documenté » l'ont été après vérification négative sur les
+cinq pages ci-dessus.

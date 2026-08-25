@@ -1477,7 +1477,23 @@ async function rattraperTrousIg(profileId: string, token: string, igAccountId: s
       // ig_profile_views ajoutee le 2026-08-22 : sans elle dans cette liste, les
       // journees deja collectees ne seraient jamais reprises et la colonne resterait
       // vide sur tout l'historique.
-      .or('ig_reach.is.null,ig_views.is.null,ig_profile_views.is.null')
+      //
+      // ig_reach_follower ajoutee le 2026-08-26, meme motif : la ventilation
+      // abonnes/non-abonnes n'est collectee que depuis le 2026-08-22, si bien que
+      // 17 journees sur les 30 dernieres avaient un ig_reach rempli et un breakdown
+      // vide — invisibles pour ce rattrapage, donc perdues pour toujours.
+      //
+      // Verifie le 2026-08-26 : l'API sert toujours la ventilation de ces journees
+      // (2026-08-07 -> FOLLOWER 1, NON_FOLLOWER 1), elles sont donc recuperables.
+      //
+      // ⚠️ `and(ig_reach.gt.0, ...)` et non `ig_reach_follower.is.null` seul : une
+      // journee a reach 0 n'a RIEN a ventiler, Meta ne renvoie aucune ligne et la
+      // colonne reste null pour toujours. Sans la borne, ces journees seraient
+      // reprises a chaque passage, indefiniment. Mesure au moment du correctif :
+      // 99 journees a reach 0 contre 14 reellement recuperables — le rattrapage
+      // aurait tourne en boucle sur les 99 sans jamais atteindre les 14, puisqu'il
+      // ne traite que MAX_JOURS_PAR_PASSAGE journees par passage.
+      .or('ig_reach.is.null,ig_views.is.null,ig_profile_views.is.null,and(ig_reach.gt.0,ig_reach_follower.is.null)')
       .gt('date', debutUtile)
       .lte('date', isoDate(1))
       .order('date', { ascending: false })   // les plus recents d'abord
