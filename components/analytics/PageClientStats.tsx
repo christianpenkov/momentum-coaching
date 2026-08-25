@@ -1561,15 +1561,14 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
       )}
 
       <Card title={contentSubTab === 'posts' ? `Posts (${ig.posts.length})` : storiesInnerTab === 'story' ? `Stories (${allStories.length})` : `Séquences (${storySequences.length})`} sub="Cliquer pour le détail">
-        {/* Onglets principaux — agrandis et passes a l'ardoise, angles droits
-            (demande de Chris, 2026-08-25). L'ardoise marque l'onglet actif, usage
-            deja prevu par la Regle de la Rarete Ardoise du systeme. Angles droits
-            volontaires : ils distinguent ce niveau du sous-niveau Story/Sequences
-            juste en dessous, qui garde son arrondi. */}
+        {/* Onglets principaux — agrandis et passes a l'ardoise (demande de Chris,
+            2026-08-25). L'ardoise marque l'onglet actif, usage deja prevu par la
+            Regle de la Rarete Ardoise du systeme.
+            Radius 7px : celui des boutons du systeme, pas d'angles droits. */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
           {(['posts', 'stories'] as const).map(t => (
             <button key={t} onClick={() => setContentSubTab(t)} style={{
-              padding: '9px 20px', fontSize: 13, fontWeight: 600, borderRadius: 0, cursor: 'pointer',
+              padding: '9px 20px', fontSize: 13, fontWeight: 600, borderRadius: 7, cursor: 'pointer',
               border: `1px solid ${contentSubTab === t ? 'var(--accent-brand)' : 'var(--border)'}`,
               background: contentSubTab === t ? 'var(--accent-brand)' : 'transparent',
               color: contentSubTab === t ? '#fff' : 'var(--ink-2)',
@@ -1889,9 +1888,13 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
         <StorySequenceDetailModal profileId={profileId} sequence={selectedSequence} onClose={() => setSelectedSequence(null)} />
       )}
 
+      {/* maxWidth porte par l'overlay et non par la carte : l'overlay centre son
+          conteneur, or celui-ci faisait 760 px par defaut. Une carte de 480 px
+          calee a gauche dans une boite de 760 px apparaissait decalee, pas
+          centree (retour de Chris, 2026-08-25). */}
       {selectedStory && (
-        <ModalOverlay onClose={() => setSelectedStory(null)}>
-          <div style={{ background: 'var(--surface)', borderRadius: 14, padding: 24, width: '100%', maxWidth: 480 }}>
+        <ModalOverlay onClose={() => setSelectedStory(null)} maxWidth={480}>
+          <div style={{ background: 'var(--surface)', borderRadius: 14, padding: 24, width: '100%' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
               <div style={{ fontSize: 13, color: 'var(--muted)' }}>{new Date(selectedStory.posted_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' })}</div>
               <button onClick={() => setSelectedStory(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>×</button>
@@ -1957,6 +1960,38 @@ function StoryStats({ story }: { story: any }) {
   const reach: number | null = story.reach ?? null;
   const vues: number | null = story.views ?? null;
 
+  // Icones au trait plutot qu'emojis : le systeme de design exige un outil de
+  // travail credible en capture d'ecran commerciale, et proscrit explicitement
+  // l'illustration ludique. Chaque glyphe doit nommer sa metrique, pas decorer.
+  // Tracees a currentColor, elles heritent donc de la couleur du label.
+  // `d` peut porter plusieurs tracés séparés par « | » (l'oeil a besoin d'une
+  // pupille, qui ne peut pas etre un simple sous-chemin sans etre remplie).
+  const Icone = ({ d }: { d: string }) => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+      style={{ flexShrink: 0, opacity: .75 }} aria-hidden="true">
+      {d.split('|').map((p, i) => <path key={i} d={p} />)}
+    </svg>
+  );
+  const ICONES: Record<string, string> = {
+    // Coeur — interactions cumulees
+    'Interactions': 'M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l8.8 8.8 8.8-8.8a5.5 5.5 0 0 0 0-7.8z',
+    // Bulle de message — reponses en DM
+    'Réponses': 'M21 11.5a8.4 8.4 0 0 1-9 8.4 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 8.4-9h.6a8.5 8.5 0 0 1 8 8z',
+    // Fleche qui rebondit vers l'exterieur — partage (l'icone Instagram)
+    'Partages': 'M22 2 11 13|M22 2l-7 20-4-9-9-4 20-7z',
+    // Silhouette avec plus — nouveaux abonnes
+    'Abonnements': 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M19 8v6M22 11h-6',
+    // Silhouette simple — visites de profil
+    'Visites du profil': 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8',
+    // Chevron droit — passage a la story suivante
+    'Story suivante': 'M9 18l6-6-6-6',
+    // Chevron gauche — retour arriere
+    'Story précédente': 'M15 18l-6-6 6-6',
+    // Porte de sortie — abandon de la sequence
+    'Sorties': 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9',
+  };
+
   // Part du reach — seulement si le reach est un denominateur credible. Sur une
   // story fraiche, Meta sert les vues avant le reach : diviser par 0 ou par un
   // reach non encore consolide fabriquerait un pourcentage faux.
@@ -1987,8 +2022,11 @@ function StoryStats({ story }: { story: any }) {
   // une liste alignee se parcourt d'un coup d'oeil la ou douze tuiles obligent a
   // lire chaque case. Le chiffre est aligne a droite, colonne unique pour l'oeil.
   const Ligne = ({ label, valeur, suffixe }: { label: string; valeur: number | null; suffixe?: string | null }) => (
-    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, padding: '7px 0', borderBottom: '1px solid var(--border-soft)' }}>
-      <span style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>{label}</span>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--border-soft)' }}>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 12.5, color: 'var(--ink-2)' }}>
+        {ICONES[label] && <Icone d={ICONES[label]} />}
+        {label}
+      </span>
       <span style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
         {suffixe && <span style={{ fontSize: 11, color: 'var(--muted)' }}>{suffixe}</span>}
         <span style={{ fontSize: 14, fontWeight: 600, color: valeur == null ? 'var(--muted)' : 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>
@@ -2003,9 +2041,16 @@ function StoryStats({ story }: { story: any }) {
       {/* Portee : les deux chiffres qui portent tout le reste, donc seuls a avoir
           la taille display. Les huit autres se lisent par rapport a ceux-ci. */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        {([['Comptes touchés', reach], ['Vues', vues]] as [string, number | null][]).map(([label, v]) => (
+        {([
+          // Silhouettes multiples = comptes uniques ; oeil = vues, repetitions comprises.
+          ['Comptes touchés', reach, 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8'],
+          ['Vues', vues, 'M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z|M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z'],
+        ] as [string, number | null, string][]).map(([label, v, d]) => (
           <div key={label} style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 3 }}>{label}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11, color: 'var(--muted)', marginBottom: 3 }}>
+              <Icone d={d} />
+              {label}
+            </div>
             <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-0.5px', color: v == null ? 'var(--muted)' : 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>
               {v == null ? '—' : fmt(v)}
             </div>
