@@ -2049,15 +2049,29 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
         utmTerm: username,
         path: `prendre-rdv-${us}`,
       });
-      setResult(shortUrl);
-      // Sauvegarde en DB
+      // Le lien n'est affiché qu'une fois ENREGISTRÉ, jamais avant.
+      //
+      // Il existe déjà chez Short.io à ce stade : l'afficher tout de suite serait
+      // tentant, mais un lien absent de prospect_links est un lien orphelin —
+      // Short.io compte les clics, Momentum ne les rattache à personne. Le lead
+      // resterait bloqué en amont du pipeline alors qu'il a cliqué, sans que rien
+      // ne le signale. Un lien non enregistré est donc pire qu'un lien manquant :
+      // on l'envoie en croyant qu'il est tracké.
       const res = await fetch('/api/client/prospect-links', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ig_username: username, short_url: shortUrl, content_id: resolvedPostId || null }),
       });
-      const saved = await res.json();
-      if (saved.link) setHistory(prev => [saved.link, ...prev]);
+      const saved = await res.json().catch(() => null);
+      if (!res.ok || !saved?.link) {
+        throw new Error(
+          saved?.error
+            ? `Le lien n'a pas pu être enregistré (${saved.error}). Réessaie — ne l'envoie pas tant qu'il n'apparaît pas ici.`
+            : "Le lien n'a pas pu être enregistré. Réessaie — ne l'envoie pas tant qu'il n'apparaît pas ici."
+        );
+      }
+      setResult(shortUrl);
+      setHistory(prev => [saved.link, ...prev]);
     } catch (e: any) { setError(e.message); } finally { setLoading(false); }
   };
 
