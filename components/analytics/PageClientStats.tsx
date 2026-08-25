@@ -1517,13 +1517,13 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
           // (9 % sur 7j, 43 % sur 28j, 65 % sur 365j sur le compte de test), car on
           // accumule des personnes distinctes. Une fenetre fixe est donc le choix le
           // plus lisible ici.
-          { label: 'Followers reach rate', value: reachRate !== null ? fmtPct(reachRate) : 'N/D', sub: reachRate !== null ? 'abonnés touchés (30j) / tous tes abonnés' : 'seuil Meta non atteint', color: reachRate !== null ? 'var(--ink)' : 'var(--faint)', tooltip: 'Nombre réel de tes abonnés distincts touchés au moins une fois par tes contenus sur les 28 derniers jours (chaque abonné compté une seule fois, jamais deux fois même s\'il a vu plusieurs posts), rapporté à ton nombre total d\'abonnés. 100% = tous tes abonnés ont été atteints. Pas de détail jour par jour disponible (Meta ne fournit pas cette déduplication par jour, seulement sur la fenêtre totale).' },
+          { label: 'Abonnés touchés', value: reachRate !== null ? fmtPct(reachRate) : 'N/D', sub: reachRate !== null ? `sur tes ${fmt(ig.followers)} abonnés` : 'seuil Meta non atteint', badge: '30 j', color: reachRate !== null ? 'var(--ink)' : 'var(--faint)', tooltip: `Sur les 30 derniers jours, ${reachRate !== null ? fmtPct(reachRate) : '—'} de tes abonnés ont vu au moins un de tes contenus.\n\nChaque abonné est compté UNE SEULE FOIS, même s'il a vu dix posts : c'est un nombre de personnes, pas de vues. Le total ne peut donc jamais dépasser 100 %.\n\nCette carte garde toujours une fenêtre de 30 jours, elle ne suit pas la période sélectionnée en haut. C'est volontaire : le chiffre monte mécaniquement avec la durée (9 % sur 7 jours, 43 % sur 30, 65 % sur un an) puisqu'on accumule des personnes différentes. Deux durées ne seraient donc pas comparables entre elles.` },
           // Libelle et tooltip disaient « vues » alors que le calcul porte sur le
           // REACH (comptes uniques), choix delibere documente ligne ~1315. L'ecart
           // n'est pas cosmetique : mesure le 2026-08-26 sur le compte de test,
           // 53 % sur les vues contre 9,9 % sur le reach. Un utilisateur qui
           // recoupait avec Instagram trouvait 53 % et croyait la plateforme fausse.
-          { label: 'Reach Non-Followers', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'comptes non-abonnés / reach (30j)' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', tooltip: 'Part des comptes touchés qui ne te suivent pas encore. Chaque compte est compté une seule fois, même s\'il a vu plusieurs contenus — c\'est donc une part de personnes, pas de vues. Plus c\'est élevé, plus ton contenu sort de ton audience existante. Pas de détail jour par jour disponible (Meta ne fournit cette déduplication que sur la fenêtre totale).' },
+          { label: 'Part de non-abonnés', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'dans ta portée' : 'seuil Meta non atteint', badge: '30 j', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', tooltip: `Sur les 30 derniers jours, ${viralPct !== null ? fmtPct(viralPct) : '—'} des comptes qui t'ont vu ne te suivaient pas encore.\n\nComme pour la carte voisine, chaque compte est compté UNE SEULE FOIS. Plus ce chiffre est élevé, plus tes contenus sortent de ton audience actuelle et touchent de nouvelles personnes.\n\nAttention, les deux cartes n'ont pas le même dénominateur : celle-ci se rapporte à ta portée totale, la voisine à ton nombre d'abonnés. Elles ne s'additionnent donc pas à 100 %.` },
         ].map(s => (
           <div key={s.label}
             onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined}
@@ -1533,6 +1533,15 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
             onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}>
             <div style={{ marginBottom: 8 }}>
               <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>{s.label}</span>
+              {/* Badge de fenetre — porte par les seules cartes dont la fenetre est
+                  FIXE et ne suit pas la navigation par periodes. Sans lui, elles
+                  semblaient repondre a la periode choisie, et en All-Time elles
+                  semblaient couvrir tout l'historique (retour de Chris, 2026-08-26). */}
+              {(s as any).badge && (
+                <span style={{ fontSize: 9, fontWeight: 600, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 5px', marginLeft: 6, whiteSpace: 'nowrap' }}>
+                  {(s as any).badge}
+                </span>
+              )}
               {s.sub && <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{s.sub}</span>}
             </div>
             <div style={{ fontSize: 22, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
