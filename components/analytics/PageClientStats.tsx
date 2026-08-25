@@ -1561,21 +1561,36 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
       )}
 
       <Card title={contentSubTab === 'posts' ? `Posts (${ig.posts.length})` : storiesInnerTab === 'story' ? `Stories (${allStories.length})` : `Séquences (${storySequences.length})`} sub="Cliquer pour le détail">
-        <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+        {/* Onglets principaux — agrandis et passes a l'ardoise, angles droits
+            (demande de Chris, 2026-08-25). L'ardoise marque l'onglet actif, usage
+            deja prevu par la Regle de la Rarete Ardoise du systeme. Angles droits
+            volontaires : ils distinguent ce niveau du sous-niveau Story/Sequences
+            juste en dessous, qui garde son arrondi. */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
           {(['posts', 'stories'] as const).map(t => (
             <button key={t} onClick={() => setContentSubTab(t)} style={{
-              padding: '4px 12px', fontSize: 11, fontWeight: 600, borderRadius: 20, cursor: 'pointer', border: 'none',
-              background: contentSubTab === t ? 'var(--ink)' : 'var(--surface-2)', color: contentSubTab === t ? 'var(--bg)' : 'var(--muted)', transition: 'all .12s',
+              padding: '9px 20px', fontSize: 13, fontWeight: 600, borderRadius: 0, cursor: 'pointer',
+              border: `1px solid ${contentSubTab === t ? 'var(--accent-brand)' : 'var(--border)'}`,
+              background: contentSubTab === t ? 'var(--accent-brand)' : 'transparent',
+              color: contentSubTab === t ? '#fff' : 'var(--ink-2)',
+              transition: 'background .12s, border-color .12s, color .12s',
             }}>{t === 'posts' ? 'Posts' : 'Stories'}</button>
           ))}
         </div>
 
+        {/* Sous-onglets — agrandis, arrondi conserve (demande de Chris,
+            2026-08-25). Ils restent volontairement plus discrets que les onglets
+            principaux : fond creme plutot qu'ardoise, pour que la hierarchie des
+            deux niveaux se lise sans les confondre. */}
         {contentSubTab === 'stories' && (
-          <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
             {(['story', 'sequences'] as const).map(t => (
               <button key={t} onClick={() => setStoriesInnerTab(t)} style={{
-                padding: '3px 10px', fontSize: 10, fontWeight: 600, borderRadius: 20, cursor: 'pointer', border: `1px solid var(--border)`,
-                background: storiesInnerTab === t ? 'var(--surface-2)' : 'transparent', color: storiesInnerTab === t ? 'var(--ink)' : 'var(--faint)', transition: 'all .12s',
+                padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 20, cursor: 'pointer',
+                border: `1px solid ${storiesInnerTab === t ? 'var(--border)' : 'transparent'}`,
+                background: storiesInnerTab === t ? 'var(--surface-2)' : 'transparent',
+                color: storiesInnerTab === t ? 'var(--ink)' : 'var(--muted)',
+                transition: 'background .12s, border-color .12s, color .12s',
               }}>{t === 'story' ? 'Story' : 'Séquences'}</button>
             ))}
           </div>
@@ -1892,30 +1907,9 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                 Meta consolide ces chiffres pendant les 24 h de vie de la story : le
                 reach reste a 0 plusieurs heures alors que les vues montent deja, et le
                 detail de navigation n'arrive qu'apres coup. D'ou la mention. */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-              {([
-                ['Reach', selectedStory.reach],
-                ['Vues', selectedStory.views],
-                ['Interactions', selectedStory.total_interactions],
-                ['Réponses', selectedStory.replies],
-                ['Partages', selectedStory.shares],
-                ['Abonnements', selectedStory.follows],
-                ['Visites du profil', selectedStory.profile_visits],
-                ['Suivantes', selectedStory.navigation_taps_forward],
-                ['Précédentes', selectedStory.navigation_taps_back],
-                ['Sorties', selectedStory.navigation_exits],
-              ] as [string, number | null | undefined][])
-                .map(([label, value], i) => (
-                <div key={i} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 12px' }}>
-                  <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 2 }}>{label}</div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: value == null ? 'var(--muted)' : 'var(--ink)' }}>
-                    {value == null ? '—' : fmt(value)}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <StoryStats story={selectedStory} />
             {estStoryRecente(selectedStory.posted_at) && (
-              <div style={{ marginTop: 10, fontSize: 11, color: 'var(--muted)', lineHeight: 1.4 }}>
+              <div style={{ marginTop: 14, fontSize: 11, color: 'var(--muted)', lineHeight: 1.45, paddingTop: 12, borderTop: '1px solid var(--border-soft)' }}>
                 Story publiée il y a moins de 24 h : Instagram consolide ces chiffres
                 progressivement. Le reach et le détail de navigation arrivent après les vues.
               </div>
@@ -1941,6 +1935,91 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
           </div>
         </ModalOverlay>
       )}
+    </div>
+  );
+}
+
+/**
+ * Statistiques d'une story, groupees par question posee.
+ *
+ * Les dix metriques etaient auparavant une grille 3x4 uniforme : meme taille, meme
+ * poids, aucune hierarchie. On ne savait pas par ou commencer (retour de Chris,
+ * 2026-08-25). Elles repondent en fait a trois questions distinctes :
+ *
+ *   Portee      combien de personnes, et combien de fois
+ *   Engagement  ce que la story a provoque
+ *   Navigation  comment les gens l'ont traversee
+ *
+ * La navigation est exprimee en part du reach : « 14 » ne dit rien, « 88 % ont
+ * enchaine » dit tout. La valeur brute reste visible en second.
+ */
+function StoryStats({ story }: { story: any }) {
+  const reach: number | null = story.reach ?? null;
+  const vues: number | null = story.views ?? null;
+
+  // Part du reach — seulement si le reach est un denominateur credible. Sur une
+  // story fraiche, Meta sert les vues avant le reach : diviser par 0 ou par un
+  // reach non encore consolide fabriquerait un pourcentage faux.
+  const part = (v: number | null | undefined): string | null =>
+    v == null || reach == null || reach <= 0 ? null : `${Math.round((v / reach) * 100)} %`;
+
+  const engagement: [string, number | null][] = [
+    ['Interactions', story.total_interactions ?? null],
+    ['Réponses', story.replies ?? null],
+    ['Partages', story.shares ?? null],
+    ['Abonnements', story.follows ?? null],
+    ['Visites du profil', story.profile_visits ?? null],
+  ];
+  const navigation: [string, number | null][] = [
+    ['Story suivante', story.navigation_taps_forward ?? null],
+    ['Story précédente', story.navigation_taps_back ?? null],
+    ['Sorties', story.navigation_exits ?? null],
+  ];
+
+  const Section = ({ titre, children }: { titre: string; children: React.ReactNode }) => (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginBottom: 8 }}>{titre}</div>
+      {children}
+    </div>
+  );
+
+  // Une ligne par metrique plutot qu'une tuile : sur des compteurs souvent a 0,
+  // une liste alignee se parcourt d'un coup d'oeil la ou douze tuiles obligent a
+  // lire chaque case. Le chiffre est aligne a droite, colonne unique pour l'oeil.
+  const Ligne = ({ label, valeur, suffixe }: { label: string; valeur: number | null; suffixe?: string | null }) => (
+    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, padding: '7px 0', borderBottom: '1px solid var(--border-soft)' }}>
+      <span style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>{label}</span>
+      <span style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
+        {suffixe && <span style={{ fontSize: 11, color: 'var(--muted)' }}>{suffixe}</span>}
+        <span style={{ fontSize: 14, fontWeight: 600, color: valeur == null ? 'var(--muted)' : 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>
+          {valeur == null ? '—' : fmt(valeur)}
+        </span>
+      </span>
+    </div>
+  );
+
+  return (
+    <div>
+      {/* Portee : les deux chiffres qui portent tout le reste, donc seuls a avoir
+          la taille display. Les huit autres se lisent par rapport a ceux-ci. */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        {([['Comptes touchés', reach], ['Vues', vues]] as [string, number | null][]).map(([label, v]) => (
+          <div key={label} style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 3 }}>{label}</div>
+            <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-0.5px', color: v == null ? 'var(--muted)' : 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>
+              {v == null ? '—' : fmt(v)}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <Section titre="Engagement">
+        <div>{engagement.map(([label, v]) => <Ligne key={label} label={label} valeur={v} />)}</div>
+      </Section>
+
+      <Section titre="Navigation">
+        <div>{navigation.map(([label, v]) => <Ligne key={label} label={label} valeur={v} suffixe={part(v)} />)}</div>
+      </Section>
     </div>
   );
 }
