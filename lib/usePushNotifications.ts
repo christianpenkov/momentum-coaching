@@ -84,6 +84,14 @@ async function registerPush(userId: string): Promise<boolean> {
       applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!),
     });
 
+    // Réenvoyé au serveur À CHAQUE ouverture, même quand `getSubscription()`
+    // renvoyait déjà un abonnement. L'abonnement présent sur le téléphone ne
+    // prouve pas que le serveur le connaît encore : il a pu être supprimé côté
+    // base (purge, 410 sur un envoi transitoire, changement de compte). Sans ce
+    // renvoi systématique, le client se croyait abonné à vie et plus aucun push
+    // — donc plus aucune pastille — n'arrivait jamais, silencieusement.
+    // La route est idempotente (upsert sur profile_id+endpoint) : la réémettre
+    // à chaque lancement ne coûte qu'une requête.
     const res = await fetch('/api/push/subscribe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -126,11 +134,49 @@ export async function triggerPushSetup(userId: string): Promise<'granted' | 'den
 }
 
 export function usePushNotifications(userId: string | null) {
-  const done = useRef(false);
+  // Horodatage du dernier enregistrement RÉUSSI, et non plus un simple booléen
+  // « déjà tenté ». Un booléen posé avant l'appel condamnait la session entière
+  // dès le premier échec (SW pas encore actif, réseau coupé au lancement) : plus
+  // jamais de nouvelle tentative, donc plus jamais de push ni de pastille.
+  const lastOkRef = useRef(0);
+  const inFlightRef = useRef(false);
 
   useEffect(() => {
-    if (!userId || done.current) return;
-    done.current = true;
-    registerPush(userId);
+    if (!userId) return;
+
+    // Une PWA reste montée des jours en arrière-plan : sans revalidation au
+    // retour, une subscription révoquée par iOS pendant l'absence n'était
+    // jamais rétablie. C'est le scénario exact de la pastille qui disparaît
+    // après une semaine sans ouvrir l'app.
+    const REVALIDATE_AFTER_MS = 6 * 60 * 60 * 1000; // 6 h
+
+    async function ensureRegistered(force = false) {
+      if (inFlightRef.current) return;
+      if (!force && Date.now() - lastOkRef.current < REVALIDATE_AFTER_MS) return;
+      inFlightRef.current = true;
+      try {
+        const ok = await registerPush(userId!);
+        // Seul un succès pose l'horodatage : un échec laisse la porte ouverte
+        // à la prochaine occasion (retour au premier plan, remontage).
+        if (ok) lastOkRef.current = Date.now();
+      } finally {
+        inFlightRef.current = false;
+      }
+    }
+
+    ensureRegistered(true);
+
+    function onVisibility() {
+      if (document.visibilityState === 'visible') ensureRegistered();
+    }
+    document.addEventListener('visibilitychange', onVisibility);
+    // `pageshow` couvre le retour depuis le bfcache iOS, où `visibilitychange`
+    // ne se déclenche pas toujours.
+    window.addEventListener('pageshow', onVisibility);
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pageshow', onVisibility);
+    };
   }, [userId]);
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { setAppBadge } from '@/lib/pwaBadge';
+import { setBadgeCount, reassertAppBadge } from '@/lib/pwaBadge';
 import { getPendingSessionRapports } from '@/lib/sessionRapport';
 import { formatTimeIn, formatDateIn } from '@/lib/timezone';
 import { useViewerTimeZone } from '@/lib/UserContext';
@@ -166,7 +166,9 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       // Recalcule le badge natif au nombre exact à chaque refresh — un push pose
       // toujours 1 (pas d'unreadCount dans le payload), donc sans ça le badge reste
       // bloqué au lieu de suivre le vrai nombre de notifs restantes.
-      setAppBadge(allCoachNotifs.length);
+      // `setBadgeCount` et non `setAppBadge` : les messages non lus ont leur propre
+      // compte, qu'un total de 0 notif ici ne doit surtout pas effacer.
+      setBadgeCount('notifs', allCoachNotifs.length);
       return;
     }
     const supabase = createClient();
@@ -278,7 +280,7 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
 
     const allNotifs = [...rapportNotifs, ...callRequestNotifs, ...callCanceledNotifs, ...callRescheduledNotifs];
     setNotifs(allNotifs);
-    setAppBadge(allNotifs.length);
+    setBadgeCount('notifs', allNotifs.length);
     // viewerTz dans les dépendances : sans lui, les libellés d'heure des notifs
     // resteraient figés sur l'ancien fuseau après un changement de pays.
   }, [profileId, isClient, viewerTz]);
@@ -293,6 +295,23 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
     const handler = () => refreshRef.current();
     window.addEventListener('notifs-refresh', handler);
 
+    // iOS efface la pastille d'une PWA de son propre chef — redémarrage du
+    // téléphone, purge mémoire, ou plusieurs jours sans ouvrir l'app — et rien
+    // ne la rétablit tout seul. Au moindre retour au premier plan on la
+    // réaffirme immédiatement avec les comptes déjà en mémoire (pas d'attente
+    // réseau), puis on refait un vrai refresh pour la remettre à la valeur
+    // exacte. Sans ça, la pastille ne revenait qu'après un aller-retour complet
+    // en base — et jamais du tout si l'utilisateur n'ouvrait pas l'app.
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      reassertAppBadge();
+      refreshRef.current();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    // Retour depuis le bfcache iOS, où `visibilitychange` ne se déclenche pas
+    // systématiquement.
+    window.addEventListener('pageshow', onVisible);
+
     const supabase = createClient();
     const channel = supabase
       .channel(`notifs-rt-${profileId}-${instanceId.current}`)
@@ -303,6 +322,8 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
     return () => {
       clearInterval(interval);
       window.removeEventListener('notifs-refresh', handler);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('pageshow', onVisible);
       supabase.removeChannel(channel);
     };
   }, [profileId, isClient]);

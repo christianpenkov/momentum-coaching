@@ -8,7 +8,7 @@ import Avatar, { getInitials } from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
 import InlineLoader from '@/components/ui/InlineLoader';
 import { useLongPress } from '@/lib/useLongPress';
-import { clearAppBadge } from '@/lib/pwaBadge';
+import { dismissDrawerNotifications } from '@/lib/pwaBadge';
 import { logAudio } from '@/lib/audioDebug';
 import fixWebmDuration from 'fix-webm-duration';
 import { useGlobalClientPresence } from '@/lib/GlobalPresenceContext';
@@ -1361,7 +1361,11 @@ export default function PageClientMessages() {
       const msg = prev.find(m => m.id === msgId);
       if (!msg || msg.read_at) return prev;
       supabase.from('messages').update({ read_at: new Date().toISOString() })
-        .eq('id', msgId).then(() => { clearAppBadge(); });
+        // Ferme la notif du tiroir Android sans toucher au compteur : le vrai
+        // nombre de non-lus est recalculé par useUnreadMessagesCount via
+        // Realtime. Effacer la pastille ici supprimait aussi les notifications
+        // de la cloche encore en attente.
+        .eq('id', msgId).then(() => { dismissDrawerNotifications(); });
       return prev.map(m => m.id === msgId ? { ...m, read_at: new Date().toISOString() } : m);
     });
   }, [supabase]);

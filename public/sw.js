@@ -1,4 +1,4 @@
-// SW v10 — push + coquille hors ligne
+// SW v11 — push + coquille hors ligne + pastille persistante
 //
 // Strategie volontairement minimale, alignee sur les recommandations courantes :
 //   - navigations : RESEAU D'ABORD, repli sur /offline.html si le reseau echoue.
@@ -34,7 +34,7 @@ function swLog(event, data) {
 }
 
 self.addEventListener('install', e => {
-  swLog('install', { msg: 'SW v10 installing', ts: Date.now() });
+  swLog('install', { msg: 'SW v11 installing', ts: Date.now() });
   e.waitUntil(
     // L'ecran hors ligne doit etre en cache AVANT d'en avoir besoin : au moment
     // ou le reseau manque, il est trop tard pour le telecharger.
@@ -172,8 +172,16 @@ self.addEventListener('push', e => {
           // ignore setAppBadge et gère déjà un badge automatique via showNotification.
           if ('setAppBadge' in self.navigator) {
             try {
-              await self.navigator.setAppBadge(payload.unreadCount || 1);
-              swLog('badge_set', payload.unreadCount || 1);
+              // L'émetteur ne fournit pas de total (`unreadCount` n'est envoyé
+              // par aucune route) : on COMPTE donc les notifications encore
+              // présentes dans le tiroir plutôt que de poser 1 en dur. Poser 1
+              // écrasait la pastille à chaque push — cinq messages non lus
+              // affichaient « 1 », et la pastille semblait « oublier » ce qui
+              // s'était accumulé pendant l'absence.
+              const shown = await self.registration.getNotifications();
+              const count = payload.unreadCount || Math.max(shown.length, 1);
+              await self.navigator.setAppBadge(count);
+              swLog('badge_set', count);
             } catch (err) {
               swLog('badge_error', String(err));
             }

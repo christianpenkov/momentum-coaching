@@ -19,13 +19,19 @@ export async function POST(req: NextRequest) {
 
   const userId = user.id;
 
-  // Nettoyer les vieilles subscriptions du même profil (> 7 jours sans activité)
-  const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-  await supabase.from('push_subscriptions')
-    .delete()
-    .eq('profile_id', userId)
-    .neq('endpoint', subscription.endpoint)
-    .lt('created_at', cutoff);
+  // ⚠️ NE PAS purger ici les autres subscriptions du profil sur un critère d'âge.
+  //
+  // L'ancienne version supprimait toute subscription du même profil de plus de
+  // 7 jours dès qu'une AUTRE s'enregistrait. Deux effets, tous deux invisibles :
+  //   - `upsert` ne rafraîchit pas `created_at`, donc une subscription parfaitement
+  //     valide vieillissait indéfiniment et devenait éligible à la purge ;
+  //   - ouvrir l'app sur un second appareil (ou après réinstallation) détruisait
+  //     donc la subscription du téléphone principal. Plus aucun push n'y arrivait,
+  //     donc plus aucun `setAppBadge` : la pastille disparaissait pour de bon.
+  //
+  // Une subscription morte se signale toute seule : APNs/FCM répondent 404/410 au
+  // premier envoi et /api/push/send la supprime. C'est le SEUL critère fiable —
+  // l'âge n'en est pas un, un abonnement peut rester valide des mois.
 
   // Un endpoint (= un appareil/navigateur donné) ne doit être associé qu'à un seul
   // profil actif à la fois — sans ça, se connecter avec un autre compte sur le même
