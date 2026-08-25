@@ -21,8 +21,9 @@ Code concerné : `app/api/instagram/stats/route.ts:119`, `components/analytics/P
 > ⚠️ **Deux réponses de ce tableau ont été corrigées par la mesure le 2026-08-26.**
 > La rétention n'est pas de 90 jours mais de **2 ans** (l'API le dit dans son
 > message d'erreur), et la somme FOLLOWER + NON_FOLLOWER **est** exacte jusqu'à
-> 365 jours — au-delà, le breakdown se fige. Voir « Mesures du 2026-08-26 » en fin
-> de document, qui fait foi sur ces points.
+> **366 jours** — à partir de 367, le breakdown se fige et les pourcentages
+> deviennent faux sans aucune erreur. Voir « Mesures du 2026-08-26 » en fin de
+> document, qui fait foi sur ces points.
 
 ---
 
@@ -378,7 +379,33 @@ continue de croître. Toute fenêtre > 365 jours produit donc des pourcentages
 faux, sans aucune erreur d'API pour le signaler.
 
 **Règle à retenir : ne jamais demander `breakdown=follow_type` sur plus de
-365 jours.** Le code actuel demande 28 jours, il est donc sûr.
+366 jours.** Le code actuel demande 28 jours, il est donc sûr.
+
+#### Frontière localisée au jour près (2026-08-26)
+
+| Fenêtre | Total | Somme breakdown | Écart |
+|---|---|---|---|
+| 364 j | 813 | 821 | −8 |
+| 365 j | 825 | 832 | −7 |
+| 366 j | 971 | 971 | **0** |
+| **367 j** | **1 735** | **971** | **764** |
+| 368 j | 2 202 | 971 | 1 231 |
+| 375 j | 2 207 | 971 | 1 236 |
+
+La ventilation se fige à **971** à partir de 366 jours et n'évolue plus jamais,
+tandis que le total continue de croître. La dernière fenêtre exploitable est donc
+**366 jours**, et la première fausse **367**.
+
+Aucune erreur d'API n'accompagne ce décrochage — les pourcentages deviennent faux
+en silence.
+
+#### Toute fenêtre est acceptée, il n'y a pas de périodes imposées
+
+`since`/`until` sont deux dates libres (secondes Unix). Testé : 89, 90, 91, 92,
+120, 180 jours répondent tous normalement, avec des valeurs qui évoluent bien
+avec la fenêtre. `period=day` ne désigne pas la longueur demandée mais l'unité
+d'agrégation interne ; c'est `total_value` qui replie ensuite le tout en un seul
+chiffre dédupliqué.
 
 ### Aucune catégorie `UNKNOWN` observée
 
@@ -755,3 +782,34 @@ d'abonnement, ni un ratio de portée.** Rien à récupérer de ce côté.
 **Aucune source secondaire n'a été utilisée dans cette section.** Les quatre
 points marqués « non documenté » l'ont été après vérification négative sur les
 cinq pages ci-dessus.
+
+### Pourquoi un ratio résiste à la déduplication, mais pas un taux
+
+Mesure du 2026-08-26, 28 jours, un appel unique contre 28 appels d'un jour
+additionnés :
+
+| | Total | FOLLOWER | NON_FOLLOWER |
+|---|---|---|---|
+| 1 appel sur 28 j (dédupliqué) | 121 | 109 | 12 |
+| 28 appels d'1 j (cumulé) | 146 | 132 | 14 |
+| Écart | +21 % | +21 % | +17 % |
+
+**Les deux catégories sont touchées de la même façon** — la déduplication n'épargne
+pas les non-abonnés. Ce qui change, c'est ce qu'on en fait ensuite :
+
+| Indicateur | Dénominateur | Dédupliqué | Cumulé | Verdict |
+|---|---|---|---|---|
+| Reach Non-Followers | reach (gonfle aussi) | 9,9 % | 9,6 % | **stable** |
+| Followers reach rate | abonnés (fixe) | 43 % | 52 % | **fausse de 9 pts** |
+
+Quand numérateur et dénominateur gonflent ensemble, le gonflement s'annule dans la
+division. Quand le dénominateur est fixe (le nombre d'abonnés), il passe en entier
+dans le résultat.
+
+**Conséquence pratique** : le *Followers reach rate* doit impérativement rester sur
+la valeur dédupliquée de l'API. Avec du cumulé, un même abonné vu plusieurs fois est
+compté plusieurs fois et le taux peut dépasser 100 %, ce qui n'a aucun sens.
+
+Le *Reach Non-Followers*, lui, est indifférent à la méthode : il pourrait être
+alimenté depuis l'historique journalier déjà en base, sans appel supplémentaire, ce
+qui rendrait possible une courbe d'évolution.
