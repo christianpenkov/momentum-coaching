@@ -1930,10 +1930,17 @@ export default function PagePipeline() {
 
     if (modalCase === 'backward_from_post_call') {
       if (callId) {
-        await mutate(`/api/client/calls/${callId}`, {
-          method: 'DELETE',
-          erreur: "Le call n'a pas pu être supprimé.",
-        });
+        // Le serveur refuse ce recul quand l'appel porte un deal signé : reculer la
+        // carte supprimerait le call (ignored=true) et ferait disparaître le chiffre
+        // d'affaires des stats. On montre alors la même modale explicite que la
+        // suppression d'un prospect, et on n'avance pas — sinon la carte reculerait
+        // à l'écran alors que le call est toujours là en base.
+        const res = await fetch(`/api/client/calls/${callId}`, { method: 'DELETE' });
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          setDeleteError(data?.error ?? "Le call n'a pas pu être supprimé.");
+          return;
+        }
       }
       let bestStage: string;
       if (tab === 'ig') {
