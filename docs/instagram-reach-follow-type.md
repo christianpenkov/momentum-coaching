@@ -1218,3 +1218,83 @@ dépasser le nombre d'abonnés.
 | « la semaine d'il y a 6 semaines », « il y a 3 mois » | ✅ — `since`/`until` sont libres |
 | 90 j, 6 mois, 12 mois | ✅ |
 | **All-Time** | ❌ **pour la ventilation** — inexistante au-delà de ~12 mois |
+
+---
+
+## Faisabilité d'un historique par période — validé le 2026-08-26
+
+Tests menés pour valider une conception proposée par Chris : la période en cours
+se met à jour chaque jour, puis se fige une fois terminée.
+
+### La fenêtre qui grandit — validé
+
+| Fenêtre demandée | Total | FOLLOWER | NON_FOLLOWER |
+|---|---|---|---|
+| 1er → 1er août | 1 | 1 | 0 |
+| 1er → 13 août | 7 | 3 | 4 |
+| 1er → 20 août | 115 | 106 | 9 |
+| 1er → 26 août | 122 | 109 | 13 |
+
+### Le backfill rétroactif — validé
+
+Mois complets déjà terminés, interrogés aujourd'hui :
+
+| Mois | Total | FOLLOWER | NON_FOLLOWER |
+|---|---|---|---|
+| mai 2026 | 107 | 76 | 31 |
+| juin 2026 | 120 | 93 | 28 |
+| juillet 2026 | 143 | 103 | 41 |
+
+Les semaines ISO (lundi → dimanche) fonctionnent également. **Une journée manquée
+par le cron est donc rattrapable**, en rejouant l'appel sur les dates exactes —
+mais seulement dans la fenêtre de 12 mois où la ventilation existe.
+
+### Le nombre d'abonnés à une date passée — deux chemins
+
+`followers_count` est un instantané : l'API ne donne que la valeur du jour. Mais
+la métrique `follower_count` (insights, singulier) donne les **gains quotidiens**,
+ce qui permet de remonter le temps depuis la valeur actuelle.
+
+Reconstruction confrontée à `analytics_daily_snapshots.ig_followers` :
+**9 jours exacts sur 14, écart maximum 1 abonné** (0,4 % sur 255).
+
+En pratique la base historise déjà `ig_followers` (112 jours sur 112) ; la
+reconstruction n'est utile que pour un trou de collecte total.
+
+### Les valeurs ne dérivent pas après coup
+
+Reach journalier capté par le cron le jour même, comparé à ce que l'API répond
+aujourd'hui : **9 jours sur 9 identiques**. Figer en fin de période est donc
+fiable.
+
+⚠️ Mesuré sur un compte à faible volume. Non vérifié sur un compte très actif.
+
+### ⚠️ La journée de Meta ne commence pas à minuit Paris
+
+Les `end_time` renvoyés sont systématiquement à **07:00 UTC**, soit 09:00 à Paris
+en été — signature du fuseau Pacifique (minuit PDT = 07:00 UTC).
+
+Meta cale les bornes `since`/`until` sur ses propres journées. Impact mesuré sur
+juillet 2026 :
+
+| Convention de bornes | Total | FOLLOWER |
+|---|---|---|
+| minuit Paris | 143 | 103 |
+| minuit UTC | 143 | 103 |
+| 07:00 UTC (bascule Meta) | 144 | 104 |
+
+**Écart d'une unité sur 143** (0,7 %). Effet de bord réel mais négligeable ; il
+ne justifie pas de tordre les bornes de période, qui doivent rester lisibles pour
+le coach (un mois va du 1er au 31).
+
+### Le figeage n'est pas une optimisation, c'est une nécessité
+
+La ventilation disparaissant au-delà de ~12 mois, une stat de période non stockée
+devient **irrécupérable** un an plus tard. Le backfill est possible, mais lui
+aussi borné à 12 mois : passé ce délai, un trou est définitif.
+
+### Infrastructure existante
+
+`lib/period.ts:93` expose déjà `getPeriodWindow(periodIndex, 'week'|'month')`,
+qui rend `periodStart`, `periodEnd` et `isCurrentIncomplete` en heure de Paris.
+**Définition unique dans tout le dépôt** — aucune copie divergente à réconcilier.
