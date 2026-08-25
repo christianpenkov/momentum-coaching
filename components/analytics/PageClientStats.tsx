@@ -1504,8 +1504,17 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
           // Remplace « Abonnés nets », desormais en badge sur la carte Abonnés.
           { label: 'Vues du profil', value: fmt(igProfileViewsP), sub: igEtiquettePeriode, color: 'var(--ink)', key: 'Vues du profil' },
           { label: "Taux d'engagement", value: fmtPct(engRate), sub: 'interactions / reach', color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, key: "Taux d'engagement" },
-          { label: 'Followers reach rate', value: reachRate !== null ? fmtPct(reachRate) : 'N/D', sub: reachRate !== null ? 'abonnés uniques touchés / total' : 'seuil Meta non atteint', color: reachRate !== null ? 'var(--ink)' : 'var(--faint)', tooltip: 'Nombre réel de tes abonnés distincts touchés au moins une fois par tes contenus sur les 28 derniers jours (chaque abonné compté une seule fois, jamais deux fois même s\'il a vu plusieurs posts), rapporté à ton nombre total d\'abonnés. 100% = tous tes abonnés ont été atteints. Pas de détail jour par jour disponible (Meta ne fournit pas cette déduplication par jour, seulement sur la fenêtre totale).' },
-          { label: 'Reach Non-Followers', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'vues non-abonnés / total' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', tooltip: 'Part des vues venant de personnes qui ne te suivent pas encore. Plus c\'est élevé, plus ton contenu est découvert par de nouvelles personnes. Pas de détail jour par jour disponible (Meta ne fournit pas cette déduplication par jour, seulement sur la fenêtre totale).' },
+          // « / total » etait ambigu : on ne savait pas si le denominateur etait le
+          // reach ou le nombre d'abonnes. C'est le nombre d'ABONNES, la ou la carte
+          // voisine divise par le REACH — d'ou l'impression que les deux
+          // pourcentages devraient sommer a 100 % (question de Chris, 2026-08-26).
+          { label: 'Followers reach rate', value: reachRate !== null ? fmtPct(reachRate) : 'N/D', sub: reachRate !== null ? 'abonnés touchés / tous tes abonnés' : 'seuil Meta non atteint', color: reachRate !== null ? 'var(--ink)' : 'var(--faint)', tooltip: 'Nombre réel de tes abonnés distincts touchés au moins une fois par tes contenus sur les 28 derniers jours (chaque abonné compté une seule fois, jamais deux fois même s\'il a vu plusieurs posts), rapporté à ton nombre total d\'abonnés. 100% = tous tes abonnés ont été atteints. Pas de détail jour par jour disponible (Meta ne fournit pas cette déduplication par jour, seulement sur la fenêtre totale).' },
+          // Libelle et tooltip disaient « vues » alors que le calcul porte sur le
+          // REACH (comptes uniques), choix delibere documente ligne ~1315. L'ecart
+          // n'est pas cosmetique : mesure le 2026-08-26 sur le compte de test,
+          // 53 % sur les vues contre 9,9 % sur le reach. Un utilisateur qui
+          // recoupait avec Instagram trouvait 53 % et croyait la plateforme fausse.
+          { label: 'Reach Non-Followers', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'comptes non-abonnés / reach' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', tooltip: 'Part des comptes touchés qui ne te suivent pas encore. Chaque compte est compté une seule fois, même s\'il a vu plusieurs contenus — c\'est donc une part de personnes, pas de vues. Plus c\'est élevé, plus ton contenu sort de ton audience existante. Pas de détail jour par jour disponible (Meta ne fournit cette déduplication que sur la fenêtre totale).' },
         ].map(s => (
           <div key={s.label}
             onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined}

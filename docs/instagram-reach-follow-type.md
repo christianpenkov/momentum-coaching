@@ -16,7 +16,13 @@ Code concerné : `app/api/instagram/stats/route.ts:119`, `components/analytics/P
 | 2 | Périodes valides pour `reach` | **`day` uniquement** dans la doc actuelle. `week` / `days_28` ne sont plus listés nulle part sur les pages de référence à jour. |
 | 3 | Combinaisons breakdown × période | `metric_type=total_value` est **obligatoire** pour obtenir un breakdown. `since`/`until` sont **optionnels** — mais leur absence déclenche un repli à 24 h. Aucune limite de plage documentée pour `reach`. |
 | 4 | Autres breakdowns | `media_product_type`, `contact_button_type`, plus `age`/`city`/`country`/`gender` sur les métriques démographiques. |
-| 5 | Pièges 2025-2026 | Rétention 90 j (métriques compte), latence 48 h, seuil des 100 abonnés, et le fait qu'une donnée absente revient en **jeu vide plutôt qu'en `0`**. |
+| 5 | Pièges 2025-2026 | Latence 48 h, seuil des 100 abonnés, et le fait qu'une donnée absente revient en **jeu vide plutôt qu'en `0`**. |
+
+> ⚠️ **Deux réponses de ce tableau ont été corrigées par la mesure le 2026-08-26.**
+> La rétention n'est pas de 90 jours mais de **2 ans** (l'API le dit dans son
+> message d'erreur), et la somme FOLLOWER + NON_FOLLOWER **est** exacte jusqu'à
+> 365 jours — au-delà, le breakdown se fige. Voir « Mesures du 2026-08-26 » en fin
+> de document, qui fait foi sur ces points.
 
 ---
 
@@ -304,3 +310,79 @@ Si la somme des catégories du premier est inférieure au `total_value` du secon
 ### Sources secondaires (citées comme telles, non probantes)
 
 - Supermetrics / Power My Analytics — écarts observés entre reach total et somme des ventilations. Aucune confirmation Meta.
+
+---
+
+## Mesures du 2026-08-26 — ce que l'API fait vraiment
+
+Tests directs sur le compte `chris.pkv` (255 abonnés), en réponse à la question
+« pourquoi 43 et 12, y a-t-il 45 % d'inconnus ? ».
+
+### Les deux cartes de l'écran n'ont pas le même dénominateur
+
+| Carte | Calcul | Sur ce compte |
+|---|---|---|
+| Followers reach rate | abonnés touchés ÷ **nombre total d'abonnés** | 109 ÷ 255 = **43 %** |
+| Reach Non-Followers | non-abonnés ÷ **reach total** | 12 ÷ 121 = **10 %** |
+
+**Elles ne somment donc pas à 100 %, et ne le doivent pas.** Les 57 % qui semblent
+manquer sur la première sont les 146 abonnés non touchés (255 − 109), pas une
+catégorie `UNKNOWN`.
+
+Les libellés induisaient en erreur et ont été corrigés : « / total » ne disait pas
+quel total, et « vues non-abonnés » annonçait les vues alors que le calcul porte
+sur le reach.
+
+### Reach et vues divergent fortement — ne jamais confondre
+
+Même fenêtre de 28 jours, même breakdown :
+
+| Métrique | Total | FOLLOWER | NON_FOLLOWER | Part non-abonnés |
+|---|---|---|---|---|
+| `reach` (comptes uniques) | 121 | 109 | 12 | **9,9 %** |
+| `views` (revisionnages inclus) | 485 | 228 | 257 | **53 %** |
+
+Un facteur 5 entre les deux lectures. L'écran affiche le reach ; c'est un choix
+délibéré (cohérence avec le graphique voisin), mais il doit être **dit**.
+
+### Fenêtres acceptées
+
+`period=day` avec `since`/`until` fonctionne de 7 jours à 2 ans. Au-delà :
+`"since param is not valid. Metrics data is available for the last 2 years"`.
+
+La rétention réelle est donc de **2 ans**, et non de 90 jours comme le laissait
+supposer la lecture de la doc (§5 plus haut) — corrigé ici par la mesure.
+
+Une fenêtre d'**une seule journée** renvoie `total=0` et aucun breakdown : trop
+courte pour être exploitable.
+
+### ⚠️ Le breakdown a sa propre limite, plus courte que le total
+
+C'est le piège majeur, et il produit exactement l'impression de « part inconnue ».
+
+| Fenêtre | Total | Somme du breakdown | Écart |
+|---|---|---|---|
+| 28 j | 123 | 123 | 0 % |
+| 90 j | 211 | 213 | −0,9 % |
+| 180 j | 271 | 275 | −1,5 % |
+| 365 j | 825 | 832 | −0,8 % |
+| **370 j** | **2 202** | **971** | **56 %** |
+| 400 j | 2 231 | 971 | 56 % |
+
+Jusqu'à **365 jours**, l'écart reste sous 1,5 % — bruit d'arrondi, parfois négatif
+(la ventilation dépasse le total, car Meta déduplique chaque catégorie
+indépendamment).
+
+Au-delà, **la ventilation se fige à 971** et n'évolue plus, pendant que le total
+continue de croître. Toute fenêtre > 365 jours produit donc des pourcentages
+faux, sans aucune erreur d'API pour le signaler.
+
+**Règle à retenir : ne jamais demander `breakdown=follow_type` sur plus de
+365 jours.** Le code actuel demande 28 jours, il est donc sûr.
+
+### Aucune catégorie `UNKNOWN` observée
+
+Sur toutes les fenêtres testées (7 j à 2 ans), seules `FOLLOWER` et
+`NON_FOLLOWER` sont renvoyées. L'énumération Meta prévoit `UNKNOWN` mais elle ne
+sort pas ici. Le code la trace désormais dans `webhook_debug_log` si elle
+apparaît, plutôt que de l'avaler en silence.
