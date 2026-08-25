@@ -875,16 +875,13 @@ interface ConfirmMoveModalProps {
   onCancel: () => void;
 }
 
-const PRE_CALL_STAGE_LABELS: Record<string, string> = {
-  lm_sent:       'LM reçu',
-  in_convo:      'En conversation',
-  calendly_sent: 'Calendly envoyé',
-  link_clicked:  'Lien cliqué',
-};
-
 function getResetDescription(targetStage: string, currentStage: string, hasCall: boolean): string[] {
   const items: string[] = [];
-  const stages = ['lm_sent', 'in_convo', 'calendly_sent', 'link_clicked'];
+  // Même ordre que IG_PRE_CALL côté serveur (reset/route.ts) — cold_dm inclus,
+  // sinon indexOf renvoie -1 et la liste ne tient que par accident (-1 est
+  // inférieur à tout). Un recul vers Cold DM efface les mêmes signaux qu'un
+  // recul vers LM reçu : tout ce qui est devant lui.
+  const stages = ['cold_dm', 'lm_sent', 'in_convo', 'calendly_sent', 'link_clicked'];
   const targetIdx = stages.indexOf(targetStage);
 
   if (targetIdx < stages.indexOf('in_convo')) {
