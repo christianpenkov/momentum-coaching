@@ -116,7 +116,21 @@ export async function GET(request: Request) {
     // Verifie contre l'API le 2026-08-22, meme requete avec les bornes :
     //   sans since/until : { NON_FOLLOWER: 1 }          -> 0 %
     //   avec since/until : { FOLLOWER: 121, NON_FOLLOWER: 14 } -> 48 %
-    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach&period=days_28&metric_type=total_value&breakdown=follow_type&since=${since}&until=${until}&access_token=${token}`),
+    //
+    // `period=day` et non `days_28` (corrige le 2026-08-25). La doc Meta ne liste
+    // plus que `day` pour `reach` ; `days_28` etait accepte en silence et Meta
+    // repondait quand meme `period: day`. Teste cote a cote le meme jour : les deux
+    // formes renvoient exactement le meme resultat, donc la correction ne change
+    // aucun chiffre — elle supprime seulement une dependance a une tolerance non
+    // documentee, qui peut devenir une erreur dure sans preavis.
+    //
+    // Ce sont `since`/`until` qui font le travail, pas la periode : sans bornes,
+    // Meta applique un repli documente a 24 h (« If you do not include these
+    // parameters, the API will look back 24 hours »).
+    //
+    // Les deux autres copies de cet appel (poll-leads, lib/ig-fetch) utilisaient
+    // deja `period=day` — celle-ci etait la seule divergente.
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach&period=day&metric_type=total_value&breakdown=follow_type&since=${since}&until=${until}&access_token=${token}`),
     dbSnapshotsPromise,
     dbPostsPromise,
   ]);

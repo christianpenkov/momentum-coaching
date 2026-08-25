@@ -274,6 +274,27 @@ async function fetchIgDayMetrics(token: string, igAccountId: string, date: strin
       const cle = r.dimension_values?.[0];
       if (cle === 'FOLLOWER') reachFollower += r.value ?? 0;
       else if (cle === 'NON_FOLLOWER') reachNonFollower += r.value ?? 0;
+      // L'enumeration `follow_type` de Meta compte une TROISIEME valeur, `UNKNOWN`,
+      // pour les comptes dont le statut d'abonnement n'a pas pu etre etabli.
+      //
+      // Elle n'apparait pas sur les comptes testes (verifie le 2026-08-25 : reach
+      // total 121 sans breakdown = 109 FOLLOWER + 12 NON_FOLLOWER, somme exacte),
+      // et Meta omet une categorie vide au lieu de renvoyer 0. Mais si elle sort un
+      // jour sur un autre compte, l'ancien `else if` l'avalait en silence : les deux
+      // colonnes ne sommaient plus au reach total et les pourcentages affiches ne
+      // faisaient plus 100 %, sans que rien ne le signale.
+      //
+      // On la trace au lieu de l'inventer : pas de colonne dediee tant qu'on n'a pas
+      // constate un seul cas reel, mais l'anomalie devient visible.
+      //
+      // Ecrit en base et non dans les logs (ceux-ci ne sont lus par personne et ne
+      // survivent pas a la retention) — meme raison que pour `cron_runs`.
+      else if (cle && (r.value ?? 0) > 0) {
+        await supa.from('webhook_debug_log').insert({
+          message: 'reach follow_type inattendu',
+          data: { ig_account_id: igAccountId, date, dimension: cle, valeur: r.value },
+        });
+      }
     }
   }
   // engagedData contient 2 métriques distinctes (accounts_engaged ET total_interactions)
