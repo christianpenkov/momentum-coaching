@@ -11,7 +11,7 @@ import Avatar, { getInitials } from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { useLongPress } from '@/lib/useLongPress';
-import { clearAppBadge } from '@/lib/pwaBadge';
+import { dismissDrawerNotifications } from '@/lib/pwaBadge';
 import { logAudio } from '@/lib/audioDebug';
 import fixWebmDuration from 'fix-webm-duration';
 import { useGlobalCoachPresence } from '@/lib/GlobalPresenceContext';
@@ -950,7 +950,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
           <>
             <div style={{ borderRadius: 10, overflow: 'hidden', minWidth: 220, maxWidth: 280, background: isMe ? 'rgba(255,255,255,0.10)' : 'var(--surface-2)' }}>
               {msg.thumbnail_url ? (
-                <img src={msg.thumbnail_url} alt="" style={{ width: '100%', height: 140, objectFit: 'cover', objectPosition: 'top', display: 'block', borderBottom: '1px solid var(--border-soft)' }} />
+                <img loading="lazy" decoding="async" src={msg.thumbnail_url} alt="" style={{ width: '100%', height: 140, objectFit: 'cover', objectPosition: 'top', display: 'block', borderBottom: '1px solid var(--border-soft)' }} />
               ) : getFileExt(msg.text || '').toLowerCase() === 'pdf' ? (
                 <div style={{ background: '#fff', height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid var(--border-soft)' }}>
                   <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
@@ -1220,7 +1220,11 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
       const msg = prev.find(m => m.id === msgId);
       if (!msg || msg.read_at) return prev;
       supabase.from('messages').update({ read_at: new Date().toISOString(), read: true })
-        .eq('id', msgId).then(() => { clearAppBadge(); });
+        // Ferme la notif du tiroir Android sans toucher au compteur : le vrai
+        // nombre de non-lus est recalculé par useUnreadMessagesCount via
+        // Realtime. Effacer la pastille ici supprimait aussi les notifications
+        // de la cloche encore en attente.
+        .eq('id', msgId).then(() => { dismissDrawerNotifications(); });
       return prev.map(m => m.id === msgId ? { ...m, read_at: new Date().toISOString() } : m);
     });
   }, [supabase]);

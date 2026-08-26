@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Icon from '@/components/ui/Icon';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
@@ -35,6 +36,7 @@ function LoadingDots() {
 
 export default function PageClientSettings() {
   const supabase = createClient();
+  const searchParams = useSearchParams();
   const { refreshUser } = useUser();
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -105,6 +107,34 @@ export default function PageClientSettings() {
     setTimeout(() => setToast(null), 3000);
   }
 
+  // Confirmation apres un retour de connexion OAuth.
+  //
+  // Le callback renvoie deja `?connected=<provider>` (ou `?error=`), mais seule la
+  // page coach l'exploitait : cote eleve, on revenait sur les Reglages sans le moindre
+  // signe que la connexion avait abouti. Rien ne distinguait un succes d'un abandon
+  // (demande de Chris, 2026-08-22).
+  useEffect(() => {
+    const connected = searchParams.get('connected');
+    const erreur = searchParams.get('error');
+    if (!connected && !erreur) return;
+
+    if (connected) {
+      const nom = INTEGRATIONS.find(i => i.provider === connected)?.name || connected;
+      showToast(`${nom} connecté avec succès ✓`);
+    }
+    if (erreur) showToast(`Erreur de connexion (${erreur})`);
+
+    // Retire le parametre de l'URL une fois le message affiche.
+    //
+    // Sans ca il y reste : chaque rafraichissement de la page rejoue « connecte avec
+    // succes », et l'URL partagee ou mise en favori porte une confirmation qui n'a plus
+    // de sens (signale par Chris le 2026-08-22).
+    //
+    // replaceState plutot que router.replace : on remplace l'entree d'historique sans
+    // declencher de nouvelle navigation, donc sans re-rendu ni requete.
+    window.history.replaceState({}, '', window.location.pathname);
+  }, [searchParams]);
+
   async function saveKey(provider: Provider) {
     if (!profileId || !keyInput.trim()) return;
     setKeyError(null);
@@ -138,14 +168,27 @@ export default function PageClientSettings() {
 
     const { data: existing } = await supabase.from('integrations').select('id, first_connected_at').eq('profile_id', profileId).eq('provider', provider).single();
     const connectedNow = new Date().toISOString();
-    if (existing) {
-      await supabase.from('integrations').update({
-        api_key: key, account_label: label, metadata, connected_at: connectedNow,
-        first_connected_at: existing.first_connected_at || connectedNow,
-        ...clearOauth,
-      }).eq('id', existing.id);
-    } else {
-      await supabase.from('integrations').insert({ profile_id: profileId, provider, api_key: key, account_label: label, metadata, first_connected_at: connectedNow });
+    // L'ecriture est VERIFIEE avant d'annoncer « Connecte ».
+    //
+    // Avant, ni l'update ni l'insert ne regardaient leur erreur : une ecriture refusee
+    // (RLS, contrainte, coupure reseau) laissait quand meme l'ecran basculer en
+    // « Connecte ». L'eleve croyait son compte branche alors que la ligne etait
+    // incomplete ou absente, et le cron le sautait en silence.
+    //
+    // Constate le 2026-08-22 sur un profil dont les lignes Instagram et Short.io
+    // existaient sans aucun identifiant, tout en affichant « Connecte ».
+    const { error: ecritureErr } = existing
+      ? await supabase.from('integrations').update({
+          api_key: key, account_label: label, metadata, connected_at: connectedNow,
+          first_connected_at: existing.first_connected_at || connectedNow,
+          ...clearOauth,
+        }).eq('id', existing.id)
+      : await supabase.from('integrations').insert({ profile_id: profileId, provider, api_key: key, account_label: label, metadata, first_connected_at: connectedNow });
+
+    if (ecritureErr) {
+      setSaving(false);
+      setKeyError(`Enregistrement impossible : ${ecritureErr.message}`);
+      return;
     }
 
     setIntegrations(prev => ({ ...prev, [provider]: true }));
@@ -228,11 +271,17 @@ export default function PageClientSettings() {
 
   return (
     <div className="page-content">
-      {toast && (
-        <div className="settings-toast" style={{ position: 'fixed', top: 20, right: 20, zIndex: 9999, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 18px', fontSize: 13, color: 'var(--accent)', boxShadow: 'var(--shadow-elev)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Icon name="check" size={14} /> {toast}
-        </div>
-      )}
+      {/* Vert sur un succes, rouge sur une erreur : le fond neutre ne distinguait pas
+          « Instagram connecte » d'« Erreur de connexion », alors que les deux passent
+          par ce meme bandeau. */}
+      {toast && (() => {
+        const estErreur = /erreur|impossible|invalide|échec/i.test(toast);
+        return (
+          <div className="settings-toast" style={{ position: 'fixed', top: 20, right: 20, zIndex: 9999, background: estErreur ? '#fef2f2' : '#f0fdf4', border: `1px solid ${estErreur ? '#fca5a5' : '#86efac'}`, borderRadius: 10, padding: '12px 18px', fontSize: 13, fontWeight: 600, color: estErreur ? '#b91c1c' : '#15803d', boxShadow: 'var(--shadow-elev)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Icon name={estErreur ? 'x' : 'check'} size={14} /> {toast}
+          </div>
+        );
+      })()}
 
       <div className="page-header">
         <h1 className="page-title">Réglages</h1>
@@ -391,6 +440,29 @@ export default function PageClientSettings() {
                   </div>
                 )}
 
+                {/* Parcours Google (YouTube, Google Calendar) : tant que l'application
+                    n'est pas validee par Google, la connexion passe par un ecran
+                    d'avertissement — triangle rouge, « Google n'a pas valide cette
+                    application », et un gros bouton bleu « Revenir en lieu sur ». Le lien
+                    qui permet de continuer est cache derriere « Parametres avances » et
+                    porte la mention « (non securise) ». Sans explication, on abandonne la.
+
+                    Le texte vit dans integrationConfig.ts, partage avec le wizard
+                    d'onboarding : l'ecrire deux fois garantirait qu'une des deux copies
+                    finisse par diverger. */}
+                {(cfg.provider === 'youtube' || cfg.provider === 'google') && !integrations[cfg.provider] && (
+                  <div style={{ padding: '0 20px 14px' }}>
+                    <div style={{ padding: '10px 14px', background: 'var(--surface-2)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 11, color: 'var(--muted)', lineHeight: 1.6 }}>
+                      <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>
+                        Google affichera un avertissement — c’est normal
+                      </div>
+                      {cfg.instructions.map((step, i) => (
+                        <div key={i} style={{ marginTop: i === 0 ? 2 : 3 }}>{step.text}</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* mode !== 'oauth' : un provider OAuth pur n'a pas de champ clé
                     à proposer. Garde identique à la page coach. */}
                 {isEditing && cfg.mode !== 'oauth' && (
@@ -426,16 +498,12 @@ export default function PageClientSettings() {
                         <div>3. Colle le token ci-dessous</div>
                       </div>
                     )}
-                    {cfg.provider === 'youtube' && (
-                      <div style={{ margin: '12px 0 10px', padding: '10px 14px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.8 }}>
-                        <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>Comment obtenir ta clé YouTube :</div>
-                        <div>1. Va sur →{' '}
-                          <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>console.cloud.google.com/apis/credentials</a>
-                        </div>
-                        <div>2. Crée une clé API → active l'API YouTube Data v3</div>
-                        <div>3. Colle la clé (<code>AIza...</code>) ci-dessous</div>
-                      </div>
-                    )}
+                    {/* (Le bloc « Comment obtenir ta clé YouTube » qui était ici décrivait
+                        une clé API console.cloud.google.com. C'était du code MORT : la
+                        condition parente exige `cfg.mode !== 'oauth'` et YouTube est en
+                        OAuth, donc il ne s'affichait jamais. Il décrivait en plus un
+                        parcours qui n'existe plus. Le vrai avertissement Google est
+                        affiché plus bas, hors de cette condition.) */}
 
                     {cfg.provider === 'shortio' && (
                       <div style={{ margin: '12px 0 10px', padding: '10px 14px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.8 }}>

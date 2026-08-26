@@ -5,6 +5,7 @@ import { LazyMotion, domAnimation, m, useReducedMotion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@/lib/UserContext';
+import { mutate } from '@/lib/mutate';
 import { createClient } from '@/lib/supabase/client';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import ModalShell from '@/components/ui/ModalShell';
@@ -464,10 +465,15 @@ function ModalParametres({ open, onClose, profileId, activeDomain, domainsLoaded
                                 <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
                                   {/* Cas 2 — supprimer le lien bio */}
                                   <button onClick={async () => {
-                                    await fetch('/api/client/lead-magnets', {
+                                    // L'ecran n'est mis a jour que si le serveur a
+                                    // confirme : sinon le lien disparaissait de
+                                    // l'affichage tout en restant en base.
+                                    const ok = await mutate('/api/client/lead-magnets', {
                                       method: 'PATCH', headers: { 'content-type': 'application/json' },
                                       body: JSON.stringify({ id: lm.id, [`bio_${p}_url`]: null, [`bio_${p}_source_url`]: null }),
+                                      erreur: "Le lien n'a pas pu être supprimé.",
                                     });
+                                    if (!ok) return;
                                     setLmBioUrls(prev => ({ ...prev, [lm.id]: { ...prev[lm.id], [p]: undefined } }));
                                     onLmUpdated({ ...lm, [`bio_${p}_url`]: null, [`bio_${p}_source_url`]: null });
                                   }} style={{ padding: '4px 8px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'none', color: RED, cursor: 'pointer', whiteSpace: 'nowrap' }}>
@@ -1193,18 +1199,6 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
     setSeqError(null);
   }, [post.id]);
 
-  if (isYT) return (
-    <div style={{ background: SURFACE2, borderRadius: 10, padding: '16px', display: 'flex', gap: 12 }}>
-      <span style={{ fontSize: 20, flexShrink: 0 }}>ℹ️</span>
-      <div>
-        <div style={{ fontSize: 12, fontWeight: 700, color: INK, marginBottom: 4 }}>Non disponible sur YouTube</div>
-        <div style={{ fontSize: 12, color: MUTED, lineHeight: 1.6 }}>
-          Les lead magnets par mot-clé nécessitent de pouvoir contacter les viewers en DM automatique, ce qui n'est pas possible sur YouTube.<br /><br />
-          Pour tracker ton trafic YouTube, utilise le <strong>Lien description</strong>.
-        </div>
-      </div>
-    </div>
-  );
 
   const saveMessage = async (msg: string) => {
     setSavingMsg(true);
@@ -1243,10 +1237,16 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
         if (res.ok && saved.lead_magnet) { onLmCreated(saved.lead_magnet); resolvedLmId = saved.lead_magnet.id; }
       }
       // Sauvegarder dans content_links
-      await fetch('/api/client/content-links', {
+      // Le try/catch englobant ne suffit pas : `fetch` ne leve pas sur un
+      // statut 4xx/5xx, seulement sur une erreur reseau. Sans cette
+      // verification, une sauvegarde refusee par le serveur affichait quand
+      // meme le lien comme configure.
+      const savedOk = await mutate('/api/client/content-links', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ content_id: post.id, platform: post.platform, lm_id: resolvedLmId || null, lm_short_url: shortUrl, lm_url: lmUrl || null, lm_keyword: keyword, dm_opener_message: dmMessage || null, dm_lm_message: seq.accroche || null, dm_button_text: seq.accrocheBtn || null }),
+        erreur: "La configuration n'a pas pu être enregistrée.",
       });
+      if (!savedOk) { setLoading(false); return; }
       setResult(shortUrl);
       // La relance saisie ici devient la valeur de référence : sinon la barre
       // d'enregistrement annoncerait une modification en attente juste après avoir
@@ -1353,6 +1353,27 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
     return () => { unsavedGuard?.registerSaveAll(null); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seq, seqRef, nbModifs]);
+
+  // Le retour « Non disponible sur YouTube » etait place TOUT EN HAUT du composant,
+  // avant 25 hooks (22 useState et 3 useEffect). Sur un contenu YouTube, ces hooks
+  // n'etaient donc pas executes : le nombre de hooks changeait d'un rendu a l'autre
+  // en passant de YouTube a Instagram, et React levait l'erreur #300.
+  //
+  // Deplace ici, apres tous les hooks : la sortie est identique pour l'utilisateur,
+  // mais le composant execute toujours le meme nombre de hooks. Meme defaut que celui
+  // corrige dans PageClientStats et ModalShell le 2026-08-21.
+  if (isYT) return (
+    <div style={{ background: SURFACE2, borderRadius: 10, padding: '16px', display: 'flex', gap: 12 }}>
+      <span style={{ fontSize: 20, flexShrink: 0 }}>ℹ️</span>
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 700, color: INK, marginBottom: 4 }}>Non disponible sur YouTube</div>
+        <div style={{ fontSize: 12, color: MUTED, lineHeight: 1.6 }}>
+          Les lead magnets par mot-clé nécessitent de pouvoir contacter les viewers en DM automatique, ce qui n'est pas possible sur YouTube.<br /><br />
+          Pour tracker ton trafic YouTube, utilise le <strong>Lien description</strong>.
+        </div>
+      </div>
+    </div>
+  );
 
   if ((result || isExisting) && !editing) return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -2456,7 +2477,7 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ width: 38, height: 38, borderRadius: 7, background: SURFACE2, flexShrink: 0, overflow: 'hidden' }}>
             {primary.thumbnail
-              ? <img src={primary.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ? <img loading="lazy" decoding="async" src={primary.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={MUTED} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
                 </div>
@@ -2483,7 +2504,7 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
               return (
                 <div key={s.id} style={{ position: 'relative' }}>
                   <div onClick={() => onNavigateStory(s)} style={{ width: thumbSize, height: thumbSize, borderRadius: 5, overflow: 'hidden', cursor: 'pointer', border: s.id === primary.id ? `2px solid ${BLUE}` : `1px solid ${BORDER}`, background: SURFACE2, flexShrink: 0 }}>
-                    {s.thumbnail && <img src={s.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                    {s.thumbnail && <img loading="lazy" decoding="async" src={s.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
                   </div>
                   <button onClick={() => removeStory(s.id)} title="Retirer de la séquence" style={{ position: 'absolute', top: -6, right: -6, width: closeSize, height: closeSize, borderRadius: '50%', border: 'none', background: '#d32f2f', color: '#fff', fontSize: isMobile ? 12 : 9, lineHeight: `${closeSize}px`, textAlign: 'center', cursor: 'pointer', padding: 0 }}>×</button>
                 </div>
@@ -2503,7 +2524,7 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
                     width: 28, height: 28, borderRadius: 5, overflow: 'hidden', border: `1px solid ${BORDER}`, background: SURFACE2,
                     cursor: s.wouldViolateContiguity ? 'not-allowed' : 'pointer', opacity: s.wouldViolateContiguity ? 0.35 : 1, flexShrink: 0,
                   }}>
-                    {s.thumbnail && <img src={s.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                    {s.thumbnail && <img loading="lazy" decoding="async" src={s.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
                   </div>
                 ))}
               </div>
@@ -2821,17 +2842,31 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
         utmTerm: username,
         path: `prendre-rdv-${us}`,
       });
-      setResult(shortUrl);
-      // Sauvegarde en DB
+      // Le lien n'est affiché qu'une fois ENREGISTRÉ, jamais avant.
+      //
+      // Il existe déjà chez Short.io à ce stade : l'afficher tout de suite serait
+      // tentant, mais un lien absent de prospect_links est un lien orphelin —
+      // Short.io compte les clics, Momentum ne les rattache à personne. Le lead
+      // resterait bloqué en amont du pipeline alors qu'il a cliqué, sans que rien
+      // ne le signale. Un lien non enregistré est donc pire qu'un lien manquant :
+      // on l'envoie en croyant qu'il est tracké.
       const res = await fetch('/api/client/prospect-links', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ig_username: username, short_url: shortUrl, content_id: resolvedPostId || null }),
       });
-      const saved = await res.json();
+      const saved = await res.json().catch(() => null);
+      if (!res.ok || !saved?.link) {
+        throw new Error(
+          saved?.error
+            ? `Le lien n'a pas pu être enregistré (${saved.error}). Réessaie — ne l'envoie pas tant qu'il n'apparaît pas ici.`
+            : "Le lien n'a pas pu être enregistré. Réessaie — ne l'envoie pas tant qu'il n'apparaît pas ici."
+        );
+      }
+      setResult(shortUrl);
       // Un lien qui vient d'être créé n'a par définition aucun clic : le POST ne
       // renvoie pas ce champ, on le pose ici plutôt que de recharger la liste.
-      if (saved.link) setHistory(prev => [{ ...saved.link, clicks: 0 }, ...prev]);
+      setHistory(prev => [{ ...saved.link, clicks: 0 }, ...prev]);
     } catch (e: any) { setError(e.message); } finally { setLoading(false); }
   };
 
@@ -3161,7 +3196,11 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
                   if (!target) return;
                   setDeletingId(target.id);
                   try {
-                    await fetch(`/api/client/prospect-links?id=${target.id}`, { method: 'DELETE' });
+                    const ok = await mutate(`/api/client/prospect-links?id=${target.id}`, {
+                      method: 'DELETE',
+                      erreur: "Le lien n'a pas pu être supprimé.",
+                    });
+                    if (!ok) return;
                     setHistory(prev => prev.filter(x => x.id !== target.id));
                     setDeleteTarget(null);
                   } finally { setDeletingId(null); }
@@ -3885,7 +3924,7 @@ function VignetteContenu({ post, size, hauteur }: { post: Post; size: number; ha
   return (
     <div title={mediaPerdu ? 'Aperçu indisponible — Instagram n’a pas fourni le média avant l’expiration de la story' : undefined} style={{ position: 'relative', width: size, height: h, borderRadius: size >= 44 ? 8 : 6, background: SURFACE2, flexShrink: 0 }}>
       {post.thumbnail
-        ? <img src={post.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'inherit' }} />
+        ? <img loading="lazy" decoding="async" src={post.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'inherit' }} />
         : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: mediaPerdu ? 0.5 : 1 }}>{icon}</div>}
       {nbStories > 1 && (
         <span style={{
@@ -4673,10 +4712,13 @@ export default function PageLiens() {
   // celles publiées depuis le dernier passage du cron. Appelé depuis les deux
   // rendus (mobile et desktop), d'où l'extraction.
   const refreshStories = async () => {
-    await fetch('/api/client/stories/live-refresh', {
+    // `mutate` et non `fetch` : fetch ne lève pas sur un 4xx/5xx, l'échec
+    // passait donc inaperçu et la liste semblait simplement ne rien trouver.
+    await mutate('/api/client/stories/live-refresh', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ profileId }),
+      erreur: "Les stories n'ont pas pu être actualisées.",
     });
     queryClient.invalidateQueries({ queryKey: ['stories', profileId] });
   };

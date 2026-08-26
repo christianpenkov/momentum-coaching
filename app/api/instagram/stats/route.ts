@@ -33,13 +33,86 @@ export async function GET(request: Request) {
 
   const { token, igAccountId } = creds;
 
-  const since = Math.floor((Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000);
-  const until = Math.floor(Date.now() / 1000);
+  // ⚠️ Plafond dur pour toute requete portant un `breakdown` (voir
+  // docs/instagram-reach-follow-type.md). La ventilation follow_type n'existe que
+  // sur ~12 mois glissants, alors que le reach total remonte a 2 ans : au-dela,
+  // Meta totalise toute la fenetre mais ne ventile que la partie recente qu'il
+  // detient encore, SANS aucune erreur.
+  //
+  // Mesure du 2026-08-26 : a 729 jours, total 12 732 contre 973 ventiles, soit
+  // 93 % d'ecart. La ventilation est strictement constante de 400 a 729 jours.
+  //
+  // La fenetre est aujourd'hui figee a 30 jours, donc sans risque. Cette constante
+  // existe pour le jour ou elle deviendra dynamique : elle rend la faute
+  // impossible plutot que de compter sur la vigilance.
+  const MAX_JOURS_BREAKDOWN = 366;
+
+  // Fenetre demandee par l'appelant. 30 jours par defaut — c'etait la seule
+  // valeur possible avant le 2026-08-26, et les trois autres appelants de cette
+  // route ne passent pas le parametre, donc leur comportement ne change pas.
+  //
+  // L'ecran Mes Stats passe 365 en mode All-Time : la ventilation abonnes /
+  // non-abonnes n'existe que sur ~12 mois glissants, alors que le reach total
+  // remonte a 2 ans. Au-dela, Meta totalise toute la fenetre mais ne ventile que
+  // la partie recente, SANS erreur — 93 % d'ecart mesure a 729 jours.
+  //
+  // Le clamp n'est donc pas defensif au sens habituel : il empeche d'afficher un
+  // pourcentage faux. Voir docs/instagram-reach-follow-type.md.
+  const fenetreDemandee = Number(searchParams.get('fenetre'));
+  const JOURS_FENETRE = Number.isFinite(fenetreDemandee) && fenetreDemandee > 0
+    ? Math.min(Math.floor(fenetreDemandee), MAX_JOURS_BREAKDOWN)
+    : 30;
+
+  // Bornes explicites (`?debut=&fin=` en AAAA-MM-JJ) — ajoutees le 2026-08-26 pour
+  // que les cartes de portee suivent la periode choisie a l'ecran, y compris une
+  // periode PASSEE (« M−2 », « la semaine d'il y a 6 semaines »).
+  //
+  // `fenetre` seul ne pouvait exprimer qu'une fenetre glissante finissant
+  // aujourd'hui : impossible de demander « aout 2026 » une fois septembre commence.
+  //
+  // Le plafond de 366 jours s'applique aussi ici, et la fin est bornee a maintenant
+  // (Meta n'a rien a dire du futur).
+  const debutParam = searchParams.get('debut');
+  const finParam = searchParams.get('fin');
+  const bornesValides = (s: string | null) => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
+
+  let since: number, until: number;
+  if (bornesValides(debutParam) && bornesValides(finParam)) {
+    const d = Math.floor(new Date(`${debutParam}T00:00:00Z`).getTime() / 1000);
+    const f = Math.min(
+      Math.floor(new Date(`${finParam}T23:59:59Z`).getTime() / 1000),
+      Math.floor(Date.now() / 1000),
+    );
+    const maxSecondes = MAX_JOURS_BREAKDOWN * 24 * 60 * 60;
+    since = Math.max(d, f - maxSecondes);
+    until = f > since ? f : since + 24 * 60 * 60;
+  } else {
+    since = Math.floor((Date.now() - JOURS_FENETRE * 24 * 60 * 60 * 1000) / 1000);
+    until = Math.floor(Date.now() / 1000);
+  }
   // online_followers : fenêtre J-33→J-3 pour éviter les 48h de délai Meta (objets {} vides)
   const ofUntil = Math.floor((Date.now() - 3 * 24 * 60 * 60 * 1000) / 1000);
   const ofSince = Math.floor((Date.now() - 33 * 24 * 60 * 60 * 1000) / 1000);
 
-  const safeJson = async (res: Response) => { try { return await res.json(); } catch { return {}; } };
+  // Trace les reponses en erreur au lieu de les avaler.
+  //
+  // Avant, un 400 ou un 429 de Meta etait parse comme n'importe quelle reponse : le
+  // corps d'erreur (qui n'a pas de cle `data`) devenait un objet vide en aval,
+  // indiscernable d'un « pas de donnee pour cette periode ». Un jeton expire ou un
+  // quota atteint disparaissait donc totalement, et l'ecran affichait des zeros.
+  //
+  // On renvoie toujours l'objet parse pour ne rien casser en aval, mais l'echec
+  // apparait desormais dans les erreurs remontees au client.
+  const erreursApi: string[] = [];
+  const safeJson = async (res: Response) => {
+    let body: any = {};
+    try { body = await res.json(); } catch { body = {}; }
+    if (!res.ok || body?.error) {
+      const msg = body?.error?.message || `HTTP ${res.status}`;
+      erreursApi.push(String(msg).slice(0, 160));
+    }
+    return body;
+  };
 
   // reach/follower_count/accounts_engaged/total_interactions/posts : lus depuis
   // analytics_daily_snapshots / analytics_ig_posts_history (même DB que la vue
@@ -85,11 +158,34 @@ export async function GET(request: Request) {
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=views&metric_type=total_value&breakdown=follow_type,media_product_type&period=day&since=${since}&until=${until}&access_token=${token}`),
     // Reach RÉELLEMENT dédupliqué sur la fenêtre, ventilé abonnés/non-abonnés — pas une
     // somme de valeurs quotidiennes (qui recompte un même compte touché sur plusieurs
-    // jours) — confirmé en testant l'API réelle : period=days_28 + metric_type=total_value
-    // + breakdown=follow_type renvoie le VRAI nombre de comptes uniques distincts par
-    // catégorie sur toute la fenêtre, calculé côté serveur par Meta. Fenêtre fixe 28j (pas
-    // de since/until arbitraire possible pour reach en mode dédupliqué, contrairement à views).
-    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach&period=days_28&metric_type=total_value&breakdown=follow_type&access_token=${token}`),
+    // jours) : Meta calcule les comptes uniques côté serveur.
+    //
+    // ⚠️ `since`/`until` sont INDISPENSABLES. Le commentaire precedent affirmait qu'ils
+    // n'etaient pas acceptes pour cette metrique et la requete les omettait : Meta
+    // ignorait alors le `period=days_28`, repondait `period: day` et ne renvoyait
+    // qu'UNE journee — la derniere. Sur le compte de test cela donnait
+    // { NON_FOLLOWER: 1 } et zero FOLLOWER, donc un « Followers reach rate » affiche a
+    // 0 % et un « Reach non-followers » a 100 %, soit exactement l'inverse de la
+    // realite.
+    //
+    // Verifie contre l'API le 2026-08-22, meme requete avec les bornes :
+    //   sans since/until : { NON_FOLLOWER: 1 }          -> 0 %
+    //   avec since/until : { FOLLOWER: 121, NON_FOLLOWER: 14 } -> 48 %
+    //
+    // `period=day` et non `days_28` (corrige le 2026-08-25). La doc Meta ne liste
+    // plus que `day` pour `reach` ; `days_28` etait accepte en silence et Meta
+    // repondait quand meme `period: day`. Teste cote a cote le meme jour : les deux
+    // formes renvoient exactement le meme resultat, donc la correction ne change
+    // aucun chiffre — elle supprime seulement une dependance a une tolerance non
+    // documentee, qui peut devenir une erreur dure sans preavis.
+    //
+    // Ce sont `since`/`until` qui font le travail, pas la periode : sans bornes,
+    // Meta applique un repli documente a 24 h (« If you do not include these
+    // parameters, the API will look back 24 hours »).
+    //
+    // Les deux autres copies de cet appel (poll-leads, lib/ig-fetch) utilisaient
+    // deja `period=day` — celle-ci etait la seule divergente.
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach&period=day&metric_type=total_value&breakdown=follow_type&since=${since}&until=${until}&access_token=${token}`),
     dbSnapshotsPromise,
     dbPostsPromise,
   ]);
@@ -121,14 +217,20 @@ export async function GET(request: Request) {
   let reach28dDedupNonFollowers: number | null = null;
   for (const metric of reachDedupData?.data || []) {
     if (metric.name === 'reach' && metric.total_value?.breakdowns) {
+      // On n'initialise a 0 que si la ventilation contient VRAIMENT des lignes.
+      //
+      // Avant, le simple fait que `breakdowns` existe suffisait a poser 0, meme quand
+      // aucune categorie n'etait renvoyee : l'ecran affichait alors « 0 % » — une
+      // mesure — la ou il fallait « N/D » — une absence. Le composant gere deja le cas
+      // null (« seuil Meta non atteint »), il n'etait simplement jamais atteint.
+      const lignes = metric.total_value.breakdowns.flatMap((bd: any) => bd.results || []);
+      if (lignes.length === 0) continue;
       reach28dDedupFollowers = 0;
       reach28dDedupNonFollowers = 0;
-      for (const bd of metric.total_value.breakdowns) {
-        for (const r of bd.results || []) {
-          const key = r.dimension_values?.[0];
-          if (key === 'FOLLOWER') reach28dDedupFollowers += r.value ?? 0;
-          else if (key === 'NON_FOLLOWER') reach28dDedupNonFollowers += r.value ?? 0;
-        }
+      for (const r of lignes) {
+        const key = r.dimension_values?.[0];
+        if (key === 'FOLLOWER') reach28dDedupFollowers += r.value ?? 0;
+        else if (key === 'NON_FOLLOWER') reach28dDedupNonFollowers += r.value ?? 0;
       }
     }
   }
@@ -277,6 +379,11 @@ export async function GET(request: Request) {
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   return NextResponse.json({
+    // Erreurs PARTIELLES : le compte repond, mais une ou plusieurs metriques ont
+    // echoue (quota, metrique depreciee, seuil de confidentialite). Elles etaient
+    // totalement avalees jusqu'ici — l'ecran affichait des zeros sans que rien
+    // n'indique une panne. Non bloquant, mais desormais visible.
+    ...(erreursApi.length ? { erreursPartielles: erreursApi } : {}),
     username: accountData.username,
     name: accountData.name,
     profilePicture: accountData.profile_picture_url || null,
@@ -287,6 +394,9 @@ export async function GET(request: Request) {
     reach30d,
     reach28dDedupFollowers,
     reach28dDedupNonFollowers,
+    // Fenetre reellement mesuree, calculee depuis les bornes envoyees a Meta et non
+    // depuis ce qui a ete demande : le plafond de 366 jours peut l'avoir reduite.
+    fenetreJours: Math.max(1, Math.round((until - since) / 86400)),
     accountsEngaged30d,
     totalInteractions30d,
     followsUnfollows30d,

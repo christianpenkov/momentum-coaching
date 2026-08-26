@@ -8,6 +8,7 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import { Skeleton } from '@/components/ui/Skeleton';
 import HapticTap from '@/components/ui/HapticTap';
 import type { Task, TaskAttachment } from '@/lib/supabase/types';
+import { mutate } from '@/lib/mutate';
 import { formatFileSize, formatRelativeDate } from '@/lib/formatFileSize';
 import { getTaskBucket, type TaskBucket } from '@/lib/clientSignals';
 import DeadlineBadge from '@/components/ui/DeadlineBadge';
@@ -106,7 +107,7 @@ function AttachmentDropzone({ label, attachments, onUpload, onRemove, uploading 
           {attachments.map(att => (
             <div key={att.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--surface-2)', borderRadius: 8, border: '1px solid var(--border)' }}>
               {att.thumbnail_url ? (
-                <img src={att.thumbnail_url} alt="" style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} />
+                <img loading="lazy" decoding="async" src={att.thumbnail_url} alt="" style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} />
               ) : (
                 <div style={{ width: 32, height: 32, borderRadius: 6, background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                   <Icon name="file" size={14} style={{ color: 'var(--muted)' }} />
@@ -161,12 +162,18 @@ function TaskAttachmentsPanel({ taskId, onCountChange }: {
   }
 
   async function remove(attachmentId: string) {
+    let avant: TaskAttachment[] = [];
     setAttachments(prev => {
+      avant = prev;
       const next = prev.filter(a => a.id !== attachmentId);
       onCountChange?.(next.length);
       return next;
     });
-    await fetch(`/api/tasks/attachments/${attachmentId}`, { method: 'DELETE' });
+    await mutate(`/api/tasks/attachments/${attachmentId}`, {
+      method: 'DELETE',
+      rollback: () => { setAttachments(avant); onCountChange?.(avant.length); },
+      erreur: "La pièce jointe n'a pas pu être supprimée.",
+    });
   }
 
   return (
@@ -355,12 +362,20 @@ export default function PageClientTasks() {
   const [tab, setTab] = useState<'coach' | 'mine'>('coach');
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
 
+  // Les trois mutations ci-dessous suivent le meme motif : l'ecran est mis a
+  // jour AVANT la requete, pour que l'action paraisse instantanee. L'etat
+  // precedent est capture depuis le callback de setTasks (et non depuis
+  // `tasks`, qui peut etre perime dans une closure) afin de pouvoir le
+  // restaurer si le serveur refuse.
   async function toggle(taskId: string, done: boolean) {
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, done } : t));
-    await fetch(`/api/tasks/${taskId}`, {
+    let avant: Task[] = [];
+    setTasks(prev => { avant = prev; return prev.map(t => t.id === taskId ? { ...t, done } : t); });
+    await mutate(`/api/tasks/${taskId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ done }),
+      rollback: () => setTasks(() => avant),
+      erreur: done ? "La tâche n'a pas pu être cochée." : "La tâche n'a pas pu être décochée.",
     });
   }
 
@@ -377,17 +392,25 @@ export default function PageClientTasks() {
   }
 
   async function saveTask(taskId: string, patch: { deadline: string | null; priority: 'high' | 'medium' | 'low' }) {
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...patch } : t));
-    await fetch(`/api/tasks/${taskId}`, {
+    let avant: Task[] = [];
+    setTasks(prev => { avant = prev; return prev.map(t => t.id === taskId ? { ...t, ...patch } : t); });
+    await mutate(`/api/tasks/${taskId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(patch),
+      rollback: () => setTasks(() => avant),
+      erreur: "Les modifications n'ont pas pu être enregistrées.",
     });
   }
 
   async function deleteTask(taskId: string) {
-    setTasks(prev => prev.filter(t => t.id !== taskId));
-    await fetch(`/api/tasks/${taskId}`, { method: 'DELETE' });
+    let avant: Task[] = [];
+    setTasks(prev => { avant = prev; return prev.filter(t => t.id !== taskId); });
+    await mutate(`/api/tasks/${taskId}`, {
+      method: 'DELETE',
+      rollback: () => setTasks(() => avant),
+      erreur: "La tâche n'a pas pu être supprimée.",
+    });
   }
 
   const coachTasks = tasks.filter(t => t.added_by === 'coach');

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Icon, { type IconName } from '@/components/ui/Icon';
+import { notifyError } from '@/lib/mutate';
 import ModalShell from '@/components/ui/ModalShell';
 import { getEmbedUrl, stripExtension, type ResourceType } from '@/lib/resourceHelpers';
 import { createClient } from '@/lib/supabase/client';
@@ -81,7 +82,14 @@ export default function ResourceModal({ resource, sections, onClose, onSaved }: 
     const form = new FormData();
     form.append('file', file);
     const res = await fetch('/api/resources/upload', { method: 'POST', body: form });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
+    // Un upload refuse ne disait rien : le fichier ne s'attachait pas et
+    // l'utilisateur relancait sans comprendre.
+    if (!res.ok || !data.url) {
+      setUploading(false);
+      notifyError(data?.error || "Le fichier n'a pas pu être envoyé.");
+      return;
+    }
     if (data.url) {
       setFileUrl(data.url);
       setFileName(data.name);

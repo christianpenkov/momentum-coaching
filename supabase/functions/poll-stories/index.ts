@@ -45,7 +45,14 @@ async function getIgCreds(profileId: string): Promise<{ token: string; igAccount
 
   if (!integ?.access_token) return null;
 
-  const needsRefresh = integ.expires_at &&
+  // `expires_at` NULL veut dire « on ne sait pas quand ce jeton expire », pas « il
+  // n'expire jamais ». Avec `integ.expires_at &&`, un NULL rendait la condition
+  // toujours fausse : le jeton n'etait jamais rafraichi et expirait en silence.
+  //
+  // Copie a l'identique du meme defaut dans poll-leads/index.ts, corrige le
+  // 2026-08-22 : la logique de rafraichissement existe en DEUX exemplaires et seul
+  // l'un des deux avait ete revu.
+  const needsRefresh = !integ.expires_at ||
     new Date(integ.expires_at).getTime() < Date.now() + 5 * 24 * 60 * 60 * 1000;
 
   let token = integ.access_token;
@@ -57,6 +64,10 @@ async function getIgCreds(profileId: string): Promise<{ token: string; igAccount
       const expiresAt = d.expires_in ? new Date(Date.now() + d.expires_in * 1000).toISOString() : null;
       await supa.from('integrations').update({ access_token: token, expires_at: expiresAt })
         .eq('profile_id', profileId).eq('provider', 'instagram');
+    } else {
+      // Un refus signifie presque toujours un jeton revoque : sans cette trace,
+      // l'echec est totalement invisible.
+      console.error(`[poll-stories] ig_token_refresh_failed profile=${profileId}: ${d?.error?.message || 'refus'}`);
     }
   }
 
@@ -173,7 +184,16 @@ async function pollProfileStories(profileId: string, token: string, igAccountId:
       // pour STORY ("The metric total_views is not available on this endpoint.", idem
       // link_clicks). Colonnes DB conservées (toujours null) au cas où Meta les active un jour.
       const m: Record<string, number> = {};
-      Object.assign(m, await safeStoryInsights(igStoryId, token, 'reach,shares,views,follows,profile_visits,total_interactions'));
+      // `replies` ajoutee le 2026-08-22 : la colonne existait en base mais n'etait
+      // jamais demandee. Verifie contre l'API sur une vraie story publiee — elle
+      // repond normalement.
+      //
+      // Les trois autres colonnes vides de cette table ne sont PAS recuperables, teste
+      // sur la meme story :
+      //   total_views  -> « not available on this endpoint »
+      //   link_clicks  -> « not available on this endpoint »
+      //   reposts      -> « Instagram Insights Media API endpoint does not support »
+      Object.assign(m, await safeStoryInsights(igStoryId, token, 'reach,shares,views,follows,profile_visits,total_interactions,replies'));
 
       // Format confirmé empiriquement le 2026-07-25 (voir /api/instagram/test-stories) :
       // total_value.breakdowns[0].results[] avec dimension_values en snake_case minuscule
@@ -199,6 +219,10 @@ async function pollProfileStories(profileId: string, token: string, igAccountId:
         reach: m['reach'] ?? null,
         shares: m['shares'] ?? null,
         views: m['views'] ?? null,
+        // Reponses en DM a la story. Colonne presente depuis le debut mais jamais
+        // alimentee : la metrique n'etait simplement pas demandee. Verifie disponible
+        // le 2026-08-22 sur une story publiee pour l'occasion.
+        replies: m['replies'] ?? null,
         total_views: null, // metric rejetée par l'API sur cet endpoint — colonne conservée pour usage futur
         follows: m['follows'] ?? null,
         profile_visits: m['profile_visits'] ?? null,

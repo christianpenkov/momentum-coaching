@@ -80,7 +80,7 @@ function LeadRow({ card, onClick }: { card: FunnelCard; onClick?: () => void }) 
       }}
     >
       {card.avatarUrl ? (
-        <img src={card.avatarUrl} alt="" style={{ width: 32, height: 32, borderRadius: 9, objectFit: 'cover', flexShrink: 0 }} />
+        <img loading="lazy" decoding="async" src={card.avatarUrl} alt="" style={{ width: 32, height: 32, borderRadius: 9, objectFit: 'cover', flexShrink: 0 }} />
       ) : (
         <span style={{
           width: 32, height: 32, borderRadius: 9, flexShrink: 0,

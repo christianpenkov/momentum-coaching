@@ -50,16 +50,28 @@ export async function GET(request: Request) {
   const { data: snapshots } = storyIds.length
     ? await serviceSupabase
         .from('analytics_ig_stories_history')
-        .select('ig_story_id, reach, views, snapshot_date')
+        // Toutes les metriques collectees, pas seulement reach et vues : la modale de
+        // story n'en affichait que deux sur les douze presentes en base (demande de
+        // Chris, 2026-08-22).
+        .select('ig_story_id, reach, views, replies, shares, follows, profile_visits, total_interactions, navigation_taps_forward, navigation_taps_back, navigation_exits, snapshot_date')
         .eq('profile_id', targetProfileId)
         .in('ig_story_id', storyIds)
         .order('snapshot_date', { ascending: false })
     : { data: [] };
 
-  const latestSnapshotByStory = new Map<string, { reach: number | null; views: number | null }>();
+  type MetriquesStory = {
+    reach: number | null; views: number | null; replies: number | null;
+    shares: number | null;
+    follows: number | null; profile_visits: number | null;
+    total_interactions: number | null;
+    navigation_taps_forward: number | null; navigation_taps_back: number | null;
+    navigation_exits: number | null;
+  };
+  const latestSnapshotByStory = new Map<string, MetriquesStory>();
   for (const snap of snapshots || []) {
     if (!latestSnapshotByStory.has(snap.ig_story_id)) {
-      latestSnapshotByStory.set(snap.ig_story_id, { reach: snap.reach, views: snap.views });
+      const { ig_story_id: _id, snapshot_date: _d, ...metriques } = snap as any;
+      latestSnapshotByStory.set(snap.ig_story_id, metriques as MetriquesStory);
     }
   }
 
@@ -96,8 +108,15 @@ export async function GET(request: Request) {
     dm1_message: s.story_sequences?.dm1_message ?? null,
     dm2_story_message: s.story_sequences?.dm2_story_message ?? null,
     calendly_short_url: s.story_sequences?.calendly_short_url ?? null,
-    reach: latestSnapshotByStory.get(s.ig_story_id)?.reach ?? null,
-    views: latestSnapshotByStory.get(s.ig_story_id)?.views ?? null,
+    // Toutes les metriques, alignees sur ce que la route des SEQUENCES exposait deja
+    // (story-sequences-stats). Les deux routes lisent la meme table : celle-ci n'en
+    // remontait que deux, si bien que la modale de story affichait « — » partout
+    // ailleurs alors que la donnee etait en base.
+    ...(latestSnapshotByStory.get(s.ig_story_id) ?? {
+      reach: null, views: null, replies: null, shares: null, follows: null, profile_visits: null,
+      total_interactions: null, navigation_taps_forward: null,
+      navigation_taps_back: null, navigation_exits: null,
+    }),
   }));
 
   return NextResponse.json({ connected: true, stories: rows });

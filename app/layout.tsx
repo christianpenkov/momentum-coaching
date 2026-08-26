@@ -73,8 +73,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     // compare les attributs de <html> comme ceux de n'importe quel élément).
     <html lang="fr" data-splash="1" className={`${inter.variable} ${ibmPlexMono.variable}`}>
       <head>
-        {/* Viewport app-native : pas de zoom, pas de bounce, width=device */}
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+        {/* Viewport app-native. Le zoom reste AUTORISE : `user-scalable=no` et
+            `maximum-scale=1` empechent un utilisateur malvoyant d'agrandir le
+            texte (echec WCAG 1.4.4), et Safari iOS les ignore de toute facon
+            depuis iOS 10 — ils ne penalisaient donc plus qu'Android.
+            Le double-tap qui zoome par megarde, vraie raison de leur presence,
+            est deja neutralise par `touch-action: manipulation` sur tous les
+            elements interactifs (globals.css) : ca bloque le double-tap sans
+            bloquer le pincement, et supprime en prime le delai de 300ms. */}
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />

@@ -8,7 +8,17 @@ const supa = createClient(
 );
 
 // Hiérarchie des stages IG pré-call (index = importance)
-const IG_PRE_CALL = ['lm_sent', 'in_convo', 'calendly_sent', 'link_clicked'] as const;
+//
+// `cold_dm` est une cible de RECUL valide, jamais une cible d'avance : c'est
+// l'origine d'un lead (il vient d'un DM sortant, pas d'un commentaire), et rien
+// ne peut faire « progresser » quelqu'un vers un cold DM. Elle est donc absente
+// de la liste équivalente de advance/route.ts, et c'est volontaire.
+//
+// Sans elle ici, déposer une carte sur la colonne Cold DM partait en 400 : le
+// front autorise le geste (PRE_CALL_STAGES contient cold_dm) mais le serveur le
+// refusait. Depuis que les écritures passent par `mutate`, l'échec affiche au
+// moins un message — l'action, elle, ne marchait toujours pas.
+const IG_PRE_CALL = ['cold_dm', 'lm_sent', 'in_convo', 'calendly_sent', 'link_clicked'] as const;
 type IgPreCallStage = typeof IG_PRE_CALL[number];
 
 // Ce qui doit être effacé selon le stage cible

@@ -149,6 +149,7 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
           <div style={{ display: deals.length === 0 ? 'none' : 'flex', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
             {([['all', 'Tous'], ['open', 'En cours'], ['unpaid', 'Impayés'], ['paid', 'Soldés']] as const).map(([key, label]) => (
               <button key={key} onClick={() => setFilter(key)}
+                className="paiements-filter"
                 style={{
                   border: `1px solid ${filter === key ? 'var(--ink)' : 'var(--border)'}`,
                   background: filter === key ? 'var(--ink)' : 'var(--surface)',
@@ -311,6 +312,10 @@ function TabButton({ active, onClick, label, count, alert, grow }: {
       flex: grow ? 1 : undefined,
       justifyContent: grow ? 'center' : undefined,
       display: 'inline-flex', alignItems: 'center', gap: 8,
+      // minHeight plutot qu'un padding plus grand : la cible atteint les 44px
+      // recommandes par Apple (elle faisait 38px) sans deplacer la bordure
+      // basse qui marque l'onglet actif.
+      minHeight: grow ? 44 : undefined,
       padding: grow ? '10px 4px' : '10px 15px', fontSize: 13,
       marginBottom: -1, borderBottom: `2px solid ${active ? 'var(--accent-brand)' : 'transparent'}`,
       color: active ? 'var(--ink)' : 'var(--muted)', fontWeight: active ? 600 : 400,

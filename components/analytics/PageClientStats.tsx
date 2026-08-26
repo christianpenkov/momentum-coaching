@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import InlineLoader from '@/components/ui/InlineLoader';
 import { useQuery } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
@@ -17,6 +17,7 @@ import {
 } from 'recharts';
 import { getPeriodWindow, parisDateStr, parisAddDays } from '@/lib/period';
 import { isCallHonored } from '@/lib/callHonored';
+import { dureeDepuisSecondes, dureeDepuisMinutes, positionLecteur, formaterDureeVideo } from '@/lib/duree';
 
 // ─── Portal Modal ─────────────────────────────────────────────────────────────
 function usePortalMounted() {
@@ -50,6 +51,8 @@ interface IGStats {
   username: string; name: string; profilePicture: string | null;
   followers: number; following: number; mediaCount: number; biography: string;
   reach30d: number; reach28dDedupFollowers?: number | null; reach28dDedupNonFollowers?: number | null; accountsEngaged30d: number; totalInteractions30d: number;
+  /** Fenetre reellement interrogee pour les deux cartes de portee, en jours (30 ou 365). */
+  fenetreJours?: number;
   followsUnfollows30d: number; profileLinksTaps30d: number; websiteClicks30d: number;
   views30d: number;
   viewsFollowerBreakdown: { follower: number; nonFollower: number } | null;
@@ -75,7 +78,7 @@ interface YTStats {
   // (colonnes yt_avg_duration_shorts_sec / _long_sec, alimentées depuis la dimension
   // creatorContentType de l'API). null quand le format n'a eu aucune vue ce jour-là —
   // jamais 0, qui se lirait « personne n'a regardé ».
-  chartData: { date: string; views: number; watchTime: number; subsGained?: number; subsLost?: number; netSubs?: number; likes?: number; comments?: number; shares?: number; subscribers?: number | null; avgViewDurationSec?: number | null; avgDurationShorts?: number | null; avgDurationLong?: number | null; viewsShorts?: number | null; viewsLong?: number | null }[];
+  chartData: { date: string; views: number; watchTime: number; subsGained?: number; subsLost?: number; netSubs?: number; likes?: number; comments?: number; shares?: number; subscribers?: number | null; avgViewDurationSec?: number | null; avgDurationShorts?: number | null; avgDurationLong?: number | null; viewsShorts?: number | null; viewsLong?: number | null; watchTimeShorts?: number | null; watchTimeLong?: number | null }[];
   videos: YTVideo[]; trafficSources: { source: string; views: number; watchMinutes: number }[];
   devices: { device: string; views: number; watchMinutes: number }[];
   demographics: { ageGroup: string; gender: string; viewerPct: number }[];
@@ -87,6 +90,10 @@ interface YTVideo {
   views: number; likes: number; comments: number;
   views30d: number; watchTime30d: number; avgViewPct: number;
   likes30d: number; comments30d: number; shares30d: number; url: string;
+  /** Total de vues depuis la publication — denominateur des ratios watch time / vues,
+   *  qui doivent diviser deux valeurs de la MEME fenetre. `views30d` porte lui les vues
+   *  des 30 derniers jours, une notion differente. */
+  viewsAllTime?: number;
   /** CTR de la miniature, en RATIO (0-1) tel que stocké dans
    *  analytics_yt_videos_history.ctr — multiplier par 100 pour l'affichage.
    *  null quand YouTube n'a pas encore produit de rapport pour cette vidéo. */
@@ -337,6 +344,220 @@ function Empty({ msg = 'Aucune donnée disponible' }: { msg?: string }) {
   return <div style={{ padding: '32px 0', textAlign: 'center', color: 'var(--faint)', fontSize: 13 }}>{msg}</div>;
 }
 
+/**
+ * Nom lisible d'une source de trafic YouTube.
+ *
+ * Les codes de l'API etaient affiches tels quels, juste passes en minuscules :
+ * « Search », « Ext Url », « No Link_other », « End Screen ». Le `.replace('_', ' ')`
+ * ne remplacait que le PREMIER underscore, d'ou le « No Link_other » a l'ecran, et
+ * rien n'etait traduit alors que la plateforme est en francais.
+ *
+ * Les 7 valeurs vues en base sont couvertes ; les autres codes documentes par
+ * l'API le sont aussi, pour ne pas ressortir de l'anglais brut chez un autre
+ * utilisateur. Un code inconnu est nettoye correctement plutot qu'affiche brut.
+ */
+const NOMS_SOURCES_TRAFIC: Record<string, string> = {
+  YT_SEARCH:        'Recherche YouTube',
+  YT_CHANNEL:       'Page de la chaîne',
+  YT_OTHER_PAGE:    'Autre page YouTube',
+  RELATED_VIDEO:    'Vidéos suggérées',
+  SUBSCRIBER:       'Abonnés (fil d’accueil)',
+  END_SCREEN:       'Écran de fin',
+  ANNOTATION:       'Carte ou annotation',
+  PLAYLIST:         'Playlist',
+  EXT_URL:          'Site externe',
+  NOTIFICATION:     'Notification',
+  SHORTS:           'Fil Shorts',
+  ADVERTISING:      'Publicité',
+  CAMPAIGN_CARD:    'Carte de campagne',
+  HASHTAGS:         'Hashtags',
+  SOUND_PAGE:       'Page du son',
+  VIDEO_REMIXES:    'Remix de la vidéo',
+  LIVE_REDIRECT:    'Redirection live',
+  PRODUCT_PAGE:     'Page produit',
+  NO_LINK_OTHER:    'Source inconnue',
+  NO_LINK_EMBEDDED: 'Lecteur intégré',
+};
+
+function nomSourceTrafic(code: string): string {
+  const connu = NOMS_SOURCES_TRAFIC[code];
+  if (connu) return connu;
+  // Repli : tous les underscores (pas seulement le premier), premiere lettre en
+  // majuscule. Mieux qu'un code brut si YouTube ajoute une source.
+  const nettoye = code.replace(/^YT_/, '').replace(/_/g, ' ').toLowerCase();
+  return nettoye.charAt(0).toUpperCase() + nettoye.slice(1);
+}
+
+/** Nom lisible d'un type d'appareil. Meme motif que les sources de trafic. */
+const NOMS_APPAREILS: Record<string, string> = {
+  MOBILE: 'Mobile',
+  DESKTOP: 'Ordinateur',
+  TABLET: 'Tablette',
+  TV: 'Télévision',
+  GAME_CONSOLE: 'Console de jeu',
+  UNKNOWN_PLATFORM: 'Appareil inconnu',
+};
+
+function nomAppareil(code: string): string {
+  const connu = NOMS_APPAREILS[code];
+  if (connu) return connu;
+  const nettoye = code.replace(/_/g, ' ').toLowerCase();
+  return nettoye.charAt(0).toUpperCase() + nettoye.slice(1);
+}
+
+/**
+ * Espacement des dates sur l'axe horizontal d'un graphique journalier.
+ *
+ * `preserveStartEnd` de Recharts n'espace RIEN : il garde toutes les graduations qui
+ * tiennent, d'ou un axe qui affichait « 1 juil, 2 juil, 3 juil... » sur trente jours
+ * pendant que le graphique voisin en montrait neuf. Deux graphiques cote a cote, deux
+ * densites differentes (constate par Chris a l'ecran le 2026-08-21).
+ *
+ * Tous les jours en vue semaine ; en vue mois, autant de dates que la LARGEUR le
+ * permet, sans jamais les faire se toucher.
+ *
+ * `largeurPx` optionnel : quand l'appelant connait la largeur reelle du graphique
+ * (via ResponsiveContainer), on calcule combien de dates y tiennent au lieu de figer
+ * un nombre.
+ *
+ * 80 px par date alors qu'une date (« 13 août ») en occupe environ 50 : la marge est
+ * VOLONTAIRE. « Mieux vaut pas assez de dates que trop et mal equilibre » (Chris) —
+ * un axe trop dense se lit mal, un axe aere reste lisible. On sous-estime donc
+ * toujours ce qui tient.
+ *
+ * Sans largeur fournie, repli sur ~12 labels : la valeur qui convient aux graphiques
+ * pleine largeur de cette page. C'etait 9 auparavant, ce qui laissait de grands vides
+ * (demande de Chris, 2026-08-21).
+ *
+ * Meme regle que le composant partage components/charts/AreaChart.tsx, posee ici une
+ * seule fois : elle etait recopiee dans treize graphiques, dont huit avaient derive.
+ */
+const LARGEUR_LABEL_DATE_PX = 80;
+
+/**
+ * Mesure la largeur d'un conteneur et la suit au redimensionnement.
+ *
+ * Sert a decider combien de dates tiennent sur l'axe d'un graphique : sur un ecran
+ * large il y a la place d'en afficher plus que sur un mobile, et figer un nombre
+ * revient a choisir le pire des deux cas.
+ *
+ * Renvoie 0 avant la premiere mesure — graduationsDates retombe alors sur son repli,
+ * donc l'axe est correct des le premier rendu, pas seulement apres mesure.
+ */
+function useLargeur<T extends HTMLElement>(): [React.RefObject<T | null>, number] {
+  const ref = useRef<T>(null);
+  const [largeur, setLargeur] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(entries => {
+      const w = entries[0]?.contentRect?.width ?? 0;
+      // Arrondi au pas de 20 px : evite de recalculer l'axe a chaque pixel pendant
+      // un redimensionnement, donc pas de scintillement des dates.
+      setLargeur(prev => (Math.abs(w - prev) > 20 ? w : prev));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, largeur];
+}
+
+function graduationsDates(nbPoints: number, periode: number, largeurPx?: number): number | 'preserveStartEnd' {
+  if (periode === 7) return 0;
+  const maxLabels = largeurPx && largeurPx > 0
+    ? Math.max(2, Math.floor(largeurPx / LARGEUR_LABEL_DATE_PX))
+    : 12;
+  if (nbPoints <= maxLabels) return 0;
+  return Math.max(1, Math.ceil(nbPoints / maxLabels) - 1);
+}
+
+/**
+ * Graduations EXPLICITES d'un axe de dates : premiere et derniere toujours incluses,
+ * le reste reparti uniformement entre les deux.
+ *
+ * Pourquoi pas un simple `interval` : Recharts place alors ses graduations tous les
+ * N points a partir du premier, et la derniere ne tombe juste que si (nbPoints - 1)
+ * est un multiple de N. Quand ce nombre est premier — 29 jours, 52, 83 — aucun pas
+ * ne fonctionne. `preserveStartEnd` force bien la derniere mais en L'AJOUTANT aux
+ * graduations regulieres, d'ou le « 29 juil, grand vide, 31 juil » signale par Chris.
+ *
+ * En fournissant la liste, on garantit les deux extremites ET un espacement regulier
+ * (au plus un jour d'ecart entre deux intervalles), quelle que soit la longueur de la
+ * periode. Demande de Chris : « globalement tout le temps la premiere et derniere ».
+ */
+function datesAxe(dates: string[], periode: number, largeurPx?: number): string[] | undefined {
+  const n = dates.length;
+  // undefined = on laisse Recharts decider (vue semaine : toutes les dates tiennent).
+  if (periode === 7 || n <= 2) return undefined;
+  const maxLabels = largeurPx && largeurPx > 0
+    ? Math.max(2, Math.floor(largeurPx / LARGEUR_LABEL_DATE_PX))
+    : 12;
+  if (n <= maxLabels) return undefined;
+  return Array.from({ length: maxLabels }, (_, i) => dates[Math.round((i * (n - 1)) / (maxLabels - 1))]);
+}
+
+/**
+ * Formate une VARIATION sur une periode : « +12 », « -1 », « 0 ».
+ *
+ * Likes, commentaires et partages sont des soldes, pas des compteurs : YouTube
+ * renvoie le mouvement du jour, et un like retire vaut -1. Sans signe, la carte
+ * affichait « LIKES : -1 », qui se lit comme un bug alors que la valeur est juste.
+ *
+ * Le zero ne prend pas de signe : « +0 » annoncerait un gain nul comme un gain.
+ */
+function signeVariation(v: number): string {
+  if (!Number.isFinite(v)) return '—';
+  return v > 0 ? `+${fmt(v)}` : fmt(v);
+}
+
+/**
+ * Une story publiee il y a moins de 24 h a des chiffres encore en cours de
+ * consolidation cote Meta : les vues montent avant le reach (constate en direct
+ * le 2026-08-22 — API a `views: 5, reach: 0` dix minutes apres publication), et
+ * le detail de navigation n'est pas servi du tout au debut.
+ *
+ * Sert a afficher une mention sous la grille, pour que ces zeros ne se lisent pas
+ * comme une story qui n'a interesse personne.
+ */
+function estStoryRecente(postedAt: string | null | undefined): boolean {
+  if (!postedAt) return false;
+  const t = new Date(postedAt).getTime();
+  if (!Number.isFinite(t)) return false;
+  return Date.now() - t < 24 * 60 * 60 * 1000;
+}
+
+/**
+ * Reserve la hauteur d'un graphique quel que soit son etat.
+ *
+ * Un bloc qui affiche tour a tour un loader (~40 px), un message vide (~77 px)
+ * puis un graphique (160 px) fait grandir la page sous les yeux : le contenu
+ * dessous saute, et sur une modale on voit la fenetre s'agrandir apres
+ * l'ouverture. Le lecteur perd le fil de ce qu'il regardait.
+ *
+ * La hauteur est donc celle du graphique dans les trois cas, le loader et le
+ * message vide etant centres dedans. Regle posee ici une seule fois : l'ecrire
+ * dans chaque bloc garantissait qu'un nouveau bloc l'oublie (demande de Chris,
+ * 2026-08-21 — « quelle que soit la donnee, c'est la meme taille »).
+ */
+function ZoneGraphique({ height, children }: { height: number; children: React.ReactNode }) {
+  // minHeight plutot que height : un graphique en hauteur fixe a l'interieur reste
+  // exactement a sa taille, mais un message ou un loader plus haut que prevu ne se
+  // retrouve pas rogne.
+  //
+  // minWidth: 0 sur l'enfant flex — sans lui, un ResponsiveContainer imbrique peut
+  // mesurer une largeur negative au premier rendu, ce que Recharts signale par
+  // « width(-1) and height(-1) » dans la console.
+  //
+  // Pas de centrage horizontal ici : Empty porte son propre textAlign, et InlineLoader
+  // son propre justifyContent. L'enfant occupe toute la largeur, ce dont un graphique
+  // a besoin.
+  return (
+    <div style={{ minHeight: height, width: '100%', minWidth: 0, display: 'flex', alignItems: 'center' }}>
+      <div style={{ width: '100%', minWidth: 0 }}>{children}</div>
+    </div>
+  );
+}
+
 // ─── TAB 1 : Vue Générale — helpers ──────────────────────────────────────────
 
 // Carte affichant une stat AVEC sa formule de calcul en dessous
@@ -366,6 +587,64 @@ function Signal({ type, text, isLast }: { type: SignalType; text: string; isLast
   );
 }
 
+
+// ─── Domaine d'axe pour les abonnes nets ──────────────────────────────────────
+
+/**
+ * Axe centre sur zero, pour une valeur qui peut etre negative (abonnes gagnes
+ * moins abonnes perdus).
+ *
+ * Regle : le zero reste au milieu, et l'amplitude s'adapte aux donnees. Quand
+ * rien ne bouge — le cas normal sur une chaine stable — on montre -1 et +1 de
+ * part et d'autre, ce qui donne une ligne plate centree plutot qu'une ligne
+ * collee en bas. Des qu'une variation apparait, l'axe s'ouvre a la plus grande
+ * amplitude observee, plus une marge.
+ *
+ * C'est le pendant du graphique des abonnes (total), ou 49 constant s'affiche
+ * centre avec 48 et 50 autour. Ici la valeur de reference est zero au lieu du
+ * total, mais le comportement voulu est le meme.
+ *
+ * Symetrique volontairement : perdre 3 abonnes doit se lire aussi bas qu'en
+ * gagner 3 se lit haut. Un axe ajuste separement en haut et en bas ferait
+ * paraitre une petite perte aussi grave qu'un gros gain.
+ */
+/** Borne haute de l'axe : l'amplitude observee, plus un cran de respiration. */
+function borneAbonnesNets(valeurs: (number | null)[]): number {
+  const amplitude = valeurs.reduce<number>(
+    (max, v) => (v == null ? max : Math.max(max, Math.abs(v))),
+    0,
+  );
+  // Rien n'a bouge sur la periode : -1 / 0 / +1, la ligne plate se lit au milieu.
+  if (amplitude === 0) return 1;
+  // Un cran de marge seulement. Une marge proportionnelle (20 %) gonflait l'axe a
+  // -24/+24 pour une pointe a 20 abonnes, ecrasant la courbe sur une bande etroite.
+  return amplitude + 1;
+}
+
+const domaineAbonnesNets = (borne: number): [number, number] => [-borne, borne];
+
+/**
+ * Graduations explicites, sans quoi Recharts ignore le domaine.
+ *
+ * Le `domain` seul ne suffit pas : Recharts recalcule ses propres bornes « jolies »
+ * par-dessus, et avec toutes les valeurs a zero il graduait « 0, 1 » en collant la
+ * ligne en bas — exactement ce que le domaine symetrique devait empecher
+ * (constate le 2026-08-21). Lui passer `ticks` fige l'echelle.
+ *
+ * Au plus 7 graduations, toujours en nombre impair pour que zero tombe pile au
+ * milieu, et jamais de decimale (on compte des abonnes).
+ */
+function graduationsAbonnesNets(borne: number): number[] {
+  // Construit depuis ZERO vers l'exterieur, et non depuis -borne : en partant du bas,
+  // le pas ne retombait pas sur zero (borne 101 graduait ...-2, 31... sans le zero),
+  // alors que c'est le repere central de ce graphique.
+  const pas = Math.max(1, Math.floor(borne / 3));
+  const ticks = [0];
+  for (let v = pas; v <= borne; v += pas) ticks.unshift(-v), ticks.push(v);
+  // La borne exacte ferme l'axe meme quand le pas ne tombe pas juste dessus.
+  if (ticks[ticks.length - 1] !== borne) ticks.unshift(-borne), ticks.push(borne);
+  return ticks;
+}
 
 // ─── Custom Tooltip ───────────────────────────────────────────────────────────
 
@@ -403,6 +682,10 @@ type Period = 7 | 30;
 // ─── TAB "Vue générale (B)" — version épurée ─────────────────────────────────
 
 function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, calendlyStaticClicsFromDb, igLive, ytLive, sinceConnection, leads, lmHistory, integrationsReadyAt }: { ig: IGStats | null; yt: YTStats | null; stripe: StripeStats | null; msgs: IGMessages | null; calls: CallRecord[]; callsAllTime?: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; calendlyStaticClicsFromDb?: number; igLive?: IGStats | null; ytLive?: YTStats | null; sinceConnection?: boolean; leads?: MockLead[]; lmHistory?: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[]; integrationsReadyAt?: string | null }) {
+  // Etiquette de fenetre. En All-Time les cartes affichaient « 30j » alors que le
+  // bandeau annonce « All-Time » — meme defaut que celui corrige dans les onglets
+  // Instagram et YouTube (2026-08-22).
+  const ovEtiquettePeriode = sinceConnection ? 'total' : `${period}j`;
   const [contentSort, setContentSort] = useState<ContentSortKey>('views');
   const [showAllContent, setShowAllContent] = useState(false);
   const _ovPIdx = periodIndex ?? 0;
@@ -602,7 +885,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
   // ── Signaux ────────────────────────────────────────────────────────────────
   const signalData: { type: SignalType; text: string }[] = [];
   if (nextCall) signalData.push({ type: 'green', text: `Prochain call : ${nextCall.invitee_name} — ${new Date(nextCall.scheduled_at).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` });
-  if (dealsCloses > 0) signalData.push({ type: 'green', text: `${dealsCloses} deal${dealsCloses > 1 ? 's' : ''} closé${dealsCloses > 1 ? 's' : ''} sur ${period}j — ${fmtEur(totalRev)} générés` });
+  if (dealsCloses > 0) signalData.push({ type: 'green', text: `${dealsCloses} deal${dealsCloses > 1 ? 's' : ''} closé${dealsCloses > 1 ? 's' : ''} sur ${sinceConnection ? 'toute la période' : period + ' jours'} — ${fmtEur(totalRev)} générés` });
   if (noShowRate > 20) signalData.push({ type: 'red', text: `Taux no-show élevé : ${fmt(noShowRate, 1)} % des calls bookés` });
   if (msgs && msgs.responseRate < 70) signalData.push({ type: 'amber', text: `Taux de réponse DM bas : ${fmt(msgs.responseRate, 1)} % — ${msgs.totalThreads30d - msgs.repliedThreads} conversations sans réponse` });
   if (closingRate > 0 && closingRate < 20) signalData.push({ type: 'amber', text: `Taux de closing à ${fmt(closingRate, 1)} % — sous le seuil cible de 25 %` });
@@ -666,7 +949,9 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
       // v.watchTime30d est déjà en minutes (row.watch_time_min) — pas de /60 ici, contrairement
       // à la branche IG ci-dessus (avgWatchTimeMs en ms) : diviser aussi par 60 donnait un résultat
       // 60x trop petit (ex: 0.0 min affiché au lieu de 2.5 min).
-      const avgWatchTimeMin = v.watchTime30d && v.views30d > 0 ? Math.round(v.watchTime30d / v.views30d * 10) / 10 : null;
+      // Denominateur all-time : watchTime30d est lui aussi all-time cote API live.
+      const vViews = v.viewsAllTime ?? v.views30d;
+      const avgWatchTimeMin = v.watchTime30d && vViews > 0 ? Math.round(v.watchTime30d / vViews * 10) / 10 : null;
       const viewsLifetimeYT = ytLiveViewsByIdOv.get(v.id) ?? null;
       return { id: v.id, title: v.title, thumbnail: v.thumbnail || null, platform: 'YT' as const, type: v.isShort ? 'Short' : 'Vidéo', views: v.views30d, totalViews: v.views, watchTime: v.watchTime30d, avgWatchTimeMin, noShowCount, noShowPct, closedCount, closedPct, callsBooked, revenueTotal: revTotal, revenuePerCall: callsBooked > 0 ? Math.round(revTotal / callsBooked) : 0, cashPerView: viewsLifetimeYT && viewsLifetimeYT > 0 ? revTotal / viewsLifetimeYT : null };
     }),
@@ -708,7 +993,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
           { label: 'Abonnés YT', value: fmt(yt?.subscribers || 0), sub: 'total', color: YT_COLOR },
           null, // carte Publications custom
           'leads', // carte Leads custom (badge nouveaux à droite du chiffre)
-          { label: 'Calls bookés', value: fmt(callsBookes), sub: `${period}j`, color: 'var(--ink)' as string },
+          { label: 'Calls bookés', value: fmt(callsBookes), sub: ovEtiquettePeriode, color: 'var(--ink)' as string },
         ] as const).map((item, i) => {
           if (item === 'leads') return (
             <div key="leads" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
@@ -731,7 +1016,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
             <div key="publications" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
               <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8 }}>
                 <span>Publications</span>
-                <span style={{ fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{period}j</span>
+                <span style={{ fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{ovEtiquettePeriode}</span>
               </div>
               <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--ink)', lineHeight: 1, marginBottom: 8 }}>{fmt(totalPosts)}</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'nowrap' }}>
@@ -760,11 +1045,11 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
         {[
-          { label: 'Calls honorés', value: fmt(callsHonores), sub: `${period}j`, color: AMBER },
+          { label: 'Calls honorés', value: fmt(callsHonores), sub: ovEtiquettePeriode, color: AMBER },
           { label: 'No-show', value: `${fmt(noShowRate, 0)} %`, sub: `${noShows} calls`, color: noShowRate > 20 ? RED : noShowRate > 10 ? AMBER : GREEN },
           { label: 'Closing', value: `${fmt(closingRate, 0)} %`, sub: `${dealsCloses} deals closés`, color: closingRate >= 25 ? GREEN : closingRate >= 15 ? AMBER : RED },
           { label: 'Rev / call', value: fmtEur(revPerCall), sub: 'par call booké', color: GREEN },
-          { label: 'Revenue', value: fmtEur(totalRev), sub: `${period}j`, color: GREEN },
+          { label: 'Revenue', value: fmtEur(totalRev), sub: ovEtiquettePeriode, color: GREEN },
         ].map((item, i) => (
           <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
             <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8 }}>{item.label}</div>
@@ -790,11 +1075,14 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
                   <span style={{ fontSize: 26, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{item.value}</span>
                   <span style={{ fontSize: 10, color: 'var(--muted)' }}>{item.unit}</span>
                 </div>
-                <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 2 }}>{period}j</div>
+                <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 2 }}>{ovEtiquettePeriode}</div>
               </div>
               <div style={{ width: 8, height: 8, borderRadius: '50%', background: item.color, marginTop: 4 }} />
             </div>
-            <div style={{ position: 'relative', height: 140 }}>
+            {/* minWidth: 0 — sans lui, le ResponsiveContainer en height="100%" a
+                l'interieur mesure une largeur negative au premier rendu et Recharts
+                avertit « width(-1) and height(-1) » dans la console. */}
+            <div style={{ position: 'relative', height: 140, width: '100%', minWidth: 0 }}>
               {allPending && (
                 <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1, pointerEvents: 'none' }}>
                   <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--faint)', background: 'var(--surface)', padding: '4px 10px', borderRadius: 6 }}>
@@ -811,7 +1099,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : 'preserveStartEnd'} />
+                  <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(item.data.length, period)} />
                   <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} allowDecimals={false} width={30} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.15 : Math.max(1, Math.abs(dataMax) * 0.1 || 1); return [Math.max(0, dataMin - margin), dataMax + margin]; }} />
                   <Tooltip content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
@@ -871,7 +1159,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
                   onMouseLeave={e => { e.currentTarget.style.background = ''; }}>
                   <td style={{ padding: '8px 8px', width: 52 }}>
                     {c.thumbnail ? (
-                      <img src={c.thumbnail} alt="" style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
+                      <img loading="lazy" decoding="async" src={c.thumbnail} alt="" style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
                     ) : (
                       <div style={{ width: 44, height: 44, borderRadius: 6, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
                         {c.platform === 'YT' ? '▶' : '📷'}
@@ -971,7 +1259,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
 
   // Toutes les stories du profil, avec ou sans CTA — réutilise GET /api/client/stories
   // (déjà utilisée dans Gérer mes liens, pas de nouvelle route).
-  const { data: allStoriesData } = useQuery({
+  const { data: allStoriesData, isLoading: storiesLoading } = useQuery({
     queryKey: ['stories', profileId],
     // Sans profileId (élève consultant sa propre page), ne pas envoyer "?profileId=undefined"
     // — l'API resolveProfileId retombe sur user.id uniquement si le param est absent, pas
@@ -992,6 +1280,20 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
   const { periodStart: igPeriodStart, periodEnd: igPeriodEnd } = getPeriodWindow(periodIndex ?? 0, period === 7 ? 'week' : 'month');
   // En mode "depuis connexion", ig.chartData est déjà borné [connectedAt, aujourd'hui]
   // par le fetch — ne pas re-clipper avec la fenêtre calendaire du mois/semaine en cours.
+  // Etiquette de fenetre des cartes. En mode All-Time elles affichaient « 30j » alors
+  // que le bandeau annonce « All-Time » et que les graphiques couvrent toute la periode
+  // depuis la connexion — meme defaut que celui corrige cote YouTube le 2026-08-21.
+  const igEtiquettePeriode = sinceConnection ? 'total' : `${period}j`;
+
+  // Fenetre des deux cartes de portee (abonnes touches / part de non-abonnes).
+  // Elle est FIXE et ne suit pas la navigation par periodes : 30 jours en temps
+  // normal, 12 mois en All-Time. Lue depuis la reponse de l'API et non deduite
+  // cote ecran, pour que le badge affiche ce qui a ete mesure et non ce qui a ete
+  // demande (la route plafonne a 366 jours).
+  const fenetrePorteeJours = ig.fenetreJours ?? 30;
+  const libelleFenetrePortee = fenetrePorteeJours >= 360
+    ? 'les 12 derniers mois'
+    : `les ${fenetrePorteeJours} derniers jours`;
   const igDaysSlice = sinceConnection ? ig.chartData : ig.chartData.filter(d => {
     const t = new Date(d.date + 'T12:00:00Z').getTime();
     return t >= igPeriodStart.getTime() && t <= igPeriodEnd.getTime();
@@ -1005,6 +1307,10 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
   // ig_total_interactions identiques corrigé le 2026-07-06 — même confusion ici,
   // côté lecture cette fois plutôt que côté collecte).
   const igInteractionsP = igDaysSlice.reduce((s, d) => s + (d.totalInteractions ?? 0), 0);
+  // Vues du profil sur la periode. Collectee depuis le 2026-08-22 : les journees
+  // anterieures valent null, d'ou le `?? 0` qui les traite comme sans consultation
+  // plutot que de casser la somme. Le rattrapage les comble progressivement.
+  const igProfileViewsP = igDaysSlice.reduce((s, d) => s + ((d as any).profileViews ?? 0), 0);
 
 
   const engRate = igReachP > 0 ? pct(igInteractionsP, igReachP) : 0;
@@ -1099,6 +1405,35 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
     'Reach': { data: igDays.map(d => ({ date: d.date, v: igDaysNoDataSet.has(d.date) ? (null as any) : d.reach })), color: 'var(--accent-brand)' },
     'Abonnés': { data: igDays.map(d => ({ date: d.date, v: igDaysNoDataSet.has(d.date) ? (null as any) : (d.followerCount ?? 0) })), color: IG_COLOR },
     'Interactions posts': { data: interactionsByDay, color: GREEN },
+    // Detail jour par jour des deux cartes de portee.
+    //
+    // ⚠️ Ces courbes ne se somment PAS au chiffre de la carte, et c'est normal : la
+    // carte est dediupliquee sur toute sa fenetre (une personne comptee une fois),
+    // la courbe montre chaque journee separement (la meme personne compte a nouveau
+    // si elle revient le lendemain). Sur 28 jours, 121 comptes uniques contre 143
+    // en cumul journalier — mesure du 2026-08-26.
+    //
+    // On montre donc des effectifs, jamais un pourcentage journalier : un taux
+    // quotidien serait en contradiction visible avec l'en-tete de la carte.
+    //
+    // null et non 0 avant le 2026-08-22 : la ventilation n'etait pas collectee, la
+    // courbe doit faire un trou plutot qu'affirmer « personne ».
+    'Abonnés touchés': { data: igDays.map(d => ({
+      date: d.date,
+      v: igDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).reachFollower ?? null),
+    })), color: 'var(--accent-brand)' },
+    'Non-abonnés touchés': { data: igDays.map(d => ({
+      date: d.date,
+      v: igDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).reachNonFollower ?? null),
+    })), color: GREEN },
+    // Serie de la nouvelle carte. « Abonnés nets » garde la sienne : elle alimente
+    // desormais la modale ouverte depuis le BADGE de la carte Abonnés.
+    'Vues du profil': { data: igDays.map(d => ({
+      date: d.date,
+      // null (pas 0) avant le 2026-08-22 : la metrique n'etait pas collectee, la
+      // courbe doit faire un trou plutot que d'affirmer « aucune consultation ».
+      v: igDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).profileViews ?? null),
+    })), color: IG_COLOR },
     'Abonnés nets': { data: (() => {
       // Delta brut jour J vs J-1 (nombre entier réel, pas de lissage) — très bruyant
       // sur un petit compte (±1-2/jour), affiché en barres plutôt qu'une ligne pour
@@ -1112,7 +1447,12 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
         const curr = d.followerCount ?? prev;
         return { date: d.date, v: i === 0 ? 0 : (curr - (prev ?? curr)) };
       });
-    })(), color: ig.followsUnfollows30d >= 0 ? GREEN : RED },
+    // Couleur decidee sur le solde REELLEMENT affiche, pas sur followsUnfollows30d :
+    // cette derniere vient de ig_follows_unfollows, une colonne vide sur les 107 jours
+    // du profil de test (Meta ne renvoie plus cette metrique). Elle valait donc
+    // toujours 0, la condition `>= 0` etait toujours vraie, et la courbe restait VERTE
+    // meme sur une periode ou le compte perdait des abonnes (constate le 2026-08-22).
+    })(), color: igFollowerDeltaP >= 0 ? GREEN : RED },
     "Taux d'engagement": { data: igDays.map(d => ({ date: d.date, v: igDaysNoDataSet.has(d.date) ? (null as any) : (d.reach > 0 ? Math.round((d.totalInteractions ?? 0) / d.reach * 100 * 10) / 10 : 0) })), color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, unit: '%' },
     // Pas d'entrée "Followers reach rate" ici : Meta n'expose aucun équivalent
     // dédupliqué PAR JOUR (seulement sur la fenêtre glissante totale de 28 jours) —
@@ -1151,10 +1491,18 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
       {/* Ligne 1 — 4 stats audience */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
         {[
-          { label: 'Abonnés', value: fmt(ig.followers), sub: 'all time', color: 'var(--ink)', key: 'Abonnés' },
-          { label: 'Publications', value: fmt(postsInPeriod), sub: `${period}j`, color: IG_COLOR, key: 'Publications' },
-          { label: 'Reach · personnes', value: fmt(igReachP), sub: `${period}j`, color: 'var(--ink)', key: 'Reach' },
-          { label: 'Interactions posts', value: fmt(igInteractionsP), sub: `${period}j`, color: 'var(--ink)', key: 'Interactions posts' },
+          // « total » plutot que « all time » : c'est un compteur actuel, pas un cumul
+          // sur une periode, et le reste de la plateforme dit « total » (cf. la carte
+          // « Abonnés IG » de la vue generale).
+          // Le solde net est affiche en BADGE sur cette carte plutot que sur une carte
+          // dediee : les deux parlent d'abonnes, et la case liberee accueille les vues
+          // du profil — l'etape charniere du tunnel, qui n'etait affichee nulle part
+          // (demande de Chris, 2026-08-22). Meme principe que la carte YouTube, qui
+          // porte deja « +0 (+0 -0) » a cote de son chiffre.
+          { label: 'Abonnés', value: fmt(ig.followers), sub: 'total', color: 'var(--ink)', key: 'Abonnés', badge: igFollowerDeltaP },
+          { label: 'Publications', value: fmt(postsInPeriod), sub: igEtiquettePeriode, color: IG_COLOR, key: 'Publications' },
+          { label: 'Reach · personnes', value: fmt(igReachP), sub: igEtiquettePeriode, color: 'var(--ink)', key: 'Reach' },
+          { label: 'Interactions posts', value: fmt(igInteractionsP), sub: igEtiquettePeriode, color: 'var(--ink)', key: 'Interactions posts' },
         ].map(s => (
           <div key={s.key} onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: s.key ? 'pointer' : 'default', transition: 'background .15s' }}
             onMouseEnter={e => { if (s.key) e.currentTarget.style.background = 'var(--surface-2)'; }}
@@ -1163,17 +1511,52 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
               <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>{s.label}</span>
               {s.sub && <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{s.sub}</span>}
             </div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: s.color, lineHeight: 1, display: 'flex', alignItems: 'baseline', gap: 7 }}>
+              {s.value}
+              {/* Solde de la periode, en petit a cote du total. Zero n'a pas de signe :
+                  « +0 » annoncerait un gain nul comme un gain. */}
+              {/* Cliquable : ouvre la courbe des abonnes nets, qui avait sa propre carte
+                  avant. Le stopPropagation evite d'ouvrir en meme temps la modale de la
+                  carte Abonnés, qui est cliquable elle aussi. */}
+              {(s as any).badge != null && (
+                <span
+                  onClick={(e) => { e.stopPropagation(); openStatModal('Abonnés nets', `${igFollowerDeltaP >= 0 ? '+' : ''}${fmt(igFollowerDeltaP)}`); }}
+                  title="Voir l'évolution jour par jour"
+                  style={{ fontSize: 13, fontWeight: 700, cursor: 'pointer', color: (s as any).badge > 0 ? GREEN : (s as any).badge < 0 ? RED : 'var(--faint)' }}>
+                  {(s as any).badge > 0 ? '+' : ''}{fmt((s as any).badge)}
+                  <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 3 }}>{igEtiquettePeriode}</span>
+                </span>
+              )}
+            </div>
           </div>
         ))}
       </div>
       {/* Ligne 2 — 4 stats performance */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
         {[
-          { label: 'Abonnés nets', value: `${igFollowerDeltaP >= 0 ? '+' : ''}${fmt(igFollowerDeltaP)}`, sub: `${period}j`, color: igFollowerDeltaP >= 0 ? GREEN : RED, key: 'Abonnés nets' },
+          // Remplace « Abonnés nets », desormais en badge sur la carte Abonnés.
+          { label: 'Vues du profil', value: fmt(igProfileViewsP), sub: igEtiquettePeriode, color: 'var(--ink)', key: 'Vues du profil' },
           { label: "Taux d'engagement", value: fmtPct(engRate), sub: 'interactions / reach', color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, key: "Taux d'engagement" },
-          { label: 'Followers reach rate', value: reachRate !== null ? fmtPct(reachRate) : 'N/D', sub: reachRate !== null ? 'abonnés uniques touchés / total' : 'seuil Meta non atteint', color: reachRate !== null ? 'var(--ink)' : 'var(--faint)', tooltip: 'Nombre réel de tes abonnés distincts touchés au moins une fois par tes contenus sur les 28 derniers jours (chaque abonné compté une seule fois, jamais deux fois même s\'il a vu plusieurs posts), rapporté à ton nombre total d\'abonnés. 100% = tous tes abonnés ont été atteints. Pas de détail jour par jour disponible (Meta ne fournit pas cette déduplication par jour, seulement sur la fenêtre totale).' },
-          { label: 'Reach Non-Followers', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'vues non-abonnés / total' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', tooltip: 'Part des vues venant de personnes qui ne te suivent pas encore. Plus c\'est élevé, plus ton contenu est découvert par de nouvelles personnes. Pas de détail jour par jour disponible (Meta ne fournit pas cette déduplication par jour, seulement sur la fenêtre totale).' },
+          // « / total » etait ambigu : on ne savait pas si le denominateur etait le
+          // reach ou le nombre d'abonnes. C'est le nombre d'ABONNES, la ou la carte
+          // voisine divise par le REACH — d'ou l'impression que les deux
+          // pourcentages devraient sommer a 100 % (question de Chris, 2026-08-26).
+          // « 30j » explicite : ces deux cartes interrogent une fenetre FIXE de
+          // 30 jours (stats/route.ts) et ne suivent pas la navigation par periodes.
+          // Sans la mention, elles semblaient repondre a la periode selectionnee.
+          //
+          // Elles ne sont d'ailleurs pas comparables d'une periode a l'autre : la
+          // deduplication fait monter le taux avec la longueur de la fenetre
+          // (9 % sur 7j, 43 % sur 28j, 65 % sur 365j sur le compte de test), car on
+          // accumule des personnes distinctes. Une fenetre fixe est donc le choix le
+          // plus lisible ici.
+          { label: 'Abonnés touchés', key: 'Abonnés touchés', value: reachRate !== null ? fmtPct(reachRate) : 'N/D', sub: reachRate !== null ? `sur tes ${fmt(ig.followers)} abonnés` : 'seuil Meta non atteint', color: reachRate !== null ? 'var(--ink)' : 'var(--faint)', tooltip: `Sur ${libelleFenetrePortee}, ${reachRate !== null ? fmtPct(reachRate) : '—'} de tes abonnés ont vu au moins un de tes contenus.\n\nChaque abonné est compté UNE SEULE FOIS, même s'il a vu dix posts : c'est un nombre de personnes, pas de vues. Le total ne peut donc jamais dépasser 100 %.\n\nÀ retenir en changeant de période : ce taux monte mécaniquement avec la durée (9 % sur 7 jours, 43 % sur 30, 65 % sur un an), parce qu'on accumule des personnes différentes. Une semaine et un mois ne se comparent donc pas directement.${sinceConnection ? '\n\nEn « Depuis la connexion », la fenêtre est plafonnée à 12 mois : Instagram ne fournit pas cette répartition au-delà.' : ''}` },
+          // Libelle et tooltip disaient « vues » alors que le calcul porte sur le
+          // REACH (comptes uniques), choix delibere documente ligne ~1315. L'ecart
+          // n'est pas cosmetique : mesure le 2026-08-26 sur le compte de test,
+          // 53 % sur les vues contre 9,9 % sur le reach. Un utilisateur qui
+          // recoupait avec Instagram trouvait 53 % et croyait la plateforme fausse.
+          { label: 'Non-abonnés touchés', key: 'Non-abonnés touchés', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'sur ton reach total' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', tooltip: `Sur ${libelleFenetrePortee}, ${viralPct !== null ? fmtPct(viralPct) : '—'} des comptes qui t'ont vu ne te suivaient pas encore.\n\nComme pour la carte voisine, chaque compte est compté UNE SEULE FOIS. Plus ce chiffre est élevé, plus tes contenus sortent de ton audience actuelle et touchent de nouvelles personnes.\n\nAttention, les deux cartes n'ont pas le même dénominateur : celle-ci se rapporte à ta portée totale, la voisine à ton nombre d'abonnés. Elles ne s'additionnent donc pas à 100 %.${sinceConnection ? '\n\nEn « Depuis la connexion », la fenêtre est plafonnée à 12 mois : Instagram ne fournit pas cette répartition au-delà.' : ''}` },
         ].map(s => (
           <div key={s.label}
             onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined}
@@ -1183,6 +1566,15 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
             onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}>
             <div style={{ marginBottom: 8 }}>
               <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>{s.label}</span>
+              {/* Badge de fenetre — porte par les seules cartes dont la fenetre est
+                  FIXE et ne suit pas la navigation par periodes. Sans lui, elles
+                  semblaient repondre a la periode choisie, et en All-Time elles
+                  semblaient couvrir tout l'historique (retour de Chris, 2026-08-26). */}
+              {(s as any).badge && (
+                <span style={{ fontSize: 9, fontWeight: 600, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 5px', marginLeft: 6, whiteSpace: 'nowrap' }}>
+                  {(s as any).badge}
+                </span>
+              )}
               {s.sub && <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{s.sub}</span>}
             </div>
             <div style={{ fontSize: 22, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
@@ -1190,11 +1582,13 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
         ))}
       </div>
 
+      <HistoriquePortee profileId={profileId} granularite={period === 7 ? 'semaine' : 'mois'} />
+
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
-        <Card title="Reach par jour" sub={`${period} jours`}>
+        <Card title="Reach par jour" sub={`${sinceConnection ? 'Depuis la connexion' : period + ' jours'}`}>
           <AreaChart data={igDaysForChart} areas={[{ key: 'reach', label: 'Reach', color: 'var(--accent-brand)' }]} xKey="date" height={220} showWeekday={period === 7} pendingKey="pending" />
         </Card>
-        <Card title="Abonnés / jour" sub={`${period} jours`}>
+        <Card title="Abonnés / jour" sub={`${sinceConnection ? 'Depuis la connexion' : period + ' jours'}`}>
           <ResponsiveContainer width="100%" height={220}>
             <ReAreaChart data={igDays} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
               <defs>
@@ -1205,7 +1599,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
               </defs>
               {/* Intervalle calculé explicitement (pas 'preserveStartEnd') pour un espacement
                   régulier des labels de dates — même logique que le wrapper AreaChart. */}
-              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : Math.max(1, Math.ceil(igDays.length / 9) - 1)} />
+              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(igDays.length, period)} />
               <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} allowDecimals={false} domain={['auto', 'auto']} tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : String(Math.round(v))} width={40} />
               <Tooltip content={({ active, payload, label }) => {
                 if (!active || !payload?.length) return null;
@@ -1229,21 +1623,35 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
       )}
 
       <Card title={contentSubTab === 'posts' ? `Posts (${ig.posts.length})` : storiesInnerTab === 'story' ? `Stories (${allStories.length})` : `Séquences (${storySequences.length})`} sub="Cliquer pour le détail">
-        <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+        {/* Onglets principaux — agrandis et passes a l'ardoise (demande de Chris,
+            2026-08-25). L'ardoise marque l'onglet actif, usage deja prevu par la
+            Regle de la Rarete Ardoise du systeme.
+            Radius 7px : celui des boutons du systeme, pas d'angles droits. */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
           {(['posts', 'stories'] as const).map(t => (
             <button key={t} onClick={() => setContentSubTab(t)} style={{
-              padding: '4px 12px', fontSize: 11, fontWeight: 600, borderRadius: 20, cursor: 'pointer', border: 'none',
-              background: contentSubTab === t ? 'var(--ink)' : 'var(--surface-2)', color: contentSubTab === t ? 'var(--bg)' : 'var(--muted)', transition: 'all .12s',
+              padding: '9px 20px', fontSize: 13, fontWeight: 600, borderRadius: 7, cursor: 'pointer',
+              border: `1px solid ${contentSubTab === t ? 'var(--accent-brand)' : 'var(--border)'}`,
+              background: contentSubTab === t ? 'var(--accent-brand)' : 'transparent',
+              color: contentSubTab === t ? '#fff' : 'var(--ink-2)',
+              transition: 'background .12s, border-color .12s, color .12s',
             }}>{t === 'posts' ? 'Posts' : 'Stories'}</button>
           ))}
         </div>
 
+        {/* Sous-onglets — agrandis, arrondi conserve (demande de Chris,
+            2026-08-25). Ils restent volontairement plus discrets que les onglets
+            principaux : fond creme plutot qu'ardoise, pour que la hierarchie des
+            deux niveaux se lise sans les confondre. */}
         {contentSubTab === 'stories' && (
-          <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
             {(['story', 'sequences'] as const).map(t => (
               <button key={t} onClick={() => setStoriesInnerTab(t)} style={{
-                padding: '3px 10px', fontSize: 10, fontWeight: 600, borderRadius: 20, cursor: 'pointer', border: `1px solid var(--border)`,
-                background: storiesInnerTab === t ? 'var(--surface-2)' : 'transparent', color: storiesInnerTab === t ? 'var(--ink)' : 'var(--faint)', transition: 'all .12s',
+                padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 20, cursor: 'pointer',
+                border: `1px solid ${storiesInnerTab === t ? 'var(--border)' : 'transparent'}`,
+                background: storiesInnerTab === t ? 'var(--surface-2)' : 'transparent',
+                color: storiesInnerTab === t ? 'var(--ink)' : 'var(--muted)',
+                transition: 'background .12s, border-color .12s, color .12s',
               }}>{t === 'story' ? 'Story' : 'Séquences'}</button>
             ))}
           </div>
@@ -1260,14 +1668,14 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                 onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}>
                 <div style={{ position: 'relative', aspectRatio: '1', background: 'var(--surface-2)' }}>
                   {post.thumbnail
-                    ? <img src={post.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ? <img loading="lazy" decoding="async" src={post.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--faint)', fontSize: 24 }}>🎬</div>}
                   <div style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,.6)', color: '#fff', fontSize: 9, padding: '2px 5px', borderRadius: 4, fontWeight: 600 }}>
                     {isReel ? 'REEL' : post.type === 'CAROUSEL_ALBUM' ? 'CAROUSEL' : 'IMAGE'}
                   </div>
                 </div>
                 <div style={{ padding: '8px 10px' }}>
-                  <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4 }}>{new Date(post.timestamp).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'Europe/Paris' })}</div>
+                  <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4 }}>{new Date(post.timestamp).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit', timeZone: 'Europe/Paris' })}</div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
                     <span>❤️ {post.likes ?? '—'}</span>
                     <span>👁 {post.reach ?? '—'}</span>
@@ -1279,7 +1687,26 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
           })}
         </div>
         ) : storiesInnerTab === 'story' ? (
-          allStories.length === 0 ? (
+          storiesLoading ? (
+            // Squelette pendant le chargement. Avant, « Aucune story pour l'instant »
+            // s'affichait des l'ouverture de l'onglet : on lisait une absence definitive
+            // la ou la requete etait simplement en cours (demande de Chris, 2026-08-22).
+            //
+            // Meme grille et meme rapport de forme que les vraies vignettes : rien ne
+            // bouge quand les donnees arrivent.
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                  <div style={{ aspectRatio: '1', background: 'var(--surface-2)', animation: 'squelette-pulse 1.4s ease-in-out infinite', animationDelay: `${i * 0.08}s` }} />
+                  <div style={{ padding: '8px 10px' }}>
+                    <div style={{ height: 9, width: '55%', borderRadius: 4, background: 'var(--surface-2)', animation: 'squelette-pulse 1.4s ease-in-out infinite', animationDelay: `${i * 0.08}s` }} />
+                    <div style={{ height: 9, width: '80%', borderRadius: 4, background: 'var(--surface-2)', marginTop: 6, animation: 'squelette-pulse 1.4s ease-in-out infinite', animationDelay: `${i * 0.08}s` }} />
+                  </div>
+                </div>
+              ))}
+              <style>{`@keyframes squelette-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }`}</style>
+            </div>
+          ) : allStories.length === 0 ? (
             <div style={{ fontSize: 12, color: 'var(--faint)', padding: '12px 0' }}>Aucune story pour l'instant.</div>
           ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
@@ -1289,14 +1716,14 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                 onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}>
                 <div style={{ position: 'relative', aspectRatio: '1', background: 'var(--surface-2)' }}>
                   {s.storage_url
-                    ? <img src={s.storage_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ? <img loading="lazy" decoding="async" src={s.storage_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--faint)', fontSize: 24 }}>📸</div>}
                   {(s.lm_keyword || s.calendly_short_url) && (
                     <div style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,.6)', color: '#fff', fontSize: 9, padding: '2px 5px', borderRadius: 4, fontWeight: 600 }}>CTA</div>
                   )}
                 </div>
                 <div style={{ padding: '8px 10px' }}>
-                  <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4 }}>{new Date(s.posted_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'Europe/Paris' })}</div>
+                  <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4 }}>{new Date(s.posted_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit', timeZone: 'Europe/Paris' })}</div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
                     <span>👁 {s.reach ?? '—'}</span>
                     <span>▶ {s.views ?? '—'}</span>
@@ -1316,7 +1743,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
               onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}>
               <div style={{ position: 'relative', aspectRatio: '1', background: 'var(--surface-2)' }}>
                 {seq.thumbnail
-                  ? <img src={seq.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ? <img loading="lazy" decoding="async" src={seq.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--faint)', fontSize: 24 }}>📸</div>}
                 <div style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,.6)', color: '#fff', fontSize: 9, padding: '2px 5px', borderRadius: 4, fontWeight: 600 }}>
                   {seq.story_count} story{seq.story_count > 1 ? 'ies' : ''}
@@ -1368,8 +1795,27 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                       <stop offset="95%" stopColor={statModal.color} stopOpacity={0} />
                     </linearGradient>
                   </defs>
+                  {/* Meme rendu que le graphique « Abonnes nets / jour » de la section :
+                      une grille en pointilles qui marque chaque graduation, zero compris,
+                      et pas de ReferenceLine par-dessus (elle dessinait une barre blanche
+                      en travers). Les deux montrent la meme metrique, ils doivent se
+                      ressembler. */}
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                   <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={statModalTickInterval} />
-                  <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={30} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = Math.max(1, Math.ceil(range * 0.12)); const lo = dataMin - margin; return [dataMin >= 0 ? Math.max(0, lo) : lo, dataMax + margin]; }} />
+                  {(() => {
+                    const borne = borneAbonnesNets(statModal.data.map(d => d.v));
+                    return (
+                      <YAxis
+                        tick={{ fontSize: 10, fill: 'var(--muted)' }}
+                        axisLine={false}
+                        tickLine={false}
+                        width={30}
+                        allowDecimals={false}
+                        domain={domaineAbonnesNets(borne)}
+                        ticks={graduationsAbonnesNets(borne)}
+                      />
+                    );
+                  })()}
                   <Tooltip content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
                     const v = payload[0].value as number;
@@ -1453,7 +1899,15 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                 ['↗️ Partages', selectedPost.shares],
                 ['▶️ Vues', selectedPost.views],
                 ['⚡ Interactions', selectedPost.totalInteractions],
-              ].map(([label, value], i) => (
+                // Presentes en base et deja remontees par la route, mais jamais
+                // affichees : la modale en montrait sept sur les dix disponibles.
+                // Meta ne les fournit que pour les posts NON-Reels, d'ou le filtre
+                // ci-dessous qui masque celles qui sont absentes plutot que d'afficher
+                // des tirets (2026-08-22).
+                ['👤 Abonnements', selectedPost.follows],
+                ['🔍 Visites du profil', selectedPost.profileVisits],
+              ].filter(([, v]) => v !== null && v !== undefined)
+               .map(([label, value], i) => (
                 <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{label}</div>
                   <div style={{ fontSize: 18, fontWeight: 700 }}>{value !== null && value !== undefined ? fmt(value as number) : '—'}</div>
@@ -1496,24 +1950,48 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
         <StorySequenceDetailModal profileId={profileId} sequence={selectedSequence} onClose={() => setSelectedSequence(null)} />
       )}
 
+      {/* maxWidth porte par l'overlay et non par la carte : l'overlay centre son
+          conteneur, or celui-ci faisait 760 px par defaut. Une carte de 480 px
+          calee a gauche dans une boite de 760 px apparaissait decalee, pas
+          centree (retour de Chris, 2026-08-25). */}
       {selectedStory && (
-        <ModalOverlay onClose={() => setSelectedStory(null)}>
-          <div style={{ background: 'var(--surface)', borderRadius: 14, padding: 24, width: '100%', maxWidth: 480 }}>
+        <ModalOverlay onClose={() => setSelectedStory(null)} maxWidth={480}>
+          <div style={{ background: 'var(--surface)', borderRadius: 14, padding: 24, width: '100%' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
               <div style={{ fontSize: 13, color: 'var(--muted)' }}>{new Date(selectedStory.posted_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' })}</div>
               <button onClick={() => setSelectedStory(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>×</button>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              {[
-                ['👁 Reach', selectedStory.reach],
-                ['▶️ Vues', selectedStory.views],
-              ].map(([label, value], i) => (
-                <div key={i} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 12px' }}>
-                  <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 2 }}>{label}</div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>{value ?? '—'}</div>
-                </div>
-              ))}
-            </div>
+            {/* Toutes les metriques collectees, pas seulement reach et vues : la base en
+                stocke douze et la route des SEQUENCES en exposait deja neuf, alors que
+                celle des stories n'en remontait que deux (demande de Chris, 2026-08-22).
+
+                Toutes sont affichees, y compris absentes — un « — » dit « on ne sait
+                pas », un « 0 » affirme « personne ». Masquer les absentes ferait
+                disparaitre des cartes au fil des heures, ce qui se lit comme un bug.
+
+                Meta consolide ces chiffres pendant les 24 h de vie de la story : le
+                reach reste a 0 plusieurs heures alors que les vues montent deja, et le
+                detail de navigation n'arrive qu'apres coup. D'ou la mention. */}
+            <StoryStats story={selectedStory} />
+            {estStoryRecente(selectedStory.posted_at) && (
+              <div style={{ marginTop: 14, fontSize: 11, color: 'var(--muted)', lineHeight: 1.45, paddingTop: 12, borderTop: '1px solid var(--border-soft)' }}>
+                Story publiée il y a moins de 24 h : Instagram consolide ces chiffres
+                progressivement. Le reach et le détail de navigation arrivent après les vues.
+              </div>
+            )}
+            {/* Aucune metrique : Meta ne fournit les insights d'une story que 24 h, et
+                seulement au-dela d'un seuil de spectateurs. Le dire vaut mieux qu'une
+                grille vide. */}
+            {[selectedStory.reach, selectedStory.views, selectedStory.total_interactions,
+              selectedStory.replies, selectedStory.shares,
+              selectedStory.follows, selectedStory.profile_visits,
+              selectedStory.navigation_taps_forward, selectedStory.navigation_taps_back,
+              selectedStory.navigation_exits].every(v => v == null) && (
+              <div style={{ fontSize: 12, color: 'var(--faint)', textAlign: 'center', padding: '18px 0', lineHeight: 1.5 }}>
+                Pas de statistiques pour cette story.<br />
+                Instagram ne les fournit que pendant 24 h après la publication.
+              </div>
+            )}
             {selectedStory.permalink && (
               <a href={selectedStory.permalink} target="_blank" rel="noreferrer" style={{ display: 'block', marginTop: 14, textAlign: 'center', fontSize: 12, color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
                 Voir sur Instagram →
@@ -1522,6 +2000,279 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
           </div>
         </ModalOverlay>
       )}
+    </div>
+  );
+}
+
+/**
+ * Composition de la portee, une ligne par periode calendaire.
+ *
+ * Repond au probleme de l'All-Time : un « depuis toujours » dedupliqué est hors
+ * d'atteinte (la deduplication ne s'additionne pas d'une periode a l'autre, et
+ * Meta cesse de servir la ventilation au-dela de ~12 mois). On montre donc chaque
+ * periode avec SA valeur, exacte en elle-meme, plutot qu'un agregat impossible.
+ *
+ * La granularite suit le selecteur de periode de la page (7j -> semaines,
+ * 30j -> mois) : deux commandes de periode a l'ecran se contrediraient.
+ *
+ * Lit `analytics_ig_periodes`, alimentee par le cron. Aucun calcul ici : les taux
+ * viennent de l'API, l'ecran ne fait que les mettre en forme.
+ */
+function HistoriquePortee({ profileId, granularite }: { profileId?: string; granularite: 'mois' | 'semaine' }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['ig-periodes', profileId, granularite],
+    queryFn: () => fetch(`/api/instagram/periodes?type=${granularite}${profileId ? `&profileId=${profileId}` : ''}`).then(r => r.json()),
+    staleTime: 5 * 60 * 1000,
+  });
+  const periodes: any[] = data?.periodes ?? [];
+
+  // Abonnes = audience deja acquise, en ardoise (la couleur de marque).
+  // Non-abonnes = personnes atteintes hors de cette audience, en vert : c'est le
+  // seul statut positif de la palette, et decouvrir de nouvelles personnes EST le
+  // signal positif. Terracotta et ambre portent un sens d'alerte, ils sont exclus.
+  const COUL_ABO = 'var(--accent-brand)';
+  const COUL_NON = 'var(--green)';
+
+  // « du 1 au 31 août » — meme forme pour les mois et les semaines, pour que deux
+  // granularites ne se lisent pas differemment. Le mois n'est repete que si la
+  // periode enjambe deux mois, et l'annee n'apparait que hors annee courante :
+  // elle alourdirait chaque ligne sans rien apprendre.
+  const libelle = (p: any) => {
+    const d = new Date(p.debut + 'T12:00:00Z');
+    const f = new Date(p.fin + 'T12:00:00Z');
+    const jour = (x: Date) => x.getUTCDate();
+    const mois = (x: Date) => x.toLocaleDateString('fr-FR', { month: 'long', timeZone: 'UTC' });
+    // Une semaine a cheval sur le nouvel an (« du 29 decembre au 4 janvier ») ne
+    // dirait pas de quel decembre il s'agit : dans ce seul cas, les deux annees
+    // sont explicitees. Arrive une fois par an, mais l'ambiguite serait reelle.
+    if (d.getUTCFullYear() !== f.getUTCFullYear()) {
+      return `du ${jour(d)} ${mois(d)} ${d.getUTCFullYear()} au ${jour(f)} ${mois(f)} ${f.getUTCFullYear()}`;
+    }
+    const annee = f.getUTCFullYear() !== new Date().getUTCFullYear() ? ` ${f.getUTCFullYear()}` : '';
+    return d.getUTCMonth() === f.getUTCMonth()
+      ? `du ${jour(d)} au ${jour(f)} ${mois(f)}${annee}`
+      : `du ${jour(d)} ${mois(d)} au ${jour(f)} ${mois(f)}${annee}`;
+  };
+
+  return (
+    <Card
+      title="Composition de ton reach"
+      sub="Qui a vu tes contenus — chaque période est comptée séparément, les valeurs ne s'additionnent pas"
+    >
+      {isLoading ? (
+        <div>
+          {[0, 1, 2].map(i => (
+            <div key={i} style={{ height: 44, background: 'var(--surface-2)', borderRadius: 8, marginBottom: 6, opacity: 1 - i * 0.25 }} />
+          ))}
+        </div>
+      ) : periodes.length === 0 ? (
+        <div style={{ fontSize: 12, color: 'var(--faint)', textAlign: 'center', padding: '22px 0', lineHeight: 1.5 }}>
+          L&apos;historique se construit à partir d&apos;aujourd&apos;hui.<br />
+          Chaque période close est enregistrée définitivement.
+        </div>
+      ) : (
+        <div>
+          {periodes.map(p => {
+            const total = p.reachTotal ?? 0;
+            const abo = p.reachAbonnes ?? 0;
+            const non = p.reachNonAbonnes ?? 0;
+            // Part DANS la portee, donc les deux font 100 % — a ne pas confondre
+            // avec la carte « Abonnes touches », qui divise par le nombre d'abonnes.
+            const pctAbo = total ? (abo / total) * 100 : 0;
+            const pctNon = total ? (non / total) * 100 : 0;
+            // Un segment trop etroit ne peut pas porter son texte sans deborder sur
+            // le voisin. Pratique des outils pro : la valeur reste a l'exterieur, et
+            // l'etiquette interieure disparait plutot que de se chevaucher. Le cas
+            // « 99 % / 1 % » se lit donc toujours, le 1 % restant lisible dehors.
+            const SEUIL_TEXTE = 14;
+            return (
+              <div key={p.debut} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--border-soft)' }}>
+                <div style={{ width: 168, flexShrink: 0, fontSize: 12.5, color: 'var(--ink-2)', whiteSpace: 'nowrap' }}>
+                  {libelle(p)}
+                  {!p.figee && (
+                    <span style={{ fontSize: 9, fontWeight: 600, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 5px', marginLeft: 6, whiteSpace: 'nowrap' }}>
+                      en cours
+                    </span>
+                  )}
+                </div>
+
+                <div style={{ width: 46, flexShrink: 0, textAlign: 'right', fontSize: 12.5, fontWeight: 600, color: COUL_ABO, fontVariantNumeric: 'tabular-nums' }}
+                  title="Abonnés touchés">
+                  {p.reachAbonnes == null ? '—' : fmt(abo)}
+                </div>
+
+                {/* Le total passe SOUS la barre, centre : a droite il se lisait comme
+                    une quatrieme colonne de meme rang que les deux effectifs, alors
+                    qu'il est leur somme. Dessous, il se lit comme le total qu'il est
+                    (demande de Chris, 2026-08-26). */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', height: 22, borderRadius: 5, overflow: 'hidden', background: 'var(--surface-2)' }}>
+                  <div style={{ width: `${pctAbo}%`, background: COUL_ABO, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
+                    title={`${fmt(abo)} abonnés — ${Math.round(pctAbo)} % de la portée`}>
+                    {pctAbo >= SEUIL_TEXTE && (
+                      <span style={{ fontSize: 10.5, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap' }}>{Math.round(pctAbo)} %</span>
+                    )}
+                  </div>
+                  <div style={{ width: `${pctNon}%`, background: COUL_NON, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
+                    title={`${fmt(non)} non-abonnés — ${Math.round(pctNon)} % de la portée`}>
+                    {pctNon >= SEUIL_TEXTE && (
+                      <span style={{ fontSize: 10.5, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap' }}>{Math.round(pctNon)} %</span>
+                    )}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'center', marginTop: 5, fontSize: 11, color: 'var(--muted)' }}>
+                  Reach total = <strong style={{ color: 'var(--ink)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{p.reachTotal == null ? '—' : fmt(total)}</strong>
+                </div>
+                </div>
+
+                <div style={{ width: 46, flexShrink: 0, fontSize: 12.5, fontWeight: 600, color: COUL_NON, fontVariantNumeric: 'tabular-nums' }}
+                  title="Non-abonnés touchés">
+                  {p.reachNonAbonnes == null ? '—' : fmt(non)}
+                </div>
+              </div>
+            );
+          })}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 11, fontSize: 10.5, color: 'var(--muted)', flexWrap: 'wrap' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 9, height: 9, borderRadius: 2, background: COUL_ABO }} />abonnés
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 9, height: 9, borderRadius: 2, background: COUL_NON }} />non-abonnés
+            </span>
+            <span style={{ marginLeft: 'auto' }}>
+              les deux parts font 100 % du reach total
+            </span>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * Statistiques d'une story, groupees par question posee.
+ *
+ * Les dix metriques etaient auparavant une grille 3x4 uniforme : meme taille, meme
+ * poids, aucune hierarchie. On ne savait pas par ou commencer (retour de Chris,
+ * 2026-08-25). Elles repondent en fait a trois questions distinctes :
+ *
+ *   Portee      combien de personnes, et combien de fois
+ *   Engagement  ce que la story a provoque
+ *   Navigation  comment les gens l'ont traversee
+ *
+ * La navigation est exprimee en part du reach : « 14 » ne dit rien, « 88 % ont
+ * enchaine » dit tout. La valeur brute reste visible en second.
+ */
+function StoryStats({ story }: { story: any }) {
+  const reach: number | null = story.reach ?? null;
+  const vues: number | null = story.views ?? null;
+
+  // Icones au trait plutot qu'emojis : le systeme de design exige un outil de
+  // travail credible en capture d'ecran commerciale, et proscrit explicitement
+  // l'illustration ludique. Chaque glyphe doit nommer sa metrique, pas decorer.
+  // Tracees a currentColor, elles heritent donc de la couleur du label.
+  // `d` peut porter plusieurs tracés séparés par « | » (l'oeil a besoin d'une
+  // pupille, qui ne peut pas etre un simple sous-chemin sans etre remplie).
+  const Icone = ({ d }: { d: string }) => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+      style={{ flexShrink: 0, opacity: .75 }} aria-hidden="true">
+      {d.split('|').map((p, i) => <path key={i} d={p} />)}
+    </svg>
+  );
+  const ICONES: Record<string, string> = {
+    // Coeur — interactions cumulees
+    'Interactions': 'M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l8.8 8.8 8.8-8.8a5.5 5.5 0 0 0 0-7.8z',
+    // Bulle de message — reponses en DM
+    'Réponses': 'M21 11.5a8.4 8.4 0 0 1-9 8.4 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 8.4-9h.6a8.5 8.5 0 0 1 8 8z',
+    // Fleche qui rebondit vers l'exterieur — partage (l'icone Instagram)
+    'Partages': 'M22 2 11 13|M22 2l-7 20-4-9-9-4 20-7z',
+    // Silhouette avec plus — nouveaux abonnes
+    'Abonnements': 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M19 8v6M22 11h-6',
+    // Silhouette simple — visites de profil
+    'Visites du profil': 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8',
+    // Chevron droit — passage a la story suivante
+    'Story suivante': 'M9 18l6-6-6-6',
+    // Chevron gauche — retour arriere
+    'Story précédente': 'M15 18l-6-6 6-6',
+    // Porte de sortie — abandon de la sequence
+    'Sorties': 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9',
+  };
+
+  // Part du reach — seulement si le reach est un denominateur credible. Sur une
+  // story fraiche, Meta sert les vues avant le reach : diviser par 0 ou par un
+  // reach non encore consolide fabriquerait un pourcentage faux.
+  const part = (v: number | null | undefined): string | null =>
+    v == null || reach == null || reach <= 0 ? null : `${Math.round((v / reach) * 100)} %`;
+
+  const engagement: [string, number | null][] = [
+    ['Interactions', story.total_interactions ?? null],
+    ['Réponses', story.replies ?? null],
+    ['Partages', story.shares ?? null],
+    ['Abonnements', story.follows ?? null],
+    ['Visites du profil', story.profile_visits ?? null],
+  ];
+  const navigation: [string, number | null][] = [
+    ['Story suivante', story.navigation_taps_forward ?? null],
+    ['Story précédente', story.navigation_taps_back ?? null],
+    ['Sorties', story.navigation_exits ?? null],
+  ];
+
+  const Section = ({ titre, children }: { titre: string; children: React.ReactNode }) => (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginBottom: 8 }}>{titre}</div>
+      {children}
+    </div>
+  );
+
+  // Une ligne par metrique plutot qu'une tuile : sur des compteurs souvent a 0,
+  // une liste alignee se parcourt d'un coup d'oeil la ou douze tuiles obligent a
+  // lire chaque case. Le chiffre est aligne a droite, colonne unique pour l'oeil.
+  const Ligne = ({ label, valeur, suffixe }: { label: string; valeur: number | null; suffixe?: string | null }) => (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--border-soft)' }}>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 12.5, color: 'var(--ink-2)' }}>
+        {ICONES[label] && <Icone d={ICONES[label]} />}
+        {label}
+      </span>
+      <span style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
+        {suffixe && <span style={{ fontSize: 11, color: 'var(--muted)' }}>{suffixe}</span>}
+        <span style={{ fontSize: 14, fontWeight: 600, color: valeur == null ? 'var(--muted)' : 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>
+          {valeur == null ? '—' : fmt(valeur)}
+        </span>
+      </span>
+    </div>
+  );
+
+  return (
+    <div>
+      {/* Portee : les deux chiffres qui portent tout le reste, donc seuls a avoir
+          la taille display. Les huit autres se lisent par rapport a ceux-ci. */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        {([
+          // Silhouettes multiples = comptes uniques ; oeil = vues, repetitions comprises.
+          ['Comptes touchés', reach, 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8'],
+          ['Vues', vues, 'M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z|M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z'],
+        ] as [string, number | null, string][]).map(([label, v, d]) => (
+          <div key={label} style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11, color: 'var(--muted)', marginBottom: 3 }}>
+              <Icone d={d} />
+              {label}
+            </div>
+            <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-0.5px', color: v == null ? 'var(--muted)' : 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>
+              {v == null ? '—' : fmt(v)}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <Section titre="Engagement">
+        <div>{engagement.map(([label, v]) => <Ligne key={label} label={label} valeur={v} />)}</div>
+      </Section>
+
+      <Section titre="Navigation">
+        <div>{navigation.map(([label, v]) => <Ligne key={label} label={label} valeur={v} suffixe={part(v)} />)}</div>
+      </Section>
     </div>
   );
 }
@@ -1568,7 +2319,7 @@ function StorySequenceDetailModal({ profileId, sequence, onClose }: { profileId?
                 return (
                   <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div style={{ width: 32, height: 32, borderRadius: 6, overflow: 'hidden', flexShrink: 0, background: 'var(--surface-2)' }}>
-                      {s.storage_url && <img src={s.storage_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                      {s.storage_url && <img loading="lazy" decoding="async" src={s.storage_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ height: 16, borderRadius: 4, background: 'var(--accent)', width: `${barWidth}%`, minWidth: 4 }} />
@@ -1622,6 +2373,18 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   const [jobCreatedAt, setJobCreatedAt] = useState<string | null>(null);
   const [ctrPending, setCtrPending] = useState(false);
   const [statModal, setStatModal] = useState<{ label: string; value: string; color: string; data: { date: string; v: number }[]; unit?: string; data2?: { date: string; v: number }[]; label2?: string; color2?: string } | null>(null);
+  // Largeur reelle des deux grands graphiques (Vues / jour et Abonnes nets / jour) :
+  // ils partagent la meme colonne de la grille, une seule mesure suffit. Elle sert a
+  // decider combien de dates tiennent sur l'axe — sur un ecran large il y a la place
+  // d'en afficher plus que sur un mobile.
+  //
+  // DECLARE ICI, avec les autres hooks, et surtout AVANT le `if (!yt) return` plus
+  // bas : place apres, il n'etait pas execute quand yt valait null (le temps du
+  // chargement d'une nouvelle periode), le nombre de hooks changeait d'un rendu a
+  // l'autre et React levait l'erreur #300. C'est ce qui faisait « this page couldn't
+  // load » au clic sur All-Time (signale par Chris, trace retrouvee dans
+  // webhook_debug_log le 2026-08-21 a 22:51 et 22:52).
+  const [refGraphiques, largeurGraphiques] = useLargeur<HTMLDivElement>();
 
   const loadRetention = useCallback(async (videoId: string, publishedAt?: string) => {
     setLoadingRetention(true);
@@ -1688,19 +2451,28 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   // vraie fenêtre déjà présente dans ytDaysRaw (pas de recalcul de bornes calendaires).
   const ytDayByDate = new Map(ytDaysRaw.map(d => [d.date, d]));
   const ytDaysNoDataSet = new Set<string>();
-  // En All-Time, ytDaysRaw est pris tel quel et le filet ytDaysNoDataSet reste vide.
+  // Jours que YouTube n'a pas encore traites — marques pour que les courbes y fassent un
+  // TROU plutot que de descendre a zero, qui se lirait « aucune vue ce jour-la ».
   //
-  // Sans consequence dans ce mode, et c'est une nuance qui merite d'etre ecrite : les
-  // deux sources de chartData n'emettent PAS de ligne pour un jour sans donnee (l'API
-  // YouTube n'en renvoie pas, et le snapshot n'a pas de ligne a lire). Le jour est donc
-  // ABSENT du tableau, pas present a zero — la courbe n'a aucun point a cet endroit,
-  // ce qui produit deja le trou recherche.
+  // Les deux modes signalent l'absence differemment :
+  //   - API live : le jour est ABSENT de chartData (l'API n'emet pas de ligne) ;
+  //   - snapshot : la ligne EXISTE avec yt_views a null — le cron la cree pour Instagram
+  //                meme quand YouTube n'a rien renvoye — et le `?? 0` du mapping la
+  //                transforme en 0.
   //
-  // Le filet ne sert qu'au mode calendaire ci-dessous, qui reconstruit une plage
-  // complete jour par jour et doit donc marquer explicitement ceux qu'il a inventes.
+  // C'est ce second cas qui manquait : en All-Time le filet restait vide, et les 3
+  // derniers jours s'affichaient a 0 au lieu d'un trou (constate le 2026-08-21).
   //
-  // Ne pas « corriger » en testant d.views == null : les deux constructions appliquent
-  // `?? 0`, ce test ne se declencherait jamais.
+  // Critere : aucune activite d'aucune sorte. Une vraie journee a zero vue serait
+  // marquee a tort, mais elle produirait le meme rendu qu'un point a zero — un creux
+  // dans la courbe — sans jamais affirmer une valeur fausse.
+  if (sinceConnection) {
+    for (const d of ytDaysRaw) {
+      const vide = (d.views ?? 0) === 0 && (d.watchTime ?? 0) === 0
+        && (d.likes ?? 0) === 0 && (d.subsGained ?? 0) === 0 && (d.subsLost ?? 0) === 0;
+      if (vide) ytDaysNoDataSet.add(d.date);
+    }
+  }
   const ytDays: typeof ytDaysRaw = sinceConnection ? ytDaysRaw : (() => {
     const days: typeof ytDaysRaw = [];
     let d = ytPeriodStart;
@@ -1725,17 +2497,45 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   // et le badge n'etait affiche que sur trois cartes. Il l'est desormais sur toutes
   // celles qui lisent des donnees journalieres.
   //
-  // Calcule sur `views` plutot que `likes` : une journee peut legitimement n'avoir aucun
-  // like tout en ayant des vues, auquel cas filtrer sur les likes sous-estimerait la
-  // fraicheur reelle.
+  // Derniere date PRESENTE dans les donnees, sans filtre sur une valeur.
+  //
+  // Le filtre `d.views != null` qui etait ici ne se declenchait jamais : les deux
+  // constructions de chartData appliquent `?? 0` / `|| 0`, donc `views` n'est jamais
+  // null. Tous les jours passaient le filtre, la derniere date valait aujourd'hui, le
+  // retard tombait a 0 — et AUCUN badge ne s'affichait nulle part (constate le
+  // 2026-08-21 : la carte « Vues » n'avait pas son badge alors qu'elle n'est pas exclue).
+  //
+  // Les deux modes signalent l'absence differemment, il faut donc couvrir les deux :
+  //   - API live  : le jour non traite est ABSENT de chartData (l'API n'emet pas de ligne) ;
+  //   - snapshot  : la ligne EXISTE avec yt_views a null (le cron la cree pour Instagram),
+  //                 et le `?? 0` du mapping la transforme en 0.
+  //
+  // Un jour a 0 vue ET 0 watch time ET 0 like est donc traite comme non renseigne. Une
+  // vraie journee sans aucune activite serait ecartee a tort, mais elle ne fausse rien :
+  // le retard affiche serait alors legerement surestime, jamais sous-estime — et sur une
+  // chaine active le cas ne se presente pas.
   const ytLastEngagementDate = [...yt.chartData]
-    .filter(d => d.views != null)
+    .filter(d => (d.views ?? 0) > 0 || (d.watchTime ?? 0) > 0 || (d.likes ?? 0) > 0)
     .sort((a, b) => a.date.localeCompare(b.date))
     .at(-1)?.date;
   // Retard reel en jours — sert a n'afficher le badge que s'il y en a un.
+  // Suffixe de fraicheur commun a tous les blocs lisant l'Analytics API. Defini une
+  // fois : ces blocs partagent la meme source, donc le meme retard — l'ecrire dans
+  // chacun garantissait qu'un nouveau bloc l'oublie (c'est ce qui est arrive a
+  // Appareils, Sources de trafic, Mots-cles et Demographie).
   const ytDataLagDays = ytLastEngagementDate
     ? Math.round((Date.now() - new Date(ytLastEngagementDate + 'T12:00:00Z').getTime()) / 86400000)
     : 0;
+  // Pose sur les blocs dont on suit l'evolution jour apres jour (vues, abonnes nets,
+  // tableau des videos) — pas sur les repartitions (Appareils, Sources de trafic,
+  // Mots-cles, Demographie), ou le retard n'a pas d'importance : on y lit une structure
+  // cumulee, pas un chiffre du jour. Choix de Chris, 2026-08-21.
+  const ytLagSuffix = ytDataLagDays >= 2 ? ` · données J-${ytDataLagDays}` : '';
+  // Etiquette de fenetre des cartes. En mode All-Time, les cartes affichaient « 30j »
+  // alors que le bandeau annonçait « All-Time, depuis le 30/05/2026 » et que les
+  // graphiques couvraient juin a aout : l'etiquette contredisait la periode reellement
+  // affichee (constate par Chris a l'ecran le 2026-08-21).
+  const ytEtiquettePeriode = sinceConnection ? 'total' : `${period}j`;
   const ytLastEngagementDateFmt = ytLastEngagementDate
     ? new Date(ytLastEngagementDate + 'T12:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
     : null;
@@ -1755,14 +2555,22 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   const ytCommentsP = ytDays.reduce((s, d) => s + (d.comments ?? 0), 0);
   const ytSharesP = ytDays.reduce((s, d) => s + (d.shares ?? 0), 0);
 
-  const conversionRate = ytViewsP > 0 ? ((ytSubsGainedP / ytViewsP) * 100).toFixed(3) : '0';
+  // (conversionRate supprimé : plus aucun appelant depuis que la courbe « Conv.
+  //  vue→abonné » calcule le taux jour par jour au lieu d'étaler un total global.)
   // Affichage adaptatif : « 20 min » et non « 0h ». Math.round(minutes / 60) ecrasait
   // a 0 tout watch time sous 30 minutes — exactement le motif du bug de collecte
   // corrige le 2026-08-20, reproduit ici a l'affichage. Meme regle que le tableau des
   // videos, qui bascule en heures a partir de 60 minutes.
-  const watchTimeLabel = ytWatchTimeP >= 60
-    ? `${Math.round(ytWatchTimeP / 60)}h`
-    : `${Math.round(ytWatchTimeP)} min`;
+  // Watch time de la periode, ventile par format — sert la carte « Watch time », qui
+  // affiche desormais les deux comme « Watch time moyen / vue » juste a cote.
+  // Somme et non moyenne : un jour sans vue vaut reellement 0 minute, il n'y a donc
+  // rien a exclure du calcul.
+  const ytWatchShortsP = ytDays.reduce((s, d) => s + ((d as any).watchTimeShorts ?? 0), 0);
+  const ytWatchLongP = ytDays.reduce((s, d) => s + ((d as any).watchTimeLong ?? 0), 0);
+  // Toutes les durees de la plateforme passent par lib/duree.ts — voir l'en-tete de
+  // ce fichier pour la regle et le bug qui l'a motivee.
+  const fmtWatchMin = dureeDepuisMinutes;
+  const watchTimeLabel = dureeDepuisMinutes(ytWatchTimeP);
 
   // Vues/sub par type de contenu (depuis les vidéos de la période)
   // Vues par format sur la PERIODE AFFICHEE (colonnes yt_views_shorts / _long, ajoutees
@@ -1783,9 +2591,23 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   const longViewsP = hasFormatBreakdown
     ? longViewsFromDays
     : yt.videos.filter(v => !v.isShort).reduce((s, v) => s + v.views30d, 0);
-  const subsRef = ytSubsGainedP > 0 ? ytSubsGainedP : (yt.subsGained30d > 0 ? yt.subsGained30d : 0);
-  const viewsPerSubShorts = subsRef > 0 && shortsViewsP > 0 ? Math.round(shortsViewsP / subsRef) : null;
-  const viewsPerSubLong = subsRef > 0 && longViewsP > 0 ? Math.round(longViewsP / subsRef) : null;
+  // Abonnes gagnes SUR LA PERIODE AFFICHEE, sans repli sur les 30 jours.
+  //
+  // Le repli `ytSubsGainedP > 0 ? ... : yt.subsGained30d` divisait les vues de la
+  // periode par les abonnes de 30 JOURS des que la periode n'avait aucun gain : sur une
+  // vue a 7 jours, un ratio construit sur deux fenetres differentes, donc sous-evalue.
+  // C'est exactement le defaut que shortsViewsP corrige juste au-dessus.
+  //
+  // Sans gain sur la periode, le ratio n'existe pas : « X vues pour 1 abonne » n'a
+  // aucun sens quand personne ne s'est abonne. La carte affiche « — », ce qui est vrai,
+  // plutot qu'un chiffre emprunte a une autre fenetre (constate le 2026-08-21).
+  const subsRef = ytSubsGainedP;
+  // Denominateur et numerateur doivent venir de la meme fenetre : si la ventilation par
+  // format manque (jours anterieurs a sa collecte), shortsViewsP se replie sur des
+  // cumuls 30j et le ratio redeviendrait bancal. On ne l'affiche alors pas.
+  const ratioFenetreCoherente = hasFormatBreakdown;
+  const viewsPerSubShorts = ratioFenetreCoherente && subsRef > 0 && shortsViewsP > 0 ? Math.round(shortsViewsP / subsRef) : null;
+  const viewsPerSubLong = ratioFenetreCoherente && subsRef > 0 && longViewsP > 0 ? Math.round(longViewsP / subsRef) : null;
 
   const videosInPeriod = yt.videos.filter(v => {
     const t = new Date(v.publishedAt).getTime();
@@ -1802,23 +2624,54 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
     longues: yt.videos.filter(v => !v.isShort && parisDateStr(new Date(v.publishedAt)) === d.date).length,
   }));
 
-  const fmtSec = (sec: number) => sec >= 3600 ? `${Math.round(sec/3600)}h` : `${Math.floor(sec/60)}m${String(sec%60).padStart(2,'0')}s`;
+  const fmtSec = dureeDepuisSecondes;
 
-  const shortsVideos = yt.videos.filter(v => v.isShort);
-  const longVideos = yt.videos.filter(v => !v.isShort);
+  // (shortsVideos / longVideos supprimes : ils ne servaient qu'au watch time moyen
+  //  all-time, remplace par un calcul sur la periode juste en dessous.)
   // v.watchTime30d vient de row.watch_time_min (des minutes, cf. ligne ~4903) — *60 pour
   // repasser en secondes avant division, sinon fmtSec() (qui attend des secondes) affiche
   // toujours "0m00s" (ex: 500min de watch time / 10000 vues = 0.05 arrondi à 0).
-  // Ratio watch time / vues : les deux termes viennent de la MEME fenetre (views30d et
-  // watchTime30d, cumuls 30j du cron), donc le ratio est juste meme si la fenetre n'est
-  // pas celle affichee. A ne pas confondre avec « vues pour 1 abonne » ci-dessus, qui
-  // melangeait bien deux fenetres differentes.
-  const avgWatchShorts = shortsVideos.length > 0 && shortsVideos.reduce((s,v) => s + v.views30d, 0) > 0
-    ? Math.round(shortsVideos.reduce((s,v) => s + v.watchTime30d * 60, 0) / shortsVideos.reduce((s,v) => s + v.views30d, 0))
-    : null;
-  const avgWatchLong = longVideos.length > 0 && longVideos.reduce((s,v) => s + v.views30d, 0) > 0
-    ? Math.round(longVideos.reduce((s,v) => s + v.watchTime30d * 60, 0) / longVideos.reduce((s,v) => s + v.views30d, 0))
-    : null;
+  // Watch time moyen par vue, SUR LA PERIODE AFFICHEE — comme les quatre cartes
+  // voisines, et comme le graphique de sa propre modale.
+  //
+  // Le calcul precedent partait de yt.videos, c'est-a-dire TOUTES les videos de la
+  // chaine sans filtre de date, et divisait leur watch time all-time par leurs vues
+  // all-time. La carte affichait donc une moyenne depuis-toujours au milieu d'une
+  // rangee de cartes de periode : changer de periode ne la faisait pas bouger, et sa
+  // valeur ne correspondait pas au graphique qui s'ouvrait au clic (choix de Chris,
+  // 2026-08-21).
+  //
+  // Calcul PONDERE a partir de la duree moyenne quotidienne, pas du watch time.
+  //
+  // Le chemin evident — somme(watch time) / somme(vues) — est inutilisable ici :
+  // yt_watch_time_*_min vient de estimatedMinutesWatched, que l'API arrondit a la
+  // MINUTE entiere. Sur des Shorts de 20 secondes chaque journee tombe a 0, et la
+  // moyenne affichait 0s sur toutes les periodes testees (verifie en base le
+  // 2026-08-21 : aout, juillet, 7 derniers jours, tout — 0s partout).
+  //
+  // yt_avg_duration_*_sec porte la meme information en SECONDES, donc sans cette
+  // perte. Pondere par les vues du jour, il reconstitue la vraie moyenne sur
+  // n'importe quel decoupage : un jour a 10 vues pese dix fois un jour a 1 vue.
+  // Meme mesure, les valeurs deviennent 21s (Shorts) et 44s (longues) en aout.
+  //
+  // Condition verifiee : chaque jour ayant des vues a bien sa duree moyenne
+  // renseignee (15/15 Shorts, 8/8 longues), aucun jour n'est donc exclu du calcul.
+  // Precision restante : ±0,5 s par jour (arrondi seconde de l'API), contre jusqu'a
+  // 59 s par jour pour le calcul via watch time.
+  const moyennePonderee = (cle: string, cleVues: string): number | null => {
+    let sommeDurees = 0;
+    let sommeVues = 0;
+    for (const d of ytDays) {
+      const vues = (d as any)[cleVues] ?? 0;
+      const duree = (d as any)[cle];
+      if (vues > 0 && duree != null) { sommeDurees += duree * vues; sommeVues += vues; }
+    }
+    // null (pas 0) sans aucune vue : la division est indefinie, pas nulle. Afficher 0
+    // dirait « ils ont ouvert et sont partis aussitot » alors que personne n'a ouvert.
+    return sommeVues > 0 ? Math.round(sommeDurees / sommeVues) : null;
+  };
+  const avgWatchShorts = moyennePonderee('avgDurationShorts', 'viewsShorts');
+  const avgWatchLong = moyennePonderee('avgDurationLong', 'viewsLong');
 
   const ytStatSeries: Record<string, { data: { date: string; v: number }[]; color: string; unit?: string }> = {
     'Vidéos publiées':    { data: ytPubsByDay.map(d => ({ date: d.date, v: isFutureDayYT(d.date) ? (null as any) : d.shorts + d.longues })), color: YT_COLOR },
@@ -1851,6 +2704,9 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
     'Conv. vue→abonné': {
       data: ytDays.map(d => ({
         date: d.date,
+        // 0 sur les jours sans vue, comme le watch time moyen : une courbe continue se
+        // lit mieux qu'une nuee de points. Le KPI, lui, divise les totaux de la periode
+        // (abonnes gagnes / vues) et n'est donc pas dilue par ces jours.
         v: ytDaysNoDataSet.has(d.date)
           ? (null as any)
           : (d.views > 0 ? Math.round(((d.subsGained ?? 0) / d.views) * 100 * 1000) / 1000 : 0),
@@ -1868,6 +2724,41 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   const openStatModal = (label: string, value: string) => {
     const s = ytStatSeries[label];
     if (!s) return;
+    if (label === 'Watch time') {
+      // Watch time separe Shorts / videos longues — demande de Chris.
+      //
+      // Les valeurs viennent de l'API (colonnes yt_watch_time_*_min, dimension
+      // creatorContentType). Ne PAS les reconstituer par « vues x duree moyenne » :
+      // averageViewDuration est arrondi a la seconde, et sur petits volumes l'erreur
+      // s'amplifie — 1,25 min calculee contre 0,00 reelle sur une journee testee.
+      // ?? 0 et non ?? null, contrairement au « watch time MOYEN » juste en dessous :
+      // c'est une SOMME, pas une division. Un jour sans vue vaut donc reellement
+      // 0 minute de visionnage — l'affirmer est exact.
+      //
+      // La moyenne, elle, se calcule watch time / vues : sans vue, la division est
+      // indefinie, pas nulle. Afficher 0 y dirait « ils ont ouvert et sont partis
+      // instantanement » alors que personne n'a ouvert. D'ou les deux traitements.
+      //
+      // Seuls les jours que YouTube n'a pas encore traites restent en trou (null), dans
+      // les deux cas : la donnee n'existe pas encore.
+      setStatModal({
+        label: 'Watch time — Shorts',
+        value: watchTimeLabel,
+        color: AMBER,
+        data: ytDays.map(d => ({
+          date: d.date,
+          v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).watchTimeShorts ?? 0),
+        })),
+        label2: 'Vidéos longues',
+        data2: ytDays.map(d => ({
+          date: d.date,
+          v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).watchTimeLong ?? 0),
+        })),
+        color2: '#64748b',
+        unit: 'min',
+      });
+      return;
+    }
     if (label === 'Watch time moyen') {
       // Vraies durées moyennes par jour et par format (colonnes yt_avg_duration_*_sec,
       // alimentées depuis la dimension creatorContentType de l'API — vérifiée sur une
@@ -1877,20 +2768,29 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
       // se rabattait sur des valeurs INVENTÉES quand la donnée manquait (45 s pour les
       // Shorts, 480 s pour les longues — des chiffres sans source).
       //
-      // null hors couverture ET quand le format n'a eu aucune vue : la courbe fait un
-      // trou plutôt que de descendre à 0, qui se lirait « regardé 0 seconde ».
+      // GRAPHIQUE : 0 sur les jours sans vue — une courbe continue se lit bien mieux
+      // qu'une nuee de points isoles sur une petite chaine (choix de Chris, 2026-08-21).
+      //
+      // KPI : ces jours n'y entrent PAS. avgWatchShorts fait somme(watch time) /
+      // somme(vues) par video — un jour sans vue contribue 0 au numerateur ET au
+      // denominateur, il ne dilue donc pas la moyenne. Le graphique montre le rythme,
+      // le KPI mesure la performance reelle : les deux repondent a des questions
+      // differentes, d'ou deux traitements.
+      //
+      // Seuls les jours que YouTube n'a pas encore traites restent en trou : la donnee
+      // n'existe pas encore, contrairement a un jour mesure sans vue.
       setStatModal({
         label: 'Watch time moyen / vue — Shorts',
         value: avgWatchShorts !== null ? fmtSec(avgWatchShorts) : '—',
         color: '#e8a838',
         data: ytDays.map(d => ({
           date: d.date,
-          v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).avgDurationShorts ?? null),
+          v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).avgDurationShorts ?? 0),
         })),
         label2: 'Vidéos longues',
         data2: ytDays.map(d => ({
           date: d.date,
-          v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).avgDurationLong ?? null),
+          v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).avgDurationLong ?? 0),
         })),
         color2: '#64748b',
         unit: 's',
@@ -1908,11 +2808,11 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   };
 
   const trafficData = yt.trafficSources.slice(0, 8).map(s => ({
-    name: s.source.replace('YT_', '').replace('_', ' ').toLowerCase(),
+    name: nomSourceTrafic(s.source),
     views: s.views,
   }));
 
-  const deviceData = yt.devices.map(d => ({ name: d.device.toLowerCase(), views: d.views }));
+  const deviceData = yt.devices.map(d => ({ name: nomAppareil(d.device), views: d.views }));
 
   return (
     <div className="stack">
@@ -1923,16 +2823,31 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
           // direct via la Data API v3. « all time » induisait en erreur — la carte ne
           // cumule rien sur une periode, elle affiche un compteur.
           { label: 'Abonnés', value: fmt(yt.subscribers), color: 'var(--ink)', key: 'Abonnés YT' },
-          { label: 'Vidéos publiées', value: fmt(ytVideosInPeriodCount), sub: `${period}j`, color: YT_COLOR, key: 'Vidéos publiées' },
-          { label: 'Abonnés nets YT', value: `${ytNetSubsP >= 0 ? '+' : ''}${fmt(ytNetSubsP)}`, sub: `${period}j`, color: ytNetSubsP >= 0 ? GREEN : RED, key: 'Abonnés nets YT' },
-          { label: 'Vues', value: fmt(ytViewsP), sub: `${period}j`, color: 'var(--ink)', key: 'Vues 30j' },
+          { label: 'Vidéos publiées', value: fmt(ytVideosInPeriodCount), sub: ytEtiquettePeriode, color: YT_COLOR, key: 'Vidéos publiées' },
+          // Libelle « Abonnés nets » sans suffixe : on est dans l'onglet YouTube, a cote
+          // d'une carte « Abonnés ». Le « YT » etait un reste de la cle technique, qui
+          // reste 'Abonnés nets YT' pour ne pas entrer en collision avec la serie
+          // Instagram du meme nom.
+          { label: 'Abonnés nets', value: `${ytNetSubsP >= 0 ? '+' : ''}${fmt(ytNetSubsP)}`, sub: ytEtiquettePeriode, color: ytNetSubsP >= 0 ? GREEN : RED, key: 'Abonnés nets YT' },
+          { label: 'Vues', value: fmt(ytViewsP), sub: ytEtiquettePeriode, color: 'var(--ink)', key: 'Vues 30j' },
           null, // carte Vues/sub custom Shorts vs Vidéos
         ].map((s, i) => {
           if (s === null) return (
             <div key="vues-sub" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
               <div style={{ marginBottom: 10 }}>
                 <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>Vues pour 1 abonné gagné</span>
-                <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{period}j</span>
+                <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{ytEtiquettePeriode}</span>
+                {/* Cette carte a son propre rendu (valeurs Shorts/Vidéos côte à côte),
+                    elle n'héritait donc pas du badge de la boucle. Ses deux termes
+                    viennent de l'Analytics API : même retard que les cartes voisines. */}
+                {ytDataLagDays >= 2 && (
+                  <span
+                    title={`Délai de traitement de YouTube Analytics.${ytLastEngagementDateFmt ? ` Dernière donnée disponible : ${ytLastEngagementDateFmt}.` : ''}`}
+                    style={{ fontSize: 9, fontWeight: 700, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 4px', marginLeft: 5, cursor: 'help', whiteSpace: 'nowrap', display: 'inline-block' }}
+                  >
+                    J-{ytDataLagDays}
+                  </span>
+                )}
               </div>
               <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                 <div>
@@ -1954,10 +2869,26 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             <div style={{ marginBottom: 8 }}>
               <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>{s.label}</span>
               {s.sub && <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{s.sub}</span>}
+              {/* Meme badge que la seconde rangee : « Vues » et « Abonnes nets » lisent
+                  l'Analytics API, donc subissent le meme retard que Watch time ou Likes.
+                  Il manquait ici parce que les deux rangees ont leur propre rendu — le
+                  badge n'avait ete pose que sur la seconde (constate par Chris a l'ecran
+                  le 2026-08-21). Exclusions : « Abonnes » (Data API v3, temps reel) et
+                  « Videos publiees » (date de publication, connue immediatement). */}
+              {ytDataLagDays >= 2 && !['Abonnés', 'Vidéos publiées'].includes(s.label) && (
+                <span
+                  title={`Délai de traitement de YouTube Analytics.${ytLastEngagementDateFmt ? ` Dernière donnée disponible : ${ytLastEngagementDateFmt}.` : ''}`}
+                  style={{ fontSize: 9, fontWeight: 700, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 4px', marginLeft: 5, cursor: 'help', whiteSpace: 'nowrap', display: 'inline-block' }}
+                >
+                  J-{ytDataLagDays}
+                </span>
+              )}
             </div>
             <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1, marginBottom: s.label === 'Vidéos publiées' ? 8 : 0 }}>
               {s.value}
-              {s.label === 'Abonnés nets YT' && (
+              {/* Teste la CLE, pas le libelle : le libelle est du texte d'affichage, le
+                  renommer ne doit pas faire disparaitre le detail « (+X -Y) ». */}
+              {s.key === 'Abonnés nets YT' && (
                 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>
                   {' ('}
                   <span style={{ color: GREEN }}>+{fmt(ytSubsGainedP)}</span>
@@ -1987,15 +2918,91 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
       {/* Ligne 2 — engagement & watch time */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
         {[
-          { label: 'Watch time', value: watchTimeLabel, sub: `${period}j`, color: AMBER, key: 'Watch time' },
-          null, // carte Watch time moyen custom
-          { label: 'Likes', value: fmt(ytIsFallback ? yt.likes30d : ytLikesP), sub: ytIsFallback ? '30j' : `${period}j`, color: 'var(--ink)', key: 'Likes' },
-          { label: 'Commentaires', value: fmt(ytIsFallback ? yt.comments30d : ytCommentsP), sub: ytIsFallback ? '30j' : `${period}j`, color: 'var(--ink)', key: 'Commentaires' },
-          { label: 'Partages', value: fmt(ytIsFallback ? yt.shares30d : ytSharesP), sub: ytIsFallback ? '30j' : `${period}j`, color: 'var(--ink)', key: 'Partages' },
-        ].map((s, i) => {
-          if (s === null) return (
+          // Deux cartes custom dans cette rangée : elles affichent chacune un total plus
+          // sa ventilation Shorts / vidéos longues, ce que le rendu générique ne sait pas
+          // faire. Marquées par un `custom` explicite et non par leur position — deux
+          // `null` indistinguables auraient rendu la même carte deux fois.
+          { custom: 'watch-total' as const },
+          { custom: 'watch-moyen' as const },
+          // Likes / commentaires / partages sont des VARIATIONS sur la periode, pas des
+          // compteurs : YouTube renvoie le solde du jour, et retirer un like donne -1.
+          // Le profil de test affichait « LIKES 30j : -1 » (verifie en base le
+          // 2026-08-21 : un like retire le 14 aout, aucun ajoute) — un compteur negatif
+          // se lit comme un bug alors que la donnee est juste.
+          //
+          // Le signe rend la nature de la valeur evidente, comme sur « Abonnés nets ».
+          // Le zero n'en prend pas : « +0 » annoncerait un gain nul comme un gain.
+          { label: 'Likes', value: signeVariation(ytIsFallback ? yt.likes30d : ytLikesP), sub: ytIsFallback ? '30j' : ytEtiquettePeriode, color: (ytIsFallback ? yt.likes30d : ytLikesP) < 0 ? RED : 'var(--ink)', key: 'Likes' },
+          { label: 'Commentaires', value: signeVariation(ytIsFallback ? yt.comments30d : ytCommentsP), sub: ytIsFallback ? '30j' : ytEtiquettePeriode, color: (ytIsFallback ? yt.comments30d : ytCommentsP) < 0 ? RED : 'var(--ink)', key: 'Commentaires' },
+          { label: 'Partages', value: signeVariation(ytIsFallback ? yt.shares30d : ytSharesP), sub: ytIsFallback ? '30j' : ytEtiquettePeriode, color: (ytIsFallback ? yt.shares30d : ytSharesP) < 0 ? RED : 'var(--ink)', key: 'Partages' },
+        ].map((s: any, i) => {
+          if (s.custom === 'watch-total') return (
+            <div key="wt-total" onClick={() => openStatModal('Watch time', '')} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: 'pointer', transition: 'background .15s' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'} onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}>
+              <div style={{ marginBottom: 10 }}>
+                <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>Watch time</span>
+                <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{ytEtiquettePeriode}</span>
+                {ytDataLagDays >= 2 && (
+                  <span
+                    title={`Délai de traitement de YouTube Analytics.${ytLastEngagementDateFmt ? ` Dernière donnée disponible : ${ytLastEngagementDateFmt}.` : ''}`}
+                    style={{ fontSize: 9, fontWeight: 700, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 4px', marginLeft: 5, cursor: 'help', whiteSpace: 'nowrap', display: 'inline-block' }}
+                  >
+                    J-{ytDataLagDays}
+                  </span>
+                )}
+              </div>
+              {/* Pas de total en gros chiffre : la carte affiche uniquement la
+                  ventilation Shorts / videos longues, comme « Watch time moyen / vue »
+                  juste a cote. Le total restait de toute facon lisible en additionnant
+                  les deux, et sa presence rompait l'alignement des deux cartes. */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: AMBER, flexShrink: 0 }} />
+                    <span style={{ fontSize: 10, color: 'var(--muted)' }}>Shorts</span>
+                  </div>
+                  <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink)' }}>{fmtWatchMin(ytWatchShortsP)}</span>
+                </div>
+                <div style={{ width: 1, height: 32, background: 'var(--border)', flexShrink: 0 }} />
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#64748b', flexShrink: 0 }} />
+                    <span style={{ fontSize: 10, color: 'var(--muted)' }}>Vidéos longues</span>
+                  </div>
+                  <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink)' }}>{fmtWatchMin(ytWatchLongP)}</span>
+                </div>
+              </div>
+            </div>
+          );
+          if (s.custom === 'watch-moyen') return (
             <div key="wt-moyen" onClick={() => openStatModal('Watch time moyen', '')} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: 'pointer', transition: 'background .15s' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'} onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}>
-              <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 10 }}>Watch time moyen / vue</div>
+              {/* Seule carte de la rangee sans mention de fenetre : elle n'est PAS sur
+                  la periode. avgWatchShorts / avgWatchLong somment le watch time et les
+                  vues de toutes les videos de la chaine, donc du depuis-toujours. Ses
+                  quatre voisines affichent « 30j » ou « 7j ». L'ecart etait invisible
+                  (constate a l'ecran le 2026-08-21).
+
+                  Pas de badge J-3 non plus : sur du cumul depuis la publication, trois
+                  jours de retard ne changent rien de lisible — contrairement a un
+                  chiffre du jour. */}
+              {/* Titre raccourci en « Watch time moyen » : avec « / vue » plus la mention
+                  de periode, l'en-tete passait sur deux lignes et decalait cette carte
+                  par rapport a ses quatre voisines. « / vue » etait de toute facon
+                  redondant avec « moyen ».
+                  La carte est desormais sur la periode, comme ses voisines : elle porte
+                  donc la meme etiquette qu'elles, et le badge de fraicheur qui lui
+                  manquait. */}
+              <div style={{ marginBottom: 10, whiteSpace: 'nowrap' }}>
+                <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>Watch time moyen</span>
+                <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{ytEtiquettePeriode}</span>
+                {ytDataLagDays >= 2 && (
+                  <span
+                    title={`Délai de traitement de YouTube Analytics.${ytLastEngagementDateFmt ? ` Dernière donnée disponible : ${ytLastEngagementDateFmt}.` : ''}`}
+                    style={{ fontSize: 9, fontWeight: 700, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 4px', marginLeft: 5, cursor: 'help', whiteSpace: 'nowrap', display: 'inline-block' }}
+                  >
+                    J-{ytDataLagDays}
+                  </span>
+                )}
+              </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -2035,7 +3042,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 {ytDataLagDays >= 2 && !['Abonnés', 'Vidéos publiées'].includes(s.label) && (
                   <span
                     title={`Délai de traitement de YouTube Analytics.${ytLastEngagementDateFmt ? ` Dernière donnée disponible : ${ytLastEngagementDateFmt}.` : ''}`}
-                    style={{ fontSize: 9, fontWeight: 700, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 4px', marginLeft: 5, cursor: 'help' }}
+                    style={{ fontSize: 9, fontWeight: 700, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 4px', marginLeft: 5, cursor: 'help', whiteSpace: 'nowrap', display: 'inline-block' }}
                   >
                     J-{ytDataLagDays}
                   </span>
@@ -2047,8 +3054,8 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
         })}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18 }}>
-        <Card title="Vues / jour" sub={`${period} jours${ytDataLagDays >= 2 ? ` · données J-${ytDataLagDays}` : ''}`}>
+      <div ref={refGraphiques} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18 }}>
+        <Card title="Vues / jour" sub={`${sinceConnection ? 'Depuis la connexion' : period + ' jours'}${ytLagSuffix}`}>
           {(() => {
             // null (pas 0) sur les jours sans vraie donnée — même traitement que
             // "Abonnés nets / jour" juste en dessous : sinon une barre à 0 est
@@ -2058,15 +3065,17 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
               views: ytDaysNoDataSet.has(d.date) ? (null as any) : d.views,
             }));
             const allPending = viewsForChart.every(d => d.views === null);
-            if (allPending) return <Empty msg="Pas encore de données" />;
+            // Meme hauteur que le graphique : la carte gardait 220 px avec la courbe et
+            // retombait a ~77 px avec le message, ce qui faisait remonter tout le bas de
+            // la page selon la periode consultee.
+            if (allPending) return <ZoneGraphique height={220}><Empty msg="Pas encore de données" /></ZoneGraphique>;
             // Même formule que le composant partagé AreaChart (components/charts/AreaChart.tsx) :
             // ~9 labels max en vue mois, tous les jours affichés en vue semaine.
-            const viewsTickInterval = period === 7 ? 0 : Math.max(1, Math.ceil(viewsForChart.length / 9) - 1);
             return (
               <ResponsiveContainer width="100%" height={220}>
                 <ComposedChart data={viewsForChart} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={viewsTickInterval} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} ticks={datesAxe(viewsForChart.map(d => d.date), period, largeurGraphiques * 0.62)} />
                   <YAxis tick={{ fontSize: 11, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
                   <Tooltip content={<ChartTooltip />} />
                   <Bar dataKey="views" name="Vues" fill="var(--accent-brand)" radius={[2, 2, 0, 0]} opacity={0.8} />
@@ -2075,7 +3084,14 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             );
           })()}
         </Card>
-        <Card title="Appareils">
+        {/* Les quatre repartitions (ici, plus Sources de trafic / Mots-cles /
+            Demographie) sont collectees sur une fenetre FIXE de 30 jours glissants
+            (repartitionStart dans poll-leads), independamment de la periode choisie en
+            haut de page. Naviguer vers « Mars 2026 » ou « 7 derniers jours » ne les
+            change pas.
+            Rien ne le disait a l'ecran : tout le reste de la page suit la periode, ces
+            blocs non — l'ecart etait invisible (constate le 2026-08-21). */}
+        <Card title="Appareils" sub="30 derniers jours">
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
               <Pie data={deviceData} cx="50%" cy="50%" outerRadius={80} dataKey="views" nameKey="name" label={({ name, percent }: { name?: string; percent?: number }) => `${name ?? ''} ${((percent ?? 0) * 100).toFixed(0)}%`} labelLine={false}>
@@ -2087,7 +3103,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
         </Card>
       </div>
 
-      <Card title="Abonnés nets / jour" sub={`${period} jours${ytDataLagDays >= 2 ? ` · données J-${ytDataLagDays}` : ''}`}>
+      <Card title="Abonnés nets / jour" sub={`${sinceConnection ? 'Depuis la connexion' : period + ' jours'}${ytLagSuffix}`}>
         {(() => {
           // null (pas 0) sur les jours sans vraie donnée — sinon la ligne continue à plat
           // jusqu'à la fin de la période au lieu de s'arrêter au dernier point réel, même
@@ -2098,9 +3114,14 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             netSubs: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.netSubs ?? 0),
           }));
           const allPending = netSubsForChart.every(d => d.netSubs === null);
-          if (allPending) return <Empty msg="Pas encore de données" />;
-          const hasMovement = netSubsForChart.some(d => d.netSubs !== null && d.netSubs !== 0);
-          if (!hasMovement) return <Empty msg="Pas de mouvement d'abonnés sur cette période" />;
+          // Meme hauteur que le graphique (160 px), comme la carte « Vues » au-dessus.
+          if (allPending) return <ZoneGraphique height={160}><Empty msg="Pas encore de données" /></ZoneGraphique>;
+          // PAS de court-circuit « aucun mouvement » : une ligne plate a zero dit
+          // « aucun abonne perdu sur la periode », ce qui est une information reelle
+          // et rassurante. Le message vide qui s'affichait a la place laissait croire
+          // a une donnee manquante — c'est ce que Chris voyait le 2026-08-21 en
+          // signalant « je vois absolument rien, aucun graphique ». L'axe symetrique
+          // ci-dessous rend justement cette ligne plate lisible, centree sur zero.
           return (
             <ResponsiveContainer width="100%" height={160}>
               <ReAreaChart data={netSubsForChart} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
@@ -2111,8 +3132,24 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : "preserveStartEnd"} />
-                <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} ticks={datesAxe(netSubsForChart.map(d => d.date), period, largeurGraphiques)} />
+                {(() => {
+                  const borne = borneAbonnesNets(netSubsForChart.map(d => d.netSubs));
+                  return (
+                    <YAxis
+                      tick={{ fontSize: 10, fill: 'var(--muted)' }}
+                      axisLine={false}
+                      tickLine={false}
+                      allowDecimals={false}
+                      domain={domaineAbonnesNets(borne)}
+                      ticks={graduationsAbonnesNets(borne)}
+                    />
+                  );
+                })()}
+                {/* Pas de ReferenceLine sur zero : la CartesianGrid trace deja une ligne
+                    a chaque graduation, dont zero, en pointilles discrets. La superposer
+                    d'un trait plein var(--border) dessinait une barre blanche en travers
+                    du graphique (signale le 2026-08-21). */}
                 <Tooltip content={<ChartTooltip />} />
                 <Area type="monotone" dataKey="netSubs" name="Abonnés nets" stroke={GREEN} strokeWidth={2} fill="url(#grad-yt-netsubs)" dot={todayDotFactory(GREEN, 'date', lastRealPointKey(netSubsForChart, 'date', 'netSubs'))} activeDot={{ r: 4, strokeWidth: 0, fill: GREEN }} isAnimationActive={false} />
               </ReAreaChart>
@@ -2121,7 +3158,11 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
         })()}
       </Card>
 
-      <Card title={`Vidéos (${yt.videos.length})`} sub="Clic → courbe de rétention">
+      {/* Ce tableau melange les deux sources : « Vues totales », « Likes » et « Durée »
+          viennent de la Data API v3 (temps reel), « Vues 30j » et « Retention » de
+          l'Analytics API (J-3). D'ou une mention qui precise QUELLES colonnes sont en
+          retard, plutot qu'un badge global qui laisserait croire que tout l'est. */}
+      <Card title={`Vidéos (${yt.videos.length})`} sub={`Clic → courbe de rétention${ytLagSuffix ? ` · vues 30j et rétention en J-${ytDataLagDays}` : ''}`}>
         {/* Filtre Short / Vidéo / Tous */}
         <div style={{ display: 'flex', gap: 3, background: 'var(--surface-2)', borderRadius: 7, padding: 3, marginBottom: 12, width: 'fit-content' }}>
           {([['all', 'Tous'], ['short', 'Short'], ['long', 'Vidéo']] as const).map(([key, label]) => (
@@ -2169,7 +3210,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
                 onMouseLeave={e => (e.currentTarget.style.background = '')}>
                 <td style={{ padding: '10px' }}>
-                  {v.thumbnail ? <img src={v.thumbnail} alt="" style={{ width: 56, height: 32, objectFit: 'cover', borderRadius: 4 }} /> : <div style={{ width: 56, height: 32, borderRadius: 4, background: 'var(--surface-2)' }} />}
+                  {v.thumbnail ? <img loading="lazy" decoding="async" src={v.thumbnail} alt="" style={{ width: 56, height: 32, objectFit: 'cover', borderRadius: 4 }} /> : <div style={{ width: 56, height: 32, borderRadius: 4, background: 'var(--surface-2)' }} />}
                 </td>
                 <td style={{ padding: '10px', maxWidth: 200 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.title}</div>
@@ -2180,8 +3221,31 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                   </span>
                 </td>
                 <td style={{ padding: '10px', fontSize: 13, fontWeight: 600 }}>{fmt(v.views)}</td>
-                <td style={{ padding: '10px', fontSize: 13, color: v.views30d > 0 ? GREEN : 'var(--muted)', fontWeight: 600 }}>+{fmt(v.views30d)}</td>
-                <td style={{ padding: '10px', fontSize: 13 }}>{v.avgViewPct ? fmtPct(v.avgViewPct) : '—'}</td>
+                {/* Le « + » etait ecrit en dur : une video sans vue sur la periode
+                    affichait « +0 », ce qui se lit comme un gain nul annonce comme un
+                    gain. Zero n'a pas de signe. */}
+                <td style={{ padding: '10px', fontSize: 13, color: v.views30d > 0 ? GREEN : 'var(--muted)', fontWeight: 600 }}>{v.views30d > 0 ? `+${fmt(v.views30d)}` : fmt(v.views30d)}</td>
+                {/* Au-dela de 100 %, la valeur est JUSTE mais illisible sous un libelle
+                    « Retention » : elle se lit comme « 111 % de la video vue », ce qui
+                    n'a pas de sens. C'est en realite du re-visionnage — sur un Short de
+                    22 secondes, les spectateurs le regardent en boucle, et l'API compte
+                    chaque passage.
+                    Verifie contre l'API le 2026-08-21 : sur toute la vie de la chaine
+                    ces videos sont a 41,9 % et 75,9 %. C'est la fenetre de 30 JOURS du
+                    cron qui produit ces valeurs superieures a 100 %, sur un petit nombre
+                    de spectateurs recents.
+                    On affiche « >100 % » avec l'explication au survol : annoncer un
+                    chiffre precis donnerait une fausse impression d'exactitude. */}
+                <td style={{ padding: '10px', fontSize: 13 }}>
+                  {!v.avgViewPct ? '—' : v.avgViewPct > 100 ? (
+                    <span
+                      title={`${fmtPct(v.avgViewPct)} sur les 30 derniers jours : au-delà de 100 %, cela signifie que les spectateurs ont revu des passages. Fréquent sur les Shorts, qui tournent en boucle. Sur toute la vie de la vidéo, la rétention est plus basse.`}
+                      style={{ cursor: 'help', borderBottom: '1px dotted var(--muted)' }}
+                    >
+                      &gt;100&nbsp;%
+                    </span>
+                  ) : fmtPct(v.avgViewPct)}
+                </td>
                 <td style={{ padding: '10px', fontSize: 12, color: 'var(--muted)' }}>{v.duration}</td>
                 <td style={{ padding: '10px', fontSize: 13 }}>{fmt(v.likes)}</td>
                 <td style={{ padding: '10px', fontSize: 11, color: 'var(--muted)' }}>{new Date(v.publishedAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit' })}</td>
@@ -2207,19 +3271,32 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
       {/* Trois colonnes : ces blocs etaient sous la liste complete des videos, donc
           invisibles sans un long scroll. La demographie les rejoint plutot que d'ouvrir
           une quatrieme ligne. */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 18 }}>
-        <Card title="Sources de trafic" sub="Vues par source">
+      {/* Les trois cartes partagent une hauteur minimale : cote a cote dans une grille,
+          elles s'alignaient sur la plus haute et laissaient un vide sous les autres des
+          qu'une seule avait moins de lignes (ou son message « pas encore de donnees »).
+          180 px = 10 lignes de liste, le cas plein. */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 18, alignItems: 'stretch' }}>
+        <Card title="Sources de trafic" sub="Vues par source · 30 derniers jours">
+          <div style={{ minHeight: 180 }}>
           {trafficData.map((s, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-              <div style={{ fontSize: 11, color: 'var(--muted)', width: 90, textTransform: 'capitalize' }}>{s.name}</div>
+              {/* Plus de textTransform : les noms sont deja rediges (nomSourceTrafic).
+                  « capitalize » mettrait une majuscule a chaque mot — « Recherche
+                  Youtube » au lieu de « Recherche YouTube ». */}
+              <div style={{ fontSize: 11, color: 'var(--muted)', width: 110 }}>{s.name}</div>
               <div style={{ flex: 1, height: 6, background: 'var(--border)', borderRadius: 3 }}>
                 <div style={{ height: 6, width: `${pct(s.views, trafficData[0]?.views || 1)}%`, background: 'var(--accent-brand)', borderRadius: 3 }} />
               </div>
               <div style={{ fontSize: 11, fontWeight: 600, width: 40, textAlign: 'right' }}>{fmt(s.views)}</div>
             </div>
           ))}
+          {/* Cette carte etait la seule des trois sans etat vide : quand l'API ne
+              renvoie aucune source, elle affichait un bloc muet. */}
+          {trafficData.length === 0 && <Empty msg="Pas encore de données de trafic" />}
+          </div>
         </Card>
-        <Card title="Mots-clés de recherche" sub="Top 10 termes">
+        <Card title="Mots-clés de recherche" sub="Top 10 termes · 30 derniers jours">
+          <div style={{ minHeight: 180 }}>
           {yt.searchKeywords.slice(0, 10).map((k, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
               <div style={{ fontSize: 11, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{k.term}</div>
@@ -2227,13 +3304,15 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             </div>
           ))}
           {yt.searchKeywords.length === 0 && <Empty msg="Pas encore de données de recherche" />}
+          </div>
         </Card>
 
         {/* Repartition de l'audience par age et sexe. La donnee etait chargee depuis
             l'API mais n'etait affichee NULLE PART. YouTube ne la divulgue qu'au-dela
             d'un seuil de spectateurs (confidentialite) : d'ou le message explicite
             plutot qu'un bloc vide, tant que la chaine n'y est pas. */}
-        <Card title="Démographie" sub="Âge et sexe des spectateurs">
+        <Card title="Démographie" sub="Âge et sexe · 30 derniers jours">
+          <div style={{ minHeight: 180 }}>
           {[...yt.demographics]
             .sort((a, b) => b.viewerPct - a.viewerPct)
             .slice(0, 10)
@@ -2249,6 +3328,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
               </div>
             ))}
           {yt.demographics.length === 0 && <Empty msg="Pas encore assez de spectateurs — YouTube ne fournit cette donnée qu'au-delà d'un seuil" />}
+          </div>
         </Card>
       </div>
 
@@ -2265,13 +3345,36 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                     <> · délai Google 2-3j, dernière donnée : {ytLastEngagementDateFmt}</>
                   )}
                 </div>
+                {/* L'API YouTube renvoie estimatedMinutesWatched en minutes ENTIERES.
+                    Sur une chaine peu active, la plupart des journees tombent donc a 0
+                    alors qu'il y a eu du visionnage : verifie en base le 2026-08-21, 30
+                    des 35 jours mesures affichaient 0, dont 15 ou l'on sait qu'il y a eu
+                    des vues — environ 10 minutes effacees par l'arrondi.
+                    On garde la valeur de l'API (jamais de chiffre reconstitue, choix de
+                    Chris) et on explique le zero plutot que de le laisser passer pour une
+                    absence de visionnage. */}
+                {statModal.label.includes('Watch time') && !statModal.label.includes('moyen') && (
+                  <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 3, maxWidth: 460, lineHeight: 1.4 }}>
+                    YouTube arrondit à la minute entière : une journée avec moins de 30 secondes
+                    de visionnage apparaît à 0.
+                  </div>
+                )}
               </div>
               <button onClick={() => setStatModal(null)} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--muted)', lineHeight: 1 }}>×</button>
             </div>
             {statModal.data2 ? (() => {
               const color1 = statModal.color;
               const color2 = statModal.color2 || '#64748b';
-              const isWatchTime = statModal.label.includes('Watch time');
+              // Deux modales portent « Watch time » dans leur titre, avec des unites
+              // DIFFERENTES : « Watch time moyen / vue » est en secondes, « Watch time »
+              // (le total, separe par format) est en minutes.
+              //
+              // Le test includes('Watch time') attrapait les deux : les minutes du total
+              // etaient formatees comme des secondes, d'ou un axe gradue « 0m01s » pour
+              // des valeurs en minutes, et un total affiche « 0m06s » alors que c'etait
+              // la moyenne (constate par Chris le 2026-08-21).
+              const isWatchTimeMoyen = statModal.label.includes('Watch time moyen');
+              const isWatchTimeTotal = !isWatchTimeMoyen && statModal.label.includes('Watch time');
               // Pas de "?? 0" sur longues : ça écrasait le null posé en amont (isFutureDayYT)
               // sur les jours futurs, retransformant un vrai "pas de donnée" en faux zéro —
               // la ligne "Vidéos longues" continuait alors à plat jusqu'à fin de période au
@@ -2281,9 +3384,16 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 shorts: d.v,
                 longues: statModal.data2![i]?.v ?? null,
               }));
-              const formatVal = (v: number) => isWatchTime ? fmtSec(v) : fmt(v);
-              const val1 = isWatchTime ? (avgWatchShorts !== null ? fmtSec(avgWatchShorts) : '—') : `${fmt(ytShortsCount)}`;
-              const val2 = isWatchTime ? (avgWatchLong !== null ? fmtSec(avgWatchLong) : '—') : `${fmt(ytLongCount)}`;
+              // Trois formats de valeur selon la modale : secondes (watch time moyen),
+              // minutes/heures (watch time total), entier brut (videos publiees).
+              const formatVal = (v: number) =>
+                isWatchTimeMoyen ? fmtSec(v) : isWatchTimeTotal ? fmtWatchMin(v) : fmt(v);
+              const val1 = isWatchTimeMoyen
+                ? (avgWatchShorts !== null ? fmtSec(avgWatchShorts) : '—')
+                : isWatchTimeTotal ? fmtWatchMin(ytWatchShortsP) : `${fmt(ytShortsCount)}`;
+              const val2 = isWatchTimeMoyen
+                ? (avgWatchLong !== null ? fmtSec(avgWatchLong) : '—')
+                : isWatchTimeTotal ? fmtWatchMin(ytWatchLongP) : `${fmt(ytLongCount)}`;
               // Même formule que le composant partagé AreaChart (components/charts/AreaChart.tsx) :
               // ~9 labels max en vue mois, tous les jours affichés en vue semaine.
               const shortsLongTickInterval = period === 7 ? 0 : Math.max(1, Math.ceil(merged.length / 9) - 1);
@@ -2319,7 +3429,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                         </linearGradient>
                       </defs>
                       <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={shortsLongTickInterval} />
-                      <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={isWatchTime ? 50 : 36} tickFormatter={(v: number) => isWatchTime ? fmtSec(v) : fmt(v)} />
+                      <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={isWatchTimeMoyen || isWatchTimeTotal ? 50 : 36} tickFormatter={formatVal} />
                       <Tooltip content={({ active, payload, label }) => {
                         if (!active || !payload?.length) return null;
                         return (
@@ -2350,11 +3460,25 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
               const dataMin = vals.length > 0 ? Math.min(...vals) : 0;
               const dataMax = vals.length > 0 ? Math.max(...vals) : 0;
               const isCounter = statModal.unit == null;
+              // Les abonnes nets sont une metrique signee : zero doit tomber au milieu,
+              // pas en bas. La regle generique ci-dessous ecrase le domaine vers [0, n]
+              // des que dataMin >= 0 (Math.max(0, lo)) — donc sur une chaine sans
+              // mouvement, toutes les valeurs a 0, la ligne se collait en bas.
+              //
+              // Meme axe que la section « Abonnes nets / jour » et que l'autre modale :
+              // une seule regle, borneAbonnesNets, appliquee partout (constate le
+              // 2026-08-21 sur la vignette du KPI).
+              const estAbonnesNets = statModal.label === 'Abonnés nets' || statModal.label === 'Abonnés nets YT';
               const range = dataMax - dataMin;
               const margin = isCounter ? Math.max(1, Math.ceil(range * 0.1)) : (range > 0 ? range * 0.1 : 1);
               const lo = dataMin - margin;
-              const yDomain: [number, number] = [dataMin >= 0 ? Math.max(0, lo) : lo, dataMax + margin];
-              const yTicks = isCounter
+              const borneNets = estAbonnesNets ? borneAbonnesNets(statModal.data.map(d => d.v)) : 0;
+              const yDomain: [number, number] = estAbonnesNets
+                ? domaineAbonnesNets(borneNets)
+                : [dataMin >= 0 ? Math.max(0, lo) : lo, dataMax + margin];
+              const yTicks = estAbonnesNets
+                ? graduationsAbonnesNets(borneNets)
+                : isCounter
                 ? Array.from({ length: Math.floor(yDomain[1]) - Math.ceil(yDomain[0]) + 1 }, (_, i) => Math.ceil(yDomain[0]) + i)
                     .filter((_, i, arr) => arr.length <= 6 || i % Math.ceil(arr.length / 6) === 0)
                 : undefined;
@@ -2369,6 +3493,10 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                       <stop offset="95%" stopColor={statModal.color} stopOpacity={0} />
                     </linearGradient>
                   </defs>
+                  {/* Grille sur les metriques signees seulement : elle marque chaque
+                      graduation, zero compris, ce qui rend le milieu de l'axe lisible.
+                      Meme rendu que la section et que l'autre modale. */}
+                  {estAbonnesNets && <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />}
                   <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={generalTickInterval} />
                   <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={44} allowDecimals={!isCounter} domain={yDomain} ticks={yTicks} tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : (isCounter ? String(Math.round(v)) : String(v))} />
                   <Tooltip content={({ active, payload, label }) => {
@@ -2388,7 +3516,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
         <ModalOverlay onClose={() => { setSelectedVideo(null); setRetention(null); setRetentionSummary(null); }} maxWidth={640}>
           <div style={{ background: 'var(--surface)', borderRadius: 14, padding: 24, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', gap: 14, marginBottom: 16 }}>
-              {selectedVideo.thumbnail ? <img src={selectedVideo.thumbnail} alt="" style={{ width: 120, height: 68, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }} /> : <div style={{ width: 120, height: 68, borderRadius: 8, background: 'var(--surface-2)', flexShrink: 0 }} />}
+              {selectedVideo.thumbnail ? <img loading="lazy" decoding="async" src={selectedVideo.thumbnail} alt="" style={{ width: 120, height: 68, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }} /> : <div style={{ width: 120, height: 68, borderRadius: 8, background: 'var(--surface-2)', flexShrink: 0 }} />}
               <div>
                 <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.3, marginBottom: 4 }}>{selectedVideo.title}</div>
                 <div style={{ fontSize: 11, color: 'var(--muted)' }}>{new Date(selectedVideo.publishedAt).toLocaleDateString('fr-FR', { dateStyle: 'long' })} · {selectedVideo.duration} · {selectedVideo.isShort ? 'Short' : 'Vidéo'}</div>
@@ -2421,14 +3549,40 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 ['Watch time total', loadingRetention ? <MiniLoadingDots /> : (() => {
                   const min = retentionSummary?.watchTimeMin ?? null;
                   if (min === null) return '—';
-                  return min >= 60 ? `${Math.round(min / 60)}h` : `${Math.round(min)}min`;
+                  return dureeDepuisMinutes(min);
                 })()],
-                ...(!selectedVideo.isShort && !loadingRetention ? (() => {
+                // La case existe des le depart, comme ses voisines : elle etait absente
+                // pendant le chargement puis surgissait, ce qui decalait toute la grille.
+                ...(!selectedVideo.isShort ? [['CTR miniature', (() => {
+                  if (loadingRetention) return <MiniLoadingDots />;
+                  // Le CTR n'existe QUE pour les videos publiees apres le demarrage du
+                  // suivi. YouTube ne fournit les impressions de miniature que via
+                  // l'API Reporting, dont le job ne collecte qu'a partir de sa creation :
+                  // une video anterieure n'a donc que ses impressions residuelles.
+                  //
+                  // Sur cette chaine, une video de juin 2025 cumule 2012 vues mais
+                  // seulement 113 impressions enregistrees — 0,1 % du reel. Le « CTR »
+                  // calcule dessus (1,77 %) ne mesure pas la miniature, il mesure un
+                  // fond de traine sur un echantillon minuscule. L'afficher serait un
+                  // chiffre faux (verifie en base le 2026-08-21).
+                  //
+                  // On l'annonce plutot que de faire disparaitre la ligne : une case
+                  // absente laisse croire a un oubli, une case qui s'explique informe.
                   const isOlderThanJob = jobCreatedAt && selectedVideo.publishedAt && new Date(selectedVideo.publishedAt) < new Date(jobCreatedAt);
-                  if (isOlderThanJob) return [];
-                  if (ctrPending) return [['CTR miniature', 'Bientôt dispo'] as [string, React.ReactNode]];
-                  return [['CTR miniature', videoCtr !== null ? `${videoCtr}%` : '—'] as [string, React.ReactNode]];
-                })() : []),
+                  if (isOlderThanJob) {
+                    const depuis = new Date(jobCreatedAt!).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+                    return (
+                      <span
+                        title={`YouTube ne fournit les impressions de miniature qu'à partir du démarrage du suivi, le ${depuis}. Cette vidéo est antérieure : les rares impressions enregistrées depuis ne représentent qu'une fraction de son audience réelle, et le CTR calculé dessus serait trompeur. Les vidéos publiées après cette date ont un CTR fiable.`}
+                        style={{ cursor: 'help', color: 'var(--muted)', borderBottom: '1px dotted var(--muted)' }}
+                      >
+                        N/D
+                      </span>
+                    );
+                  }
+                  if (ctrPending) return <span style={{ color: 'var(--muted)' }}>Bientôt</span>;
+                  return videoCtr !== null ? `${videoCtr}%` : '—';
+                })()] as [string, React.ReactNode]] : []),
                 ['Likes', fmt(retentionSummary?.likes ?? (loadingRetention ? selectedVideo.likes : 0))],
                 ['Commentaires', fmt(retentionSummary?.comments ?? (loadingRetention ? selectedVideo.comments : 0))],
                 ['Partages', loadingRetention ? <MiniLoadingDots /> : fmt(retentionSummary?.shares ?? 0)],
@@ -2440,21 +3594,26 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
               ))}
             </div>
             {/* Bandeau séparé pour Rétention moy. + Durée moyenne d'une vue, comme avant
-                la fusion dans la grille du dessus. */}
-            {!loadingRetention && retentionSummary && (
-              <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', padding: '12px 0' }}>
-                {[
-                  ['Rétention moy.', retentionSummary.avgViewPercentage !== null ? fmtPct(retentionSummary.avgViewPercentage) : '—'],
-                  ['Durée moyenne d\'une vue', retentionSummary.avgViewDurationSec !== null ? `${Math.floor(retentionSummary.avgViewDurationSec / 60)}:${String(Math.round(retentionSummary.avgViewDurationSec % 60)).padStart(2, '0')}` : '—'],
-                ].map(([label, value], i) => (
-                  <div key={i} style={{ flex: 1, textAlign: 'center', borderLeft: i > 0 ? '1px solid var(--border)' : 'none' }}>
-                    <div style={{ fontSize: 18, fontWeight: 800 }}>{value}</div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{label}</div>
-                  </div>
-                ))}
-              </div>
-            )}
+                la fusion dans la grille du dessus.
+
+                Le bandeau existe des l'ouverture, comme la grille du dessus : il etait
+                absent pendant le chargement puis surgissait, ce qui faisait grandir la
+                modale sous les yeux. Meme correction que la case CTR plus haut. */}
+            <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', padding: '12px 0' }}>
+              {[
+                ['Rétention moy.', loadingRetention ? <MiniLoadingDots /> : (retentionSummary && retentionSummary.avgViewPercentage !== null ? fmtPct(retentionSummary.avgViewPercentage) : '—')],
+                ['Durée moyenne d\'une vue', loadingRetention ? <MiniLoadingDots /> : (retentionSummary && retentionSummary.avgViewDurationSec !== null ? `${Math.floor(retentionSummary.avgViewDurationSec / 60)}:${String(Math.round(retentionSummary.avgViewDurationSec % 60)).padStart(2, '0')}` : '—')],
+              ].map(([label, value], i) => (
+                <div key={i} style={{ flex: 1, textAlign: 'center', borderLeft: i > 0 ? '1px solid var(--border)' : 'none' }}>
+                  <div style={{ fontSize: 18, fontWeight: 800 }}>{value}</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{label}</div>
+                </div>
+              ))}
+            </div>
             <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 600 }}>Courbe de rétention</div>
+            {/* Hauteur reservee : le loader, le message vide et le graphique occupent
+                tous 160 px, sinon la modale grandissait a l'arrivee de la donnee. */}
+            <ZoneGraphique height={160}>
             {loadingRetention ? <Loading /> : retention && retention.length > 0
               ? (() => {
                 // Parse durée "H:MM:SS" ou "M:SS" en secondes totales
@@ -2465,11 +3624,10 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                   return parts[0] || 0;
                 };
                 const totalSec = parseDurSec(selectedVideo.duration);
-                const fmtSec = (s: number) => {
-                  const m = Math.floor(s / 60);
-                  const sec = Math.round(s % 60);
-                  return `${m}:${String(sec).padStart(2, '0')}`;
-                };
+                // Position dans la video (« 3:45 »), pas une duree ecoulee : cette
+                // fonction s'appelait `fmtSec` comme celle du watch time, deux notions
+                // differentes sous le meme nom dans le meme fichier.
+                const fmtSec = positionLecteur;
                 const retData = retention.map(p => ({
                   x: totalSec > 0 ? p.ratio * totalSec : p.ratio * 100,
                   pct: Math.round(p.watchRatio * 100),
@@ -2477,6 +3635,11 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 const xTickFormatter = (v: number) => totalSec > 0 ? fmtSec(v) : `${Math.round(v)}%`;
                 const xAxisMax = totalSec > 0 ? totalSec : 100;
                 return (
+                // Hauteur en PIXELS, pas en pourcentage : ZoneGraphique est un conteneur
+                // flex dont la hauteur n'est pas encore mesuree au premier rendu, et
+                // Recharts avertissait alors « width(-1) and height(-1) » (constate dans
+                // la console du navigateur le 2026-08-21). La valeur reste celle de la
+                // zone, les deux doivent donc rester alignees.
                 <ResponsiveContainer width="100%" height={160}>
                   <ReAreaChart data={retData} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                     <defs>
@@ -2504,6 +3667,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 );
               })()
               : <Empty msg="Rétention non disponible pour cette vidéo" />}
+            </ZoneGraphique>
             <a href={selectedVideo.url} target="_blank" rel="noreferrer" style={{ display: 'block', marginTop: 14, textAlign: 'center', fontSize: 12, color: RED, textDecoration: 'none', fontWeight: 600 }}>
               Voir sur YouTube →
             </a>
@@ -2597,6 +3761,10 @@ function periodLabel(period: number, index: number): string {
   // timeZone Europe/Paris (pas UTC) : periodStart/periodEnd (getPeriodWindow) sont des
   // instants UTC correspondant à minuit/23:59:59.999 heure de Paris, pas minuit UTC —
   // les lire en UTC affichait un jour "trop tôt" (ex: "30 juin" au lieu de "1 juil").
+  // Pas d'annee ici : ce libelle borne la periode SELECTIONNEE (« 1 août – 31 août »),
+  // toujours proche du present. L'annee n'apporte rien et alourdit le bandeau.
+  // Elle n'a de sens que sur les dates de publication, qui peuvent remonter a plusieurs
+  // annees.
   const fmt2 = (d: Date) => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'Europe/Paris' });
   return `${fmt2(periodStart)} – ${fmt2(periodEnd)}`;
 }
@@ -2944,7 +4112,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                               <stop offset="95%" stopColor={chart.color} stopOpacity={0} />
                             </linearGradient>
                           </defs>
-                          <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : "preserveStartEnd"} />
+                          <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(chart.data.length, period)} />
                           <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = Math.max(1, Math.ceil(range * 0.12)); return [dataMin - margin, dataMax + margin]; }} />
                           <Tooltip content={({ active, payload, label }) => {
                             if (!active || !payload?.length) return null;
@@ -3042,7 +4210,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                     <stop offset="95%" stopColor={expandedEff.color} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : "preserveStartEnd"} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(expandedEff.data.length, period)} />
                 <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={40} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = Math.max(1, Math.ceil(range * 0.12)); return [dataMin - margin, dataMax + margin]; }} />
                 <Tooltip content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null;
@@ -4294,7 +5462,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     <stop offset="95%" stopColor={YT_COLOR} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={sPeriod === 7 ? 0 : "preserveStartEnd"} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates((chartFilter === 'bio' ? chartDataBio : chartDataContent).length, sPeriod)} />
                 {/* Domain avec marge explicite — pas de Math.max(0, ...) inconditionnel sur
                     la borne basse (confirmé par inspection DOM réelle : ce clamp écrasait la
                     marge à 0 dès que dataMin valait déjà 0, laissant le point collé pile au
@@ -4332,7 +5500,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     <stop offset="95%" stopColor={AMBER} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={sPeriod === 7 ? 0 : "preserveStartEnd"} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(chartDataDm.length, sPeriod)} />
                 {/* Clampé à 0 si dataMin >= 0 (compteur de clics jamais négatif) — mêmes
                     raisons que le bloc content/bio ci-dessus, évite un tick "-1" absurde
                     quand tous les jours sont à 0. */}
@@ -4376,7 +5544,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
             <ResponsiveContainer width="100%" height={160}>
               <ReAreaChart data={activationSeries} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={sPeriod === 7 ? 0 : "preserveStartEnd"} padding={{ left: 0, right: 0 }} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(activationSeries.length, sPeriod)} padding={{ left: 0, right: 0 }} />
                 <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={36} unit="%" domain={[-4, 100]} />
                 <Tooltip content={({ active, payload, label }) => !active || !payload?.length ? null : (
                   <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div>
@@ -4397,7 +5565,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             <ResponsiveContainer width="100%" height={180}>
               <ComposedChart data={callsSeries} margin={{ top: 4, right: 8, left: 0, bottom: 0 }} barCategoryGap="0%">
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={sPeriod === 7 ? 0 : "preserveStartEnd"} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(callsSeries.length, sPeriod)} />
                 <YAxis yAxisId="left" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${v}€`} />
                 <Tooltip content={({ active, payload, label }) => !active || !payload?.length ? null : (
@@ -4996,7 +6164,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                       onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = ''; }}>
                       <td style={{ position: 'sticky', left: 0, zIndex: 1, background: isSelected ? BLUE + '15' : 'var(--surface)', padding: '8px 10px', width: 40 }}>
                         {row.thumbnail
-                          ? <img src={row.thumbnail} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
+                          ? <img loading="lazy" decoding="async" src={row.thumbnail} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
                           : <div style={{ width: 36, height: 36, borderRadius: 6, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>{row.platform === 'IG' ? '📷' : row.platform === 'STORY_SEQUENCE' ? '📸' : '▶️'}</div>}
                       </td>
                       <td style={{ position: 'sticky', left: 44, zIndex: 1, background: isSelected ? BLUE + '15' : 'var(--surface)', padding: '8px 10px', maxWidth: 200 }}>
@@ -5097,7 +6265,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                           onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = ''; }}>
                           <td style={{ position: 'sticky', left: 0, zIndex: 1, background: isSelected ? BLUE + '15' : 'var(--surface)', padding: '8px 10px', width: 40 }}>
                             {row.thumbnail
-                              ? <img src={row.thumbnail} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
+                              ? <img loading="lazy" decoding="async" src={row.thumbnail} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
                               : <div style={{ width: 36, height: 36, borderRadius: 6, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>{row.platform === 'IG' ? '📷' : row.platform === 'STORY_SEQUENCE' ? '📸' : '▶️'}</div>}
                           </td>
                           <td style={{ position: 'sticky', left: 44, zIndex: 1, background: isSelected ? BLUE + '15' : 'var(--surface)', padding: '8px 10px', maxWidth: 200 }}>
@@ -5217,7 +6385,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
               {/* Header modal */}
               <div style={{ padding: '22px 26px 18px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', gap: 14 }}>
                 <div style={{ width: 56, height: 56, borderRadius: 10, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>
-                  {row.thumbnail ? <img src={row.thumbnail} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 10 }} /> : (row.platform === 'IG' ? '📷' : row.platform === 'STORY_SEQUENCE' ? '📸' : '▶️')}
+                  {row.thumbnail ? <img loading="lazy" decoding="async" src={row.thumbnail} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 10 }} /> : (row.platform === 'IG' ? '📷' : row.platform === 'STORY_SEQUENCE' ? '📸' : '▶️')}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4, lineHeight: 1.3 }}>{row.title}</div>
@@ -5255,14 +6423,45 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     {row.platform === 'YT' && ytVideo && (() => {
                       const metrics: [string, any][] = [
                         ['Vues', ytVideo.views], ['Likes', ytVideo.likes], ['Commentaires', ytVideo.comments],
-                        ['Partages', ytVideo.shares30d], ['Watch time moy.', (() => { const sec = Math.round(ytVideo.watchTime30d * 60 / (ytVideo.views30d || 1)); return sec >= 3600 ? `${Math.round(sec/3600)}h` : `${Math.floor(sec/60)}m${String(sec%60).padStart(2,'0')}s`; })()],
+                        ['Partages', ytVideo.shares30d],
+                        // Passe par lib/duree.ts comme le reste de la plateforme : cette
+                        // ligne refaisait son propre arrondi et pouvait afficher une autre
+                        // valeur que la meme donnee ailleurs.
+                        //
+                        // Denominateur all-time, comme le numerateur. `watchTime30d` porte
+                        // un nom trompeur : cote API live il contient de l'ALL-TIME (la
+                        // requete par video part de 2020-01-01). Il etait divise par
+                        // views30d, les vraies vues sur 30 jours — deux fenetres melangees,
+                        // moyenne surevaluee d'autant que la video est ancienne.
+                        //
+                        // Le `|| 1` etait pire : une video sans vue sur 30 jours affichait
+                        // tout son watch time all-time comme s'il venait d'UNE vue. Une
+                        // division impossible se dit « — », elle ne s'invente pas
+                        // (constate le 2026-08-21). Meme calcul qu'a la ligne ~752.
+                        ['Watch time moy.', (() => {
+                          const vues = ytVideo.viewsAllTime ?? ytVideo.views30d;
+                          return vues > 0 ? dureeDepuisSecondes(ytVideo.watchTime30d * 60 / vues) : null;
+                        })()],
                         ['% vu moy.', `${ytVideo.avgViewPct}%`],
                         // Vrai CTR de cette vidéo, plus une valeur codée en dur : cette
                         // case affichait '4,2%' pour TOUTES les vidéos, quelle que soit
                         // leur performance réelle (constaté le 2026-08-20 — les CTR réels
                         // en base vont de 1,7 % à 3,1 %).
                         // La colonne est un ratio (0-1), d'où le ×100.
-                        ['CTR miniature', ytVideo.ctr != null ? `${(ytVideo.ctr * 100).toFixed(1).replace('.', ',')}%` : null],
+                        //
+                        // ctr null = vidéo publiée avant le démarrage du suivi YouTube :
+                        // la RPC get_yt_videos_history l'annule à la lecture, parce que
+                        // les impressions d'avant le job ne représentent qu'une fraction
+                        // de l'audience réelle. On l'annonce plutôt que d'afficher un
+                        // tiret muet, qui se lirait comme un bug.
+                        ['CTR miniature', ytVideo.ctr != null ? `${(ytVideo.ctr * 100).toFixed(1).replace('.', ',')}%` : (
+                          <span
+                            title="YouTube ne fournit les impressions de miniature qu'à partir du démarrage du suivi sur la plateforme. Cette vidéo est antérieure : le CTR calculé sur les rares impressions enregistrées depuis serait trompeur. Les vidéos publiées après le démarrage ont un CTR fiable."
+                            style={{ cursor: 'help', color: 'var(--muted)', borderBottom: '1px dotted var(--muted)' }}
+                          >
+                            N/D
+                          </span>
+                        )],
                       ];
                       return metrics.map(([label, val], i) => (
                         <div key={i} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 12px' }}>
@@ -5940,7 +7139,19 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   const igTapsTotal   = snaps.reduce((s, r) => s + (r.ig_profile_taps ?? 0), 0);
   const igWCTotal     = snaps.reduce((s, r) => s + (r.ig_website_clicks ?? 0), 0);
   const igFUTotal     = snaps.reduce((s, r) => s + (r.ig_follows_unfollows ?? 0), 0);
-  const igLeadTotal   = snaps.reduce((s, r) => s + (r.ig_lead_count ?? 0), 0);
+  // La colonne ig_lead_count a ete supprimee le 2026-08-22 : elle etait ecrite `null`
+  // a quatre endroits du code, jamais alimentee, et faisait doublon avec la table
+  // instagram_leads — la seule source reelle, et la plus riche puisqu'elle se filtre
+  // par periode, par source et par statut.
+  //
+  // La documentation Meta confirme qu'aucune metrique Instagram ne fournit un compteur
+  // de leads ou de conversations : il n'existait donc aucune source possible pour
+  // cette colonne.
+  //
+  // 0 ici plutot qu'un comptage : ce chemin construit un objet de messagerie a partir
+  // des SNAPSHOTS, qui n'ont jamais porte cette information. Le vrai comptage se fait
+  // ailleurs, sur instagram_leads.
+  const igLeadTotal = 0;
 
   // Posts IG : dédupliquer par post_id (garder le snapshot le plus récent de la période)
   const latestIgPost = new Map<string, any>();
@@ -5994,6 +7205,10 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       websiteClicks:     r.ig_website_clicks ?? 0,
       reachFollower:     r.ig_reach_follower ?? null,
       reachNonFollower:  r.ig_reach_non_follower ?? null,
+      // null (pas 0) : collectee seulement depuis le 2026-08-22, les journees
+      // anterieures n'ont jamais eu cette mesure. Un 0 affirmerait « personne n'a
+      // consulte le profil ce jour-la », ce qui serait faux.
+      profileViews:      r.ig_profile_views ?? null,
     })),
     posts: igPosts,
     demographics: lastSnap?.ig_demographics ?? {},
@@ -6026,7 +7241,13 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     title: row.title ?? '',
     thumbnail: row.thumbnail ?? null,
     publishedAt: row.published_at ?? row.snapshot_date,
-    duration: '',
+    // Duree formatee depuis les secondes stockees. Elle valait '' en dur : la colonne
+    // « Duree » du tableau restait vide, et l'axe de la courbe de retention basculait en
+    // pourcentage faute de duree totale — la meme courbe changeait donc d'unite entre la
+    // periode courante et une periode passee. Reste '' tant que la colonne est vide
+    // (lignes collectees avant le 2026-08-21), ce qui redonne l'ancien comportement
+    // plutot qu'une duree fausse.
+    duration: row.duration_sec != null ? formaterDureeVideo(row.duration_sec) : '',
     isShort: row.is_short ?? false,
     views: row.views ?? 0,
     likes: row.likes ?? 0,
@@ -6072,6 +7293,8 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       // abonnés gagnés (voir le commentaire sur la série plus bas).
       subscribers: r.yt_subscribers ?? null,
       avgViewDurationSec: r.yt_avg_view_duration_sec ?? null,
+      watchTimeShorts: r.yt_watch_time_shorts_min ?? null,
+      watchTimeLong:   r.yt_watch_time_long_min ?? null,
       avgDurationShorts: r.yt_avg_duration_shorts_sec ?? null,
       avgDurationLong:   r.yt_avg_duration_long_sec ?? null,
       viewsShorts:       r.yt_views_shorts ?? null,
@@ -6791,9 +8014,32 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   const linkClickedByLeadId: Map<string, string> = supaData?.linkClickedByLeadId ?? new Map();
 
   // Instagram — onglets 0, 1, 3
+  // En All-Time, les deux cartes de portee (abonnes touches / part de non-abonnes)
+  // passent a 12 mois au lieu de 30 jours. C'est le maximum exploitable : la
+  // ventilation abonnes/non-abonnes n'existe que sur ~12 mois glissants, alors que
+  // le reach total remonte a 2 ans. Au-dela, Meta totalise toute la fenetre mais ne
+  // ventile que la partie recente, sans erreur (docs/instagram-reach-follow-type.md).
+  //
+  // Un vrai « depuis toujours » est hors d'atteinte : la deduplication ne
+  // s'additionne pas d'une periode a l'autre (3 mois cumules donnaient 272 abonnes
+  // contre 124 en realite), donc on ne peut ni assembler l'historique stocke ni
+  // interroger au-dela d'un an. 12 mois est la reponse honnete.
+  // Les cartes de portee suivent desormais la periode choisie a l'ecran, y compris
+  // une periode passee — d'ou des bornes explicites plutot qu'une fenetre glissante.
+  // En All-Time on retombe sur 365 jours, plafond au-dela duquel Meta ne ventile
+  // plus (docs/instagram-reach-follow-type.md).
+  const fenetrePortee = sinceConnection
+    ? { fenetre: 365 }
+    : (() => {
+        const w = getPeriodWindow(periodIndex, period === 7 ? 'week' : 'month');
+        return { debut: parisDateStr(w.periodStart), fin: parisDateStr(w.periodEnd) };
+      })();
+  const paramsPortee = new URLSearchParams(fenetrePortee as Record<string, string>).toString();
   const { data: igRaw, isLoading: igLoading, refetch: refetchIg } = useQuery<IGStats | null>({
-    queryKey: ['stats-ig', profileId],
-    queryFn: () => fetchApi(`/api/instagram/stats${q}`),
+    // Les bornes entrent dans la cle : sans elles, React Query resservirait le cache
+    // de la periode precedente sous l'etiquette de la nouvelle.
+    queryKey: ['stats-ig', profileId, paramsPortee],
+    queryFn: () => fetchApi(`/api/instagram/stats${q}${q ? '&' : '?'}${paramsPortee}`),
     enabled: [0, 1, 3].includes(tab),
     staleTime: 5 * 60 * 1000,
   });
@@ -7091,6 +8337,12 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   const loading = (() => {
     if (!supaData) return true;
     if (periodIndex > 0 && snapLoading) return true;
+    // Mode All-Time : ses deux requetes dediees etaient absentes de cette liste. Le
+    // temps qu'elles repondent, les onglets s'affichaient avec des donnees vides et
+    // annoncaient « Connecte ton compte Instagram » ou « Pas de donnees » — on lisait
+    // une absence definitive la ou le chargement etait simplement en cours
+    // (signale par Chris, 2026-08-22).
+    if (sinceConnection && sinceConnLoading) return true;
     if (tab === 1 && igLoading) return true;
     if (tab === 2 && ytLoading) return true;
     if ((tab === 3 || tab === 4) && shortioLoading) return true;

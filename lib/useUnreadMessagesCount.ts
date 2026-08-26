@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useUser } from '@/lib/UserContext';
-import { clearAppBadge } from '@/lib/pwaBadge';
+import { setBadgeCount } from '@/lib/pwaBadge';
 
 let channelSeq = 0;
 
@@ -81,11 +81,12 @@ export function useUnreadMessagesCount(): number {
       // abonnement partagé, au lieu d'un setCount par instance du hook.
       sharedCount = n;
       sharedSubscribers.forEach(fn => fn(n));
-      // Le badge natif de l'icône PWA n'est sinon effacé que quand un message précis
-      // est marqué lu (markMessageRead) — s'il n'y a déjà plus aucun message non lu
-      // (app jamais rouverte depuis la notif, ou tout déjà lu ailleurs), rien ne le
-      // déclenche jamais et le badge reste collé indéfiniment.
-      if (n === 0) clearAppBadge();
+      // Les messages non lus alimentent la pastille au même titre que les notifs
+      // de la cloche. Avant, cette source ne savait QUE l'effacer (à 0) : un
+      // message non lu ne la posait donc jamais depuis l'app, et le badge posé
+      // par le push finissait écrasé par le refresh de la cloche. On déclare
+      // maintenant le compte réel, dans les deux sens.
+      setBadgeCount('messages', n);
     }
 
     // Nom de canal unique par montage — deux Sidebar/BottomNav montés simultanément

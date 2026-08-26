@@ -1,5 +1,6 @@
 'use client';
 import InlineLoader from '@/components/ui/InlineLoader';
+import { mutate } from '@/lib/mutate';
 import { Skeleton } from '@/components/ui/Skeleton';
 
 import Link from 'next/link';
@@ -33,11 +34,16 @@ function CallRequestInlineButtons({ callId, onRefresh }: { callId: string; onRef
   const [state, setState] = useState<'idle' | 'accepting' | 'declining' | 'done'>('idle');
   async function respond(response: 'accepted' | 'declined') {
     setState(response === 'accepted' ? 'accepting' : 'declining');
-    await fetch(`/api/calls/${callId}/respond`, {
+    // Le "✓ Réponse envoyée" s'affichait quoi qu'il arrive, meme sur un refus
+    // du serveur : l'eleve croyait avoir repondu a son coach alors que rien
+    // n'etait enregistre. On revient a 'idle' pour qu'il puisse reessayer.
+    const ok = await mutate(`/api/calls/${callId}/respond`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ response }),
+      erreur: "Ta réponse n'a pas pu être envoyée. Réessaie.",
     });
+    if (!ok) { setState('idle'); return; }
     setState('done');
     onRefresh();
   }

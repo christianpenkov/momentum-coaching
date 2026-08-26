@@ -10,6 +10,7 @@ import Avatar, { getInitials } from '@/components/ui/Avatar';
 import InlineLoader from '@/components/ui/InlineLoader';
 import TaskModal from '@/components/ui/TaskModal';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
+import { mutate } from '@/lib/mutate';
 import type { Task, TaskAttachment } from '@/lib/supabase/types';
 import { formatFileSize, formatRelativeDate } from '@/lib/formatFileSize';
 import { isTaskOverdue, getTaskBucket } from '@/lib/clientSignals';
@@ -40,7 +41,7 @@ function AttachmentList({ attachments }: { attachments: TaskAttachment[] }) {
       {attachments.map(att => (
         <a key={att.id} href={att.file_url} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'var(--surface)', borderRadius: 6, border: '1px solid var(--border)', fontSize: 12, color: 'var(--accent-brand)' }}>
           {att.thumbnail_url ? (
-            <img src={att.thumbnail_url} alt="" style={{ width: 24, height: 24, borderRadius: 4, objectFit: 'cover', flexShrink: 0 }} />
+            <img loading="lazy" decoding="async" src={att.thumbnail_url} alt="" style={{ width: 24, height: 24, borderRadius: 4, objectFit: 'cover', flexShrink: 0 }} />
           ) : (
             <Icon name="file" size={13} style={{ flexShrink: 0 }} />
           )}
@@ -195,28 +196,43 @@ function PageTasksInner() {
   const [attachmentCounts, setAttachmentCounts] = useState<Record<string, number>>({});
   const [modalState, setModalState] = useState<{ mode: 'create' | 'edit'; clientId?: string; task?: Task } | null>(null);
 
+  // L'ecran est mis a jour AVANT la requete (l'action parait instantanee), et
+  // l'etat precedent est capture depuis le callback de setTasks pour pouvoir
+  // etre restaure si le serveur refuse — sans quoi l'affichage divergeait
+  // silencieusement de la base.
   async function toggle(taskId: string, done: boolean) {
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, done } : t));
-    await fetch(`/api/tasks/${taskId}`, {
+    let avant: TaskWithClient[] = [];
+    setTasks(prev => { avant = prev; return prev.map(t => t.id === taskId ? { ...t, done } : t); });
+    await mutate(`/api/tasks/${taskId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ done }),
+      rollback: () => setTasks(() => avant),
+      erreur: done ? "La tâche n'a pas pu être cochée." : "La tâche n'a pas pu être décochée.",
     });
   }
 
   async function updateDeadline(taskId: string, deadline: string | null) {
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, deadline } : t));
-    await fetch(`/api/tasks/${taskId}`, {
+    let avant: TaskWithClient[] = [];
+    setTasks(prev => { avant = prev; return prev.map(t => t.id === taskId ? { ...t, deadline } : t); });
+    await mutate(`/api/tasks/${taskId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ deadline }),
+      rollback: () => setTasks(() => avant),
+      erreur: "L'échéance n'a pas pu être enregistrée.",
     });
   }
 
   async function deleteTask(taskId: string) {
-    setTasks(prev => prev.filter(t => t.id !== taskId));
+    let avant: TaskWithClient[] = [];
+    setTasks(prev => { avant = prev; return prev.filter(t => t.id !== taskId); });
     setConfirmDeleteId(null);
-    await fetch(`/api/tasks/${taskId}`, { method: 'DELETE' });
+    await mutate(`/api/tasks/${taskId}`, {
+      method: 'DELETE',
+      rollback: () => setTasks(() => avant),
+      erreur: "La tâche n'a pas pu être supprimée.",
+    });
   }
 
   const groups: StudentGroup[] = useMemo(() => {

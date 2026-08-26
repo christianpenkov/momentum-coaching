@@ -11,6 +11,7 @@ import PendingRapportCard from '@/components/ui/PendingRapportCard';
 import CallInfosModal from '@/components/ui/CallInfosModal';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
+import { notifyError } from '@/lib/mutate';
 import { CALL_COLUMNS } from '@/lib/supabase/types';
 import { useClientSelfData } from '@/lib/supabase/useCoachData';
 import { useClientSelf } from '@/lib/ClientSelfContext';
@@ -521,6 +522,12 @@ export default function PageClientCalls() {
                   try {
                     const res = await fetch(`/api/client/calls/${call.id}`, { method: 'DELETE' });
                     if (res.ok) setCalls(prev => prev.filter(c => c.id !== call.id));
+                    else {
+                      // Le serveur refuse quand un deal est signé sur cet appel : sans
+                      // ce message, le bouton semblait simplement ne rien faire.
+                      const data = await res.json().catch(() => null);
+                      notifyError(data?.error ?? "Cet appel n'a pas pu être retiré.");
+                    }
                   } finally {
                     setDismissingCanceledId(null);
                   }

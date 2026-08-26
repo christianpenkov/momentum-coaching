@@ -114,6 +114,7 @@ export default function PendingRapportCard({ items, onOpen, arrowSize = 32, marg
           disabled={atStart || single}
           style={arrowStyle(atStart)}
           aria-label="Rapport précédent"
+          className="carousel-arrow"
         >‹</button>
 
         <div className="card" style={{ flex: 1, borderLeft: '3px solid var(--accent-brand)', padding: '18px 20px' }}>
@@ -158,27 +159,27 @@ export default function PendingRapportCard({ items, onOpen, arrowSize = 32, marg
                 </div>
               )}
 
-              {/* Progression d'un rapport commencé. L'ancienneté n'apparaît qu'au-delà
-                  du seuil de lib/draftAge.ts : au quotidien on se souvient de sa
-                  saisie, la mention serait du bruit ; passé quelques jours elle
-                  prévient qu'on risque de ne plus reconnaître ses propres réponses.
-                  En retrait (poids et opacité) pour que l'étape reste lue en premier. */}
+              {/* Progression d'un rapport commencé. L'ancienneté vient EN PREMIER
+                  (« Commencé il y a 3 h · étape 3/5 ») : c'est elle qui dit s'il faut
+                  reprendre le brouillon ou repartir de zéro — passé quelques jours on
+                  ne reconnaît plus ses propres réponses, et ce rapport-là compte dans
+                  les statistiques. L'étape suit, en retrait. */}
               {item.draft && (
                 <div style={{
                   display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 6,
                   fontSize: 10.5, fontWeight: 700, padding: '3px 8px', borderRadius: 20,
                   background: 'var(--accent-brand-soft)', color: 'var(--accent-brand)',
                 }}>
-                  Commencé · étape {item.draft.stepIndex}/{item.draft.stepTotal}
                   {(() => {
                     const age = formatDraftAge(item.draft.updatedAt);
-                    return age ? (
-                      <>
-                        <span style={{ opacity: 0.45, fontWeight: 400 }}>·</span>
-                        <span style={{ fontWeight: 600, opacity: 0.8 }}>{age}</span>
-                      </>
-                    ) : null;
+                    // `age` ne vaut null que sur une date absente, invalide ou future :
+                    // la pastille reste alors lisible sans repère de temps.
+                    return age ? `Commencé ${age}` : 'Commencé';
                   })()}
+                  <span style={{ opacity: 0.45, fontWeight: 400 }}>·</span>
+                  <span style={{ fontWeight: 600, opacity: 0.8 }}>
+                    étape {item.draft.stepIndex}/{item.draft.stepTotal}
+                  </span>
                 </div>
               )}
             </div>
@@ -200,6 +201,7 @@ export default function PendingRapportCard({ items, onOpen, arrowSize = 32, marg
           disabled={atEnd || single}
           style={arrowStyle(atEnd)}
           aria-label="Rapport suivant"
+          className="carousel-arrow"
         >›</button>
       </div>
     </div>

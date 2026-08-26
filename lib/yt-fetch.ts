@@ -26,6 +26,18 @@ export interface YtDaySnapshot {
   yt_avg_duration_long_sec: number | null;
   yt_views_shorts: number | null;
   yt_views_long: number | null;
+  /** Watch time par format, en minutes. Vient directement de l'API : le reconstituer
+   *  par « vues × durée moyenne » donne un résultat faux, `averageViewDuration` étant
+   *  arrondi à la seconde (1,25 min calculée contre 0,00 réelle, vérifié le 2026-08-21). */
+  yt_watch_time_shorts_min: number | null;
+  yt_watch_time_long_min: number | null;
+  /** Repartitions cumulees sur la fenetre, portees par la DERNIERE ligne seulement —
+   *  ce sont des totaux de periode, pas des valeurs datees. L'affichage lit
+   *  `lastSnap?.yt_traffic_sources`. */
+  yt_traffic_sources?: { source: string; views: number; watchMinutes: number }[] | null;
+  yt_devices?: { device: string; views: number; watchMinutes: number }[] | null;
+  yt_demographics?: { ageGroup: string; gender: string; viewerPct: number }[] | null;
+  yt_search_keywords?: { term: string; views: number }[] | null;
 }
 
 // ── Token (avec refresh OAuth) ────────────────────────────────────────────────
@@ -83,7 +95,7 @@ export async function fetchYtDayMetrics(
 ): Promise<YtDaySnapshot[]> {
   const auth = { Authorization: `Bearer ${accessToken}` };
 
-  const [channelRes, analyticsRes, byTypeRes] = await Promise.all([
+  const [channelRes, analyticsRes, byTypeRes, trafficRes, devicesRes, demoRes, keywordsRes] = await Promise.all([
     fetch('https://www.googleapis.com/youtube/v3/channels?part=statistics&mine=true', { headers: auth }),
     fetch(
       `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,estimatedMinutesWatched,subscribersGained,subscribersLost,likes,comments,shares,averageViewDuration&dimensions=day&sort=day`,
@@ -96,25 +108,65 @@ export async function fetchYtDayMetrics(
     // lignes par (jour × format) pour TOUTES les métriques, dont certaines n'ont pas de
     // sens ventilées (subscribers est un total de chaîne).
     fetch(
-      `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,averageViewDuration&dimensions=day,creatorContentType&sort=day`,
+      `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,averageViewDuration,estimatedMinutesWatched&dimensions=day,creatorContentType&sort=day`,
+      { headers: auth }
+    ),
+    // Les quatre repartitions — sources de trafic, appareils, demographie, mots-cles.
+    //
+    // Elles manquaient ici alors que la copie Deno (poll-leads) les recuperait : ce
+    // fichier ne fait que le BACKFILL de premiere connexion, si bien que les quatre
+    // cartes du bas de l'onglet YouTube restaient vides jusqu'au premier passage du
+    // cron. Un utilisateur qui venait de connecter son compte voyait une page a moitie
+    // remplie sans savoir pourquoi (constate le 2026-08-21).
+    //
+    // Meme fenetre de 30 jours glissants que la copie Deno : ce sont des cumuls, pas
+    // des valeurs datees. Toute modification ici doit y etre repercutee.
+    fetch(
+      `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,estimatedMinutesWatched&dimensions=insightTrafficSourceType&sort=-views`,
+      { headers: auth }
+    ),
+    fetch(
+      `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,estimatedMinutesWatched&dimensions=deviceType&sort=-views`,
+      { headers: auth }
+    ),
+    fetch(
+      `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=viewerPercentage&dimensions=ageGroup,gender`,
+      { headers: auth }
+    ),
+    fetch(
+      `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views&dimensions=insightTrafficSourceDetail&filters=insightTrafficSourceType==YT_SEARCH&sort=-views&maxResults=10`,
       { headers: auth }
     ),
   ]);
 
-  const [channelData, analyticsData, byTypeData] = await Promise.all([
+  const [channelData, analyticsData, byTypeData, trafficData, devicesData, demoData, keywordsData] = await Promise.all([
     channelRes.json().catch(() => ({})),
     analyticsRes.json().catch(() => ({})),
     byTypeRes.json().catch(() => ({})),
+    trafficRes.json().catch(() => ({})),
+    devicesRes.json().catch(() => ({})),
+    demoRes.json().catch(() => ({})),
+    keywordsRes.json().catch(() => ({})),
   ]);
+
+  // Meme garde que la copie Deno : une reponse d'erreur Google ne porte pas de cle
+  // « rows », et un repli sur un tableau vide s'ecrirait par-dessus des donnees valides.
+  const repOk = (res: Response, data: any) => res.ok && Array.isArray(data?.rows);
+  const ytTrafficSources = repOk(trafficRes, trafficData) ? (trafficData.rows as any[]).map((r: any) => ({ source: r[0], views: r[1] ?? 0, watchMinutes: r[2] ?? 0 })) : null;
+  const ytDevices        = repOk(devicesRes, devicesData) ? (devicesData.rows as any[]).map((r: any) => ({ device: r[0], views: r[1] ?? 0, watchMinutes: r[2] ?? 0 })) : null;
+  const ytDemographics   = repOk(demoRes, demoData) ? (demoData.rows as any[]).map((r: any) => ({ ageGroup: r[0], gender: r[1], viewerPct: r[2] ?? 0 })) : null;
+  const ytSearchKeywords = repOk(keywordsRes, keywordsData) ? (keywordsData.rows as any[]).map((r: any) => ({ term: r[0], views: r[1] ?? 0 })) : null;
 
   // day -> { shorts, long } — l'API n'émet une ligne que pour les formats ayant eu des
   // vues ce jour-là, d'où le null quand le format est absent (pas de faux zéro).
-  const byType = new Map<string, { shortsDur: number | null; longDur: number | null; shortsViews: number | null; longViews: number | null }>();
+  const byType = new Map<string, { shortsDur: number | null; longDur: number | null; shortsViews: number | null; longViews: number | null; shortsWatch: number | null; longWatch: number | null }>();
   for (const r of (byTypeData?.rows ?? []) as any[]) {
-    const [day, type, views, avgDur] = r;
-    const cur = byType.get(day) ?? { shortsDur: null, longDur: null, shortsViews: null, longViews: null };
-    if (type === 'shorts') { cur.shortsDur = avgDur ?? null; cur.shortsViews = views ?? null; }
-    else if (type === 'videoOnDemand') { cur.longDur = avgDur ?? null; cur.longViews = views ?? null; }
+    // colonnes : day, creatorContentType, views, averageViewDuration,
+    // estimatedMinutesWatched — deja en MINUTES, pas de division.
+    const [day, type, views, avgDur, watchMin] = r;
+    const cur = byType.get(day) ?? { shortsDur: null, longDur: null, shortsViews: null, longViews: null, shortsWatch: null, longWatch: null };
+    if (type === 'shorts') { cur.shortsDur = avgDur ?? null; cur.shortsViews = views ?? null; cur.shortsWatch = watchMin ?? null; }
+    else if (type === 'videoOnDemand') { cur.longDur = avgDur ?? null; cur.longViews = views ?? null; cur.longWatch = watchMin ?? null; }
     byType.set(day, cur);
   }
 
@@ -122,7 +174,11 @@ export async function fetchYtDayMetrics(
   const rows: any[] = analyticsData?.rows || [];
 
   // colonnes : day(0), views(1), estMinutesWatched(2), subsGained(3), subsLost(4), likes(5), comments(6), shares(7), avgViewDuration(8)
-  return rows.map((r: any) => {
+  return rows.map((r: any, i: number) => {
+    // Les repartitions sont des CUMULS sur toute la fenetre, pas des valeurs datees :
+    // elles ne sont portees que par la derniere ligne, celle que l'affichage lit
+    // (lastSnap?.yt_traffic_sources). Les repartir sur chaque jour serait faux.
+    const estDerniereLigne = i === rows.length - 1;
     const views = r[1] || 0;
     // Déjà en minutes — voir commentaire équivalent dans poll-leads/index.ts.
     // Pas d'arrondi : colonne numeric(12,2), voir poll-leads/index.ts.
@@ -154,6 +210,12 @@ export async function fetchYtDayMetrics(
       yt_avg_duration_long_sec:   byType.get(r[0])?.longDur ?? null,
       yt_views_shorts:            byType.get(r[0])?.shortsViews ?? null,
       yt_views_long:              byType.get(r[0])?.longViews ?? null,
+      yt_watch_time_shorts_min:   byType.get(r[0])?.shortsWatch ?? null,
+      yt_watch_time_long_min:     byType.get(r[0])?.longWatch ?? null,
+      yt_traffic_sources: estDerniereLigne ? ytTrafficSources : null,
+      yt_devices:         estDerniereLigne ? ytDevices        : null,
+      yt_demographics:    estDerniereLigne ? ytDemographics   : null,
+      yt_search_keywords: estDerniereLigne ? ytSearchKeywords : null,
     };
   });
 }
@@ -184,6 +246,15 @@ export async function upsertYtSnapshot(
       yt_avg_duration_long_sec:   snapshot.yt_avg_duration_long_sec,
       yt_views_shorts:            snapshot.yt_views_shorts,
       yt_views_long:              snapshot.yt_views_long,
+      yt_watch_time_shorts_min:   snapshot.yt_watch_time_shorts_min,
+      yt_watch_time_long_min:     snapshot.yt_watch_time_long_min,
+      // Repartitions : ecrites SEULEMENT quand elles sont presentes, comme dans la
+      // copie Deno. Les poser systematiquement mettrait `null` sur toutes les lignes
+      // sauf la derniere, ecrasant ce qu'un passage precedent y avait ecrit.
+      ...(snapshot.yt_traffic_sources ? { yt_traffic_sources: snapshot.yt_traffic_sources } : {}),
+      ...(snapshot.yt_devices         ? { yt_devices:         snapshot.yt_devices }         : {}),
+      ...(snapshot.yt_demographics    ? { yt_demographics:    snapshot.yt_demographics }    : {}),
+      ...(snapshot.yt_search_keywords ? { yt_search_keywords: snapshot.yt_search_keywords } : {}),
       backfill_source:          source,
     }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
 

@@ -16,6 +16,10 @@ const IG_TABLES = [
   // sans distinction de compte : elle peut donc rejoindre la liste telle quelle.
   // Le callback, lui, doit la traiter à part (voir l'étape 3 là-bas).
   'prospect_links',
+  // Ajoutee le 2026-08-26 avec la table. Sans elle ici, les periodes d'un ancien
+  // compte resteraient visibles apres bascule, et l'index unique partiel
+  // bloquerait l'ecriture des memes periodes sur le nouveau compte.
+  'analytics_ig_periodes',
 ];
 
 export async function POST() {

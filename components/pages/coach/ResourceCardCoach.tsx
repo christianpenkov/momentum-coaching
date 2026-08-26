@@ -163,7 +163,7 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
                     }}
                   >
                     {c.avatar_url
-                      ? <img src={c.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      ? <img loading="lazy" decoding="async" src={c.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       : (c.initials || c.name.slice(0, 2)).toUpperCase()}
                   </div>
                 ))}

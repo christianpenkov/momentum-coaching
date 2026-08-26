@@ -137,6 +137,28 @@ export default function IntegrationConnectCard({ config, integration, onSaved, o
         </div>
       )}
 
+      {/* Parcours Google (YouTube, Google Calendar) : tant que l'application n'est pas
+          validee par Google, la connexion passe par un ecran d'avertissement — triangle
+          rouge, « Google n'a pas valide cette application », et un gros bouton bleu
+          « Revenir en lieu sur ». Le lien qui permet de continuer est cache derriere
+          « Parametres avances » et porte la mention « (non securise) ».
+          Sans explication, on abandonne la (signale par Chris le 2026-08-21).
+
+          Encadre plutot que simple texte gris : ces etapes doivent etre lues AVANT de
+          cliquer, pas apres avoir eu peur. */}
+      {(config.provider === 'youtube' || config.provider === 'google') && !integration && (
+        <div style={{ padding: '0 16px 14px' }}>
+          <div style={{ padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 11, color: 'var(--muted)', lineHeight: 1.6 }}>
+            <div style={{ fontWeight: 600, color: 'var(--ink)', marginBottom: 4 }}>
+              Google affichera un avertissement — c’est normal
+            </div>
+            {config.instructions.map((step, i) => (
+              <div key={i} style={{ marginTop: i === 0 ? 2 : 3 }}>{step.text}</div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {editing && config.mode !== 'oauth' && (
         <div style={{ padding: '0 16px 16px', background: 'var(--surface-2)', borderTop: '1px solid var(--border)' }}>
           <div style={{ margin: '12px 0 10px', padding: '10px 14px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.7 }}>

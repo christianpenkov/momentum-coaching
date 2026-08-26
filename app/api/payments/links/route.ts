@@ -76,6 +76,37 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Un compte Stripe connecté mais dont le dossier n'est pas finalisé (identité,
+  // activité, IBAN) accepte la connexion OAuth SANS ERREUR, puis refuse tout
+  // paiement. Sans ce contrôle, Momentum créerait un lien parfaitement valide
+  // que le client ne pourrait pas payer — et l'élève ne le découvrirait qu'au
+  // moment où sa vente échoue.
+  //
+  // Vérifié en amont de la création du deal : mieux vaut aucun deal qu'un deal
+  // portant un lien mort.
+  // Uniquement en LIVE : en mode test, un compte Connect encaisse sans dossier
+  // complet — `charges_enabled` reste false alors que les paiements passent
+  // (vérifié le 21/08/2026 : 300 € encaissés avec le drapeau à false).
+  // Appliquer la garde en test bloquerait des paiements qui fonctionnent.
+  const isLiveMode = !process.env.STRIPE_SECRET_KEY?.startsWith('sk_test');
+  if (isLiveMode && access?.accountId) {
+    try {
+      const acct = await access.stripe.accounts.retrieve(access.accountId);
+      if (!acct.charges_enabled) {
+        const due = (acct.requirements?.currently_due ?? []).length;
+        return NextResponse.json({
+          error: due > 0
+            ? 'Ton compte Stripe n’est pas encore activé : il reste des informations à fournir chez Stripe (identité, activité, IBAN). Aucun paiement ne peut aboutir tant que ce n’est pas fait.'
+            : 'Ton compte Stripe n’accepte pas encore les paiements. Vérifie son état sur dashboard.stripe.com.',
+          code: 'stripe_charges_disabled',
+        }, { status: 409 });
+      }
+    } catch {
+      // Stripe injoignable : on laisse passer plutôt que de bloquer une vente
+      // sur une panne réseau. Le pire cas redevient l'ancien comportement.
+    }
+  }
+
   // ── Attribution ────────────────────────────────────────────────────────────
   // Reprise du lead quand il existe. Un deal sans lead reste légitime : sans ce
   // cas, l'élève créerait un faux lead pour encaisser, ce qui polluerait son

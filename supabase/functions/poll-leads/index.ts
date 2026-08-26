@@ -66,6 +66,30 @@ async function safeJson(res: Response): Promise<any> {
   try { return await res.json(); } catch { return {}; }
 }
 
+/**
+ * Le quota Instagram vaut « 4800 x impressions sur 24 h », propre a chaque compte.
+ * Un compte peu actif dispose donc de tres peu d'appels — la documentation Meta le dit
+ * explicitement : « a brand-new account with almost no impressions gets almost no API
+ * quota », parfois « just a few hundred calls per day ». Meta prevoit un plancher de
+ * 10 impressions pour Threads, mais PAS pour Instagram.
+ *
+ * Sur le compte de test, 18 journees sur 80 ont un reach a zero — une sur cinq.
+ *
+ * On ne peut pas anticiper ce plafond : `x-business-use-case-usage`, qui donnerait le
+ * pourcentage consomme PAR COMPTE, n'est pas renvoye par graph.instagram.com (verifie
+ * le 2026-08-22 ; seul `x-app-usage` l'est, et il mesure l'application entiere, pas le
+ * compte). Le seul signal fiable est donc l'erreur elle-meme.
+ *
+ * Code 4 = rate limit applicatif, 17 = limite utilisateur, 80002 = quota business
+ * epuise, 429 = trop de requetes. Detecter n'importe lequel suffit.
+ */
+function estErreurQuota(res: Response, body: any): boolean {
+  if (res.status === 429) return true;
+  const code = body?.error?.code;
+  const sub = body?.error?.error_subcode;
+  return code === 4 || code === 17 || code === 32 || code === 80002 || sub === 2207051;
+}
+
 // Deno-native gunzip (remplace Node zlib.gunzipSync)
 async function gunzip(buf: ArrayBuffer): Promise<string> {
   const bytes = new Uint8Array(buf);
@@ -109,7 +133,18 @@ async function getIgCreds(profileId: string): Promise<{ token: string; igAccount
 
   if (!integ?.access_token) return null;
 
-  const needsRefresh = integ.expires_at &&
+  // `expires_at` NULL veut dire « on ne sait pas quand ce jeton expire », pas « il
+  // n'expire jamais » : les jetons Instagram longue duree valent 60 jours.
+  //
+  // La condition testait `integ.expires_at &&`, donc un NULL la rendait toujours
+  // fausse : le jeton n'etait jamais rafraichi et finissait par expirer en silence.
+  // Constate le 2026-08-22 sur un profil dont la collecte s'etait arretee depuis
+  // 5 jours, avec un last_snapshot_status toujours a « ok » et aucune erreur tracee.
+  //
+  // Sans date connue, on tente le rafraichissement : l'appel est sans risque (Meta
+  // renvoie simplement une erreur si le jeton est trop recent ou deja invalide) et il
+  // restaure la date d'expiration au passage.
+  const needsRefresh = !integ.expires_at ||
     new Date(integ.expires_at).getTime() < Date.now() + 5 * 24 * 60 * 60 * 1000;
 
   let token = integ.access_token;
@@ -119,7 +154,20 @@ async function getIgCreds(profileId: string): Promise<{ token: string; igAccount
     if (d.access_token) {
       token = d.access_token;
       const expiresAt = d.expires_in ? new Date(Date.now() + d.expires_in * 1000).toISOString() : null;
-      await supa.from('integrations').update({ access_token: token, expires_at: expiresAt })
+      await supa.from('integrations').update({ access_token: token, expires_at: expiresAt, status: 'ok', last_snapshot_error: null })
+        .eq('profile_id', profileId).eq('provider', 'instagram');
+    } else {
+      // Un refus de rafraichissement signifie presque toujours un jeton revoque ou
+      // expire : l'utilisateur doit reconnecter son compte. Sans cette trace, l'echec
+      // etait totalement invisible — le statut restait « ok » et la collecte s'arretait
+      // sans que rien ne l'indique nulle part.
+      const msg = d?.error?.message || 'refresh refuse';
+      console.error(`[poll-leads] ig_token_refresh_failed profile=${profileId}: ${msg}`);
+      await supa.from('integrations')
+        // status vaut 'ok' ou 'failed' — une contrainte CHECK l'impose, toute autre
+        // valeur ferait echouer l'ecriture en silence. Le detail va dans
+        // last_snapshot_error.
+        .update({ status: 'failed', last_snapshot_status: 'error', last_snapshot_error: `ig_token: ${String(msg).slice(0, 200)}` })
         .eq('profile_id', profileId).eq('provider', 'instagram');
     }
   }
@@ -134,21 +182,126 @@ async function fetchIgDayMetrics(token: string, igAccountId: string, date: strin
   const since = Math.floor(d.getTime() / 1000);
   const until = since + 86400;
 
-  const [accountRes, insightsRes, engagedRes] = await Promise.all([
+  // ⚠️ Deux formes de requete, et Meta n'accepte pas les memes metriques dans chacune.
+  //
+  // `views`, `profile_links_taps` et `website_clicks` etaient demandes SANS
+  // `metric_type=total_value` : Meta acceptait la requete, ne renvoyait simplement
+  // aucune serie pour eux, et le code n'y voyait que du feu. Resultat, ig_views etait
+  // vide sur les 107 jours du profil de test alors que l'API en renvoie 271 sur 7 jours
+  // (verifie le 2026-08-22).
+  //
+  // A l'inverse `follower_count` ne fonctionne QUE sans total_value — avec, la reponse
+  // est vide. D'ou la separation en deux appels plutot qu'un seul.
+  //
+  // La ventilation abonnes / non-abonnes du reach (breakdown=follow_type) n'etait
+  // collectee QUE par lib/ig-fetch.ts, cote Node, qui ne tourne qu'au backfill de
+  // premiere connexion : les colonnes s'arretaient donc au 27 juillet sur le profil de
+  // test. Elle est ajoutee ici.
+  const [accountRes, insightsRes, insightsTvRes, engagedRes, reachBdRes, followsBdRes] = await Promise.all([
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}?fields=followers_count,follows_count&access_token=${token}`),
-    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach,follower_count,profile_links_taps,website_clicks,views&period=day&since=${since}&until=${until}&access_token=${token}`),
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach,follower_count&period=day&since=${since}&until=${until}&access_token=${token}`),
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=views,profile_links_taps,website_clicks,profile_views&metric_type=total_value&period=day&since=${since}&until=${until}&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=accounts_engaged,total_interactions&metric_type=total_value&period=day&since=${since}&until=${until}&access_token=${token}`),
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach&metric_type=total_value&breakdown=follow_type&period=day&since=${since}&until=${until}&access_token=${token}`),
+    // follows_and_unfollows exige metric_type=total_value ET breakdown=follow_type.
+    //
+    // Sa valeur n'est PAS dans `total_value.value` — qui vaut None — mais uniquement
+    // dans le breakdown. Le code ne lisait que la premiere, d'ou une colonne vide sur
+    // 280 lignes qu'on a longtemps prise pour « Meta ne fournit plus cette metrique ».
+    // Verifie contre l'API le 2026-08-22 : FOLLOWER 0, NON_FOLLOWER 1.
+    //
+    // Documentation Meta : non renvoyee si le compte a moins de 100 abonnes.
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=follows_and_unfollows&metric_type=total_value&breakdown=follow_type&period=day&since=${since}&until=${until}&access_token=${token}`),
   ]);
 
-  const [accountData, insightsData, engagedData] = await Promise.all([
-    safeJson(accountRes), safeJson(insightsRes), safeJson(engagedRes),
+  const [accountData, insightsData, insightsTvData, engagedData, reachBdData, followsBdData] = await Promise.all([
+    safeJson(accountRes), safeJson(insightsRes), safeJson(insightsTvRes),
+    safeJson(engagedRes), safeJson(reachBdRes), safeJson(followsBdRes),
   ]);
+
+  // Quota epuise : on le signale a l'appelant en levant, plutot que de rendre des
+  // metriques vides qui ressembleraient a « ce compte n'a rien fait aujourd'hui ».
+  // L'appelant ralentira la cadence de ce profil pour laisser le quota se reconstituer.
+  const reponses: [Response, any][] = [
+    [accountRes, accountData], [insightsRes, insightsData],
+    [insightsTvRes, insightsTvData], [engagedRes, engagedData], [reachBdRes, reachBdData],
+    [followsBdRes, followsBdData],
+  ];
+  if (reponses.some(([r, b]) => estErreurQuota(r, b))) {
+    throw new Error('ig_quota_epuise');
+  }
 
   const insightMap: Record<string, number[]> = {};
   for (const metric of insightsData?.data || []) {
     insightMap[metric.name] = (metric.values || []).map((v: any) => v.value || 0);
   }
   const sum = (arr: number[]) => (arr || []).reduce((a: number, b: number) => a + b, 0);
+
+  // Metriques du second appel (metric_type=total_value) : la valeur est dans
+  // `total_value.value`, pas dans une serie `values`. Meme convention que engagedData
+  // juste en dessous.
+  const tvMap: Record<string, number> = {};
+  for (const m of (insightsTvData?.data || [])) {
+    if (m.total_value?.value != null) tvMap[m.name] = m.total_value.value;
+  }
+
+  // Ventilation du reach par type d'audience. Absente du cron jusqu'au 2026-08-22 :
+  // seul le backfill Node la collectait, d'ou des colonnes qui s'arretaient a la date
+  // de la premiere connexion.
+  //
+  // null (pas 0) quand Meta ne renvoie aucune ligne : un 0 se lirait « aucun abonne
+  // touche », alors que la realite est « Meta n'a pas fourni la ventilation » — c'est
+  // exactement ce qui affichait un « Followers reach rate » de 0 % a l'ecran.
+  // Somme des lignes d'un breakdown Meta. `total_value.value` peut valoir None alors
+  // que le detail existe : c'est le cas de follows_and_unfollows, dont la valeur n'est
+  // QUE dans le breakdown.
+  const sommeBreakdown = (donnees: any): number | null => {
+    for (const m of (donnees?.data || [])) {
+      const lignes = (m.total_value?.breakdowns || []).flatMap((bd: any) => bd.results || []);
+      if (lignes.length === 0) continue;
+      return lignes.reduce((t: number, r: any) => t + (r.value ?? 0), 0);
+    }
+    return null;
+  };
+
+  // Reach total du jour, calcule ici pour servir de garde a l'inference du zero
+  // plus bas (meme expression que la colonne ig_reach elle-meme).
+  const reachTotalJour: number | null =
+    insightMap['reach'] !== undefined ? sum(insightMap['reach']) : null;
+
+  let reachFollower: number | null = null;
+  let reachNonFollower: number | null = null;
+  for (const m of (reachBdData?.data || [])) {
+    const lignes = (m.total_value?.breakdowns || []).flatMap((bd: any) => bd.results || []);
+    if (lignes.length === 0) continue;
+    reachFollower = 0; reachNonFollower = 0;
+    for (const r of lignes) {
+      const cle = r.dimension_values?.[0];
+      if (cle === 'FOLLOWER') reachFollower += r.value ?? 0;
+      else if (cle === 'NON_FOLLOWER') reachNonFollower += r.value ?? 0;
+      // L'enumeration `follow_type` de Meta compte une TROISIEME valeur, `UNKNOWN`,
+      // pour les comptes dont le statut d'abonnement n'a pas pu etre etabli.
+      //
+      // Elle n'apparait pas sur les comptes testes (verifie le 2026-08-25 : reach
+      // total 121 sans breakdown = 109 FOLLOWER + 12 NON_FOLLOWER, somme exacte),
+      // et Meta omet une categorie vide au lieu de renvoyer 0. Mais si elle sort un
+      // jour sur un autre compte, l'ancien `else if` l'avalait en silence : les deux
+      // colonnes ne sommaient plus au reach total et les pourcentages affiches ne
+      // faisaient plus 100 %, sans que rien ne le signale.
+      //
+      // On la trace au lieu de l'inventer : pas de colonne dediee tant qu'on n'a pas
+      // constate un seul cas reel, mais l'anomalie devient visible.
+      //
+      // Ecrit en base et non dans les logs (ceux-ci ne sont lus par personne et ne
+      // survivent pas a la retention) — meme raison que pour `cron_runs`.
+      else if (cle && (r.value ?? 0) > 0) {
+        await supa.from('webhook_debug_log').insert({
+          message: 'reach follow_type inattendu',
+          data: { ig_account_id: igAccountId, date, dimension: cle, valeur: r.value },
+        });
+      }
+    }
+  }
   // engagedData contient 2 métriques distinctes (accounts_engaged ET total_interactions)
   // dans le même appel — un .reduce() sur tout le tableau sans distinguer m.name
   // additionnait les deux valeurs ensemble et assignait cette somme aux deux colonnes
@@ -180,13 +333,33 @@ async function fetchIgDayMetrics(token: string, igAccountId: string, date: strin
     ig_reach:              insightMap['reach'] !== undefined ? sum(insightMap['reach']) : null,
     ig_followers:          accountData.followers_count ?? null,
     ig_following:          accountData.follows_count ?? null,
-    ig_views:              insightMap['views'] !== undefined ? sum(insightMap['views']) : null,
-    ig_follows_unfollows:  insightMap['follows_and_unfollows'] !== undefined ? sum(insightMap['follows_and_unfollows']) : null,
-    ig_profile_taps:       insightMap['profile_links_taps'] !== undefined ? sum(insightMap['profile_links_taps']) : null,
-    ig_website_clicks:     insightMap['website_clicks'] !== undefined ? sum(insightMap['website_clicks']) : null,
+    ig_views:              tvMap['views'] ?? null,
+    ig_follows_unfollows:  sommeBreakdown(followsBdData),
+    ig_profile_taps:       tvMap['profile_links_taps'] ?? null,
+    ig_website_clicks:     tvMap['website_clicks'] ?? null,
+    // Vues du profil : l'etape charniere du tunnel Instagram — quelqu'un a vu un
+    // contenu ET est alle voir qui se cache derriere, juste avant l'abonnement ou le
+    // DM. Aucune autre metrique ne l'agrege (contrairement aux likes / commentaires /
+    // partages, tous inclus dans total_interactions).
+    //
+    // Rentre dans la requete total_value existante : aucun appel supplementaire.
+    // Verifie journaliere contre l'API le 2026-08-22 (3, 4, 1, 4, 7 sur cinq jours,
+    // dont la somme fait bien le total de la periode).
+    ig_profile_views:      tvMap['profile_views'] ?? null,
     ig_accounts_engaged:   (engagedData?.data || []).some((m: any) => m.name === 'accounts_engaged') ? accountsEngagedTotal : null,
     ig_total_interactions: (engagedData?.data || []).some((m: any) => m.name === 'total_interactions') ? totalInteractionsTotal : null,
-    ig_lead_count:         null,
+    // Un reach de 0 se ventile forcement en 0 + 0. Meta ne renvoie AUCUNE ligne de
+    // breakdown dans ce cas (« empty data set instead of 0 »), si bien que les deux
+    // colonnes restaient null — « on ne sait pas » — alors que la valeur est
+    // certaine. Sur l'ecran, les courbes journalieres faisaient un trou a chaque
+    // journee sans audience au lieu de descendre a zero (constate par Chris le
+    // 2026-08-26).
+    //
+    // L'inference ne porte QUE sur le cas arithmetiquement sur : reach connu et nul.
+    // Un reach > 0 sans ventilation reste null, c'est un vrai trou que le rattrapage
+    // ira combler.
+    ig_reach_follower:     reachFollower ?? (reachTotalJour === 0 ? 0 : null),
+    ig_reach_non_follower: reachNonFollower ?? (reachTotalJour === 0 ? 0 : null),
     ig_response_rate:      null,
   };
 }
@@ -412,11 +585,27 @@ async function getYtToken(profileId: string): Promise<string | null> {
   return data.access_token;
 }
 
-async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate: string) {
+/**
+ * @param avecRepartitions false pour ne demander que les metriques journalieres.
+ *
+ * Les quatre repartitions (sources de trafic, appareils, demographie, mots-cles)
+ * portent sur une fenetre FIXE de 30 jours glissants : une journee de plus ou de moins
+ * ne deplace quasiment rien dans un cumul mensuel. Les redemander a chaque
+ * synchronisation coutait 4 des 7 appels pour une donnee qui bouge lentement.
+ *
+ * Elles ne sont donc rafraichies qu'une fois par jour, contre une fois par heure pour
+ * les metriques journalieres. Le cout par profil passe de 7 a 3 appels sur 23 des
+ * 24 synchronisations quotidiennes.
+ */
+async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate: string, avecRepartitions = true) {
   const auth = { Authorization: `Bearer ${accessToken}` };
   // 30 jours glissants avant endDate — fenetre des repartitions (voir plus bas).
   const repartitionStart = new Date(new Date(endDate).getTime() - 30 * 86400_000)
     .toISOString().split('T')[0];
+  // Reponse neutre pour les appels omis : le code en aval lit `.rows`, une reponse
+  // vide produit donc des tableaux vides, et les colonnes JSONB correspondantes ne
+  // sont pas ecrites (le mapping les conditionne deja a leur presence).
+  const sauteAppel = () => Promise.resolve(new Response('{}', { status: 200 }));
   const [channelRes, analyticsRes, byTypeRes, trafficRes, devicesRes, demoRes, keywordsRes] = await Promise.all([
     fetch('https://www.googleapis.com/youtube/v3/channels?part=statistics&mine=true', { headers: auth }),
     fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,estimatedMinutesWatched,subscribersGained,subscribersLost,likes,comments,shares,averageViewDuration&dimensions=day&sort=day`, { headers: auth }),
@@ -425,7 +614,7 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
     // répercutée. Sert la courbe « Watch time moyen », qui distingue Shorts et vidéos
     // longues — distinction que yt_avg_view_duration_sec (tous formats confondus) ne
     // permet pas, et qui était donc simulée jusqu'au 2026-08-20.
-    fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,averageViewDuration&dimensions=day,creatorContentType&sort=day`, { headers: auth }),
+    fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,averageViewDuration,estimatedMinutesWatched&dimensions=day,creatorContentType&sort=day`, { headers: auth }),
     // Sources de trafic, appareils et demographie : repartitions CUMULEES, pas des
     // series journalieres. Stockees en JSONB sur la ligne du dernier jour, que
     // l'affichage lit en mode historique.
@@ -439,12 +628,12 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
     //
     // Ces trois colonnes existaient et etaient LUES par PageClientStats, mais aucun code
     // ne les ecrivait : 266 lignes en base, 0 remplie.
-    fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=views,estimatedMinutesWatched&dimensions=insightTrafficSourceType&sort=-views`, { headers: auth }),
-    fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=views,estimatedMinutesWatched&dimensions=deviceType&sort=-views`, { headers: auth }),
-    fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=viewerPercentage&dimensions=ageGroup,gender`, { headers: auth }),
+    avecRepartitions ? fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=views,estimatedMinutesWatched&dimensions=insightTrafficSourceType&sort=-views`, { headers: auth }) : sauteAppel(),
+    avecRepartitions ? fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=views,estimatedMinutesWatched&dimensions=deviceType&sort=-views`, { headers: auth }) : sauteAppel(),
+    avecRepartitions ? fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=viewerPercentage&dimensions=ageGroup,gender`, { headers: auth }) : sauteAppel(),
     // Top 10 des termes de recherche. Meme fenetre de 30 jours que les autres
     // repartitions : un « top des termes du 15 aout » n'aurait pas de sens.
-    fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=views&dimensions=insightTrafficSourceDetail&filters=insightTrafficSourceType==YT_SEARCH&sort=-views&maxResults=10`, { headers: auth }),
+    avecRepartitions ? fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=views&dimensions=insightTrafficSourceDetail&filters=insightTrafficSourceType==YT_SEARCH&sort=-views&maxResults=10`, { headers: auth }) : sauteAppel(),
   ]);
   // D1 : un statut HTTP non-2xx sur l'Analytics API (429 rate limit, 5xx...) doit
   // être une vraie erreur, pas silencieusement traité comme "pas encore de données".
@@ -461,25 +650,45 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
   // Mis en forme au format attendu par PageClientStats (cf. types YTStats). Pas de throw
   // si l'une echoue : ces repartitions sont un complement, leur absence ne doit pas faire
   // perdre les metriques principales du jour.
-  const ytTrafficSources = ((trafficData?.rows ?? []) as any[]).map(r => ({ source: r[0], views: r[1] ?? 0, watchMinutes: r[2] ?? 0 }));
-  const ytDevices        = ((devicesData?.rows ?? []) as any[]).map(r => ({ device: r[0], views: r[1] ?? 0, watchMinutes: r[2] ?? 0 }));
-  const ytDemographics   = ((demoData?.rows ?? []) as any[]).map(r => ({ ageGroup: r[0], gender: r[1], viewerPct: r[2] ?? 0 }));
-  const ytSearchKeywords = ((keywordsData?.rows ?? []) as any[]).map(r => ({ term: r[0], views: r[1] ?? 0 }));
+  // null (pas []) quand l'appel a ete saute : le mapping conditionne l'ecriture de ces
+  // colonnes a une valeur truthy, or un tableau VIDE est truthy en JavaScript. Sans ce
+  // null, sauter les repartitions les ECRASERAIT par des tableaux vides et les quatre
+  // cartes se videraient a la premiere synchronisation horaire de la journee.
+  //
+  // Le HTTP est verifie avant de mapper : une reponse d'erreur Google ne porte pas de
+  // cle « rows », et le repli sur un tableau vide la rendait indistinguable d'un vrai
+  // « aucune source de trafic » — puis l'ecrivait par-dessus des donnees valides. Un
+  // echec laisse desormais la colonne intacte, comme un appel saute.
+  const repOk = (res: Response, data: any) => avecRepartitions && res.ok && Array.isArray(data?.rows);
+  const ytTrafficSources = repOk(trafficRes, trafficData) ? (trafficData.rows as any[]).map(r => ({ source: r[0], views: r[1] ?? 0, watchMinutes: r[2] ?? 0 })) : null;
+  const ytDevices        = repOk(devicesRes, devicesData) ? (devicesData.rows as any[]).map(r => ({ device: r[0], views: r[1] ?? 0, watchMinutes: r[2] ?? 0 })) : null;
+  const ytDemographics   = repOk(demoRes, demoData) ? (demoData.rows as any[]).map(r => ({ ageGroup: r[0], gender: r[1], viewerPct: r[2] ?? 0 })) : null;
+  const ytSearchKeywords = repOk(keywordsRes, keywordsData) ? (keywordsData.rows as any[]).map(r => ({ term: r[0], views: r[1] ?? 0 })) : null;
+
   // day -> ventilation par format. L'API n'émet une ligne que pour les formats ayant eu
   // des vues ce jour-là : null quand le format est absent, jamais un faux 0.
   // Pas de throw si cette requête échoue : la ventilation est un complément, son absence
   // ne doit pas faire perdre les métriques principales du jour.
-  const byType = new Map<string, { shortsDur: number | null; longDur: number | null; shortsViews: number | null; longViews: number | null }>();
+  const byType = new Map<string, { shortsDur: number | null; longDur: number | null; shortsViews: number | null; longViews: number | null; shortsWatch: number | null; longWatch: number | null }>();
   for (const br of (byTypeData?.rows ?? []) as any[]) {
-    const [bday, btype, bviews, bavg] = br;
-    const cur = byType.get(bday) ?? { shortsDur: null, longDur: null, shortsViews: null, longViews: null };
-    if (btype === 'shorts') { cur.shortsDur = bavg ?? null; cur.shortsViews = bviews ?? null; }
-    else if (btype === 'videoOnDemand') { cur.longDur = bavg ?? null; cur.longViews = bviews ?? null; }
+    // colonnes : day(0), creatorContentType(1), views(2), averageViewDuration(3),
+    // estimatedMinutesWatched(4) — deja en MINUTES, pas de division (cf. le bug du
+    // 2026-08-20 sur yt_watch_time_min).
+    const [bday, btype, bviews, bavg, bwatch] = br;
+    const cur = byType.get(bday) ?? { shortsDur: null, longDur: null, shortsViews: null, longViews: null, shortsWatch: null, longWatch: null };
+    if (btype === 'shorts') { cur.shortsDur = bavg ?? null; cur.shortsViews = bviews ?? null; cur.shortsWatch = bwatch ?? null; }
+    else if (btype === 'videoOnDemand') { cur.longDur = bavg ?? null; cur.longViews = bviews ?? null; cur.longWatch = bwatch ?? null; }
     byType.set(bday, cur);
   }
   // ?? plutôt que || : un vrai 0 (0 vue, 0 like, 0 commentaire...) est une donnée
   // légitime, pas une absence de donnée — || le convertissait à tort en null.
   const subscribers = parseInt(channelData?.items?.[0]?.statistics?.subscriberCount ?? '0') ?? null;
+  // Total d'abonnes : Data API v3, connu EN TEMPS REEL, sans le delai de 2-3 jours de
+  // l'Analytics API. Il n'etait ecrit que sur les lignes renvoyees par l'Analytics —
+  // donc jamais sur les jours recents, ou le compteur restait vide alors que sa valeur
+  // etait disponible (constate le 2026-08-21 : rien du 19 au 21 aout).
+  // Expose separement pour pouvoir l'ecrire sur le jour courant.
+  const subscribersNow = subscribers;
   const rows: any[] = analyticsData?.rows || [];
   // D2 : signaler seulement si le jour le PLUS ANCIEN de la fenêtre demandée (startDate)
   // est absent — Google a largement eu le temps de le traiter. Si seul endDate (le plus
@@ -487,7 +696,7 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
   if (!rows.some((r: any) => r[0] === startDate)) {
     console.error(`[poll-leads] yt_missing_oldest_day: startDate=${startDate} endDate=${endDate} reçu=${rows.length} jour(s), startDate absent de la réponse Analytics API`);
   }
-  return rows.map((r: any, i: number) => ({
+  return { subscribersNow, rows: rows.map((r: any, i: number) => ({
     date: r[0], yt_views: r[1] ?? null,
     // `estimatedMinutesWatched` est DÉJÀ en minutes (le nom de la métrique le dit).
     // Le /60 qui était ici la traitait comme des secondes : tout jour sous 30 minutes
@@ -499,12 +708,20 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
     // toute journée sous 1 minute — le défaut même qu'on corrige.
     yt_watch_time_min: r[2] ?? null,
     yt_subscribers: subscribers, yt_subs_gained: r[3] ?? null, yt_subs_lost: r[4] ?? null,
-    yt_net_subs: ((r[3] ?? 0) - (r[4] ?? 0)) ?? null, yt_likes: r[5] ?? null,
+    // Le `?? null` en fin d'expression etait mort : une soustraction de deux nombres
+    // n'est jamais nullish, et Deno le signalait (TS2869). Il masquait un vrai defaut —
+    // quand les DEUX termes manquent, la donnee est inconnue, et le calcul ecrivait
+    // quand meme 0, c'est-a-dire « aucun mouvement d'abonnes ce jour-la ». Un faux zero
+    // la ou il faut un trou. Corrige le 2026-08-21.
+    yt_net_subs: (r[3] == null && r[4] == null) ? null : ((r[3] ?? 0) - (r[4] ?? 0)),
+    yt_likes: r[5] ?? null,
     yt_comments: r[6] ?? null, yt_shares: r[7] ?? null, yt_avg_view_duration_sec: r[8] ?? null,
     yt_avg_duration_shorts_sec: byType.get(r[0])?.shortsDur ?? null,
     yt_avg_duration_long_sec:   byType.get(r[0])?.longDur ?? null,
     yt_views_shorts:            byType.get(r[0])?.shortsViews ?? null,
     yt_views_long:              byType.get(r[0])?.longViews ?? null,
+    yt_watch_time_shorts_min:   byType.get(r[0])?.shortsWatch ?? null,
+    yt_watch_time_long_min:     byType.get(r[0])?.longWatch ?? null,
     // Agregats de fenetre : portes UNIQUEMENT par la derniere ligne. Les repartir sur
     // chaque jour serait faux (ce sont des cumuls sur toute la periode), et l'affichage
     // lit justement le dernier snapshot (lastSnap?.yt_traffic_sources).
@@ -512,7 +729,7 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
     yt_devices:         i === rows.length - 1 ? ytDevices        : null,
     yt_demographics:    i === rows.length - 1 ? ytDemographics   : null,
     yt_search_keywords: i === rows.length - 1 ? ytSearchKeywords  : null,
-  }));
+  })) };
 }
 
 function parseReachCsv(text: string): { video_id: string; impressions: number; clicks: number }[] {
@@ -1046,25 +1263,49 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
     const videoIds = items.map((i: any) => i.snippet?.resourceId?.videoId).filter(Boolean);
 
     // Détails vidéo (durée, statistiques lifetime)
-    const BATCH = 10;
+    //
+    // 50 ids par appel, le maximum accepte par videos.list. C'etait 10 : sur une chaine
+    // de 30 videos cela faisait 3 appels au lieu d'un seul. Le cout d'un appel ne depend
+    // pas du nombre d'ids qu'il porte.
+    const BATCH = 50;
     const videoDetailsMap: Record<string, any> = {};
     for (let i = 0; i < videoIds.length; i += BATCH) {
       const batch = videoIds.slice(i, i + BATCH);
       const detailsRes = await fetch(
-        `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${batch.join(',')}&fields=items(id,snippet(title,publishedAt,thumbnails),statistics,contentDetails(duration))`,
+        // liveBroadcastContent distingue un direct EN COURS (« live ») ou PROGRAMME
+        // (« upcoming ») d'une video normale (« none »). Une rediffusion terminee vaut
+        // « none » : elle redevient une video et doit etre comptee comme telle.
+        `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${batch.join(',')}&fields=items(id,snippet(title,publishedAt,thumbnails,liveBroadcastContent),statistics,contentDetails(duration))`,
         { headers: auth }
       );
       if (detailsRes.ok) {
         const detailsData = await safeJson(detailsRes);
         for (const v of detailsData.items || []) videoDetailsMap[v.id] = v;
+      } else {
+        // Un echec ici etait ignore en SILENCE : la boucle continuait et le snapshot
+        // s'ecrivait avec des titres et des vues vides. Pire, le garde-fou d'entree
+        // (« le snapshot d'hier existe deja ») empechait ensuite tout rattrapage — la
+        // journee restait definitivement amputee sans que rien ne le signale.
+        //
+        // On interrompt plutot que d'ecrire une journee incomplete : sans ligne pour
+        // hier, le prochain passage refera le travail de lui-meme. Un trou temporaire
+        // se rattrape, une ligne fausse reste.
+        return [`yt_videos_details: HTTP ${detailsRes.status}`];
       }
     }
 
-    // Analytics vidéo par batch de 10 (30 jours glissants)
+    // Analytics vidéo (30 jours glissants).
+    //
+    // Lot plus petit que videos.list : le filtre `video==` de l'Analytics API est borne
+    // a 500 CARACTERES, pas a un nombre d'ids. A 11 caracteres par id plus le separateur,
+    // 40 ids font 479 caracteres — sous la limite avec une marge, sans dependre d'une
+    // longueur d'id qui pourrait changer. Depasser renverrait un 400 sur TOUT le lot,
+    // donc aucune metrique par video pour le profil.
+    const BATCH_ANALYTICS = 40;
     const startDate = isoDate(30);
     const analyticsMap: Record<string, any> = {};
-    for (let i = 0; i < videoIds.length; i += BATCH) {
-      const batch = videoIds.slice(i, i + BATCH);
+    for (let i = 0; i < videoIds.length; i += BATCH_ANALYTICS) {
+      const batch = videoIds.slice(i, i + BATCH_ANALYTICS);
       const analyticsRes = await fetch(
         `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&dimensions=video&filters=video==${batch.join(',')}&metrics=views,estimatedMinutesWatched,likes,comments,shares,averageViewPercentage,subscribersGained&startDate=${startDate}&endDate=${yesterday}`,
         { headers: auth }
@@ -1074,6 +1315,16 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
         for (const row of analyticsData.rows || []) {
           analyticsMap[row[0]] = { views: row[1], watchMin: row[2], likes: row[3], comments: row[4], shares: row[5], avgViewPct: row[6], subsGained: row[7] };
         }
+      } else {
+        // Contrairement aux details ci-dessus, on n'interrompt PAS : les metriques par
+        // video (vues 30j, retention) sont un complement, alors que titre / miniature /
+        // vues lifetime viennent de videos.list et suffisent a une ligne exploitable.
+        // Les colonnes concernees restent simplement null — un trou, pas un faux zero.
+        //
+        // Mais l'echec doit se voir : il etait ignore en silence, donc une chaine entiere
+        // pouvait perdre ses metriques par video sans que rien ne l'indique nulle part.
+        errors.push(`yt_videos_analytics: HTTP ${analyticsRes.status}`);
+        console.error(`[poll-leads] profile=${profileId} yt_videos_analytics: HTTP ${analyticsRes.status}`);
       }
     }
 
@@ -1094,10 +1345,36 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
       try {
         const detail = videoDetailsMap[videoId];
         const analytics = analyticsMap[videoId] || {};
+        // Un direct EN COURS ou PROGRAMME n'est pas une video : il n'a ni duree finale,
+        // ni retention, ni performance a analyser. Il encombrait le tableau avec une
+        // ligne entierement vide (« 0:00 », « — » partout).
+        //
+        // Une REDIFFUSION, elle, est une video a part entiere : YouTube repasse
+        // liveBroadcastContent a « none » une fois la diffusion terminee, et la ligne
+        // est alors conservee normalement. La distinction se fait donc toute seule,
+        // sans regle a maintenir (choix de Chris, 2026-08-21).
+        const diffusionEnCours = detail?.snippet?.liveBroadcastContent === 'live'
+          || detail?.snippet?.liveBroadcastContent === 'upcoming';
+        if (diffusionEnCours) continue;
         const isShort = detail?.contentDetails?.duration
           ? /^PT(?:\d+S|[0-5]?\dS|[0-5]?\d[Ss])$/.test(detail.contentDetails.duration) ||
             /^PT0?[0-5]?\d[Ss]$/.test(detail.contentDetails.duration)
           : false;
+        // Duree en secondes, depuis le meme champ ISO 8601 qui sert deja a detecter les
+        // Shorts juste au-dessus.
+        //
+        // Elle etait ecrite `null` alors que la donnee etait la : les 2010 lignes du
+        // profil de test avaient duration_sec vide. En mode historique (toute periode
+        // passee, et l'All-Time), l'UI n'avait donc aucune duree, avec deux effets :
+        // la colonne « Duree » du tableau restait vide, et surtout l'axe des temps de la
+        // courbe de retention basculait silencieusement en pourcentage au lieu
+        // d'afficher « 0:45 », « 1:30 » — la meme courbe changeait d'unite selon la
+        // periode consultee (constate le 2026-08-21).
+        const durIso: string | undefined = detail?.contentDetails?.duration;
+        const durMatch = durIso ? durIso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/) : null;
+        const durationSec = durMatch
+          ? parseInt(durMatch[1] || '0') * 3600 + parseInt(durMatch[2] || '0') * 60 + parseInt(durMatch[3] || '0')
+          : null;
 
         const row: Record<string, any> = {
           profile_id: profileId,
@@ -1105,7 +1382,7 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
           title: detail?.snippet?.title || null,
           thumbnail: detail?.snippet?.thumbnails?.medium?.url || detail?.snippet?.thumbnails?.default?.url || null,
           published_at: detail?.snippet?.publishedAt ? new Date(detail.snippet.publishedAt).toISOString() : null,
-          duration_sec: null,
+          duration_sec: durationSec,
           is_short: isShort,
           // ?? plutôt que || : un vrai 0 (0 vue/like/commentaire) est une donnée
           // légitime qui ne doit pas être écrasée en null.
@@ -1141,22 +1418,448 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
 // Snapshot complet d'un profil
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Rattrape les journees YouTube manquantes, quelle que soit leur anciennete.
+ *
+ * La fenetre normale du cron (J-3 -> hier) ne rattrape que trois jours : au-dela, une
+ * interruption laissait un trou definitif — c'est ce qui s'etait produit du 9 au 14 juin
+ * sur un profil, et 38 journees etaient encore vides le 2026-08-21.
+ *
+ * Or l'Analytics API accepte n'importe quelle date de debut (verifie contre l'API :
+ * une requete sur le 1-10 juin renvoie bien ses 10 jours). Les donnees ne sont donc
+ * jamais perdues, elles n'etaient simplement plus demandees.
+ *
+ * Strategie : une seule requete par execution, sur la plage qui couvre les trous, et
+ * seulement quand il y en a. Sur une base saine, cette fonction ne coute RIEN — elle
+ * sort avant le moindre appel reseau.
+ *
+ * Tourne une fois par jour (meme cadence que les repartitions) pour ne pas peser sur
+ * le quota : un trou vieux de trois semaines peut attendre quelques heures de plus.
+ */
+/**
+ * Rattrape les journees Instagram manquantes.
+ *
+ * Meme principe que rattraperTrousYt, mais l'API Instagram impose une contrainte de
+ * plus : elle ne renvoie qu'une fenetre limitee par appel, et surtout ses metriques
+ * `total_value` ne se decoupent pas par jour sur une longue plage. On rattrape donc
+ * JOUR PAR JOUR, avec un plafond par execution pour ne pas exploser le budget de
+ * temps de la fonction.
+ *
+ * Verifie contre l'API le 2026-08-22 : les dates anciennes sont acceptees (J-60
+ * renvoie une vraie valeur), avec une retention de 2 ANS — au-dela, l'API repond
+ * « Metrics data is available for the last 2 years ».
+ *
+ * 43 journees de reach manquaient sur trois profils avant cette fonction, sans aucun
+ * mecanisme pour les recuperer.
+ */
+/**
+ * Portee dedupliquee de la semaine et du mois en cours.
+ *
+ * Pourquoi stocker plutot que calculer a l'affichage : la ventilation
+ * abonnes/non-abonnes n'existe chez Meta que sur ~12 mois glissants. Une periode
+ * non stockee devient irrecuperable un an plus tard. Et elle ne se reconstruit pas
+ * depuis les valeurs journalieres : la deduplication ne s'additionne pas —
+ * mai+juin+juillet 2026 cumulaient 272 abonnes contre 124 en realite (mesure du
+ * 2026-08-26).
+ *
+ * Deroulement, une fois par jour :
+ *   1. periodes TERMINEES non encore figees -> une derniere mesure, puis figee
+ *   2. semaine et mois EN COURS -> mesure du debut de periode a aujourd'hui
+ *
+ * Le figeage passe par une derniere mesure le lendemain plutot que de conserver la
+ * valeur de la veille : cela absorbe l'activite de fin de journee. Les valeurs ne
+ * derivent pas retroactivement (verifie sur 9 jours), donc cette mesure est stable.
+ *
+ * Cout : 2 appels par jour et par profil, plus 2 les jours de cloture.
+ */
+async function majPeriodesIg(profileId: string, token: string, igAccountId: string): Promise<string[]> {
+  const errors: string[] = [];
+  const aujourdhui = isoDate(0);
+
+  // Bornes calendaires en heure de Paris. La journee de Meta bascule a 07:00 UTC
+  // (fuseau Pacifique), pas a minuit Paris : l'ecart mesure sur un mois complet est
+  // d'une unite sur 143, soit 0,7 %. Negligeable, et on garde des bornes lisibles
+  // pour le coach — un mois va du 1er au dernier jour.
+  function bornes(type: 'semaine' | 'mois', dateRef: string): { debut: string; fin: string } {
+    const [y, m, d] = dateRef.split('-').map(Number);
+    if (type === 'semaine') {
+      // getUTCDay : 0 = dimanche. On veut lundi = 1er jour (ISO).
+      const jour = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+      const reculLundi = jour === 0 ? 6 : jour - 1;
+      const lundi = new Date(Date.UTC(y, m - 1, d - reculLundi));
+      const dimanche = new Date(Date.UTC(y, m - 1, d - reculLundi + 6));
+      return { debut: lundi.toISOString().split('T')[0], fin: dimanche.toISOString().split('T')[0] };
+    }
+    const dernier = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const p2 = (n: number) => String(n).padStart(2, '0');
+    return { debut: `${y}-${p2(m)}-01`, fin: `${y}-${p2(m)}-${p2(dernier)}` };
+  }
+
+  // Une mesure = un appel. `until` est borne a aujourd'hui pour une periode en cours.
+  async function mesurer(debut: string, finVoulue: string) {
+    const fin = finVoulue > aujourdhui ? aujourdhui : finVoulue;
+    const since = Math.floor(new Date(`${debut}T00:00:00Z`).getTime() / 1000);
+    const until = Math.floor(new Date(`${fin}T23:59:59Z`).getTime() / 1000);
+    const url = `https://graph.instagram.com/v22.0/${igAccountId}/insights`
+      + `?metric=reach&metric_type=total_value&breakdown=follow_type&period=day`
+      + `&since=${since}&until=${until}&access_token=${token}`;
+    const res = await fetch(url);
+    // Un `if (res.ok)` sans `else` ecrirait une ligne vide indiscernable d'une vraie
+    // absence de donnees, et la periode serait figee fausse pour toujours.
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await safeJson(res);
+    const tv = data?.data?.[0]?.total_value;
+    if (!tv) throw new Error('total_value absent');
+    let abonnes: number | null = null, nonAbonnes: number | null = null;
+    for (const b of tv.breakdowns || []) {
+      for (const r of b.results || []) {
+        const cle = r.dimension_values?.[0];
+        if (cle === 'FOLLOWER') abonnes = (abonnes ?? 0) + (r.value ?? 0);
+        else if (cle === 'NON_FOLLOWER') nonAbonnes = (nonAbonnes ?? 0) + (r.value ?? 0);
+      }
+    }
+    // Meta OMET une categorie vide au lieu de renvoyer 0 (« the API will return an
+    // empty data set instead of 0 », doc officielle). Sans ce rattrapage, une
+    // semaine sans aucun abonne touche stockait null — « on ne sait pas » — alors
+    // que la valeur est connue et vaut zero. Constate le 2026-08-26 : semaine du
+    // 24 aout, total 3 et NON_FOLLOWER 3, donc FOLLOWER = 0.
+    //
+    // L'inference n'est faite que si l'arithmetique est EXACTE. Si une categorie
+    // inattendue existait (UNKNOWN), la somme ne tomberait pas juste et on
+    // conserverait null plutot que d'ecrire un zero faux.
+    const total: number | null = tv.value ?? null;
+    if (total !== null) {
+      if (abonnes === null && nonAbonnes !== null && nonAbonnes === total) abonnes = 0;
+      else if (nonAbonnes === null && abonnes !== null && abonnes === total) nonAbonnes = 0;
+      else if (abonnes === null && nonAbonnes === null && total === 0) { abonnes = 0; nonAbonnes = 0; }
+    }
+    return { total, abonnes, nonAbonnes };
+  }
+
+  // Denominateur de « abonnes touches ». Fige avec la periode : sans ca, un taux
+  // ancien serait recalcule sur l'audience d'aujourd'hui et changerait tout seul.
+  //
+  // MOYENNE sur la periode, pas la valeur de fin. Sur un compte en croissance
+  // rapide, le choix n'est pas neutre : 300 abonnes touches sur un mois ou l'on
+  // passe de 1000 a 1500 donnent 30 % au debut, 24 % en moyenne, 20 % a la fin.
+  //
+  // La valeur de fin est la plus fausse des trois : quelqu'un qui s'abonne le 30 du
+  // mois n'a pas pu voir le contenu du 1er, mais il gonfle quand meme le
+  // denominateur. La moyenne correspond a l'audience reellement exposee.
+  //
+  // Lue depuis analytics_daily_snapshots, qui historise ig_followers chaque jour.
+  // Repli sur la valeur du jour si l'historique manque (compte tout juste connecte).
+  async function abonnesMoyens(debut: string, fin: string): Promise<number | null> {
+    const finBornee = fin > aujourdhui ? aujourdhui : fin;
+    const { data } = await supa
+      .from('analytics_daily_snapshots')
+      .select('ig_followers')
+      .eq('profile_id', profileId)
+      .is('archived_at', null)
+      .gte('date', debut).lte('date', finBornee)
+      .not('ig_followers', 'is', null);
+    const vals = (data || []).map((r: any) => r.ig_followers as number).filter((v) => v > 0);
+    if (vals.length) return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+    try {
+      const r = await fetch(`https://graph.instagram.com/v22.0/${igAccountId}?fields=followers_count&access_token=${token}`);
+      if (r.ok) return (await safeJson(r))?.followers_count ?? null;
+    } catch { /* non bloquant : la portee reste utile sans son denominateur */ }
+    return null;
+  }
+
+  async function ecrire(type: 'semaine' | 'mois', debut: string, fin: string, figee: boolean) {
+    const m = await mesurer(debut, fin);
+
+    // delete + insert, et NON upsert.
+    //
+    // L'index unique de cette table est PARTIEL (`where archived_at is null`), pour
+    // qu'un ancien compte Instagram archive ne bloque pas les memes periodes sur le
+    // nouveau. Or PostgREST ne sait pas viser un index partiel : `onConflict`
+    // repond « there is no unique or exclusion constraint matching the ON CONFLICT
+    // specification » — verifie contre la base le 2026-08-26, et deja rencontre
+    // ailleurs sur ce projet.
+    //
+    // Le delete est borne a `archived_at is null` : les lignes d'un ancien compte
+    // sont conservees, jamais ecrasees.
+    const { error: errSuppr } = await supa.from('analytics_ig_periodes')
+      .delete()
+      .eq('profile_id', profileId).eq('type', type).eq('debut', debut)
+      .is('archived_at', null);
+    if (errSuppr) throw new Error(errSuppr.message);
+
+    const { error } = await supa.from('analytics_ig_periodes').insert({
+      profile_id: profileId, ig_account_id: igAccountId,
+      type, debut, fin,
+      reach_total: m.total, reach_abonnes: m.abonnes, reach_non_abonnes: m.nonAbonnes,
+      abonnes: await abonnesMoyens(debut, fin), figee, mesure_le: new Date().toISOString(),
+    });
+    if (error) throw new Error(error.message);
+  }
+
+  // Une seule lecture pour les deux etapes : elle sert a trouver les periodes a
+  // cloturer ET a savoir si celles en cours ont besoin d'etre rafraichies.
+  let existantes: { type: string; debut: string; fin: string; figee: boolean; mesure_le: string }[] = [];
+  try {
+    const { data, error } = await supa
+      .from('analytics_ig_periodes')
+      .select('type, debut, fin, figee, mesure_le')
+      .eq('profile_id', profileId)
+      .is('archived_at', null)
+      .eq('figee', false)
+      .limit(20);
+    if (error) throw new Error(error.message);
+    existantes = data || [];
+  } catch (e: any) {
+    errors.push(`ig_periodes_lecture: ${e?.message || 'unknown'}`);
+    return errors;   // sans cette lecture on ne peut rien decider sans risquer un doublon
+  }
+
+  // 1. Cloturer les periodes terminees. `fin < aujourd'hui` garantit qu'on ne fige
+  //    jamais une periode encore en cours. Toujours evalue, quelle que soit la
+  //    fraicheur : une cloture manquee ne se rattrape pas d'elle-meme.
+  for (const p of existantes.filter((p) => p.fin < aujourdhui)) {
+    try { await ecrire(p.type as 'semaine' | 'mois', p.debut, p.fin, true); }
+    catch (e: any) { errors.push(`ig_periode_cloture_${p.type}_${p.debut}: ${e?.message || 'unknown'}`); }
+  }
+
+  // 2. Rafraichir la semaine et le mois en cours.
+  //
+  // Toutes les 6 h et non une fois par jour : la periode en cours grandit au fil de
+  // la journee, et un coach qui regarde le soir merite autre chose que le chiffre
+  // de ce matin. Le cout est negligeable — 2 appels par rafraichissement, soit 8
+  // par jour et par profil, contre 125 pour le reste de la synchro Instagram.
+  //
+  // La decision de fraicheur vit ICI plutot que dans le declencheur du cron :
+  // le declencheur ne sait pas ce qui est deja stocke, et cette fonction si. Elle
+  // peut donc etre appelee a chaque passage horaire sans emettre le moindre appel
+  // reseau tant que la donnee est fraiche.
+  const FRAICHEUR_MS = 6 * 60 * 60 * 1000;
+  for (const type of ['semaine', 'mois'] as const) {
+    try {
+      const { debut, fin } = bornes(type, aujourdhui);
+      const dejaLa = existantes.find((p) => p.type === type && p.debut === debut);
+      if (dejaLa && Date.now() - new Date(dejaLa.mesure_le).getTime() < FRAICHEUR_MS) continue;
+      await ecrire(type, debut, fin, false);
+    } catch (e: any) {
+      errors.push(`ig_periode_${type}: ${e?.message || 'unknown'}`);
+    }
+  }
+
+  return errors;
+}
+
+async function rattraperTrousIg(profileId: string, token: string, igAccountId: string): Promise<string[]> {
+  const errors: string[] = [];
+  // 3 et non 5 : le rattrapage est SEQUENTIEL (5 appels par journee) et tourne pour
+  // chaque profil. A 40 eleves ayant tous des trous le meme jour, 5 journees mettaient
+  // le passage a ~112 s sur un budget de 150 — marge trop mince. A 3, on redescend a
+  // ~75 s dans ce meme pire cas, et les trous se comblent en quelques jours au lieu de
+  // quelques heures, ce qui est sans consequence sur des donnees anciennes.
+  const MAX_JOURS_PAR_PASSAGE = 3;
+  try {
+    const { data: premier } = await supa
+      .from('analytics_daily_snapshots')
+      .select('date')
+      .eq('profile_id', profileId)
+      .not('ig_reach', 'is', null)
+      .order('date', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (!premier?.date) return [];
+
+    // Retention Meta : 2 ans. Inutile de demander au-dela, l'API repond 400.
+    const limiteRetention = isoDate(720);
+    const debutUtile = premier.date > limiteRetention ? premier.date : limiteRetention;
+
+    // Deux cas a rattraper, pas un seul :
+    //   - ig_reach NULL : la journee n'a jamais ete collectee ;
+    //   - ig_views NULL alors que la journee EXISTE : elle vient du backfill de
+    //     premiere connexion, qui remplit 30 jours d'un coup mais ne peut pas
+    //     recuperer views / profile_links_taps / website_clicks — ces metriques
+    //     n'existent que via `metric_type=total_value`, une forme qui renvoie un
+    //     total unique sans serie datee (verifie contre l'API le 2026-08-22).
+    //
+    // Sans ce second cas, les journees backfillees gardaient des colonnes vides pour
+    // toujours : le rattrapage ne les voyait pas puisque ig_reach y etait rempli.
+    const { data: trous } = await supa
+      .from('analytics_daily_snapshots')
+      .select('date')
+      .eq('profile_id', profileId)
+      // ig_profile_views ajoutee le 2026-08-22 : sans elle dans cette liste, les
+      // journees deja collectees ne seraient jamais reprises et la colonne resterait
+      // vide sur tout l'historique.
+      //
+      // ig_reach_follower ajoutee le 2026-08-26, meme motif : la ventilation
+      // abonnes/non-abonnes n'est collectee que depuis le 2026-08-22, si bien que
+      // 17 journees sur les 30 dernieres avaient un ig_reach rempli et un breakdown
+      // vide — invisibles pour ce rattrapage, donc perdues pour toujours.
+      //
+      // Verifie le 2026-08-26 : l'API sert toujours la ventilation de ces journees
+      // (2026-08-07 -> FOLLOWER 1, NON_FOLLOWER 1), elles sont donc recuperables.
+      //
+      // ⚠️ `and(ig_reach.gt.0, ...)` et non `ig_reach_follower.is.null` seul : une
+      // journee a reach 0 n'a RIEN a ventiler, Meta ne renvoie aucune ligne et la
+      // colonne reste null pour toujours. Sans la borne, ces journees seraient
+      // reprises a chaque passage, indefiniment. Mesure au moment du correctif :
+      // 99 journees a reach 0 contre 14 reellement recuperables — le rattrapage
+      // aurait tourne en boucle sur les 99 sans jamais atteindre les 14, puisqu'il
+      // ne traite que MAX_JOURS_PAR_PASSAGE journees par passage.
+      .or('ig_reach.is.null,ig_views.is.null,ig_profile_views.is.null,and(ig_reach.gt.0,ig_reach_follower.is.null)')
+      .gt('date', debutUtile)
+      .lte('date', isoDate(1))
+      .order('date', { ascending: false })   // les plus recents d'abord
+      .limit(MAX_JOURS_PAR_PASSAGE);
+    if (!trous?.length) return [];
+
+    for (const t of trous) {
+      try {
+        const metrics = await fetchIgDayMetrics(token, igAccountId, t.date);
+        // Ne pas ecrire une ligne vide : si Meta ne renvoie rien pour ce jour, mieux
+        // vaut laisser le trou que d'y poser des null qui empecheraient un nouvel essai
+        // de se distinguer d'un echec.
+        if (metrics.ig_reach == null) { errors.push(`ig_rattrapage_vide_${t.date}`); continue; }
+        const { error } = await supa.from('analytics_daily_snapshots').upsert(
+          { profile_id: profileId, date: t.date, ...metrics, backfill_source: 'rattrapage' },
+          { onConflict: 'profile_id,date', ignoreDuplicates: false },
+        );
+        if (error) errors.push(`ig_rattrapage_${t.date}: ${error.message}`);
+      } catch (e: any) {
+        errors.push(`ig_rattrapage_${t.date}: ${e?.message || 'unknown'}`);
+      }
+    }
+    console.log(`[poll-leads] ig_rattrapage profile=${profileId}: ${trous.length} journee(s) traitee(s)`);
+  } catch (e: any) {
+    errors.push(`ig_rattrapage: ${e?.message || 'unknown'}`);
+  }
+  return errors;
+}
+
+async function rattraperTrousYt(profileId: string, accessToken: string): Promise<string[]> {
+  const errors: string[] = [];
+  try {
+    // Debut de la collecte : avant cette date, l'absence est normale (le compte
+    // n'etait pas connecte), il n'y a rien a rattraper.
+    const { data: premier } = await supa
+      .from('analytics_daily_snapshots')
+      .select('date')
+      .eq('profile_id', profileId)
+      .not('yt_views', 'is', null)
+      .order('date', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (!premier?.date) return [];
+
+    // Jours vides APRES ce debut et hors delai de traitement Google (J-4 et plus
+    // anciens) : un jour recent sans donnee n'est pas un trou, c'est de l'attente.
+    const limite = isoDate(4);
+    const { data: trous } = await supa
+      .from('analytics_daily_snapshots')
+      .select('date')
+      .eq('profile_id', profileId)
+      .is('yt_views', null)
+      .gt('date', premier.date)
+      .lte('date', limite)
+      .order('date', { ascending: true });
+    if (!trous?.length) return [];
+
+    // Une seule requete couvrant du plus ancien au plus recent trou. Les jours deja
+    // remplis dans l'intervalle sont simplement reecrits a l'identique.
+    const debut = trous[0].date;
+    const fin = trous[trous.length - 1].date;
+    const { rows } = await fetchYtDayMetrics(accessToken, debut, fin, false);
+    if (!rows.length) return [`yt_rattrapage_vide_${debut}_${fin}`];
+
+    const aRemplir = new Set(trous.map((t: any) => t.date));
+    let comblees = 0;
+    for (const row of rows) {
+      if (!aRemplir.has(row.date)) continue;
+      const { error } = await supa.from('analytics_daily_snapshots').upsert({
+        profile_id: profileId, date: row.date,
+        yt_views: row.yt_views, yt_watch_time_min: row.yt_watch_time_min,
+        yt_subs_gained: row.yt_subs_gained, yt_subs_lost: row.yt_subs_lost,
+        yt_net_subs: row.yt_net_subs, yt_likes: row.yt_likes,
+        yt_comments: row.yt_comments, yt_shares: row.yt_shares,
+        yt_avg_view_duration_sec: row.yt_avg_view_duration_sec,
+        yt_avg_duration_shorts_sec: row.yt_avg_duration_shorts_sec,
+        yt_avg_duration_long_sec: row.yt_avg_duration_long_sec,
+        yt_views_shorts: row.yt_views_shorts, yt_views_long: row.yt_views_long,
+        yt_watch_time_shorts_min: row.yt_watch_time_shorts_min,
+        yt_watch_time_long_min: row.yt_watch_time_long_min,
+        backfill_source: 'rattrapage',
+      }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
+      if (error) errors.push(`yt_rattrapage_${row.date}: ${error.message}`);
+      else comblees++;
+    }
+    if (comblees) console.log(`[poll-leads] yt_rattrapage profile=${profileId}: ${comblees} journee(s) comblee(s) sur ${trous.length} trou(s)`);
+  } catch (e: any) {
+    errors.push(`yt_rattrapage: ${e?.message || 'unknown'}`);
+  }
+  return errors;
+}
+
 async function snapshotProfile(profileId: string): Promise<string[]> {
   const errors: string[] = [];
   const yesterday = isoDate(1);
   const todayStr = isoDate(0);
 
   // IG J-1 + posts individuels (en parallèle)
-  const igCreds = await getIgCreds(profileId);
+  //
+  // ─── Cadence : une synchronisation par heure ────────────────────────────────────
+  //
+  // Meme raisonnement que YouTube (voir plus bas) : ce cron tourne toutes les 5
+  // minutes pour capter les leads vite, mais les metriques d'un compte Instagram ne
+  // changent pas 288 fois par jour. Sans garde-fou, fetchIgDayMetrics emettait ses
+  // appels a chaque passage — 864 par profil et par jour pour des chiffres identiques.
+  //
+  // Le quota Instagram n'est pas structure comme celui de YouTube : il vaut
+  // 4800 x impressions sur 24 h et il est PROPRE A CHAQUE UTILISATEUR, il ne se
+  // partage donc pas entre eleves. Le risque de saturation est faible sur un compte
+  // actif, mais il devient reel sur une journee a tres faible audience — et emettre
+  // 864 appels pour rien reste du gaspillage qui rapproche du plafond sans aucun
+  // benefice de fraicheur (mesure du 2026-08-22, en-tete x-app-usage a 0 %).
+  //
+  // Le collecteur de leads et de DM, lui, n'est PAS ralenti : il reste a chaque
+  // passage, c'est lui qui doit reagir vite.
+  const IG_INTERVALLE_MS = 60 * 60 * 1000;
+  const { data: igIntegration } = await supa
+    .from('integrations')
+    .select('last_synced_at')
+    .eq('profile_id', profileId)
+    .eq('provider', 'instagram')
+    .maybeSingle();
+  const igDernierSync = igIntegration?.last_synced_at ? new Date(igIntegration.last_synced_at).getTime() : 0;
+  const igDoitSync = Date.now() - igDernierSync >= IG_INTERVALLE_MS;
+  // Le rattrapage des trous ne tourne qu'une fois par JOUR : un trou vieux de deux
+  // semaines peut attendre quelques heures. Meme regle que les repartitions YouTube.
+  const igRattrapageAFaire = igDernierSync === 0
+    || new Date(igDernierSync).toISOString().split('T')[0] !== new Date().toISOString().split('T')[0];
+
+  const igCreds = igDoitSync ? await getIgCreds(profileId) : null;
+
+  // Horodate MEME quand les identifiants sont introuvables — jeton revoque, expire, ou
+  // integration incomplete. Sans ca, getIgCreds renvoyait null, le bloc entier etait
+  // saute, l'horodatage plus bas n'etait jamais atteint, et le profil retentait toutes
+  // les 5 minutes indefiniment : 288 appels par jour dans le vide.
+  //
+  // C'est exactement le cas rencontre le 2026-08-22 sur un profil au jeton mort. Le
+  // commentaire de l'horodatage plus bas disait deja vouloir eviter ce scenario ; il
+  // etait simplement place du mauvais cote de la condition.
+  if (igDoitSync && !igCreds) {
+    await supa.from('integrations')
+      .update({ last_synced_at: new Date().toISOString() })
+      .eq('profile_id', profileId)
+      .eq('provider', 'instagram');
+  }
+
   if (igCreds) {
-    const [igMetricsResult, igPostsResult] = await Promise.allSettled([
+    const [igMetricsResult, igPostsResult, igRattrapageResult, igPeriodesResult] = await Promise.allSettled([
       (async () => {
         const metrics = await fetchIgDayMetrics(igCreds.token, igCreds.igAccountId, yesterday);
         const { error } = await supa.from('analytics_daily_snapshots').upsert({ profile_id: profileId, date: yesterday, ...metrics, backfill_source: 'cron' }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
         if (error) throw new Error(error.message);
         // ig_followers/ig_following viennent de accountData.followers_count/follows_count
-        // (état ACTUEL du compte, pas une vraie métrique period=day datée) — le cron ne
-        // tournant qu'une fois par jour et écrivant seulement la ligne "hier", le nombre
+        // (état ACTUEL du compte, pas une vraie métrique period=day datée) — le cron
+        // n'écrivant que la ligne "hier", le nombre
         // d'abonnés du jour COURANT restait à null jusqu'au lendemain matin (décalage
         // d'un jour entre le vrai changement et la date où il apparaît). Écrit aussi ces
         // deux colonnes (seulement elles, sans écraser reach/engagement/interactions qui
@@ -1188,10 +1891,62 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
         } catch (e) { console.error(`[poll-leads] todayMetrics IG (${profileId}):`, (e as Error).message); }
       })(),
       snapshotIgPosts(supa, profileId, igCreds.token, igCreds.igAccountId, yesterday, false, { platformUrl: PLATFORM_URL, cronSecret: CRON_SECRET }),
+      // Rattrapage des journees anciennes manquantes — une fois par jour, comme cote
+      // YouTube. Ajoute EN DERNIER pour ne pas decaler les deux resultats deja
+      // destructures. Sur une base sans trou, la fonction sort avant tout appel reseau.
+      igRattrapageAFaire ? rattraperTrousIg(profileId, igCreds.token, igCreds.igAccountId) : Promise.resolve([] as string[]),
+      // Portee dedupliquee de la semaine et du mois en cours.
+      //
+      // Appelee a CHAQUE passage horaire, et non une fois par jour : la fonction
+      // porte elle-meme sa regle de fraicheur (6 h) et sort sans le moindre appel
+      // reseau tant que la donnee stockee est recente. Elle voit ce qui est en
+      // base, le declencheur du cron non — la decision appartient donc a celle qui
+      // a l'information.
+      //
+      // Les stocker est la SEULE facon de conserver ces chiffres : Meta cesse de
+      // servir la ventilation au-dela de ~12 mois, et elle ne se reconstruit pas
+      // depuis le journalier (la deduplication ne s'additionne pas).
+      majPeriodesIg(profileId, igCreds.token, igCreds.igAccountId),
     ]);
-    if (igMetricsResult.status === 'rejected') errors.push(`ig_fetch: ${igMetricsResult.reason?.message || 'unknown'}`);
+    if (igMetricsResult.status === 'rejected') {
+      const msg = igMetricsResult.reason?.message || 'unknown';
+      errors.push(`ig_fetch: ${msg}`);
+      // Quota epuise : on repousse la prochaine tentative de 24 h au lieu d'une heure.
+      //
+      // C'est le seul garde-fou possible : le quota Instagram vaut 4800 x impressions
+      // sur 24 h et n'est PAS observable a l'avance (l'en-tete qui donnerait le
+      // pourcentage par compte n'est pas renvoye par graph.instagram.com). On ne peut
+      // donc que reagir a l'erreur.
+      //
+      // La cadence remonte SEULE : des que le compte regagne de l'audience, son quota
+      // grandit, l'appel du lendemain passe, et le rythme horaire reprend sans aucune
+      // intervention. Rien a surveiller, rien a reparametrer.
+      if (msg.includes('ig_quota_epuise')) {
+        await supa.from('integrations')
+          .update({
+            last_synced_at: new Date(Date.now() + 23 * 60 * 60 * 1000).toISOString(),
+            last_snapshot_error: 'ig_quota: quota Instagram epuise, prochaine tentative dans 24 h',
+          })
+          .eq('profile_id', profileId).eq('provider', 'instagram');
+        console.warn(`[poll-leads] ig_quota_epuise profile=${profileId} — cadence repoussee a 24 h`);
+      }
+    }
     if (igPostsResult.status === 'fulfilled') errors.push(...igPostsResult.value);
     else errors.push(`ig_posts: ${igPostsResult.reason?.message || 'unknown'}`);
+    if (igRattrapageResult.status === 'fulfilled') errors.push(...igRattrapageResult.value);
+    else errors.push(`ig_rattrapage: ${igRattrapageResult.reason?.message || 'unknown'}`);
+    if (igPeriodesResult.status === 'fulfilled') errors.push(...igPeriodesResult.value);
+    else errors.push(`ig_periodes: ${igPeriodesResult.reason?.message || 'unknown'}`);
+
+    // Horodate la synchronisation pour que la cadence horaire se rearme.
+    //
+    // Ecrit meme en cas d'erreur, volontairement : sans ca, un compte dont le jeton est
+    // expire relancerait ses appels toutes les 5 minutes indefiniment. L'erreur reste
+    // tracee dans last_snapshot_error et dans cron_runs.
+    await supa.from('integrations')
+      .update({ last_synced_at: new Date().toISOString() })
+      .eq('profile_id', profileId)
+      .eq('provider', 'instagram');
   }
 
   // Short.io J-1 + click stream
@@ -1215,18 +1970,117 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
   }
 
   // YouTube J-1, J-2, J-3 + CTR + vidéos individuelles (en parallèle)
-  const ytToken = await getYtToken(profileId);
+  //
+  // ─── Cadence : une synchronisation par heure, pas une par passage ───────────────
+  //
+  // Ce cron tourne toutes les 5 minutes (288 passages/jour) pour les leads Instagram,
+  // qui doivent etre captes vite. YouTube n'a pas ce besoin : ses metriques ont 2 a 3
+  // jours de retard cote Google, et le total d'abonnes bouge de quelques unites par
+  // jour. Resynchroniser toutes les 5 minutes ne rend donc AUCUNE donnee plus fraiche.
+  //
+  // Sans garde-fou, fetchYtDayMetrics emettait ses 7 appels a chaque passage :
+  //   1 profil  = 2 016 appels/jour
+  //   20 eleves = 40 540 appels/jour, soit 4x le quota YouTube (10 000 unites/jour)
+  // La plateforme cassait donc entre 4 et 5 eleves, avec des 403 quota exceeded et des
+  // journees entieres sans donnee — exactement le genre de panne qui demande une
+  // intervention (mesure du 2026-08-21).
+  //
+  // Une sync par heure suffit largement et divise le cout par 12 :
+  //   20 eleves = 3 400 appels/jour, 34 % du quota
+  //   30 eleves = 5 100 appels/jour, 51 % du quota
+  //
+  // Les deux autres blocs YouTube (videos, CTR) ont deja leur propre garde-fou et ne
+  // repartaient pas a chaque passage.
+  //
+  // Le premier passage apres connexion n'est jamais retarde : last_synced_at est null,
+  // donc la condition laisse passer. La recuperation initiale complete reste intacte.
+  const YT_INTERVALLE_MS = 60 * 60 * 1000;
+  const { data: ytIntegration } = await supa
+    .from('integrations')
+    .select('last_synced_at')
+    .eq('profile_id', profileId)
+    .eq('provider', 'youtube')
+    .maybeSingle();
+  const ytDernierSync = ytIntegration?.last_synced_at ? new Date(ytIntegration.last_synced_at).getTime() : 0;
+  const ytDoitSync = Date.now() - ytDernierSync >= YT_INTERVALLE_MS;
+  // Les quatre repartitions (sources de trafic, appareils, demographie, mots-cles)
+  // portent sur 30 jours glissants : une seule mise a jour par jour suffit largement,
+  // et elles representent 4 des 7 appels. On les rafraichit quand la derniere sync
+  // date d'un autre JOUR calendaire — ou au tout premier passage (last_synced_at nul),
+  // pour que la carte ne soit jamais vide apres une connexion.
+  const ytRepartitionsAFaire = ytDernierSync === 0
+    || new Date(ytDernierSync).toISOString().split('T')[0] !== new Date().toISOString().split('T')[0];
+
+  const ytToken = ytDoitSync ? await getYtToken(profileId) : null;
+
+  // Horodate MEME sans jeton exploitable — meme raison que pour Instagram juste
+  // au-dessus : sinon getYtToken renvoie null, le bloc est saute, l'horodatage plus bas
+  // n'est jamais atteint, et le profil retente toutes les 5 minutes indefiniment.
+  //
+  // Defaut trouve d'abord cote Instagram le 2026-08-22, puis cherche ici : il y etait
+  // aussi. Le commentaire de l'horodatage disait vouloir eviter exactement ce scenario,
+  // mais se trouvait du mauvais cote de la condition dans les deux cas.
+  if (ytDoitSync && !ytToken) {
+    await supa.from('integrations')
+      .update({ last_synced_at: new Date().toISOString() })
+      .eq('profile_id', profileId)
+      .eq('provider', 'youtube');
+  }
+
   if (ytToken) {
-    const [ytMetricsResult, ytCtrResult, ytVideosResult] = await Promise.allSettled([
+    const [ytMetricsResult, ytCtrResult, ytVideosResult, ytRattrapageResult] = await Promise.allSettled([
       (async () => {
-        const ytRows = await fetchYtDayMetrics(ytToken, isoDate(3), yesterday);
+        const { subscribersNow: ytSubsNow, rows: ytRows } = await fetchYtDayMetrics(ytToken, isoDate(3), yesterday, ytRepartitionsAFaire);
+
+        // Total d'abonnes sur le JOUR COURANT, ecrit independamment de l'Analytics API.
+        //
+        // Ce total vient de la Data API v3, disponible en temps reel. L'Analytics ayant
+        // 2-3 jours de retard, ses lignes s'arretent au 18 alors qu'on est le 21 : le
+        // compteur d'abonnes restait donc vide sur les jours recents, alors que sa
+        // valeur etait parfaitement connue. La courbe s'arretait 3 jours avant
+        // aujourd'hui sans raison.
+        //
+        // Ecrit sur toute la fenetre que l'Analytics ne couvre pas encore, pas seulement
+        // aujourd'hui et hier.
+        //
+        // La version precedente ecrivait sur [aujourd'hui, hier]. Sur le profil de test,
+        // le 19 aout etait pourtant vide entre un 18 et un 20 tous deux a 49 — un trou au
+        // milieu d'une courbe parfaitement plate (constate le 2026-08-21).
+        //
+        // Une fenetre de 2 jours ne laisse aucune marge : il suffit d'une interruption
+        // du cron, d'un echec de l'appel YouTube (le try/catch avale l'erreur et le
+        // profil est saute), ou d'un decalage de date pour qu'un jour passe entre les
+        // mailles et ne soit jamais rattrape — la Data API v3 ne renvoyant que la valeur
+        // COURANTE, un jour manque le reste a jamais.
+        //
+        // La fenetre couvre les memes jours que la requete Analytics (isoDate(3) a
+        // hier), plus aujourd'hui. Un jour deja rempli par l'Analytics est simplement
+        // reecrit avec la meme valeur : l'upsert ne touche que cette colonne.
+        if (ytSubsNow != null) {
+          // J-0 (= todayStr) a J-3, la meme fenetre que la requete Analytics ci-dessus.
+          const joursAbonnes = [0, 1, 2, 3].map(isoDate);
+          for (const d of joursAbonnes) {
+            const { error: subErr } = await supa.from('analytics_daily_snapshots')
+              .upsert({ profile_id: profileId, date: d, yt_subscribers: ytSubsNow, backfill_source: 'cron' },
+                       { onConflict: 'profile_id,date', ignoreDuplicates: false });
+            if (subErr) console.error(`[poll-leads] yt_subscribers_${d}: ${subErr.message}`);
+          }
+        }
+
         for (const row of ytRows) {
-          const { error } = await supa.from('analytics_daily_snapshots').upsert({ profile_id: profileId, date: row.date, yt_views: row.yt_views, yt_watch_time_min: row.yt_watch_time_min, yt_subscribers: row.yt_subscribers, yt_subs_gained: row.yt_subs_gained, yt_subs_lost: row.yt_subs_lost, yt_net_subs: row.yt_net_subs, yt_likes: row.yt_likes, yt_comments: row.yt_comments, yt_shares: row.yt_shares, yt_avg_view_duration_sec: row.yt_avg_view_duration_sec, yt_avg_duration_shorts_sec: row.yt_avg_duration_shorts_sec, yt_avg_duration_long_sec: row.yt_avg_duration_long_sec, yt_views_shorts: row.yt_views_shorts, yt_views_long: row.yt_views_long, ...(row.yt_traffic_sources ? { yt_traffic_sources: row.yt_traffic_sources } : {}), ...(row.yt_devices ? { yt_devices: row.yt_devices } : {}), ...(row.yt_demographics ? { yt_demographics: row.yt_demographics } : {}), ...(row.yt_search_keywords ? { yt_search_keywords: row.yt_search_keywords } : {}), backfill_source: 'cron' }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
+          const { error } = await supa.from('analytics_daily_snapshots').upsert({ profile_id: profileId, date: row.date, yt_views: row.yt_views, yt_watch_time_min: row.yt_watch_time_min, yt_subscribers: row.yt_subscribers, yt_subs_gained: row.yt_subs_gained, yt_subs_lost: row.yt_subs_lost, yt_net_subs: row.yt_net_subs, yt_likes: row.yt_likes, yt_comments: row.yt_comments, yt_shares: row.yt_shares, yt_avg_view_duration_sec: row.yt_avg_view_duration_sec, yt_avg_duration_shorts_sec: row.yt_avg_duration_shorts_sec, yt_avg_duration_long_sec: row.yt_avg_duration_long_sec, yt_views_shorts: row.yt_views_shorts, yt_views_long: row.yt_views_long, yt_watch_time_shorts_min: row.yt_watch_time_shorts_min, yt_watch_time_long_min: row.yt_watch_time_long_min, ...(row.yt_traffic_sources ? { yt_traffic_sources: row.yt_traffic_sources } : {}), ...(row.yt_devices ? { yt_devices: row.yt_devices } : {}), ...(row.yt_demographics ? { yt_demographics: row.yt_demographics } : {}), ...(row.yt_search_keywords ? { yt_search_keywords: row.yt_search_keywords } : {}), backfill_source: 'cron' }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
           if (error) throw new Error(`yt_upsert_${row.date}: ${error.message}`);
         }
       })(),
       syncYtCtr(profileId, ytToken),
       snapshotYtVideos(profileId, ytToken, yesterday),
+      // Rattrapage des journees anciennes manquantes — ajoute EN DERNIER pour ne pas
+      // decaler les trois resultats deja destructures au-dessus.
+      //
+      // Une fois par jour, meme cadence que les repartitions : un trou vieux de trois
+      // semaines peut attendre quelques heures de plus. Sur une base sans trou, la
+      // fonction sort avant tout appel reseau — elle ne coute rien.
+      ytRepartitionsAFaire ? rattraperTrousYt(profileId, ytToken) : Promise.resolve([] as string[]),
     ]);
     if (ytMetricsResult.status === 'rejected') {
       const msg = `yt_fetch: ${ytMetricsResult.reason?.message || 'unknown'}`;
@@ -1237,8 +2091,22 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
     }
     if (ytCtrResult.status === 'fulfilled') { if (ytCtrResult.value.errors.length) errors.push(...ytCtrResult.value.errors.map(e => `yt_ctr: ${e}`)); }
     else errors.push(`yt_ctr: ${ytCtrResult.reason?.message || 'unknown'}`);
+    if (ytRattrapageResult.status === 'fulfilled') errors.push(...ytRattrapageResult.value);
+    else errors.push(`yt_rattrapage: ${ytRattrapageResult.reason?.message || 'unknown'}`);
     if (ytVideosResult.status === 'fulfilled') errors.push(...ytVideosResult.value);
     else errors.push(`yt_videos: ${ytVideosResult.reason?.message || 'unknown'}`);
+
+    // Horodate la synchronisation pour que la cadence horaire ci-dessus se rearme.
+    //
+    // Ecrit meme en cas d'erreur, et c'est VOULU : sans ca, un profil dont le token
+    // YouTube est revoque relancerait ses 7 appels toutes les 5 minutes indefiniment,
+    // brulant le quota pour rien et empechant les autres profils de se synchroniser.
+    // Une heure de retard sur un profil en panne est preferable a un quota epuise pour
+    // tout le monde. L'erreur reste tracee dans last_snapshot_error.
+    await supa.from('integrations')
+      .update({ last_synced_at: new Date().toISOString() })
+      .eq('profile_id', profileId)
+      .eq('provider', 'youtube');
   }
 
   // Calls stats J-1 — exclut les calls réservés avant que toutes les intégrations
@@ -1438,6 +2306,28 @@ Deno.serve(async (req: Request) => {
   // couvrent déjà le détail par profil).
   if (Object.keys(allErrors).length) {
     console.error(`[poll-leads] run terminé avec des erreurs sur ${Object.keys(allErrors).length} profil(s):`, JSON.stringify(allErrors));
+    // Trace EN BASE, pas seulement dans les logs.
+    //
+    // Un console.error ne se voit que si quelqu'un ouvre les logs Supabase — ce que
+    // personne ne fait, et que la regle du projet deconseille explicitement pour
+    // investiguer. La plateforme pouvait donc casser en silence pendant des jours.
+    //
+    // Une ligne seulement quand il y a une erreur : ce cron tourne toutes les 5
+    // minutes, journaliser les passages reussis ferait 288 lignes/jour pour rien.
+    // La table se purge seule a 30 jours (trigger), donc rien a entretenir.
+    //
+    // Pour savoir si tout va bien :  select * from cron_runs order by ran_at desc;
+    // Table vide = aucun incident depuis 30 jours.
+    try {
+      await supa.from('cron_runs').insert({
+        fonction: 'poll-leads',
+        profils_en_erreur: Object.keys(allErrors).length,
+        erreurs: allErrors,
+      });
+    } catch (e) {
+      // Ne jamais faire echouer un run a cause de sa propre journalisation.
+      console.error('[poll-leads] cron_runs insert failed', e);
+    }
   }
 
   };

@@ -273,7 +273,7 @@ export default function AccessSheet({ resource, onClose, onChanged, onDefaultCha
                               transition: 'opacity 200ms, box-shadow 200ms, filter 200ms',
                             }}>
                               {client.avatar_url
-                                ? <img src={client.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                ? <img loading="lazy" decoding="async" src={client.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                 : initials}
                             </div>
                             <AnimatePresence>

@@ -58,12 +58,19 @@ export default function PageSettings() {
 
   useEffect(() => {
     const connected = searchParams.get('connected');
+    const error = searchParams.get('error');
+    if (!connected && !error) return;
+
     if (connected) {
       const name = INTEGRATION_CONFIG.find(c => c.provider === connected)?.name || connected;
       showToast(`${name} connecté avec succès ✓`);
     }
-    const error = searchParams.get('error');
     if (error) showToast(`Erreur de connexion (${error})`, true);
+
+    // Retire le parametre de l'URL une fois le message affiche : sans ca, chaque
+    // rafraichissement rejoue « connecte avec succes ». Meme correction que la page
+    // Reglages de l'eleve (2026-08-22).
+    window.history.replaceState({}, '', window.location.pathname);
   }, [searchParams]);
 
   function showToast(msg: string, isError = false) {
@@ -389,6 +396,22 @@ export default function PageSettings() {
                   <div style={{ padding: '0 20px 14px', fontSize: 11, color: 'var(--muted)', lineHeight: 1.5 }}>
                     Votre compte Instagram est connecté via la technologie sécurisée UbizenAI. Vous pouvez révoquer cet accès ou demander la suppression de vos données à tout moment conformément à notre{' '}
                     <a href="https://ubizenai.com/data-deletion.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--muted)', textDecoration: 'underline' }}>Politique de suppression</a>.
+                  </div>
+                )}
+
+                {/* Parcours Google (YouTube, Google Calendar) : meme avertissement que
+                    cote eleve et dans le wizard — voir PageClientSettings.tsx pour le
+                    detail. Le texte vient de integrationConfig.ts, ecrit une seule fois. */}
+                {(cfg.provider === 'youtube' || cfg.provider === 'google') && !integ && (
+                  <div style={{ padding: '0 20px 14px' }}>
+                    <div style={{ padding: '10px 14px', background: 'var(--surface-2)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 11, color: 'var(--muted)', lineHeight: 1.6 }}>
+                      <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>
+                        Google affichera un avertissement — c’est normal
+                      </div>
+                      {cfg.instructions.map((step, i) => (
+                        <div key={i} style={{ marginTop: i === 0 ? 2 : 3 }}>{step.text}</div>
+                      ))}
+                    </div>
                   </div>
                 )}
 

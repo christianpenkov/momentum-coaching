@@ -1,36 +1,51 @@
 /**
  * Ancienneté d'un brouillon de rapport, affichée dans la pastille « Commencé ».
  *
- * POURQUOI un seuil : passé quelques jours, on ne se souvient plus de ce qu'on
- * avait répondu. Reprendre à l'étape 4 avec des réponses qu'on ne reconnaît pas
- * est plus risqué que repartir de zéro, parce qu'on validerait un rapport sans
- * savoir ce qu'il contient — et ce rapport-là compte dans les statistiques.
- * La mention est un avertissement, pas une donnée courante : en deçà du seuil
- * elle serait du bruit sur une carte déjà dense.
+ * POURQUOI elle est affichée dès la première minute (décision produit, 2026-08-24) :
+ * l'ancienneté est passée EN TÊTE de la pastille — « Commencé il y a 3 h · étape 3/5 ».
+ * Ce n'est plus une note en fin de ligne mais la première chose lue, et une pastille
+ * qui commence par « Commencé » sans dire quand ne veut rien dire. Un seuil laisserait
+ * la moitié des cas avec un « Commencé » sans repère de temps.
  *
- * Même raisonnement que la purge à 30 jours de la table, en plus tôt : ici on
- * avertit, là on efface.
+ * Ce que remplace ce choix : un seuil de 2 jours, au motif qu'en deçà on se souvient de
+ * sa saisie et que la mention serait du bruit en fin de pastille. L'argument tombe avec
+ * le changement de place — mais il reste vrai sur un point, gardé ici : **passé quelques
+ * jours, reprendre un brouillon dont on ne reconnaît plus les réponses est risqué**,
+ * puisque ce rapport-là compte dans les statistiques. D'où le libellé en jours dès 24 h,
+ * qui rend l'ancien brouillon visible sans avoir besoin d'un seuil.
+ *
+ * La purge de la table à 30 jours reste le garde-fou du bout de chaîne : ici on informe,
+ * là on efface.
  */
 
-/** En deçà (aujourd'hui, hier), le brouillon est frais en mémoire : rien à dire. */
-export const DRAFT_AGE_THRESHOLD_DAYS = 2;
-
 /**
- * Renvoie « il y a 3 jours » à partir du seuil, `null` en deçà.
+ * Renvoie « à l'instant », « il y a 3 h », « il y a 1 jour », « il y a 12 jours ».
+ * `null` seulement si la date est absente, invalide ou dans le futur (horloge décalée).
  *
- * Compté en jours calendaires écoulés, pas en tranches de 24 h : un brouillon
- * d'avant-hier soir reste « il y a 2 jours » quelle que soit l'heure qu'il est,
- * ce qui correspond à la façon dont on se repère.
+ * Les heures sont comptées en écoulé réel, les jours en jours **calendaires** : un
+ * brouillon d'avant-hier soir reste « il y a 2 jours » quelle que soit l'heure qu'il
+ * est, ce qui correspond à la façon dont on se repère.
  */
 export function formatDraftAge(updatedAt: string | null | undefined, now: Date = new Date()): string | null {
   if (!updatedAt) return null;
   const then = new Date(updatedAt);
   if (Number.isNaN(then.getTime())) return null;
 
+  const elapsedMs = now.getTime() - then.getTime();
+  // Date future (horloge décalée) : rien à annoncer.
+  if (elapsedMs < 0) return null;
+
   const startOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const days = Math.floor((startOf(now) - startOf(then)) / 86_400_000);
 
-  // Un brouillon daté du futur (horloge décalée) n'est pas ancien : on n'affiche rien.
-  if (days < DRAFT_AGE_THRESHOLD_DAYS) return null;
-  return `il y a ${days} jours`;
+  // Même journée : on descend aux heures, puis aux minutes.
+  if (days === 0) {
+    const hours = Math.floor(elapsedMs / 3_600_000);
+    if (hours >= 1) return `il y a ${hours} h`;
+    const minutes = Math.floor(elapsedMs / 60_000);
+    if (minutes >= 1) return `il y a ${minutes} min`;
+    return "à l'instant";
+  }
+
+  return days === 1 ? 'il y a 1 jour' : `il y a ${days} jours`;
 }

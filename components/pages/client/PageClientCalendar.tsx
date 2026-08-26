@@ -1,5 +1,6 @@
 'use client';
 import InlineLoader from '@/components/ui/InlineLoader';
+import { mutate } from '@/lib/mutate';
 
 import { useState, useMemo } from 'react';
 import Icon from '@/components/ui/Icon';
@@ -51,12 +52,15 @@ export default function PageClientCalendar() {
 
   async function handleDecline(callId: string, proposed: string) {
     setRespondingId(callId);
-    await fetch(`/api/calls/${callId}/respond`, {
+    // Symetrique de handleAccept juste au-dessus, qui verifie deja res.ok :
+    // sans cela un refus pouvait s'afficher sans avoir ete enregistre.
+    const ok = await mutate(`/api/calls/${callId}/respond`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ response: 'declined', proposedAt: proposed || undefined }),
+      erreur: "Ta réponse n'a pas pu être envoyée.",
     });
-    setCallOverrides(prev => ({ ...prev, [callId]: { status: 'declined' } }));
+    if (ok) setCallOverrides(prev => ({ ...prev, [callId]: { status: 'declined' } }));
     setRespondingId(null);
     setDeclineModal(null);
     setProposedAt('');
