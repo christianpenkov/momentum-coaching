@@ -4872,10 +4872,36 @@ export default function PageLiens() {
               borderRadius: 8, cursor: 'pointer', border: 'none', position: 'relative', flexShrink: 0,
               background: INK, color: '#fff', transition: `all var(--dur-quick) var(--ease-out)`,
             }}>
-              {/* Aimant, pas un fichier : un lead magnet attire un prospect, il ne
-                  se range pas dans un dossier. Dessiné au trait comme les boutons
-                  voisins — l'emoji coloré jurerait sur ce fond d'encre. */}
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 15-4-4 6.75-6.77a7.79 7.79 0 0 1 11 11L13 22l-4-4 6.39-6.36a2.14 2.14 0 0 0-3-3L6 15"/><path d="m5 8 4 4"/><path d="m12 15 4 4"/></svg>
+              {/* Aimant qui attire une personne, pas un fichier : un lead magnet
+                  attire un prospect, il ne se range pas dans un dossier. L'aimant
+                  seul restait abstrait — c'est la silhouette attirée qui dit ce
+                  que la mécanique produit.
+
+                  Glyphe plein plutôt qu'au trait, exceptionnellement : à cette
+                  taille, un fer à cheval évidé plus une silhouette évidée se
+                  confondent en un enchevêtrement de lignes. Le plein tient.
+
+                  Le U s'ouvre vers le haut à droite, pôles tournés vers la
+                  personne : l'orientation porte le sens, un aimant posé à plat
+                  n'attire rien. 16px et non 15 comme ses voisines au trait — ce
+                  dessin porte deux formes au lieu d'une, il lui faut le pixel. */}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                {/* Fer à cheval : corps en U, puis les deux pôles détachés par un
+                    vrai vide géométrique — un trait de fond ne suivrait pas le
+                    thème. */}
+                <g transform="translate(0.6,8.8) scale(0.55) rotate(45 12 13.5)">
+                  <path d="M3 8 L3 14 A9 9 0 0 0 21 14 L21 8 L16.5 8 L16.5 14 A4.5 4.5 0 0 1 7.5 14 L7.5 8 Z"/>
+                  <path d="M3 4 h4.5 v3 h-4.5 z"/>
+                  <path d="M16.5 4 h4.5 v3 h-4.5 z"/>
+                </g>
+                <circle cx="18.5" cy="4.3" r="2.9"/>
+                <path d="M14.3 13.6a4.2 4.2 0 0 1 8.4 0 v1.1 a0.9 0.9 0 0 1-0.9 0.9 h-6.6 a0.9 0.9 0 0 1-0.9-0.9 z"/>
+                {/* Deux traits d'attraction seulement : quatre se collent à 16px. */}
+                <g stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" fill="none">
+                  <path d="M8.4 8.6 11.2 5.8"/>
+                  <path d="M12.6 12.4 15.4 9.6"/>
+                </g>
+              </svg>
               <span className="liens-btn-label">Lead magnet</span>
               {leadMagnets.length > 0 && <span style={{ position: 'absolute', top: -6, right: -6, fontSize: 10, fontWeight: 700, background: SURFACE2, color: MUTED, borderRadius: 10, padding: '1px 5px', minWidth: 16, textAlign: 'center', border: '2px solid var(--surface)' }}>{leadMagnets.length}</span>}
             </button>
