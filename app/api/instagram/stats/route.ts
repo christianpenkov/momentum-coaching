@@ -47,7 +47,21 @@ export async function GET(request: Request) {
   // impossible plutot que de compter sur la vigilance.
   const MAX_JOURS_BREAKDOWN = 366;
 
-  const JOURS_FENETRE = Math.min(30, MAX_JOURS_BREAKDOWN);
+  // Fenetre demandee par l'appelant. 30 jours par defaut — c'etait la seule
+  // valeur possible avant le 2026-08-26, et les trois autres appelants de cette
+  // route ne passent pas le parametre, donc leur comportement ne change pas.
+  //
+  // L'ecran Mes Stats passe 365 en mode All-Time : la ventilation abonnes /
+  // non-abonnes n'existe que sur ~12 mois glissants, alors que le reach total
+  // remonte a 2 ans. Au-dela, Meta totalise toute la fenetre mais ne ventile que
+  // la partie recente, SANS erreur — 93 % d'ecart mesure a 729 jours.
+  //
+  // Le clamp n'est donc pas defensif au sens habituel : il empeche d'afficher un
+  // pourcentage faux. Voir docs/instagram-reach-follow-type.md.
+  const fenetreDemandee = Number(searchParams.get('fenetre'));
+  const JOURS_FENETRE = Number.isFinite(fenetreDemandee) && fenetreDemandee > 0
+    ? Math.min(Math.floor(fenetreDemandee), MAX_JOURS_BREAKDOWN)
+    : 30;
   const since = Math.floor((Date.now() - JOURS_FENETRE * 24 * 60 * 60 * 1000) / 1000);
   const until = Math.floor(Date.now() / 1000);
   // online_followers : fenêtre J-33→J-3 pour éviter les 48h de délai Meta (objets {} vides)
@@ -354,6 +368,11 @@ export async function GET(request: Request) {
     reach30d,
     reach28dDedupFollowers,
     reach28dDedupNonFollowers,
+    // Fenetre reellement utilisee, en jours. L'ecran l'affiche en badge sur les
+    // deux cartes de portee : elle peut differer de ce qui a ete demande (clamp a
+    // 366 jours), et le badge doit dire ce qui a ete mesure, pas ce qui a ete
+    // souhaite.
+    fenetreJours: JOURS_FENETRE,
     accountsEngaged30d,
     totalInteractions30d,
     followsUnfollows30d,

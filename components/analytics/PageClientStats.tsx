@@ -51,6 +51,8 @@ interface IGStats {
   username: string; name: string; profilePicture: string | null;
   followers: number; following: number; mediaCount: number; biography: string;
   reach30d: number; reach28dDedupFollowers?: number | null; reach28dDedupNonFollowers?: number | null; accountsEngaged30d: number; totalInteractions30d: number;
+  /** Fenetre reellement interrogee pour les deux cartes de portee, en jours (30 ou 365). */
+  fenetreJours?: number;
   followsUnfollows30d: number; profileLinksTaps30d: number; websiteClicks30d: number;
   views30d: number;
   viewsFollowerBreakdown: { follower: number; nonFollower: number } | null;
@@ -1282,6 +1284,17 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
   // que le bandeau annonce « All-Time » et que les graphiques couvrent toute la periode
   // depuis la connexion — meme defaut que celui corrige cote YouTube le 2026-08-21.
   const igEtiquettePeriode = sinceConnection ? 'total' : `${period}j`;
+
+  // Fenetre des deux cartes de portee (abonnes touches / part de non-abonnes).
+  // Elle est FIXE et ne suit pas la navigation par periodes : 30 jours en temps
+  // normal, 12 mois en All-Time. Lue depuis la reponse de l'API et non deduite
+  // cote ecran, pour que le badge affiche ce qui a ete mesure et non ce qui a ete
+  // demande (la route plafonne a 366 jours).
+  const fenetrePorteeJours = ig.fenetreJours ?? 30;
+  const etiquetteFenetrePortee = fenetrePorteeJours >= 360 ? '12 mois' : `${fenetrePorteeJours} j`;
+  const libelleFenetrePortee = fenetrePorteeJours >= 360
+    ? 'les 12 derniers mois'
+    : `les ${fenetrePorteeJours} derniers jours`;
   const igDaysSlice = sinceConnection ? ig.chartData : ig.chartData.filter(d => {
     const t = new Date(d.date + 'T12:00:00Z').getTime();
     return t >= igPeriodStart.getTime() && t <= igPeriodEnd.getTime();
@@ -1517,13 +1530,13 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
           // (9 % sur 7j, 43 % sur 28j, 65 % sur 365j sur le compte de test), car on
           // accumule des personnes distinctes. Une fenetre fixe est donc le choix le
           // plus lisible ici.
-          { label: 'Abonnés touchés', value: reachRate !== null ? fmtPct(reachRate) : 'N/D', sub: reachRate !== null ? `sur tes ${fmt(ig.followers)} abonnés` : 'seuil Meta non atteint', badge: '30 j', color: reachRate !== null ? 'var(--ink)' : 'var(--faint)', tooltip: `Sur les 30 derniers jours, ${reachRate !== null ? fmtPct(reachRate) : '—'} de tes abonnés ont vu au moins un de tes contenus.\n\nChaque abonné est compté UNE SEULE FOIS, même s'il a vu dix posts : c'est un nombre de personnes, pas de vues. Le total ne peut donc jamais dépasser 100 %.\n\nCette carte garde toujours une fenêtre de 30 jours, elle ne suit pas la période sélectionnée en haut. C'est volontaire : le chiffre monte mécaniquement avec la durée (9 % sur 7 jours, 43 % sur 30, 65 % sur un an) puisqu'on accumule des personnes différentes. Deux durées ne seraient donc pas comparables entre elles.` },
+          { label: 'Abonnés touchés', value: reachRate !== null ? fmtPct(reachRate) : 'N/D', sub: reachRate !== null ? `sur tes ${fmt(ig.followers)} abonnés` : 'seuil Meta non atteint', badge: etiquetteFenetrePortee, color: reachRate !== null ? 'var(--ink)' : 'var(--faint)', tooltip: `Sur ${libelleFenetrePortee}, ${reachRate !== null ? fmtPct(reachRate) : '—'} de tes abonnés ont vu au moins un de tes contenus.\n\nChaque abonné est compté UNE SEULE FOIS, même s'il a vu dix posts : c'est un nombre de personnes, pas de vues. Le total ne peut donc jamais dépasser 100 %.\n\nCette carte a sa propre fenêtre et ne suit pas la période sélectionnée en haut, parce que le chiffre monte mécaniquement avec la durée (9 % sur 7 jours, 43 % sur 30, 65 % sur un an) : on accumule des personnes différentes, donc deux durées ne sont pas comparables.${sinceConnection ? '\n\nEn « Depuis la connexion », la fenêtre est plafonnée à 12 mois : Instagram ne fournit pas cette répartition au-delà.' : ''}` },
           // Libelle et tooltip disaient « vues » alors que le calcul porte sur le
           // REACH (comptes uniques), choix delibere documente ligne ~1315. L'ecart
           // n'est pas cosmetique : mesure le 2026-08-26 sur le compte de test,
           // 53 % sur les vues contre 9,9 % sur le reach. Un utilisateur qui
           // recoupait avec Instagram trouvait 53 % et croyait la plateforme fausse.
-          { label: 'Part de non-abonnés', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'dans ta portée' : 'seuil Meta non atteint', badge: '30 j', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', tooltip: `Sur les 30 derniers jours, ${viralPct !== null ? fmtPct(viralPct) : '—'} des comptes qui t'ont vu ne te suivaient pas encore.\n\nComme pour la carte voisine, chaque compte est compté UNE SEULE FOIS. Plus ce chiffre est élevé, plus tes contenus sortent de ton audience actuelle et touchent de nouvelles personnes.\n\nAttention, les deux cartes n'ont pas le même dénominateur : celle-ci se rapporte à ta portée totale, la voisine à ton nombre d'abonnés. Elles ne s'additionnent donc pas à 100 %.` },
+          { label: 'Part de non-abonnés', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'dans ta portée' : 'seuil Meta non atteint', badge: etiquetteFenetrePortee, color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', tooltip: `Sur ${libelleFenetrePortee}, ${viralPct !== null ? fmtPct(viralPct) : '—'} des comptes qui t'ont vu ne te suivaient pas encore.\n\nComme pour la carte voisine, chaque compte est compté UNE SEULE FOIS. Plus ce chiffre est élevé, plus tes contenus sortent de ton audience actuelle et touchent de nouvelles personnes.\n\nAttention, les deux cartes n'ont pas le même dénominateur : celle-ci se rapporte à ta portée totale, la voisine à ton nombre d'abonnés. Elles ne s'additionnent donc pas à 100 %.${sinceConnection ? '\n\nEn « Depuis la connexion », la fenêtre est plafonnée à 12 mois : Instagram ne fournit pas cette répartition au-delà.' : ''}` },
         ].map(s => (
           <div key={s.label}
             onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined}
@@ -7811,9 +7824,23 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   const linkClickedByLeadId: Map<string, string> = supaData?.linkClickedByLeadId ?? new Map();
 
   // Instagram — onglets 0, 1, 3
+  // En All-Time, les deux cartes de portee (abonnes touches / part de non-abonnes)
+  // passent a 12 mois au lieu de 30 jours. C'est le maximum exploitable : la
+  // ventilation abonnes/non-abonnes n'existe que sur ~12 mois glissants, alors que
+  // le reach total remonte a 2 ans. Au-dela, Meta totalise toute la fenetre mais ne
+  // ventile que la partie recente, sans erreur (docs/instagram-reach-follow-type.md).
+  //
+  // Un vrai « depuis toujours » est hors d'atteinte : la deduplication ne
+  // s'additionne pas d'une periode a l'autre (3 mois cumules donnaient 272 abonnes
+  // contre 124 en realite), donc on ne peut ni assembler l'historique stocke ni
+  // interroger au-dela d'un an. 12 mois est la reponse honnete.
+  const fenetreIg = sinceConnection ? 365 : 30;
   const { data: igRaw, isLoading: igLoading, refetch: refetchIg } = useQuery<IGStats | null>({
-    queryKey: ['stats-ig', profileId],
-    queryFn: () => fetchApi(`/api/instagram/stats${q}`),
+    // fenetreIg dans la cle : sans elle, React Query resservirait le cache 30 jours
+    // au passage en All-Time et le badge afficherait « 12 mois » sur des chiffres
+    // de 30 jours.
+    queryKey: ['stats-ig', profileId, fenetreIg],
+    queryFn: () => fetchApi(`/api/instagram/stats${q}${q ? '&' : '?'}fenetre=${fenetreIg}`),
     enabled: [0, 1, 3].includes(tab),
     staleTime: 5 * 60 * 1000,
   });
