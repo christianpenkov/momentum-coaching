@@ -8,7 +8,6 @@ import ClientMoreSheet from '@/components/layout/ClientMoreSheet';
 import PageTransition from '@/components/layout/PageTransition';
 import SplashHold from '@/components/ui/SplashHold';
 import OfflineBanner from '@/components/ui/OfflineBanner';
-import PullToRefresh from '@/components/ui/PullToRefresh';
 import { UserProvider, useUser } from '@/lib/UserContext';
 import { ClientSelfProvider, useClientSelf } from '@/lib/ClientSelfContext';
 import { GlobalPresenceClientProvider } from '@/lib/GlobalPresenceContext';
@@ -28,7 +27,7 @@ function ClientLayoutInner({ children, shellRef, navRef }: {
   // Les donnees de la page, pas seulement la session : sans ca l'ecran de
   // lancement partait des la session resolue et laissait apparaitre le loader
   // de la page pendant que ses donnees chargeaient encore.
-  const { loading: dataLoading, refetch } = useClientSelf();
+  const { loading: dataLoading } = useClientSelf();
   usePushNotifications(user?.id ?? null);
   const [moreOpen, setMoreOpen] = useState(false);
   return (
@@ -49,9 +48,10 @@ function ClientLayoutInner({ children, shellRef, navRef }: {
         <div className="app-body-pwa">
           <SidebarClient />
           <main className="main-content">
-            {/* Geste attendu par reflexe sur mobile : la seule facon de recharger
-                etait de fermer et rouvrir l'app. */}
-            <PullToRefresh onRefresh={refetch} />
+            {/* Pas de pull-to-refresh : le geste interceptait le touchmove et
+                bloquait le retour vers le haut dans les zones qui defilent
+                (messagerie, pipeline). Les boutons Rafraichir des ecrans
+                couvrent le besoin. */}
             <PageTransition>{children}</PageTransition>
           </main>
         </div>

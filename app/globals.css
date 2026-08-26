@@ -128,10 +128,14 @@ html, body { margin: 0; padding: 0; }
   input, textarea, select { font-size: 16px !important; }
 }
 
-/* PWA standalone — supprime le rebond élastique overscroll */
-@media (display-mode: standalone) {
-  html, body { overscroll-behavior: none; }
-}
+/* Supprime le rebond élastique ET le pull-to-refresh natif du navigateur.
+   Volontairement hors de `@media (display-mode: standalone)` : en onglet
+   Chrome Android le geste rechargeait la page, et l'app n'a aucun geste de
+   rafraîchissement (les écrans ont leurs boutons Rafraîchir). */
+html, body { overscroll-behavior: none; }
+/* `none` et pas `contain` sur les zones qui défilent : `contain` laisse encore
+   remonter le geste jusqu'au navigateur sur certaines versions d'Android. */
+.main-content, .app-shell-pwa, .app-body-pwa { overscroll-behavior-y: none; }
 
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
