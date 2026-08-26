@@ -1406,6 +1406,27 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
     'Reach': { data: igDays.map(d => ({ date: d.date, v: igDaysNoDataSet.has(d.date) ? (null as any) : d.reach })), color: 'var(--accent-brand)' },
     'Abonnés': { data: igDays.map(d => ({ date: d.date, v: igDaysNoDataSet.has(d.date) ? (null as any) : (d.followerCount ?? 0) })), color: IG_COLOR },
     'Interactions posts': { data: interactionsByDay, color: GREEN },
+    // Detail jour par jour des deux cartes de portee.
+    //
+    // ⚠️ Ces courbes ne se somment PAS au chiffre de la carte, et c'est normal : la
+    // carte est dediupliquee sur toute sa fenetre (une personne comptee une fois),
+    // la courbe montre chaque journee separement (la meme personne compte a nouveau
+    // si elle revient le lendemain). Sur 28 jours, 121 comptes uniques contre 143
+    // en cumul journalier — mesure du 2026-08-26.
+    //
+    // On montre donc des effectifs, jamais un pourcentage journalier : un taux
+    // quotidien serait en contradiction visible avec l'en-tete de la carte.
+    //
+    // null et non 0 avant le 2026-08-22 : la ventilation n'etait pas collectee, la
+    // courbe doit faire un trou plutot qu'affirmer « personne ».
+    'Abonnés touchés': { data: igDays.map(d => ({
+      date: d.date,
+      v: igDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).reachFollower ?? null),
+    })), color: 'var(--accent-brand)' },
+    'Part de non-abonnés': { data: igDays.map(d => ({
+      date: d.date,
+      v: igDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).reachNonFollower ?? null),
+    })), color: GREEN },
     // Serie de la nouvelle carte. « Abonnés nets » garde la sienne : elle alimente
     // desormais la modale ouverte depuis le BADGE de la carte Abonnés.
     'Vues du profil': { data: igDays.map(d => ({
@@ -1530,13 +1551,13 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
           // (9 % sur 7j, 43 % sur 28j, 65 % sur 365j sur le compte de test), car on
           // accumule des personnes distinctes. Une fenetre fixe est donc le choix le
           // plus lisible ici.
-          { label: 'Abonnés touchés', value: reachRate !== null ? fmtPct(reachRate) : 'N/D', sub: reachRate !== null ? `sur tes ${fmt(ig.followers)} abonnés` : 'seuil Meta non atteint', badge: etiquetteFenetrePortee, color: reachRate !== null ? 'var(--ink)' : 'var(--faint)', tooltip: `Sur ${libelleFenetrePortee}, ${reachRate !== null ? fmtPct(reachRate) : '—'} de tes abonnés ont vu au moins un de tes contenus.\n\nChaque abonné est compté UNE SEULE FOIS, même s'il a vu dix posts : c'est un nombre de personnes, pas de vues. Le total ne peut donc jamais dépasser 100 %.\n\nCette carte a sa propre fenêtre et ne suit pas la période sélectionnée en haut, parce que le chiffre monte mécaniquement avec la durée (9 % sur 7 jours, 43 % sur 30, 65 % sur un an) : on accumule des personnes différentes, donc deux durées ne sont pas comparables.${sinceConnection ? '\n\nEn « Depuis la connexion », la fenêtre est plafonnée à 12 mois : Instagram ne fournit pas cette répartition au-delà.' : ''}` },
+          { label: 'Abonnés touchés', key: 'Abonnés touchés', value: reachRate !== null ? fmtPct(reachRate) : 'N/D', sub: reachRate !== null ? `sur tes ${fmt(ig.followers)} abonnés` : 'seuil Meta non atteint', badge: etiquetteFenetrePortee, color: reachRate !== null ? 'var(--ink)' : 'var(--faint)', tooltip: `Sur ${libelleFenetrePortee}, ${reachRate !== null ? fmtPct(reachRate) : '—'} de tes abonnés ont vu au moins un de tes contenus.\n\nChaque abonné est compté UNE SEULE FOIS, même s'il a vu dix posts : c'est un nombre de personnes, pas de vues. Le total ne peut donc jamais dépasser 100 %.\n\nCette carte a sa propre fenêtre et ne suit pas la période sélectionnée en haut, parce que le chiffre monte mécaniquement avec la durée (9 % sur 7 jours, 43 % sur 30, 65 % sur un an) : on accumule des personnes différentes, donc deux durées ne sont pas comparables.${sinceConnection ? '\n\nEn « Depuis la connexion », la fenêtre est plafonnée à 12 mois : Instagram ne fournit pas cette répartition au-delà.' : ''}` },
           // Libelle et tooltip disaient « vues » alors que le calcul porte sur le
           // REACH (comptes uniques), choix delibere documente ligne ~1315. L'ecart
           // n'est pas cosmetique : mesure le 2026-08-26 sur le compte de test,
           // 53 % sur les vues contre 9,9 % sur le reach. Un utilisateur qui
           // recoupait avec Instagram trouvait 53 % et croyait la plateforme fausse.
-          { label: 'Part de non-abonnés', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'dans ta portée' : 'seuil Meta non atteint', badge: etiquetteFenetrePortee, color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', tooltip: `Sur ${libelleFenetrePortee}, ${viralPct !== null ? fmtPct(viralPct) : '—'} des comptes qui t'ont vu ne te suivaient pas encore.\n\nComme pour la carte voisine, chaque compte est compté UNE SEULE FOIS. Plus ce chiffre est élevé, plus tes contenus sortent de ton audience actuelle et touchent de nouvelles personnes.\n\nAttention, les deux cartes n'ont pas le même dénominateur : celle-ci se rapporte à ta portée totale, la voisine à ton nombre d'abonnés. Elles ne s'additionnent donc pas à 100 %.${sinceConnection ? '\n\nEn « Depuis la connexion », la fenêtre est plafonnée à 12 mois : Instagram ne fournit pas cette répartition au-delà.' : ''}` },
+          { label: 'Part de non-abonnés', key: 'Part de non-abonnés', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'dans ta portée' : 'seuil Meta non atteint', badge: etiquetteFenetrePortee, color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', tooltip: `Sur ${libelleFenetrePortee}, ${viralPct !== null ? fmtPct(viralPct) : '—'} des comptes qui t'ont vu ne te suivaient pas encore.\n\nComme pour la carte voisine, chaque compte est compté UNE SEULE FOIS. Plus ce chiffre est élevé, plus tes contenus sortent de ton audience actuelle et touchent de nouvelles personnes.\n\nAttention, les deux cartes n'ont pas le même dénominateur : celle-ci se rapporte à ta portée totale, la voisine à ton nombre d'abonnés. Elles ne s'additionnent donc pas à 100 %.${sinceConnection ? '\n\nEn « Depuis la connexion », la fenêtre est plafonnée à 12 mois : Instagram ne fournit pas cette répartition au-delà.' : ''}` },
         ].map(s => (
           <div key={s.label}
             onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined}
