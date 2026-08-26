@@ -264,6 +264,11 @@ async function fetchIgDayMetrics(token: string, igAccountId: string, date: strin
     return null;
   };
 
+  // Reach total du jour, calcule ici pour servir de garde a l'inference du zero
+  // plus bas (meme expression que la colonne ig_reach elle-meme).
+  const reachTotalJour: number | null =
+    insightMap['reach'] !== undefined ? sum(insightMap['reach']) : null;
+
   let reachFollower: number | null = null;
   let reachNonFollower: number | null = null;
   for (const m of (reachBdData?.data || [])) {
@@ -343,8 +348,18 @@ async function fetchIgDayMetrics(token: string, igAccountId: string, date: strin
     ig_profile_views:      tvMap['profile_views'] ?? null,
     ig_accounts_engaged:   (engagedData?.data || []).some((m: any) => m.name === 'accounts_engaged') ? accountsEngagedTotal : null,
     ig_total_interactions: (engagedData?.data || []).some((m: any) => m.name === 'total_interactions') ? totalInteractionsTotal : null,
-    ig_reach_follower:     reachFollower,
-    ig_reach_non_follower: reachNonFollower,
+    // Un reach de 0 se ventile forcement en 0 + 0. Meta ne renvoie AUCUNE ligne de
+    // breakdown dans ce cas (« empty data set instead of 0 »), si bien que les deux
+    // colonnes restaient null — « on ne sait pas » — alors que la valeur est
+    // certaine. Sur l'ecran, les courbes journalieres faisaient un trou a chaque
+    // journee sans audience au lieu de descendre a zero (constate par Chris le
+    // 2026-08-26).
+    //
+    // L'inference ne porte QUE sur le cas arithmetiquement sur : reach connu et nul.
+    // Un reach > 0 sans ventilation reste null, c'est un vrai trou que le rattrapage
+    // ira combler.
+    ig_reach_follower:     reachFollower ?? (reachTotalJour === 0 ? 0 : null),
+    ig_reach_non_follower: reachNonFollower ?? (reachTotalJour === 0 ? 0 : null),
     ig_response_rate:      null,
   };
 }
