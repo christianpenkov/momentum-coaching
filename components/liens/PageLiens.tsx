@@ -4885,21 +4885,18 @@ export default function PageLiens() {
                   personne : l'orientation porte le sens, un aimant posé à plat
                   n'attire rien. 16px et non 15 comme ses voisines au trait — ce
                   dessin porte deux formes au lieu d'une, il lui faut le pixel. */}
+              {/* Un aimant, rien d'autre : ni silhouette attirée ni éclairs. Tout
+                  ce qu'on ajoute autour se dispute la place avec la forme qui
+                  porte le sens, et à 16px c'est elle qui perd.
+                  Corps épais et pôles détachés par un vrai vide géométrique — un
+                  trait de la couleur du fond ne suivrait pas le thème. Diagonale
+                  ouverte vers le haut à droite : l'aimant est plein cadre, donc
+                  l'inclinaison ne lui coûte plus sa lisibilité. */}
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                {/* Fer à cheval : corps en U, puis les deux pôles détachés par un
-                    vrai vide géométrique — un trait de fond ne suivrait pas le
-                    thème. */}
-                <g transform="translate(0.6,8.8) scale(0.55) rotate(45 12 13.5)">
-                  <path d="M3 8 L3 14 A9 9 0 0 0 21 14 L21 8 L16.5 8 L16.5 14 A4.5 4.5 0 0 1 7.5 14 L7.5 8 Z"/>
-                  <path d="M3 4 h4.5 v3 h-4.5 z"/>
-                  <path d="M16.5 4 h4.5 v3 h-4.5 z"/>
-                </g>
-                <circle cx="18.5" cy="4.3" r="2.9"/>
-                <path d="M14.3 13.6a4.2 4.2 0 0 1 8.4 0 v1.1 a0.9 0.9 0 0 1-0.9 0.9 h-6.6 a0.9 0.9 0 0 1-0.9-0.9 z"/>
-                {/* Deux traits d'attraction seulement : quatre se collent à 16px. */}
-                <g stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" fill="none">
-                  <path d="M8.4 8.6 11.2 5.8"/>
-                  <path d="M12.6 12.4 15.4 9.6"/>
+                <g transform="rotate(45 12 12)">
+                  <path d="M4 8 L4 12.6 A8 8 0 0 0 20 12.6 L20 8 L15.4 8 L15.4 12.6 A3.4 3.4 0 0 1 8.6 12.6 L8.6 8 Z"/>
+                  <path d="M4 3.6 h4.6 v3.6 h-4.6 z"/>
+                  <path d="M15.4 3.6 h4.6 v3.6 h-4.6 z"/>
                 </g>
               </svg>
               <span className="liens-btn-label">Lead magnet</span>
