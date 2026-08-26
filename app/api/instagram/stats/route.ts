@@ -62,8 +62,34 @@ export async function GET(request: Request) {
   const JOURS_FENETRE = Number.isFinite(fenetreDemandee) && fenetreDemandee > 0
     ? Math.min(Math.floor(fenetreDemandee), MAX_JOURS_BREAKDOWN)
     : 30;
-  const since = Math.floor((Date.now() - JOURS_FENETRE * 24 * 60 * 60 * 1000) / 1000);
-  const until = Math.floor(Date.now() / 1000);
+
+  // Bornes explicites (`?debut=&fin=` en AAAA-MM-JJ) — ajoutees le 2026-08-26 pour
+  // que les cartes de portee suivent la periode choisie a l'ecran, y compris une
+  // periode PASSEE (« M−2 », « la semaine d'il y a 6 semaines »).
+  //
+  // `fenetre` seul ne pouvait exprimer qu'une fenetre glissante finissant
+  // aujourd'hui : impossible de demander « aout 2026 » une fois septembre commence.
+  //
+  // Le plafond de 366 jours s'applique aussi ici, et la fin est bornee a maintenant
+  // (Meta n'a rien a dire du futur).
+  const debutParam = searchParams.get('debut');
+  const finParam = searchParams.get('fin');
+  const bornesValides = (s: string | null) => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
+
+  let since: number, until: number;
+  if (bornesValides(debutParam) && bornesValides(finParam)) {
+    const d = Math.floor(new Date(`${debutParam}T00:00:00Z`).getTime() / 1000);
+    const f = Math.min(
+      Math.floor(new Date(`${finParam}T23:59:59Z`).getTime() / 1000),
+      Math.floor(Date.now() / 1000),
+    );
+    const maxSecondes = MAX_JOURS_BREAKDOWN * 24 * 60 * 60;
+    since = Math.max(d, f - maxSecondes);
+    until = f > since ? f : since + 24 * 60 * 60;
+  } else {
+    since = Math.floor((Date.now() - JOURS_FENETRE * 24 * 60 * 60 * 1000) / 1000);
+    until = Math.floor(Date.now() / 1000);
+  }
   // online_followers : fenêtre J-33→J-3 pour éviter les 48h de délai Meta (objets {} vides)
   const ofUntil = Math.floor((Date.now() - 3 * 24 * 60 * 60 * 1000) / 1000);
   const ofSince = Math.floor((Date.now() - 33 * 24 * 60 * 60 * 1000) / 1000);
@@ -368,11 +394,9 @@ export async function GET(request: Request) {
     reach30d,
     reach28dDedupFollowers,
     reach28dDedupNonFollowers,
-    // Fenetre reellement utilisee, en jours. L'ecran l'affiche en badge sur les
-    // deux cartes de portee : elle peut differer de ce qui a ete demande (clamp a
-    // 366 jours), et le badge doit dire ce qui a ete mesure, pas ce qui a ete
-    // souhaite.
-    fenetreJours: JOURS_FENETRE,
+    // Fenetre reellement mesuree, calculee depuis les bornes envoyees a Meta et non
+    // depuis ce qui a ete demande : le plafond de 366 jours peut l'avoir reduite.
+    fenetreJours: Math.max(1, Math.round((until - since) / 86400)),
     accountsEngaged30d,
     totalInteractions30d,
     followsUnfollows30d,

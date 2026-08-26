@@ -1291,7 +1291,6 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
   // cote ecran, pour que le badge affiche ce qui a ete mesure et non ce qui a ete
   // demande (la route plafonne a 366 jours).
   const fenetrePorteeJours = ig.fenetreJours ?? 30;
-  const etiquetteFenetrePortee = fenetrePorteeJours >= 360 ? '12 mois' : `${fenetrePorteeJours} j`;
   const libelleFenetrePortee = fenetrePorteeJours >= 360
     ? 'les 12 derniers mois'
     : `les ${fenetrePorteeJours} derniers jours`;
@@ -1423,7 +1422,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
       date: d.date,
       v: igDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).reachFollower ?? null),
     })), color: 'var(--accent-brand)' },
-    'Part de non-abonnés': { data: igDays.map(d => ({
+    'Non-abonnés touchés': { data: igDays.map(d => ({
       date: d.date,
       v: igDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).reachNonFollower ?? null),
     })), color: GREEN },
@@ -1551,13 +1550,13 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
           // (9 % sur 7j, 43 % sur 28j, 65 % sur 365j sur le compte de test), car on
           // accumule des personnes distinctes. Une fenetre fixe est donc le choix le
           // plus lisible ici.
-          { label: 'Abonnés touchés', key: 'Abonnés touchés', value: reachRate !== null ? fmtPct(reachRate) : 'N/D', sub: reachRate !== null ? `sur tes ${fmt(ig.followers)} abonnés` : 'seuil Meta non atteint', badge: etiquetteFenetrePortee, color: reachRate !== null ? 'var(--ink)' : 'var(--faint)', tooltip: `Sur ${libelleFenetrePortee}, ${reachRate !== null ? fmtPct(reachRate) : '—'} de tes abonnés ont vu au moins un de tes contenus.\n\nChaque abonné est compté UNE SEULE FOIS, même s'il a vu dix posts : c'est un nombre de personnes, pas de vues. Le total ne peut donc jamais dépasser 100 %.\n\nCette carte a sa propre fenêtre et ne suit pas la période sélectionnée en haut, parce que le chiffre monte mécaniquement avec la durée (9 % sur 7 jours, 43 % sur 30, 65 % sur un an) : on accumule des personnes différentes, donc deux durées ne sont pas comparables.${sinceConnection ? '\n\nEn « Depuis la connexion », la fenêtre est plafonnée à 12 mois : Instagram ne fournit pas cette répartition au-delà.' : ''}` },
+          { label: 'Abonnés touchés', key: 'Abonnés touchés', value: reachRate !== null ? fmtPct(reachRate) : 'N/D', sub: reachRate !== null ? `sur tes ${fmt(ig.followers)} abonnés` : 'seuil Meta non atteint', color: reachRate !== null ? 'var(--ink)' : 'var(--faint)', tooltip: `Sur ${libelleFenetrePortee}, ${reachRate !== null ? fmtPct(reachRate) : '—'} de tes abonnés ont vu au moins un de tes contenus.\n\nChaque abonné est compté UNE SEULE FOIS, même s'il a vu dix posts : c'est un nombre de personnes, pas de vues. Le total ne peut donc jamais dépasser 100 %.\n\nÀ retenir en changeant de période : ce taux monte mécaniquement avec la durée (9 % sur 7 jours, 43 % sur 30, 65 % sur un an), parce qu'on accumule des personnes différentes. Une semaine et un mois ne se comparent donc pas directement.${sinceConnection ? '\n\nEn « Depuis la connexion », la fenêtre est plafonnée à 12 mois : Instagram ne fournit pas cette répartition au-delà.' : ''}` },
           // Libelle et tooltip disaient « vues » alors que le calcul porte sur le
           // REACH (comptes uniques), choix delibere documente ligne ~1315. L'ecart
           // n'est pas cosmetique : mesure le 2026-08-26 sur le compte de test,
           // 53 % sur les vues contre 9,9 % sur le reach. Un utilisateur qui
           // recoupait avec Instagram trouvait 53 % et croyait la plateforme fausse.
-          { label: 'Part de non-abonnés', key: 'Part de non-abonnés', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'dans ta portée' : 'seuil Meta non atteint', badge: etiquetteFenetrePortee, color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', tooltip: `Sur ${libelleFenetrePortee}, ${viralPct !== null ? fmtPct(viralPct) : '—'} des comptes qui t'ont vu ne te suivaient pas encore.\n\nComme pour la carte voisine, chaque compte est compté UNE SEULE FOIS. Plus ce chiffre est élevé, plus tes contenus sortent de ton audience actuelle et touchent de nouvelles personnes.\n\nAttention, les deux cartes n'ont pas le même dénominateur : celle-ci se rapporte à ta portée totale, la voisine à ton nombre d'abonnés. Elles ne s'additionnent donc pas à 100 %.${sinceConnection ? '\n\nEn « Depuis la connexion », la fenêtre est plafonnée à 12 mois : Instagram ne fournit pas cette répartition au-delà.' : ''}` },
+          { label: 'Non-abonnés touchés', key: 'Non-abonnés touchés', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'sur ton reach total' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', tooltip: `Sur ${libelleFenetrePortee}, ${viralPct !== null ? fmtPct(viralPct) : '—'} des comptes qui t'ont vu ne te suivaient pas encore.\n\nComme pour la carte voisine, chaque compte est compté UNE SEULE FOIS. Plus ce chiffre est élevé, plus tes contenus sortent de ton audience actuelle et touchent de nouvelles personnes.\n\nAttention, les deux cartes n'ont pas le même dénominateur : celle-ci se rapporte à ta portée totale, la voisine à ton nombre d'abonnés. Elles ne s'additionnent donc pas à 100 %.${sinceConnection ? '\n\nEn « Depuis la connexion », la fenêtre est plafonnée à 12 mois : Instagram ne fournit pas cette répartition au-delà.' : ''}` },
         ].map(s => (
           <div key={s.label}
             onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined}
@@ -1583,7 +1582,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
         ))}
       </div>
 
-      <HistoriquePortee profileId={profileId} />
+      <HistoriquePortee profileId={profileId} granularite={period === 7 ? 'semaine' : 'mois'} />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
         <Card title="Reach par jour" sub={`${sinceConnection ? 'Depuis la connexion' : period + ' jours'}`}>
@@ -2006,18 +2005,20 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
 }
 
 /**
- * Historique de la portee, une ligne par periode calendaire.
+ * Composition de la portee, une ligne par periode calendaire.
  *
  * Repond au probleme de l'All-Time : un « depuis toujours » dedupliqué est hors
  * d'atteinte (la deduplication ne s'additionne pas d'une periode a l'autre, et
  * Meta cesse de servir la ventilation au-dela de ~12 mois). On montre donc chaque
  * periode avec SA valeur, exacte en elle-meme, plutot qu'un agregat impossible.
  *
+ * La granularite suit le selecteur de periode de la page (7j -> semaines,
+ * 30j -> mois) : deux commandes de periode a l'ecran se contrediraient.
+ *
  * Lit `analytics_ig_periodes`, alimentee par le cron. Aucun calcul ici : les taux
  * viennent de l'API, l'ecran ne fait que les mettre en forme.
  */
-function HistoriquePortee({ profileId }: { profileId?: string }) {
-  const [granularite, setGranularite] = useState<'mois' | 'semaine'>('mois');
+function HistoriquePortee({ profileId, granularite }: { profileId?: string; granularite: 'mois' | 'semaine' }) {
   const { data, isLoading } = useQuery({
     queryKey: ['ig-periodes', profileId, granularite],
     queryFn: () => fetch(`/api/instagram/periodes?type=${granularite}${profileId ? `&profileId=${profileId}` : ''}`).then(r => r.json()),
@@ -2025,43 +2026,32 @@ function HistoriquePortee({ profileId }: { profileId?: string }) {
   });
   const periodes: any[] = data?.periodes ?? [];
 
+  // Abonnes = audience deja acquise, en ardoise (la couleur de marque).
+  // Non-abonnes = personnes atteintes hors de cette audience, en vert : c'est le
+  // seul statut positif de la palette, et decouvrir de nouvelles personnes EST le
+  // signal positif. Terracotta et ambre portent un sens d'alerte, ils sont exclus.
+  const COUL_ABO = 'var(--accent-brand)';
+  const COUL_NON = 'var(--green)';
+
   const libelle = (p: any) => {
     const d = new Date(p.debut + 'T12:00:00Z');
     if (granularite === 'mois') {
       return d.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric', timeZone: 'UTC' });
     }
     const f = new Date(p.fin + 'T12:00:00Z');
-    const fmtJ = (x: Date) => x.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'UTC' });
-    return `${fmtJ(d)} – ${fmtJ(f)}`;
+    const j = (x: Date) => x.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+    return `${j(d)} – ${j(f)}`;
   };
-
-  // Echelle commune a toutes les barres, sinon deux periodes de portee tres
-  // differente paraissent identiques.
-  const maxTotal = Math.max(1, ...periodes.map(p => p.reachTotal ?? 0));
 
   return (
     <Card
-      title="Portée par période"
-      sub="Chaque période est comptée séparément — les valeurs ne s'additionnent pas"
+      title="Composition de ta portée"
+      sub="Qui a vu tes contenus — chaque période est comptée séparément, les valeurs ne s'additionnent pas"
     >
-      <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-        {(['mois', 'semaine'] as const).map(g => (
-          <button key={g} onClick={() => setGranularite(g)} style={{
-            padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 20, cursor: 'pointer',
-            border: `1px solid ${granularite === g ? 'var(--border)' : 'transparent'}`,
-            background: granularite === g ? 'var(--surface-2)' : 'transparent',
-            color: granularite === g ? 'var(--ink)' : 'var(--muted)',
-            transition: 'background .12s, border-color .12s, color .12s',
-          }}>{g === 'mois' ? 'Mois' : 'Semaines'}</button>
-        ))}
-      </div>
-
       {isLoading ? (
-        // Squelette plutot qu'un message d'absence : pendant le chargement, « aucun
-        // historique » serait une affirmation fausse.
         <div>
           {[0, 1, 2].map(i => (
-            <div key={i} style={{ height: 46, background: 'var(--surface-2)', borderRadius: 8, marginBottom: 6, opacity: 1 - i * 0.25 }} />
+            <div key={i} style={{ height: 44, background: 'var(--surface-2)', borderRadius: 8, marginBottom: 6, opacity: 1 - i * 0.25 }} />
           ))}
         </div>
       ) : periodes.length === 0 ? (
@@ -2071,44 +2061,73 @@ function HistoriquePortee({ profileId }: { profileId?: string }) {
         </div>
       ) : (
         <div>
-          {periodes.map(p => (
-            <div key={p.debut} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 0', borderBottom: '1px solid var(--border-soft)' }}>
-              <div style={{ width: granularite === 'mois' ? 108 : 122, flexShrink: 0, fontSize: 12.5, color: 'var(--ink-2)', textTransform: granularite === 'mois' ? 'capitalize' : 'none' }}>
-                {libelle(p)}
-                {/* Une periode en cours n'est pas comparable a une periode close :
-                    elle n'a pas encore vecu tous ses jours. */}
-                {!p.figee && (
-                  <span style={{ fontSize: 9, fontWeight: 600, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 5px', marginLeft: 6 }}>
-                    en cours
-                  </span>
-                )}
-              </div>
+          {periodes.map(p => {
+            const total = p.reachTotal ?? 0;
+            const abo = p.reachAbonnes ?? 0;
+            const non = p.reachNonAbonnes ?? 0;
+            // Part DANS la portee, donc les deux font 100 % — a ne pas confondre
+            // avec la carte « Abonnes touches », qui divise par le nombre d'abonnes.
+            const pctAbo = total ? (abo / total) * 100 : 0;
+            const pctNon = total ? (non / total) * 100 : 0;
+            // Un segment trop etroit ne peut pas porter son texte sans deborder sur
+            // le voisin. Pratique des outils pro : la valeur reste a l'exterieur, et
+            // l'etiquette interieure disparait plutot que de se chevaucher. Le cas
+            // « 99 % / 1 % » se lit donc toujours, le 1 % restant lisible dehors.
+            const SEUIL_TEXTE = 14;
+            return (
+              <div key={p.debut} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--border-soft)' }}>
+                <div style={{ width: granularite === 'mois' ? 132 : 148, flexShrink: 0, fontSize: 12.5, color: 'var(--ink-2)', whiteSpace: 'nowrap', textTransform: granularite === 'mois' ? 'capitalize' : 'none' }}>
+                  {libelle(p)}
+                  {!p.figee && (
+                    <span style={{ fontSize: 9, fontWeight: 600, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 5px', marginLeft: 6, whiteSpace: 'nowrap' }}>
+                      en cours
+                    </span>
+                  )}
+                </div>
 
-              {/* Barre empilee : abonnes puis non-abonnes, a l'echelle du maximum. */}
-              <div style={{ flex: 1, minWidth: 0, display: 'flex', height: 18, borderRadius: 4, overflow: 'hidden', background: 'var(--surface-2)' }}>
-                <div style={{ width: `${((p.reachAbonnes ?? 0) / maxTotal) * 100}%`, background: 'var(--accent-brand)' }}
-                  title={`${fmt(p.reachAbonnes ?? 0)} abonnés touchés`} />
-                <div style={{ width: `${((p.reachNonAbonnes ?? 0) / maxTotal) * 100}%`, background: GREEN }}
-                  title={`${fmt(p.reachNonAbonnes ?? 0)} non-abonnés touchés`} />
-              </div>
+                <div style={{ width: 46, flexShrink: 0, textAlign: 'right', fontSize: 12.5, fontWeight: 600, color: COUL_ABO, fontVariantNumeric: 'tabular-nums' }}
+                  title="Abonnés touchés">
+                  {p.reachAbonnes == null ? '—' : fmt(abo)}
+                </div>
 
-              <div style={{ width: 62, flexShrink: 0, textAlign: 'right', fontSize: 13, fontWeight: 600, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>
-                {p.reachTotal == null ? '—' : fmt(p.reachTotal)}
+                <div style={{ flex: 1, minWidth: 0, display: 'flex', height: 22, borderRadius: 5, overflow: 'hidden', background: 'var(--surface-2)' }}>
+                  <div style={{ width: `${pctAbo}%`, background: COUL_ABO, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
+                    title={`${fmt(abo)} abonnés — ${Math.round(pctAbo)} % de la portée`}>
+                    {pctAbo >= SEUIL_TEXTE && (
+                      <span style={{ fontSize: 10.5, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap' }}>{Math.round(pctAbo)} %</span>
+                    )}
+                  </div>
+                  <div style={{ width: `${pctNon}%`, background: COUL_NON, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
+                    title={`${fmt(non)} non-abonnés — ${Math.round(pctNon)} % de la portée`}>
+                    {pctNon >= SEUIL_TEXTE && (
+                      <span style={{ fontSize: 10.5, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap' }}>{Math.round(pctNon)} %</span>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ width: 46, flexShrink: 0, fontSize: 12.5, fontWeight: 600, color: COUL_NON, fontVariantNumeric: 'tabular-nums' }}
+                  title="Non-abonnés touchés">
+                  {p.reachNonAbonnes == null ? '—' : fmt(non)}
+                </div>
+
+                <div style={{ width: 58, flexShrink: 0, textAlign: 'right', fontSize: 13, fontWeight: 700, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}
+                  title="Portée totale de la période">
+                  {p.reachTotal == null ? '—' : fmt(total)}
+                </div>
               </div>
-              <div style={{ width: 54, flexShrink: 0, textAlign: 'right', fontSize: 12, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}
-                title="Part de tes abonnés touchée sur la période">
-                {p.tauxAbonnes == null ? '—' : `${p.tauxAbonnes} %`}
-              </div>
-            </div>
-          ))}
-          <div style={{ display: 'flex', gap: 16, marginTop: 10, fontSize: 10.5, color: 'var(--muted)' }}>
+            );
+          })}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 11, fontSize: 10.5, color: 'var(--muted)', flexWrap: 'wrap' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ width: 9, height: 9, borderRadius: 2, background: 'var(--accent-brand)' }} />abonnés
+              <span style={{ width: 9, height: 9, borderRadius: 2, background: COUL_ABO }} />abonnés
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ width: 9, height: 9, borderRadius: 2, background: GREEN }} />non-abonnés
+              <span style={{ width: 9, height: 9, borderRadius: 2, background: COUL_NON }} />non-abonnés
             </span>
-            <span style={{ marginLeft: 'auto' }}>colonne de droite : part de tes abonnés touchée</span>
+            <span style={{ marginLeft: 'auto' }}>
+              100 % = portée totale de la période (colonne de droite)
+            </span>
           </div>
         </div>
       )}
@@ -7968,13 +7987,22 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   // s'additionne pas d'une periode a l'autre (3 mois cumules donnaient 272 abonnes
   // contre 124 en realite), donc on ne peut ni assembler l'historique stocke ni
   // interroger au-dela d'un an. 12 mois est la reponse honnete.
-  const fenetreIg = sinceConnection ? 365 : 30;
+  // Les cartes de portee suivent desormais la periode choisie a l'ecran, y compris
+  // une periode passee — d'ou des bornes explicites plutot qu'une fenetre glissante.
+  // En All-Time on retombe sur 365 jours, plafond au-dela duquel Meta ne ventile
+  // plus (docs/instagram-reach-follow-type.md).
+  const fenetrePortee = sinceConnection
+    ? { fenetre: 365 }
+    : (() => {
+        const w = getPeriodWindow(periodIndex, period === 7 ? 'week' : 'month');
+        return { debut: parisDateStr(w.periodStart), fin: parisDateStr(w.periodEnd) };
+      })();
+  const paramsPortee = new URLSearchParams(fenetrePortee as Record<string, string>).toString();
   const { data: igRaw, isLoading: igLoading, refetch: refetchIg } = useQuery<IGStats | null>({
-    // fenetreIg dans la cle : sans elle, React Query resservirait le cache 30 jours
-    // au passage en All-Time et le badge afficherait « 12 mois » sur des chiffres
-    // de 30 jours.
-    queryKey: ['stats-ig', profileId, fenetreIg],
-    queryFn: () => fetchApi(`/api/instagram/stats${q}${q ? '&' : '?'}fenetre=${fenetreIg}`),
+    // Les bornes entrent dans la cle : sans elles, React Query resservirait le cache
+    // de la periode precedente sous l'etiquette de la nouvelle.
+    queryKey: ['stats-ig', profileId, paramsPortee],
+    queryFn: () => fetchApi(`/api/instagram/stats${q}${q ? '&' : '?'}${paramsPortee}`),
     enabled: [0, 1, 3].includes(tab),
     staleTime: 5 * 60 * 1000,
   });
