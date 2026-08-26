@@ -1581,29 +1581,49 @@ async function majPeriodesIg(profileId: string, token: string, igAccountId: stri
     if (error) throw new Error(error.message);
   }
 
-  // 1. Cloturer les periodes terminees. `fin < aujourd'hui` garantit qu'on ne fige
-  //    jamais une periode encore en cours.
+  // Une seule lecture pour les deux etapes : elle sert a trouver les periodes a
+  // cloturer ET a savoir si celles en cours ont besoin d'etre rafraichies.
+  let existantes: { type: string; debut: string; fin: string; figee: boolean; mesure_le: string }[] = [];
   try {
-    const { data: aCloturer } = await supa
+    const { data, error } = await supa
       .from('analytics_ig_periodes')
-      .select('type, debut, fin')
+      .select('type, debut, fin, figee, mesure_le')
       .eq('profile_id', profileId)
       .is('archived_at', null)
       .eq('figee', false)
-      .lt('fin', aujourdhui)
-      .limit(4);
-    for (const p of aCloturer || []) {
-      try { await ecrire(p.type as 'semaine' | 'mois', p.debut, p.fin, true); }
-      catch (e: any) { errors.push(`ig_periode_cloture_${p.type}_${p.debut}: ${e?.message || 'unknown'}`); }
-    }
+      .limit(20);
+    if (error) throw new Error(error.message);
+    existantes = data || [];
   } catch (e: any) {
     errors.push(`ig_periodes_lecture: ${e?.message || 'unknown'}`);
+    return errors;   // sans cette lecture on ne peut rien decider sans risquer un doublon
+  }
+
+  // 1. Cloturer les periodes terminees. `fin < aujourd'hui` garantit qu'on ne fige
+  //    jamais une periode encore en cours. Toujours evalue, quelle que soit la
+  //    fraicheur : une cloture manquee ne se rattrape pas d'elle-meme.
+  for (const p of existantes.filter((p) => p.fin < aujourdhui)) {
+    try { await ecrire(p.type as 'semaine' | 'mois', p.debut, p.fin, true); }
+    catch (e: any) { errors.push(`ig_periode_cloture_${p.type}_${p.debut}: ${e?.message || 'unknown'}`); }
   }
 
   // 2. Rafraichir la semaine et le mois en cours.
+  //
+  // Toutes les 6 h et non une fois par jour : la periode en cours grandit au fil de
+  // la journee, et un coach qui regarde le soir merite autre chose que le chiffre
+  // de ce matin. Le cout est negligeable — 2 appels par rafraichissement, soit 8
+  // par jour et par profil, contre 125 pour le reste de la synchro Instagram.
+  //
+  // La decision de fraicheur vit ICI plutot que dans le declencheur du cron :
+  // le declencheur ne sait pas ce qui est deja stocke, et cette fonction si. Elle
+  // peut donc etre appelee a chaque passage horaire sans emettre le moindre appel
+  // reseau tant que la donnee est fraiche.
+  const FRAICHEUR_MS = 6 * 60 * 60 * 1000;
   for (const type of ['semaine', 'mois'] as const) {
     try {
       const { debut, fin } = bornes(type, aujourdhui);
+      const dejaLa = existantes.find((p) => p.type === type && p.debut === debut);
+      if (dejaLa && Date.now() - new Date(dejaLa.mesure_le).getTime() < FRAICHEUR_MS) continue;
       await ecrire(type, debut, fin, false);
     } catch (e: any) {
       errors.push(`ig_periode_${type}: ${e?.message || 'unknown'}`);
@@ -1860,11 +1880,18 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
       // YouTube. Ajoute EN DERNIER pour ne pas decaler les deux resultats deja
       // destructures. Sur une base sans trou, la fonction sort avant tout appel reseau.
       igRattrapageAFaire ? rattraperTrousIg(profileId, igCreds.token, igCreds.igAccountId) : Promise.resolve([] as string[]),
-      // Portee dedupliquee de la semaine et du mois en cours. Meme cadence
-      // quotidienne : ces chiffres ne bougent qu'une fois par jour, et les stocker
-      // est la SEULE facon de les conserver — Meta cesse de servir la ventilation
-      // au-dela de ~12 mois, et elle ne se reconstruit pas depuis le journalier.
-      igRattrapageAFaire ? majPeriodesIg(profileId, igCreds.token, igCreds.igAccountId) : Promise.resolve([] as string[]),
+      // Portee dedupliquee de la semaine et du mois en cours.
+      //
+      // Appelee a CHAQUE passage horaire, et non une fois par jour : la fonction
+      // porte elle-meme sa regle de fraicheur (6 h) et sort sans le moindre appel
+      // reseau tant que la donnee stockee est recente. Elle voit ce qui est en
+      // base, le declencheur du cron non — la decision appartient donc a celle qui
+      // a l'information.
+      //
+      // Les stocker est la SEULE facon de conserver ces chiffres : Meta cesse de
+      // servir la ventilation au-dela de ~12 mois, et elle ne se reconstruit pas
+      // depuis le journalier (la deduplication ne s'additionne pas).
+      majPeriodesIg(profileId, igCreds.token, igCreds.igAccountId),
     ]);
     if (igMetricsResult.status === 'rejected') {
       const msg = igMetricsResult.reason?.message || 'unknown';

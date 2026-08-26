@@ -1583,6 +1583,8 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
         ))}
       </div>
 
+      <HistoriquePortee profileId={profileId} />
+
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
         <Card title="Reach par jour" sub={`${sinceConnection ? 'Depuis la connexion' : period + ' jours'}`}>
           <AreaChart data={igDaysForChart} areas={[{ key: 'reach', label: 'Reach', color: 'var(--accent-brand)' }]} xKey="date" height={220} showWeekday={period === 7} pendingKey="pending" />
@@ -2000,6 +2002,117 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
         </ModalOverlay>
       )}
     </div>
+  );
+}
+
+/**
+ * Historique de la portee, une ligne par periode calendaire.
+ *
+ * Repond au probleme de l'All-Time : un « depuis toujours » dedupliqué est hors
+ * d'atteinte (la deduplication ne s'additionne pas d'une periode a l'autre, et
+ * Meta cesse de servir la ventilation au-dela de ~12 mois). On montre donc chaque
+ * periode avec SA valeur, exacte en elle-meme, plutot qu'un agregat impossible.
+ *
+ * Lit `analytics_ig_periodes`, alimentee par le cron. Aucun calcul ici : les taux
+ * viennent de l'API, l'ecran ne fait que les mettre en forme.
+ */
+function HistoriquePortee({ profileId }: { profileId?: string }) {
+  const [granularite, setGranularite] = useState<'mois' | 'semaine'>('mois');
+  const { data, isLoading } = useQuery({
+    queryKey: ['ig-periodes', profileId, granularite],
+    queryFn: () => fetch(`/api/instagram/periodes?type=${granularite}${profileId ? `&profileId=${profileId}` : ''}`).then(r => r.json()),
+    staleTime: 5 * 60 * 1000,
+  });
+  const periodes: any[] = data?.periodes ?? [];
+
+  const libelle = (p: any) => {
+    const d = new Date(p.debut + 'T12:00:00Z');
+    if (granularite === 'mois') {
+      return d.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+    }
+    const f = new Date(p.fin + 'T12:00:00Z');
+    const fmtJ = (x: Date) => x.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+    return `${fmtJ(d)} – ${fmtJ(f)}`;
+  };
+
+  // Echelle commune a toutes les barres, sinon deux periodes de portee tres
+  // differente paraissent identiques.
+  const maxTotal = Math.max(1, ...periodes.map(p => p.reachTotal ?? 0));
+
+  return (
+    <Card
+      title="Portée par période"
+      sub="Chaque période est comptée séparément — les valeurs ne s'additionnent pas"
+    >
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+        {(['mois', 'semaine'] as const).map(g => (
+          <button key={g} onClick={() => setGranularite(g)} style={{
+            padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 20, cursor: 'pointer',
+            border: `1px solid ${granularite === g ? 'var(--border)' : 'transparent'}`,
+            background: granularite === g ? 'var(--surface-2)' : 'transparent',
+            color: granularite === g ? 'var(--ink)' : 'var(--muted)',
+            transition: 'background .12s, border-color .12s, color .12s',
+          }}>{g === 'mois' ? 'Mois' : 'Semaines'}</button>
+        ))}
+      </div>
+
+      {isLoading ? (
+        // Squelette plutot qu'un message d'absence : pendant le chargement, « aucun
+        // historique » serait une affirmation fausse.
+        <div>
+          {[0, 1, 2].map(i => (
+            <div key={i} style={{ height: 46, background: 'var(--surface-2)', borderRadius: 8, marginBottom: 6, opacity: 1 - i * 0.25 }} />
+          ))}
+        </div>
+      ) : periodes.length === 0 ? (
+        <div style={{ fontSize: 12, color: 'var(--faint)', textAlign: 'center', padding: '22px 0', lineHeight: 1.5 }}>
+          L&apos;historique se construit à partir d&apos;aujourd&apos;hui.<br />
+          Chaque période close est enregistrée définitivement.
+        </div>
+      ) : (
+        <div>
+          {periodes.map(p => (
+            <div key={p.debut} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 0', borderBottom: '1px solid var(--border-soft)' }}>
+              <div style={{ width: granularite === 'mois' ? 108 : 122, flexShrink: 0, fontSize: 12.5, color: 'var(--ink-2)', textTransform: granularite === 'mois' ? 'capitalize' : 'none' }}>
+                {libelle(p)}
+                {/* Une periode en cours n'est pas comparable a une periode close :
+                    elle n'a pas encore vecu tous ses jours. */}
+                {!p.figee && (
+                  <span style={{ fontSize: 9, fontWeight: 600, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 5px', marginLeft: 6 }}>
+                    en cours
+                  </span>
+                )}
+              </div>
+
+              {/* Barre empilee : abonnes puis non-abonnes, a l'echelle du maximum. */}
+              <div style={{ flex: 1, minWidth: 0, display: 'flex', height: 18, borderRadius: 4, overflow: 'hidden', background: 'var(--surface-2)' }}>
+                <div style={{ width: `${((p.reachAbonnes ?? 0) / maxTotal) * 100}%`, background: 'var(--accent-brand)' }}
+                  title={`${fmt(p.reachAbonnes ?? 0)} abonnés touchés`} />
+                <div style={{ width: `${((p.reachNonAbonnes ?? 0) / maxTotal) * 100}%`, background: GREEN }}
+                  title={`${fmt(p.reachNonAbonnes ?? 0)} non-abonnés touchés`} />
+              </div>
+
+              <div style={{ width: 62, flexShrink: 0, textAlign: 'right', fontSize: 13, fontWeight: 600, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>
+                {p.reachTotal == null ? '—' : fmt(p.reachTotal)}
+              </div>
+              <div style={{ width: 54, flexShrink: 0, textAlign: 'right', fontSize: 12, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}
+                title="Part de tes abonnés touchée sur la période">
+                {p.tauxAbonnes == null ? '—' : `${p.tauxAbonnes} %`}
+              </div>
+            </div>
+          ))}
+          <div style={{ display: 'flex', gap: 16, marginTop: 10, fontSize: 10.5, color: 'var(--muted)' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 9, height: 9, borderRadius: 2, background: 'var(--accent-brand)' }} />abonnés
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 9, height: 9, borderRadius: 2, background: GREEN }} />non-abonnés
+            </span>
+            <span style={{ marginLeft: 'auto' }}>colonne de droite : part de tes abonnés touchée</span>
+          </div>
+        </div>
+      )}
+    </Card>
   );
 }
 
