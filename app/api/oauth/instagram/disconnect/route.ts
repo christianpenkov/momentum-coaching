@@ -12,6 +12,10 @@ const IG_TABLES = [
   'analytics_ig_posts_history', 'analytics_ig_stories_history', 'ig_stories',
   'instagram_leads', 'instagram_lead_lm_history', 'content_links',
   'ig_post_meta', 'analytics_daily_snapshots',
+  // Ajoutee le 2026-08-26 avec la table. Sans elle ici, les periodes d'un ancien
+  // compte resteraient visibles apres bascule, et l'index unique partiel
+  // bloquerait l'ecriture des memes periodes sur le nouveau compte.
+  'analytics_ig_periodes',
 ];
 
 export async function POST() {

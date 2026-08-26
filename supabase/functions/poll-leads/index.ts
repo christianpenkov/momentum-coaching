@@ -1437,6 +1437,126 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
  * 43 journees de reach manquaient sur trois profils avant cette fonction, sans aucun
  * mecanisme pour les recuperer.
  */
+/**
+ * Portee dedupliquee de la semaine et du mois en cours.
+ *
+ * Pourquoi stocker plutot que calculer a l'affichage : la ventilation
+ * abonnes/non-abonnes n'existe chez Meta que sur ~12 mois glissants. Une periode
+ * non stockee devient irrecuperable un an plus tard. Et elle ne se reconstruit pas
+ * depuis les valeurs journalieres : la deduplication ne s'additionne pas —
+ * mai+juin+juillet 2026 cumulaient 272 abonnes contre 124 en realite (mesure du
+ * 2026-08-26).
+ *
+ * Deroulement, une fois par jour :
+ *   1. periodes TERMINEES non encore figees -> une derniere mesure, puis figee
+ *   2. semaine et mois EN COURS -> mesure du debut de periode a aujourd'hui
+ *
+ * Le figeage passe par une derniere mesure le lendemain plutot que de conserver la
+ * valeur de la veille : cela absorbe l'activite de fin de journee. Les valeurs ne
+ * derivent pas retroactivement (verifie sur 9 jours), donc cette mesure est stable.
+ *
+ * Cout : 2 appels par jour et par profil, plus 2 les jours de cloture.
+ */
+async function majPeriodesIg(profileId: string, token: string, igAccountId: string): Promise<string[]> {
+  const errors: string[] = [];
+  const aujourdhui = isoDate(0);
+
+  // Bornes calendaires en heure de Paris. La journee de Meta bascule a 07:00 UTC
+  // (fuseau Pacifique), pas a minuit Paris : l'ecart mesure sur un mois complet est
+  // d'une unite sur 143, soit 0,7 %. Negligeable, et on garde des bornes lisibles
+  // pour le coach — un mois va du 1er au dernier jour.
+  function bornes(type: 'semaine' | 'mois', dateRef: string): { debut: string; fin: string } {
+    const [y, m, d] = dateRef.split('-').map(Number);
+    if (type === 'semaine') {
+      // getUTCDay : 0 = dimanche. On veut lundi = 1er jour (ISO).
+      const jour = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+      const reculLundi = jour === 0 ? 6 : jour - 1;
+      const lundi = new Date(Date.UTC(y, m - 1, d - reculLundi));
+      const dimanche = new Date(Date.UTC(y, m - 1, d - reculLundi + 6));
+      return { debut: lundi.toISOString().split('T')[0], fin: dimanche.toISOString().split('T')[0] };
+    }
+    const dernier = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const p2 = (n: number) => String(n).padStart(2, '0');
+    return { debut: `${y}-${p2(m)}-01`, fin: `${y}-${p2(m)}-${p2(dernier)}` };
+  }
+
+  // Une mesure = un appel. `until` est borne a aujourd'hui pour une periode en cours.
+  async function mesurer(debut: string, finVoulue: string) {
+    const fin = finVoulue > aujourdhui ? aujourdhui : finVoulue;
+    const since = Math.floor(new Date(`${debut}T00:00:00Z`).getTime() / 1000);
+    const until = Math.floor(new Date(`${fin}T23:59:59Z`).getTime() / 1000);
+    const url = `https://graph.instagram.com/v22.0/${igAccountId}/insights`
+      + `?metric=reach&metric_type=total_value&breakdown=follow_type&period=day`
+      + `&since=${since}&until=${until}&access_token=${token}`;
+    const res = await fetch(url);
+    // Un `if (res.ok)` sans `else` ecrirait une ligne vide indiscernable d'une vraie
+    // absence de donnees, et la periode serait figee fausse pour toujours.
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await safeJson(res);
+    const tv = data?.data?.[0]?.total_value;
+    if (!tv) throw new Error('total_value absent');
+    let abonnes: number | null = null, nonAbonnes: number | null = null;
+    for (const b of tv.breakdowns || []) {
+      for (const r of b.results || []) {
+        const cle = r.dimension_values?.[0];
+        if (cle === 'FOLLOWER') abonnes = (abonnes ?? 0) + (r.value ?? 0);
+        else if (cle === 'NON_FOLLOWER') nonAbonnes = (nonAbonnes ?? 0) + (r.value ?? 0);
+      }
+    }
+    return { total: tv.value ?? null, abonnes, nonAbonnes };
+  }
+
+  // Denominateur de « abonnes touches ». Fige avec la periode : sans ca, un taux
+  // ancien serait recalcule sur l'audience d'aujourd'hui et changerait tout seul.
+  let nbAbonnes: number | null = null;
+  try {
+    const r = await fetch(`https://graph.instagram.com/v22.0/${igAccountId}?fields=followers_count&access_token=${token}`);
+    if (r.ok) nbAbonnes = (await safeJson(r))?.followers_count ?? null;
+  } catch { /* non bloquant : la portee reste utile sans son denominateur */ }
+
+  async function ecrire(type: 'semaine' | 'mois', debut: string, fin: string, figee: boolean) {
+    const m = await mesurer(debut, fin);
+    const { error } = await supa.from('analytics_ig_periodes').upsert({
+      profile_id: profileId, ig_account_id: igAccountId,
+      type, debut, fin,
+      reach_total: m.total, reach_abonnes: m.abonnes, reach_non_abonnes: m.nonAbonnes,
+      abonnes: nbAbonnes, figee, mesure_le: new Date().toISOString(),
+    }, { onConflict: 'profile_id,type,debut' });
+    if (error) throw new Error(error.message);
+  }
+
+  // 1. Cloturer les periodes terminees. `fin < aujourd'hui` garantit qu'on ne fige
+  //    jamais une periode encore en cours.
+  try {
+    const { data: aCloturer } = await supa
+      .from('analytics_ig_periodes')
+      .select('type, debut, fin')
+      .eq('profile_id', profileId)
+      .is('archived_at', null)
+      .eq('figee', false)
+      .lt('fin', aujourdhui)
+      .limit(4);
+    for (const p of aCloturer || []) {
+      try { await ecrire(p.type as 'semaine' | 'mois', p.debut, p.fin, true); }
+      catch (e: any) { errors.push(`ig_periode_cloture_${p.type}_${p.debut}: ${e?.message || 'unknown'}`); }
+    }
+  } catch (e: any) {
+    errors.push(`ig_periodes_lecture: ${e?.message || 'unknown'}`);
+  }
+
+  // 2. Rafraichir la semaine et le mois en cours.
+  for (const type of ['semaine', 'mois'] as const) {
+    try {
+      const { debut, fin } = bornes(type, aujourdhui);
+      await ecrire(type, debut, fin, false);
+    } catch (e: any) {
+      errors.push(`ig_periode_${type}: ${e?.message || 'unknown'}`);
+    }
+  }
+
+  return errors;
+}
+
 async function rattraperTrousIg(profileId: string, token: string, igAccountId: string): Promise<string[]> {
   const errors: string[] = [];
   // 3 et non 5 : le rattrapage est SEQUENTIEL (5 appels par journee) et tourne pour
@@ -1641,7 +1761,7 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
   }
 
   if (igCreds) {
-    const [igMetricsResult, igPostsResult, igRattrapageResult] = await Promise.allSettled([
+    const [igMetricsResult, igPostsResult, igRattrapageResult, igPeriodesResult] = await Promise.allSettled([
       (async () => {
         const metrics = await fetchIgDayMetrics(igCreds.token, igCreds.igAccountId, yesterday);
         const { error } = await supa.from('analytics_daily_snapshots').upsert({ profile_id: profileId, date: yesterday, ...metrics, backfill_source: 'cron' }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
@@ -1684,6 +1804,11 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
       // YouTube. Ajoute EN DERNIER pour ne pas decaler les deux resultats deja
       // destructures. Sur une base sans trou, la fonction sort avant tout appel reseau.
       igRattrapageAFaire ? rattraperTrousIg(profileId, igCreds.token, igCreds.igAccountId) : Promise.resolve([] as string[]),
+      // Portee dedupliquee de la semaine et du mois en cours. Meme cadence
+      // quotidienne : ces chiffres ne bougent qu'une fois par jour, et les stocker
+      // est la SEULE facon de les conserver — Meta cesse de servir la ventilation
+      // au-dela de ~12 mois, et elle ne se reconstruit pas depuis le journalier.
+      igRattrapageAFaire ? majPeriodesIg(profileId, igCreds.token, igCreds.igAccountId) : Promise.resolve([] as string[]),
     ]);
     if (igMetricsResult.status === 'rejected') {
       const msg = igMetricsResult.reason?.message || 'unknown';
@@ -1712,6 +1837,8 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
     else errors.push(`ig_posts: ${igPostsResult.reason?.message || 'unknown'}`);
     if (igRattrapageResult.status === 'fulfilled') errors.push(...igRattrapageResult.value);
     else errors.push(`ig_rattrapage: ${igRattrapageResult.reason?.message || 'unknown'}`);
+    if (igPeriodesResult.status === 'fulfilled') errors.push(...igPeriodesResult.value);
+    else errors.push(`ig_periodes: ${igPeriodesResult.reason?.message || 'unknown'}`);
 
     // Horodate la synchronisation pour que la cadence horaire se rearme.
     //

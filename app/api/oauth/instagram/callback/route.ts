@@ -96,10 +96,16 @@ export async function GET(request: NextRequest) {
 
   if (igAccountId) {
     const now = new Date().toISOString();
+    // ⚠️ Cette liste existe en DEUX exemplaires : ici et dans
+    // app/api/oauth/instagram/disconnect/route.ts (IG_TABLES). Toute table ajoutee
+    // a l'une doit l'etre a l'autre, sinon l'archivage devient partiel.
+    // Non factorisee volontairement : ces deux routes sont dans le parcours de la
+    // review Meta en cours, on n'y touche pas plus que necessaire.
     const igTables = [
       'analytics_ig_posts_history', 'analytics_ig_stories_history', 'ig_stories',
       'instagram_leads', 'instagram_lead_lm_history', 'content_links',
       'ig_post_meta', 'analytics_daily_snapshots',
+      'analytics_ig_periodes',
     ];
     try {
       // Étape 1 : archiver tout ce qui est actif pour ce profil et n'appartient PAS au
