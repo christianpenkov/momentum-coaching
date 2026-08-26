@@ -1503,7 +1503,22 @@ async function majPeriodesIg(profileId: string, token: string, igAccountId: stri
         else if (cle === 'NON_FOLLOWER') nonAbonnes = (nonAbonnes ?? 0) + (r.value ?? 0);
       }
     }
-    return { total: tv.value ?? null, abonnes, nonAbonnes };
+    // Meta OMET une categorie vide au lieu de renvoyer 0 (« the API will return an
+    // empty data set instead of 0 », doc officielle). Sans ce rattrapage, une
+    // semaine sans aucun abonne touche stockait null — « on ne sait pas » — alors
+    // que la valeur est connue et vaut zero. Constate le 2026-08-26 : semaine du
+    // 24 aout, total 3 et NON_FOLLOWER 3, donc FOLLOWER = 0.
+    //
+    // L'inference n'est faite que si l'arithmetique est EXACTE. Si une categorie
+    // inattendue existait (UNKNOWN), la somme ne tomberait pas juste et on
+    // conserverait null plutot que d'ecrire un zero faux.
+    const total: number | null = tv.value ?? null;
+    if (total !== null) {
+      if (abonnes === null && nonAbonnes !== null && nonAbonnes === total) abonnes = 0;
+      else if (nonAbonnes === null && abonnes !== null && abonnes === total) nonAbonnes = 0;
+      else if (abonnes === null && nonAbonnes === null && total === 0) { abonnes = 0; nonAbonnes = 0; }
+    }
+    return { total, abonnes, nonAbonnes };
   }
 
   // Denominateur de « abonnes touches ». Fige avec la periode : sans ca, un taux
