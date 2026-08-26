@@ -2033,19 +2033,30 @@ function HistoriquePortee({ profileId, granularite }: { profileId?: string; gran
   const COUL_ABO = 'var(--accent-brand)';
   const COUL_NON = 'var(--green)';
 
+  // « du 1 au 31 août » — meme forme pour les mois et les semaines, pour que deux
+  // granularites ne se lisent pas differemment. Le mois n'est repete que si la
+  // periode enjambe deux mois, et l'annee n'apparait que hors annee courante :
+  // elle alourdirait chaque ligne sans rien apprendre.
   const libelle = (p: any) => {
     const d = new Date(p.debut + 'T12:00:00Z');
-    if (granularite === 'mois') {
-      return d.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric', timeZone: 'UTC' });
-    }
     const f = new Date(p.fin + 'T12:00:00Z');
-    const j = (x: Date) => x.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'UTC' });
-    return `${j(d)} – ${j(f)}`;
+    const jour = (x: Date) => x.getUTCDate();
+    const mois = (x: Date) => x.toLocaleDateString('fr-FR', { month: 'long', timeZone: 'UTC' });
+    // Une semaine a cheval sur le nouvel an (« du 29 decembre au 4 janvier ») ne
+    // dirait pas de quel decembre il s'agit : dans ce seul cas, les deux annees
+    // sont explicitees. Arrive une fois par an, mais l'ambiguite serait reelle.
+    if (d.getUTCFullYear() !== f.getUTCFullYear()) {
+      return `du ${jour(d)} ${mois(d)} ${d.getUTCFullYear()} au ${jour(f)} ${mois(f)} ${f.getUTCFullYear()}`;
+    }
+    const annee = f.getUTCFullYear() !== new Date().getUTCFullYear() ? ` ${f.getUTCFullYear()}` : '';
+    return d.getUTCMonth() === f.getUTCMonth()
+      ? `du ${jour(d)} au ${jour(f)} ${mois(f)}${annee}`
+      : `du ${jour(d)} ${mois(d)} au ${jour(f)} ${mois(f)}${annee}`;
   };
 
   return (
     <Card
-      title="Composition de ta portée"
+      title="Composition de ton reach"
       sub="Qui a vu tes contenus — chaque période est comptée séparément, les valeurs ne s'additionnent pas"
     >
       {isLoading ? (
@@ -2076,7 +2087,7 @@ function HistoriquePortee({ profileId, granularite }: { profileId?: string; gran
             const SEUIL_TEXTE = 14;
             return (
               <div key={p.debut} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--border-soft)' }}>
-                <div style={{ width: granularite === 'mois' ? 132 : 148, flexShrink: 0, fontSize: 12.5, color: 'var(--ink-2)', whiteSpace: 'nowrap', textTransform: granularite === 'mois' ? 'capitalize' : 'none' }}>
+                <div style={{ width: 168, flexShrink: 0, fontSize: 12.5, color: 'var(--ink-2)', whiteSpace: 'nowrap' }}>
                   {libelle(p)}
                   {!p.figee && (
                     <span style={{ fontSize: 9, fontWeight: 600, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 5px', marginLeft: 6, whiteSpace: 'nowrap' }}>
@@ -2090,7 +2101,12 @@ function HistoriquePortee({ profileId, granularite }: { profileId?: string; gran
                   {p.reachAbonnes == null ? '—' : fmt(abo)}
                 </div>
 
-                <div style={{ flex: 1, minWidth: 0, display: 'flex', height: 22, borderRadius: 5, overflow: 'hidden', background: 'var(--surface-2)' }}>
+                {/* Le total passe SOUS la barre, centre : a droite il se lisait comme
+                    une quatrieme colonne de meme rang que les deux effectifs, alors
+                    qu'il est leur somme. Dessous, il se lit comme le total qu'il est
+                    (demande de Chris, 2026-08-26). */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', height: 22, borderRadius: 5, overflow: 'hidden', background: 'var(--surface-2)' }}>
                   <div style={{ width: `${pctAbo}%`, background: COUL_ABO, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
                     title={`${fmt(abo)} abonnés — ${Math.round(pctAbo)} % de la portée`}>
                     {pctAbo >= SEUIL_TEXTE && (
@@ -2104,15 +2120,14 @@ function HistoriquePortee({ profileId, granularite }: { profileId?: string; gran
                     )}
                   </div>
                 </div>
+                <div style={{ textAlign: 'center', marginTop: 5, fontSize: 11, color: 'var(--muted)' }}>
+                  Reach total = <strong style={{ color: 'var(--ink)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{p.reachTotal == null ? '—' : fmt(total)}</strong>
+                </div>
+                </div>
 
                 <div style={{ width: 46, flexShrink: 0, fontSize: 12.5, fontWeight: 600, color: COUL_NON, fontVariantNumeric: 'tabular-nums' }}
                   title="Non-abonnés touchés">
                   {p.reachNonAbonnes == null ? '—' : fmt(non)}
-                </div>
-
-                <div style={{ width: 58, flexShrink: 0, textAlign: 'right', fontSize: 13, fontWeight: 700, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}
-                  title="Portée totale de la période">
-                  {p.reachTotal == null ? '—' : fmt(total)}
                 </div>
               </div>
             );
@@ -2126,7 +2141,7 @@ function HistoriquePortee({ profileId, granularite }: { profileId?: string; gran
               <span style={{ width: 9, height: 9, borderRadius: 2, background: COUL_NON }} />non-abonnés
             </span>
             <span style={{ marginLeft: 'auto' }}>
-              100 % = portée totale de la période (colonne de droite)
+              les deux parts font 100 % du reach total
             </span>
           </div>
         </div>
