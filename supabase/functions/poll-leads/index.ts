@@ -1508,20 +1508,61 @@ async function majPeriodesIg(profileId: string, token: string, igAccountId: stri
 
   // Denominateur de « abonnes touches ». Fige avec la periode : sans ca, un taux
   // ancien serait recalcule sur l'audience d'aujourd'hui et changerait tout seul.
-  let nbAbonnes: number | null = null;
-  try {
-    const r = await fetch(`https://graph.instagram.com/v22.0/${igAccountId}?fields=followers_count&access_token=${token}`);
-    if (r.ok) nbAbonnes = (await safeJson(r))?.followers_count ?? null;
-  } catch { /* non bloquant : la portee reste utile sans son denominateur */ }
+  //
+  // MOYENNE sur la periode, pas la valeur de fin. Sur un compte en croissance
+  // rapide, le choix n'est pas neutre : 300 abonnes touches sur un mois ou l'on
+  // passe de 1000 a 1500 donnent 30 % au debut, 24 % en moyenne, 20 % a la fin.
+  //
+  // La valeur de fin est la plus fausse des trois : quelqu'un qui s'abonne le 30 du
+  // mois n'a pas pu voir le contenu du 1er, mais il gonfle quand meme le
+  // denominateur. La moyenne correspond a l'audience reellement exposee.
+  //
+  // Lue depuis analytics_daily_snapshots, qui historise ig_followers chaque jour.
+  // Repli sur la valeur du jour si l'historique manque (compte tout juste connecte).
+  async function abonnesMoyens(debut: string, fin: string): Promise<number | null> {
+    const finBornee = fin > aujourdhui ? aujourdhui : fin;
+    const { data } = await supa
+      .from('analytics_daily_snapshots')
+      .select('ig_followers')
+      .eq('profile_id', profileId)
+      .is('archived_at', null)
+      .gte('date', debut).lte('date', finBornee)
+      .not('ig_followers', 'is', null);
+    const vals = (data || []).map((r: any) => r.ig_followers as number).filter((v) => v > 0);
+    if (vals.length) return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+    try {
+      const r = await fetch(`https://graph.instagram.com/v22.0/${igAccountId}?fields=followers_count&access_token=${token}`);
+      if (r.ok) return (await safeJson(r))?.followers_count ?? null;
+    } catch { /* non bloquant : la portee reste utile sans son denominateur */ }
+    return null;
+  }
 
   async function ecrire(type: 'semaine' | 'mois', debut: string, fin: string, figee: boolean) {
     const m = await mesurer(debut, fin);
-    const { error } = await supa.from('analytics_ig_periodes').upsert({
+
+    // delete + insert, et NON upsert.
+    //
+    // L'index unique de cette table est PARTIEL (`where archived_at is null`), pour
+    // qu'un ancien compte Instagram archive ne bloque pas les memes periodes sur le
+    // nouveau. Or PostgREST ne sait pas viser un index partiel : `onConflict`
+    // repond « there is no unique or exclusion constraint matching the ON CONFLICT
+    // specification » — verifie contre la base le 2026-08-26, et deja rencontre
+    // ailleurs sur ce projet.
+    //
+    // Le delete est borne a `archived_at is null` : les lignes d'un ancien compte
+    // sont conservees, jamais ecrasees.
+    const { error: errSuppr } = await supa.from('analytics_ig_periodes')
+      .delete()
+      .eq('profile_id', profileId).eq('type', type).eq('debut', debut)
+      .is('archived_at', null);
+    if (errSuppr) throw new Error(errSuppr.message);
+
+    const { error } = await supa.from('analytics_ig_periodes').insert({
       profile_id: profileId, ig_account_id: igAccountId,
       type, debut, fin,
       reach_total: m.total, reach_abonnes: m.abonnes, reach_non_abonnes: m.nonAbonnes,
-      abonnes: nbAbonnes, figee, mesure_le: new Date().toISOString(),
-    }, { onConflict: 'profile_id,type,debut' });
+      abonnes: await abonnesMoyens(debut, fin), figee, mesure_le: new Date().toISOString(),
+    });
     if (error) throw new Error(error.message);
   }
 
