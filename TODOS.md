@@ -196,3 +196,70 @@ Vérifié en conditions réelles après implémentation : `tsc --noEmit` propre,
 **Contexte pour la reprise** : identifié lors de la revue `/plan-eng-review` du chantier "Refonte du modèle CTA des séquences stories" (2026-07-26, voir `~/.claude/plans/ok-nous-ici-on-proud-rocket.md`). Concerne `components/liens/PageLiens.tsx` — fonctions `TabLm` (existant) et `TabStoryLeadMagnet` (à créer par ce chantier).
 
 **Dépend de / bloqué par** : rien, mais logique à faire après la refonte `TabStoryLeadMagnet` pour traiter les deux composants ensemble.
+## Unifier les séquences DM des posts et des stories
+
+**Quoi** : deux modèles de données pour un même concept — un post porte cinq champs
+(`dm_lm_message`, `dm_button_text`, `dm_link_message`, `dm_link_button_text`,
+`dm_opener_message`), une story en porte deux plus des tokens. Le même écran, la même
+mécanique d'envoi, deux schémas.
+
+**Pourquoi** : reporté pendant la refonte de « Gérer mes liens » (août 2026) pour isoler
+les causes de panne — toucher au modèle pendant une refonte d'interface aurait rendu
+indémêlable un bug d'affichage d'un bug d'envoi.
+
+**Contexte pour la reprise** : voir aussi le renommage jamais fait des colonnes, ci-dessous.
+
+**Dépend de / bloqué par** : rien depuis l'approbation Meta du 2026-08-25.
+
+## Renommer les colonnes DM, dont la numérotation est décalée
+
+**Quoi** : `dm_lm_message` est le DM1 (l'accroche) et `dm_opener_message` est le DM3 (la
+relance) — le nom dit l'inverse de ce que la colonne contient. L'écran a été aligné sur le
+vocabulaire accroche / bouton / lien / bouton / relance pendant la refonte, la base non.
+
+**Pourquoi** : le handoff demandait le vocabulaire unifié « à l'écran ET en base ». Seul
+l'écran a été fait : renommer les colonnes touche le webhook Instagram et
+`send-pending-dm3`, donc des Edge Functions, ce qui sortait la refonte de son périmètre
+« git push seul ».
+
+**Contexte pour la reprise** : `components/liens/PageLiens.tsx` porte un commentaire
+d'avertissement à l'endroit du mapping. Toute modification de séquence doit vérifier ce
+décalage avant de toucher aux champs.
+
+**Dépend de / bloqué par** : à faire de préférence avec l'unification ci-dessus.
+
+## Instagram : confirmation de déconnexion, récupération des leads, alerte token révoqué
+
+**Quoi** : trois manques spécifiés pendant la refonte mais non implémentés — une
+confirmation avant de déconnecter un compte Instagram (l'action archive beaucoup de
+données), la récupération des leads d'un ancien compte (trois points d'entrée), et une
+alerte quand le token est révoqué (bandeau + notification push).
+
+**Dépend de / bloqué par** : rien.
+
+## Clics Short.io des liens archivés — choix produit à trancher
+
+**Quoi** : un lien d'un ancien compte Instagram reste cliquable. Faut-il compter ses clics
+dans les statistiques du compte courant ? Trois points en dépendent : le comptage
+« Business micro », le `link_category` calculé en incluant les liens archivés
+(`poll-leads`, `backfill-shortio`), et l'absence d'`archived_at` sur
+`shortio_link_daily_snapshots`.
+
+**Pourquoi** : mesuré en base le 2026-08-20 — 25 lignes concernées, **0 clic** au total.
+Aucun impact constatable aujourd'hui, mais la contamination serait permanente si elle
+survenait.
+
+**Dépend de / bloqué par** : une décision de Chris, pas un développement.
+
+## Deux requêtes fragiles sur instagram_leads, sans impact mesuré
+
+**Quoi** : `.maybeSingle()` sur `instagram_leads` sans filtre de compte dans
+`pipeline/advance` et `client/calls` — deux lignes pour un même `ig_username` feraient
+échouer la requête, et le call serait créé détaché du pipeline. De même, la résolution
+Calendly par `ig_user_id` n'est pas bornée par compte : un call du nouveau compte peut se
+rattacher à une ligne archivée.
+
+**Pourquoi** : vérifié en base le 2026-08-20, aucun cas présent. Théorique tant qu'un même
+pseudo n'apparaît pas deux fois.
+
+**Dépend de / bloqué par** : rien, mais mesurer avant d'agir.
