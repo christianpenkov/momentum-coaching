@@ -222,6 +222,83 @@ async function createProspectLmLink(params: {
 
 // Détecte un Cold DM générique (echo sans lien Calendly connu) : premier message
 // manuel envoyé par Chris depuis l'app Instagram à quelqu'un qui vient de le suivre.
+/**
+ * Enregistre une relance quand on envoie un DM à un lead DÉJÀ CLASSÉ.
+ *
+ * ── POURQUOI SEULEMENT LES LEADS CLASSÉS ──────────────────────────────────────
+ *
+ * Un lead classé n'est pas en conversation : c'est le sens même du classement.
+ * Tout message qu'on lui envoie est donc une reprise de contact. Un lead ACTIF,
+ * lui, est déjà en train de discuter — compter chacun de ses messages comme une
+ * relance ferait sortir du cycle quelqu'un avec qui on parle tous les jours.
+ *
+ * ── POURQUOI C'EST NÉCESSAIRE ─────────────────────────────────────────────────
+ *
+ * Le cycle de relance sort automatiquement un lead en Perdu « sans réponse »
+ * après trois relances espacées. Si seul le bouton « Marquer relancés » comptait,
+ * un lead relancé par un vrai DM en sortirait quand même — alors qu'on vient de
+ * lui écrire. Le bouton reste comme filet : un webhook peut manquer un message.
+ *
+ * L'écriture passe par la RPC, qui incrémente `cycle` et ignore un second appel
+ * dans l'heure — un webhook rejoué ne compte pas deux relances.
+ */
+async function enregistrerRelanceSiClasse(pid: string, recipientIgUserId: string): Promise<void> {
+  const { data: lead } = await serviceSupabase
+    .from('instagram_leads')
+    .select('id, ig_username')
+    .eq('profile_id', pid)
+    .eq('ig_user_id', recipientIgUserId)
+    .is('archived_at', null)
+    .eq('not_a_lead', false)
+    .order('detected_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!lead?.ig_username) return;
+  const prospectKey = lead.ig_username.toLowerCase();
+
+  // Classé à la main ? La colonne `stage` porte l'issue depuis la refonte du
+  // 2026-08-27. Seul « à recontacter » est dans un cycle de relance : un lead
+  // perdu, pas qualifié ou closé n'en a aucun.
+  const { data: override } = await serviceSupabase
+    .from('pipeline_overrides')
+    .select('stage')
+    .eq('profile_id', pid)
+    .eq('prospect_key', prospectKey)
+    .eq('platform', 'ig')
+    .maybeSingle();
+
+  let enRelance = override?.stage === 'to_recontact';
+
+  // Classé par un rapport de vente ? Le résultat vit alors sur le rendez-vous.
+  if (!enRelance) {
+    const { data: call } = await serviceSupabase
+      .from('calls')
+      .select('outcome')
+      .eq('ig_lead_id', lead.id)
+      .not('ignored', 'is', true)
+      .eq('call_type', 'calendly')
+      .order('scheduled_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    enRelance = call?.outcome === 'to_recontact';
+  }
+
+  if (!enRelance) return;
+
+  const { error } = await serviceSupabase.rpc('insert_prospect_event_relance', {
+    p_profile_id:   pid,
+    p_prospect_key: prospectKey,
+    p_platform:     'ig',
+    p_occurred_at:  new Date().toISOString(),
+    p_ig_lead_id:   lead.id,
+    p_metadata:     { source: 'webhook' },
+  });
+  if (error) {
+    console.error(`[IG Webhook] relance NON écrite — @${prospectKey} — ${error.message}`);
+  }
+}
+
 // Deux filtres avant de créer une fiche, dans l'ordre (rapide → lent) :
 //  1) Table interne : si le destinataire est déjà connu (lead ou prospect_link),
 //     ce n'est pas un premier contact mais une RELANCE — on ne crée rien, on ne
@@ -423,6 +500,18 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
 
       if (!resolvedMatch) continue;
       const { profile_id: pid } = resolvedMatch;
+
+      // Un DM sortant vers un lead DÉJÀ CLASSÉ est une relance. Écrit avant tout
+      // le reste, parce que c'est vrai que le message contienne un lien Calendly
+      // ou non : un lead classé n'est pas en conversation, donc tout message
+      // qu'on lui envoie est une reprise de contact.
+      //
+      // Sans ça, seul le bouton « Marquer relancés » alimentait le compteur, et
+      // un lead relancé par un vrai DM sortait quand même du cycle en Perdu
+      // « sans réponse » — alors qu'on venait de lui écrire.
+      if (isEcho && recipientId) {
+        await enregistrerRelanceSiClasse(pid, recipientId);
+      }
 
       // Message envoyé par nous (echo) — détecter si on a envoyé un lien Calendly prospect
       if (isEcho && msgText) {

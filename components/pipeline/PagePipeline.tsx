@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 import PipelineFunnelMobile from './PipelineFunnelMobile';
 import PipelineListView from './PipelineListView';
+import PipelineFilters, { FILTRES_VIDES, type EtatsFiltres, type EtatFiltre, type FiltreKey } from './PipelineFilters';
 import Icon from '@/components/ui/Icon';
 import { mutate } from '@/lib/mutate';
 import Image from 'next/image';
@@ -13,6 +14,7 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import RapportModal from '@/components/ui/RapportModalLoader';
 import ProspectDetailModal from './ProspectDetailModal';
 import { isYtVideoId } from '@/lib/ytId';
+import { isCallHonored } from '@/lib/callHonored';
 import { resolveLeadState, ISSUE_KEYS, ISSUE_TO_OUTCOME, type StageKey, type IssueKey } from '@/lib/pipelineStage';
 import { useViewerTimeZone } from '@/lib/UserContext';
 import { wallClockToUtc, cityLabelOf } from '@/lib/timezone';
@@ -221,6 +223,29 @@ function timeAgo(iso: string): string {
   if (d < 7) return `${d}j`;
   if (d < 30) return `${Math.floor(d / 7)}sem`;
   return `${Math.floor(d / 30)}mois`;
+}
+
+/**
+ * Ce que les filtres réglables ont besoin de savoir sur les rendez-vous d'un
+ * lead. Calculé une fois par carte, jamais dans le filtre lui-même : refaire ces
+ * boucles à chaque frappe sur 600 cartes ferait ramer la page.
+ */
+function statsRdv(calls: readonly Call[], now: Date): {
+  rdvCount: number; rdvAnyMissed: boolean; rdvAllHonored: boolean; lastPastRdvAt: string | null;
+} {
+  const utiles = calls.filter(c => !c.lead_deleted && c.status === 'active');
+  const passes = utiles.filter(c => new Date(c.scheduled_at).getTime() < now.getTime());
+  const honores = passes.filter(c => isCallHonored(c, now));
+  return {
+    rdvCount: utiles.length,
+    rdvAnyMissed: passes.some(c => c.no_show === true),
+    // « Tous honorés » exige qu'il y en ait au moins un : sur zéro rendez-vous,
+    // la réponse n'est pas « oui », c'est « la question ne se pose pas ».
+    rdvAllHonored: passes.length > 0 && honores.length === passes.length,
+    lastPastRdvAt: passes.length
+      ? passes.reduce((a, b) => new Date(b.scheduled_at) > new Date(a.scheduled_at) ? b : a).scheduled_at
+      : null,
+  };
 }
 
 /** La plus récente de plusieurs dates, en ignorant les vides et les invalides. */
@@ -477,6 +502,19 @@ interface CardData {
   lastMoveAt?: string | null;
   /** Ce qui est attendu ensuite, en clair. Vide quand il n'y a rien à attendre. */
   nextDue?: { label: string; at: string | null; urgent: boolean } | null;
+  // ── Ce que les filtres réglables interrogent ────────────────────────────────
+  /** Nombre de rendez-vous pris, toutes reprogrammations confondues. */
+  rdvCount?: number;
+  /** Au moins un rendez-vous manqué / tous honorés. Deux questions distinctes. */
+  rdvAnyMissed?: boolean;
+  rdvAllHonored?: boolean;
+  /** Date du dernier rendez-vous PASSÉ. Les RDV à venir sont dans l'étape. */
+  lastPastRdvAt?: string | null;
+  /** Lead magnets RÉCLAMÉS : il a commenté le mot-clé. */
+  lmClaimed?: number;
+  /** Lead magnets REÇUS : il a en plus cliqué le bouton du DM1. L'écart mesure
+   *  la qualité du DM1 — c'est tout l'intérêt de distinguer les deux. */
+  lmReceived?: number;
   extra?: string;
   noSource?: boolean;
   // Badges post-call
@@ -1321,6 +1359,25 @@ export default function PagePipeline() {
   const [filterCanceled, setFilterCanceled] = useState(false);
   const [filterRescheduled, setFilterRescheduled] = useState(false);
 
+  // Les quatre filtres réglables. Leur réglage vit dans le bouton lui-même —
+  // voir components/pipeline/PipelineFilters.tsx pour le geste, qui diffère
+  // entre l'ordinateur et le téléphone.
+  const [filtresReglables, setFiltresReglables] = useState<EtatsFiltres>(FILTRES_VIDES);
+  const changerFiltre = useCallback((key: FiltreKey, e: EtatFiltre) => {
+    setFiltresReglables(prev => ({ ...prev, [key]: e }));
+  }, []);
+
+  // Le geste des filtres change sous 767px, là où la bascule CSS
+  // .pipeline-desktop / .pipeline-mobile opère déjà.
+  const [tactile, setTactile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const suivre = () => setTactile(mq.matches);
+    suivre();
+    mq.addEventListener('change', suivre);
+    return () => mq.removeEventListener('change', suivre);
+  }, []);
+
   // Modale de confirmation drag-and-drop
   const [confirmModal, setConfirmModal] = useState<{
     case: ConfirmCase;
@@ -1499,6 +1556,7 @@ export default function PagePipeline() {
           .map(e => e.occurred_at)
           .sort(),
         lastReplyAt:  lead?.hook_replied_at ?? null,
+        classedAt:    override?.updated_at ?? null,
       }, new Date());
 
       // Le badge dit ce que la colonne ne dit pas. Un lead classé porte déjà son
@@ -1529,6 +1587,16 @@ export default function PagePipeline() {
         ...leadEventDates,
       );
       const nextDue = computeNextDue(state, call?.scheduled_at ?? null, lastMoveAt, new Date());
+      const rdv = statsRdv(matchingCalls, new Date());
+      // Réclamés : une ligne d'historique LM par commentaire du mot-clé.
+      // Reçus : le clic sur le bouton du DM1, qui n'existe que depuis le
+      // 2026-08-27 — l'écart reste donc à 0 sur tout l'historique antérieur.
+      const lmClaimed = lead
+        ? data.lmHistory.filter(h => h.ig_user_id === lead.ig_user_id).length
+        : 0;
+      const lmReceived = lead
+        ? events.filter(e => e.ig_lead_id === lead.id && e.event_type === 'lm_link_requested').length
+        : 0;
       const sub = lead?.keyword_matched && lead.keyword_matched !== 'cold_dm'
         ? `#${lead.keyword_matched}`
         : (lead?.source === 'cold_dm' || prospect) ? 'Cold DM' : '';
@@ -1550,6 +1618,9 @@ export default function PagePipeline() {
         relanceDue: state.flags.relanceDue,
         lastMoveAt,
         nextDue,
+        ...rdv,
+        lmClaimed,
+        lmReceived,
         badge,
         lmNotReceived: lead && lead.source !== 'cold_dm' ? !lead.lead_magnet_sent : false,
         lmClickedAt: lmClickedEvent?.occurred_at ?? null,
@@ -1676,6 +1747,9 @@ export default function PagePipeline() {
         relanceDue: state.flags.relanceDue,
         lastMoveAt,
         nextDue,
+        ...statsRdv(groupCalls, new Date()),
+        lmClaimed: 0,
+        lmReceived: 0,
         badge,
         lmClickedAt: null,
         callId: call.id,
@@ -1816,6 +1890,9 @@ export default function PagePipeline() {
         rapportEnRetard: state.flags.rapportEnRetard,
         relancesFaites: state.flags.relancesFaites,
         relanceDue: state.flags.relanceDue,
+        ...statsRdv(calls, new Date()),
+        lmClaimed: 0,
+        lmReceived: 0,
         lastMoveAt: latestOf(...calls.map(c => c.booked_at ?? c.scheduled_at)),
         nextDue: computeNextDue(state, latestCall.scheduled_at,
                   latestOf(...calls.map(c => c.booked_at ?? c.scheduled_at)), new Date()),
@@ -1872,13 +1949,63 @@ export default function PagePipeline() {
     const call = data?.calls.find(ca => ca.id === c.callId);
     return !!call && ['canceled', 'cancelled'].includes(call.status ?? '');
   };
+
+  // Les quatre filtres réglables. Chacun est une question posée à une carte ;
+  // aucun ne dépend d'un autre, ce qui permet de les cumuler en union sans
+  // qu'ils se contredisent.
+  const JOUR = 86400000;
+  const anciennete = (iso: string | null | undefined) =>
+    iso ? (Date.now() - new Date(iso).getTime()) / JOUR : null;
+
+  const testeFiltre = (key: FiltreKey, e: EtatFiltre) => (c: CardData): boolean => {
+    switch (key) {
+      case 'sans_mouvement': {
+        const j = anciennete(c.lastMoveAt);
+        if (j === null) return false;
+        return e.sens === 'moins' ? j < (e.seuil ?? 21) : j >= (e.seuil ?? 21);
+      }
+      case 'nb_rdv': {
+        const n = c.rdvCount ?? 0;
+        if (e.seuil === 0) return n === 0;
+        if (n < (e.seuil ?? 1)) return false;
+        if (e.variante === 'manque')  return !!c.rdvAnyMissed;
+        if (e.variante === 'honores') return !!c.rdvAllHonored;
+        return true;
+      }
+      case 'rendez_vous': {
+        // Uniquement les rendez-vous PASSÉS : ceux à venir sont déjà lisibles
+        // dans l'étape « RDV pris ».
+        const j = anciennete(c.lastPastRdvAt);
+        if (j === null) return false;
+        return e.sens === 'moins' ? j < (e.seuil ?? 7) : j >= (e.seuil ?? 7);
+      }
+      case 'lead_magnets': {
+        const n = e.variante === 'recus' ? (c.lmReceived ?? 0) : (c.lmClaimed ?? 0);
+        return n >= (e.seuil ?? 1);
+      }
+    }
+  };
+
   const filtresActifs: ((c: CardData) => boolean)[] = [];
   if (filterCanceled)    filtresActifs.push(isCanceled);
   if (filterRescheduled) filtresActifs.push(c => c.badge === 'rescheduled');
+  for (const key of Object.keys(filtresReglables) as FiltreKey[]) {
+    if (filtresReglables[key].actif) filtresActifs.push(testeFiltre(key, filtresReglables[key]));
+  }
 
   const filteredIgCards = filtresActifs.length === 0
     ? igCards
     : igCards.filter(c => filtresActifs.some(f => f(c)));
+
+  // Ce que chaque filtre garderait, SEUL. Le compte doit rester lisible quand
+  // plusieurs filtres sont actifs : afficher le résultat cumulé sur chaque
+  // bouton ferait varier tous les chiffres à chaque clic, sans qu'on sache
+  // lequel a bougé pourquoi.
+  const comptesFiltres = Object.fromEntries(
+    (Object.keys(filtresReglables) as FiltreKey[]).map(key =>
+      [key, igCards.filter(testeFiltre(key, filtresReglables[key])).length],
+    ),
+  ) as Record<FiltreKey, number>;
 
   const cards = tab === 'ig' ? filteredIgCards : tab === 'yt' ? filteredYtCards : filteredOtherCards;
 
@@ -2224,7 +2351,12 @@ export default function PagePipeline() {
   // changer quand on passe d'un onglet à l'autre, sinon il se lit comme un total alors
   // qu'il ne compte que l'onglet courant (demande Chris, 2026-08-19).
   const totalProspects = filteredIgCards.length + filteredYtCards.length + filteredOtherCards.length;
-  const activeFilterCount = [filterCanceled, filterRescheduled].filter(Boolean).length;
+  // Le compteur du bouton mobile porte TOUS les filtres actifs, réglables
+  // compris : n'en compter qu'une partie ferait replier la barre en annonçant
+  // « 0 » alors que la liste est bel et bien filtrée.
+  const activeFilterCount =
+    [filterCanceled, filterRescheduled].filter(Boolean).length +
+    (Object.keys(filtresReglables) as FiltreKey[]).filter(k => filtresReglables[k].actif).length;
   const anyFilter = activeFilterCount > 0;
 
   return (
@@ -2361,6 +2493,12 @@ export default function PagePipeline() {
           className={`pipeline-filters${filtersOpen ? ' is-open' : ''}`}
           style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}
         >
+          <PipelineFilters
+            etats={filtresReglables}
+            onChange={changerFiltre}
+            comptes={comptesFiltres}
+            tactile={tactile}
+          />
           {[
             // No-shows / Pas qualifiés / À recontacter sont devenus des colonnes,
             // et Archivés reposait sur un mécanisme jamais utilisé (0 ligne en
@@ -2387,7 +2525,7 @@ export default function PagePipeline() {
           ))}
           {anyFilter && (
             <button
-              onClick={() => { setFilterCanceled(false); setFilterRescheduled(false); }}
+              onClick={() => { setFilterCanceled(false); setFilterRescheduled(false); setFiltresReglables(FILTRES_VIDES); }}
               className="pipeline-filter"
               style={{ fontWeight: 500, borderRadius: 6, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)' }}
             >

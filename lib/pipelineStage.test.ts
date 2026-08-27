@@ -406,3 +406,88 @@ test('sans aucun call, l’override suffit — c’est sa raison d’être', () 
     assert.equal(s.status, 'classed');
   }
 });
+
+// ── Le retour d'un lead classé ─────────────────────────────────────────────
+// « Il écrit en DM → retour automatique en conversation. » Sans cette règle, il
+// faudrait le déclasser à la main alors qu'il vient d'écrire, et le cycle de
+// relance continuerait de tourner sur quelqu'un qui parle.
+
+test('un lead classé qui répond revient en conversation', () => {
+  const s = etat({
+    signals: { hasReplied: true },
+    manualIssue: 'to_recontact',
+    classedAt: jours(30),
+    lastReplyAt: jours(2),
+  });
+  assert.equal(s.status, 'active');
+  assert.equal(s.issue, null);
+  assert.equal(s.stage, 'in_convo');
+});
+
+test('une réponse ANTÉRIEURE au classement ne le défait pas', () => {
+  // Le cas dangereux : un lead classé « perdu » APRÈS une conversation
+  // reviendrait aussitôt, à cause de cette conversation même.
+  const s = etat({
+    signals: { hasReplied: true },
+    manualIssue: 'lost',
+    classedAt: jours(2),
+    lastReplyAt: jours(30),
+  });
+  assert.equal(s.issue, 'lost');
+  assert.equal(s.status, 'classed');
+});
+
+test('sans date de classement connue, on ne devine pas', () => {
+  const s = etat({
+    signals: { hasReplied: true },
+    manualIssue: 'to_recontact',
+    lastReplyAt: jours(1),
+  });
+  assert.equal(s.issue, 'to_recontact', 'le classement tient');
+});
+
+test('un lead closé ne revient JAMAIS, même s’il répond', () => {
+  const s = etat({
+    signals: { hasReplied: true },
+    manualIssue: 'closed',
+    classedAt: jours(30),
+    lastReplyAt: jours(1),
+  });
+  assert.equal(s.issue, 'closed');
+  assert.equal(s.status, 'classed');
+});
+
+test('« ce n’est pas un lead » ne revient jamais non plus', () => {
+  const s = etat({
+    notALead: true,
+    signals: { hasReplied: true },
+    classedAt: jours(30),
+    lastReplyAt: jours(1),
+  });
+  assert.equal(s.status, 'removed');
+});
+
+test('le retour marche pour les quatre issues non terminales', () => {
+  for (const issue of ['to_recontact', 'no_show', 'not_qualified', 'lost'] as const) {
+    const s = etat({
+      signals: { hasReplied: true },
+      manualIssue: issue,
+      classedAt: jours(30),
+      lastReplyAt: jours(1),
+    });
+    assert.equal(s.status, 'active', issue);
+    assert.equal(s.stage, 'in_convo', issue);
+  }
+});
+
+// Un lead qui a eu un rendez-vous n'est PAS concerné : c'est le call qui décide,
+// et une réponse en DM ne défait pas le résultat d'un appel qui a eu lieu.
+test('une réponse ne défait pas le résultat d’un rendez-vous', () => {
+  const s = etat({
+    signals: { hasReplied: true },
+    calls: [call({ outcome: 'lost' })],
+    classedAt: jours(30),
+    lastReplyAt: jours(1),
+  });
+  assert.equal(s.issue, 'lost', 'le call reste la source');
+});

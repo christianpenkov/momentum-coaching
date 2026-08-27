@@ -176,8 +176,18 @@ export interface StageInput {
   manualReason?: string | null;
   /** Dates des relances, du plus ancien au plus récent (events `relance`). */
   relances?: readonly string[];
-  /** Dernière réponse du lead — remet le compteur de relances à zéro. */
+  /**
+   * Dernière réponse du lead. Deux effets : elle remet le compteur de relances à
+   * zéro, et si elle est POSTÉRIEURE au classement, elle ramène le lead en
+   * conversation — il s'est remis à parler, il n'est plus en attente.
+   */
   lastReplyAt?: string | null;
+  /**
+   * Quand le classement manuel a eu lieu (`pipeline_overrides.updated_at`).
+   * Sans cette date, impossible de savoir si une réponse est antérieure ou
+   * postérieure au classement, donc impossible de faire revenir le lead.
+   */
+  classedAt?: string | null;
   /** Retiré du pipeline : ne compte plus jamais, ne revient jamais. */
   notALead?: boolean;
 }
@@ -284,6 +294,21 @@ export function countRelancesCycle(
   };
 }
 
+/**
+ * Le lead a-t-il répondu depuis qu'on l'a classé ?
+ *
+ * Sans date de classement connue, la réponse est NON : on ne devine pas. Faire
+ * revenir un lead sur une réponse dont on ignore si elle précède le classement
+ * annulerait des classements légitimes — un lead classé « perdu » après une
+ * conversation reviendrait aussitôt, à cause de cette conversation même.
+ */
+function repondApresClassement(input: StageInput): boolean {
+  const reponse = toTime(input.lastReplyAt);
+  const classe = toTime(input.classedAt);
+  if (reponse === null || classe === null) return false;
+  return reponse > classe;
+}
+
 // ── La fonction ───────────────────────────────────────────────────────────────
 
 export function resolveLeadState(input: StageInput, now: Date): LeadState {
@@ -347,6 +372,17 @@ export function resolveLeadState(input: StageInput, now: Date): LeadState {
       return {
         stage, status: 'classed', issue: manuelle,
         issueReason: input.manualReason ?? null,
+        decidedByCallId: null, flags: vide,
+      };
+    }
+    // Le lead a répondu APRÈS avoir été classé : il n'est plus en attente, il
+    // est en train de parler. Le classement devient caduc de lui-même — sans
+    // cette règle, il faudrait le déclasser à la main alors que la conversation
+    // a déjà repris, et le cycle de relance continuerait de tourner sur
+    // quelqu'un qui vient d'écrire.
+    if (repondApresClassement(input)) {
+      return {
+        stage: 'in_convo', status: 'active', issue: null, issueReason: null,
         decidedByCallId: null, flags: vide,
       };
     }
