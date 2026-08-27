@@ -4253,6 +4253,7 @@ function RailContenus({ posts, rightView, ouvert, epingle, onRetour, onEpingler,
  */
 function Entonnoir({ data, ouvert, onToggle, compact, mobile = false }: {
   data: { contenus: number; commentaires: number; conversations: number; callsBookes: number;
+          callsViaDm: number; callsDirects: number;
           tauxConversations: number | null; tauxCalls: number | null; pret: boolean };
   ouvert: boolean;
   onToggle: () => void;
@@ -4263,11 +4264,14 @@ function Entonnoir({ data, ouvert, onToggle, compact, mobile = false }: {
   // « Prospects » et non « Commentaires » : la source exclut ceux que le coach a
   // marqués « pas un lead » depuis le pipeline. Écrire « Commentaires » ferait
   // croire à un décompte brut, et le chiffre ne collerait pas avec Instagram.
-  const etapes = [
-    { libelle: 'Contenus', valeur: data.contenus, taux: null as number | null },
-    { libelle: 'Prospects', valeur: data.commentaires, taux: null as number | null },
+  const etapes: { libelle: string; valeur: number; taux: number | null; precision?: string }[] = [
+    { libelle: 'Contenus', valeur: data.contenus, taux: null },
+    { libelle: 'Prospects', valeur: data.commentaires, taux: null },
     { libelle: 'Conversations', valeur: data.conversations, taux: data.tauxConversations },
-    { libelle: 'Calls bookés', valeur: data.callsBookes, taux: data.tauxCalls },
+    // Les deux chemins, dits sous le chiffre : la conversation en est un, le
+    // lien en bio ou en description est l'autre.
+    { libelle: 'Calls bookés', valeur: data.callsBookes, taux: data.tauxCalls,
+      precision: `${data.callsViaDm} via DM · ${data.callsDirects} direct${data.callsDirects > 1 ? 's' : ''}` },
   ];
 
   // Sous 60 %, l'étape décroche — le rouge doit se voir sans lire le chiffre.
@@ -4338,6 +4342,9 @@ function Entonnoir({ data, ouvert, onToggle, compact, mobile = false }: {
                   <div style={{ border: `1px solid ${BORDER}`, borderRadius: 9, background: BG, padding: '7px 6px', boxSizing: 'border-box' }}>
                     <div style={{ fontSize: 10, color: MUTED, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.libelle}</div>
                     <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-.4px', color: INK, marginTop: 1, fontVariantNumeric: 'tabular-nums' }}>{e.valeur}</div>
+                    {e.precision && (
+                      <div style={{ fontSize: 9, color: FAINT, marginTop: 1, lineHeight: 1.3 }}>{e.precision}</div>
+                    )}
                   </div>
                   {/* Hauteur réservée même sans taux : sinon les cases ne s'alignent pas. */}
                   <div style={{ height: 19, marginTop: 3, fontSize: 10.5, fontWeight: 700,
@@ -5044,16 +5051,20 @@ export default function PageLiens() {
     // franchissement : 3 sur 4.
     const conversations = leads.filter(l => l.hook_replied).length;
 
-    // Calls bookes, compte une fois par prospect. Source : `calls`, pas
-    // `prospect_events` — la table des calls est la source canonique des
-    // reservations, et la route la filtre deja sur call_type = 'calendly' et
-    // ignored, les deux filtres sans lesquels le chiffre serait faux. Les deux
-    // sources donnent le meme resultat aujourd'hui (3), mais un evenement peut
-    // manquer la ou un call ne peut pas.
-    const bookeurs = new Set(
-      calls.map((c: any) => c.ig_lead_id).filter(Boolean)
-    );
-    const callsBookes = bookeurs.size;
+    // Calls bookes — TOUS les rendez-vous, pas seulement ceux venus d'un DM.
+    //
+    // Ne compter que les leads Instagram affichait 3 la ou le coach en a 19 :
+    // la conversation n'est qu'un chemin parmi deux. L'autre part directement
+    // d'un lien en bio ou en description, sans jamais passer par un DM — et
+    // c'est meme le plus gros (mesure du 2026-08-27 : 15 sur 19).
+    //
+    // Source : `calls`, pas `prospect_events`. La table des calls est la source
+    // canonique des reservations, et la route la filtre deja sur
+    // call_type = 'calendly' et ignored — les deux filtres sans lesquels le
+    // chiffre serait faux.
+    const callsBookes = calls.length;
+    const callsViaDm = calls.filter((c: any) => c.ig_lead_id).length;
+    const callsDirects = callsBookes - callsViaDm;
 
     const taux = (num: number, den: number) => (den > 0 ? Math.round((num / den) * 100) : null);
 
@@ -5079,8 +5090,12 @@ export default function PageLiens() {
       commentaires,
       conversations,
       callsBookes,
+      callsViaDm,
+      callsDirects,
       tauxConversations: taux(conversations, commentaires),
-      tauxCalls: taux(callsBookes, conversations),
+      // Pas de taux sur la derniere marche : les calls directs n'ont jamais ete
+      // des conversations, un rapport entre les deux donnerait 600 %.
+      tauxCalls: null as number | null,
       pret: !!pipelineData,
     };
   }, [pipelineData, posts]);
