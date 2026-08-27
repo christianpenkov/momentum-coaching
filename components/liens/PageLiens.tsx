@@ -704,14 +704,19 @@ function TabDesc({ post, profileId, domain, canGenerate, showDisconnectedWarning
         );
         const lmUrl = post.descLmUrl || null;
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, border: `1.5px solid ${BLUE}`, background: BLUE_SOFT }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: BLUE }}>{assocLm.name}</span>
-              {assocLm.keyword && <span style={{ fontSize: 10, fontWeight: 700, color: MUTED, marginLeft: 8 }}>#{assocLm.keyword}</span>}
+          // `flexWrap` et non `flexShrink: 0` sur le bloc de droite : à 390px, une
+          // colonne incompressible de 220px ne laissait qu'une cinquantaine de
+          // pixels au nom, qui débordait par-dessus l'URL — les deux textes se
+          // superposaient. Le bloc passe désormais à la ligne, et chaque texte
+          // tronque proprement au lieu de déborder.
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10, padding: '10px 12px', borderRadius: 8, border: `1.5px solid ${BLUE}`, background: BLUE_SOFT }}>
+            <div style={{ flex: '1 1 130px', minWidth: 0, display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: BLUE, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{assocLm.name}</span>
+              {assocLm.keyword && <span style={{ fontSize: 10, fontWeight: 700, color: MUTED, flexShrink: 0 }}>#{assocLm.keyword}</span>}
             </div>
             {lmUrl
-              ? <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                  <span style={{ fontSize: 11, color: BLUE, fontWeight: 600, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lmUrl}</span>
+              ? <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 190px', minWidth: 0, justifyContent: 'flex-end' }}>
+                  <span style={{ fontSize: 11, color: BLUE, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lmUrl}</span>
                   <CopyBtn url={lmUrl} />
                 </div>
               : <button onClick={() => { setSelectedLmId(assocLm.id); generate(assocLm.id); }} disabled={loading || !canGenerate}
@@ -1720,13 +1725,18 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
             />
           </div>
 
+          {/* Même vocabulaire que l'éditeur de séquence, juste à côté : ce
+              formulaire disait encore « DM 2 » et « DM 3 » là où le reste de la
+              page parle du message du lien et de la relance. Deux noms pour le
+              même message, sur le même écran, obligeaient à faire la traduction
+              soi-même. */}
           <ChatBubble tag="2" tagLabel="envoyé quand le prospect clique le bouton">
             <div style={{ fontSize: 13, color: MUTED, fontStyle: 'italic' }}>Le lien du lead magnet, généré à l'étape suivante</div>
           </ChatBubble>
 
           <div style={{ marginTop: 4 }}>
             <div style={{ fontSize: 9.5, fontWeight: 700, color: FAINT, marginBottom: 3, marginLeft: 4 }}>
-              DM 3 <span style={{ fontWeight: 400, color: FAINT }}>· envoyé automatiquement 2 min après le DM 2</span>
+              RELANCE <span style={{ fontWeight: 400, color: FAINT }}>· envoyée automatiquement 2 min après le message du lien</span>
             </div>
             <textarea
               value={dmMessage}
@@ -1856,6 +1866,11 @@ function CarteStat({ label, valeur, aide }: { label: string; valeur: string; aid
 }
 
 function TabStats({ post, profileId }: { post: Post; profileId: string }) {
+  // L'entonnoir se lit en ligne sur desktop et en colonne sur mobile : six cases
+  // côte à côte dans 390px tombaient à une cinquantaine de pixels chacune, où
+  // « Lead magnets ouverts » et « Lead Magnet reçus » se tronquaient au point de
+  // ne plus se distinguer l'un de l'autre.
+  const isMobile = useIsMobile();
   const isYT = post.platform === 'YT';
 
   // Le même cache que l'entonnoir d'accueil (queryKey identique) : aucune requête
@@ -2064,7 +2079,7 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
               Sans lui, celle des commentaires — deux chiffres, donc deux libellés
               empilés — descendait plus bas que ses voisines et cassait la ligne
               de base de l'entonnoir. */}
-          <div style={{ display: 'flex', alignItems: 'stretch', gap: 6 }}>
+          <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: 'stretch', gap: 6 }}>
             {etapes.map((e, i) => {
               const taux = tauxEntre(i);
               return (
@@ -2078,9 +2093,12 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
                   {i > 0 && (
                     <div style={{
                       alignSelf: 'center', flexShrink: 0, textAlign: 'center',
-                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1,
+                      // En colonne, la flèche et son taux se posent côte à côte :
+                      // empilés, ils doubleraient la hauteur entre chaque marche.
+                      display: 'flex', flexDirection: isMobile ? 'row' : 'column',
+                      alignItems: 'center', gap: isMobile ? 7 : 1,
                     }}>
-                      <span style={{ color: '#c9c5bc', fontSize: 13, lineHeight: 1 }}>›</span>
+                      <span style={{ color: '#c9c5bc', fontSize: 13, lineHeight: 1, transform: isMobile ? 'rotate(90deg)' : 'none' }}>›</span>
                       {/* Coloré uniquement sur les marches de la séquence, où un
                           taux bas est un vrai défaut à corriger. Les marches
                           d'audience (vues → portée → commentaires) restent
@@ -2160,7 +2178,32 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
                 sur la flèche qui mène à la carte. Les deux flèches partent du
                 même bord — celui des lead magnets reçus — ce qui dit qu'elles
                 se partagent cette base au lieu de se suivre. */}
-            {branches.length > 0 && (
+            {/* En colonne, les deux issues suivent la chaîne l'une après l'autre,
+                chacune précédée de sa flèche — la disposition en deux colonnes
+                (une pile de flèches en regard d'une pile de cartes) ne tient que
+                si la chaîne est horizontale. Elles gardent leur taux, qui se
+                rapporte aux lead magnets reçus dans les deux cas. */}
+            {branches.length > 0 && isMobile && branches.map(b => (
+              <Fragment key={b.cle}>
+                <div style={{ alignSelf: 'center', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                  <span style={{ color: '#c9c5bc', fontSize: 13, lineHeight: 1, transform: 'rotate(90deg)' }}>›</span>
+                  {b.taux != null && (
+                    <span style={{ fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', color: b.taux >= 50 ? 'var(--green)' : RED }}>{b.taux} %</span>
+                  )}
+                </div>
+                <div style={{
+                  border: `1px solid ${BORDER}`, borderRadius: 10, background: SURFACE,
+                  padding: '7px 6px', textAlign: 'center',
+                }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: INK }}>{b.libelle}</div>
+                  <div style={{ fontSize: 17, fontWeight: 700, color: INK, fontVariantNumeric: 'tabular-nums', marginTop: 1 }}>
+                    {b.valeur.toLocaleString('fr-FR')}
+                  </div>
+                </div>
+              </Fragment>
+            ))}
+
+            {branches.length > 0 && !isMobile && (
               <>
                 <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
                   {branches.map(b => (
@@ -2666,10 +2709,14 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
       <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Mot-clé (reply à la story)</label>
       <input value={lmKeyword} onChange={e => setLmKeyword(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box' }} />
 
-      <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>DM 1 — lien + message ({'{{username}}'}, {'{{lien_lm}}'})</label>
+      {/* Une story n'a que deux messages là où un post en a cinq — les deux
+          modèles restent distincts (voir TODOS, « unifier les séquences DM »),
+          mais rien n'oblige à parler deux langues à l'écran : le premier porte le
+          lien, le second relance. Les mêmes mots que côté post. */}
+      <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Message du lien ({'{{username}}'}, {'{{lien_lm}}'})</label>
       <textarea value={dm1Message} onChange={e => setDm1Message(e.target.value)} rows={2} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box', resize: 'vertical' }} />
 
-      <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>DM 2 — message libre (envoyé juste après)</label>
+      <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Relance — message libre, envoyé juste après</label>
       <textarea value={dm2StoryMessage} onChange={e => setDm2StoryMessage(e.target.value)} rows={2} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box', resize: 'vertical' }} />
 
       {error && <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 10 }}>{error}</div>}
@@ -3103,8 +3150,14 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
             const copied = historyCopied === h.id;
             const isDeleting = deletingId === h.id;
             return (
-              <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', background: SURFACE, opacity: isDeleting ? 0.4 : 1, transition: 'opacity .15s' }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
+              // Cinq colonnes — pseudo, lien, date, clics, deux boutons — ne
+              // tiennent pas dans 390px : le lien court se tronquait à
+              // « link.ubize… », trop court pour distinguer un prospect d'un
+              // autre, alors que c'est précisément ce qu'on vient lire avant de
+              // copier. Sur mobile la ligne passe en deux temps : l'identité et
+              // le lien sur toute la largeur, les actions dessous.
+              <div key={h.id} style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: isMobile ? 8 : 12, padding: '11px 14px', background: SURFACE, opacity: isDeleting ? 0.4 : 1, transition: 'opacity .15s' }}>
+                <div style={{ flex: isMobile ? '1 1 100%' : 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
                     <span style={{ fontSize: 12.5, fontWeight: 600, color: INK, flexShrink: 0 }}>@{h.ig_username}</span>
                     {post && <span style={{ fontSize: 10, color: FAINT, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>· {post.platform} · {post.caption.slice(0, 22)}…</span>}
