@@ -7,24 +7,81 @@ const serviceSupabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-async function sendAdminAlert(profileId: string, label: string | null, reason: string) {
+/**
+ * Traduit le message technique de Meta en une phrase comprehensible, et dit quoi
+ * faire. Le message brut restait affiche tel quel : « Error validating access
+ * token: Session has expired on Thursday, 27-Aug-26 05:00:00 PDT » n'apprend rien
+ * a qui doit agir (retour de Chris, 2026-08-27).
+ */
+function expliquerRaison(brut: string): { cause: string; action: string } {
+  const t = brut.toLowerCase();
+  if (t.includes('session has expired') || t.includes('session expired')) {
+    return {
+      cause: "Le lien avec Instagram a expiré. Un accès Instagram dure 60 jours et se renouvelle tout seul, sauf s'il est resté trop longtemps sans être utilisé.",
+      action: "L'élève doit se reconnecter à Instagram depuis ses paramètres Momentum.",
+    };
+  }
+  if (t.includes('not authorized') || t.includes('revoked') || t.includes('has not authorized')) {
+    return {
+      cause: "L'accès à Instagram a été retiré. Cela arrive si le compte a été retiré des testeurs de l'application Meta, ou si l'élève a révoqué l'autorisation depuis Instagram.",
+      action: "Vérifie que le compte figure bien dans les testeurs de l'application Meta, puis demande à l'élève de se reconnecter depuis ses paramètres Momentum.",
+    };
+  }
+  if (t.includes('changed their password') || t.includes('password')) {
+    return {
+      cause: "L'élève a changé son mot de passe Instagram, ce qui coupe automatiquement l'accès.",
+      action: "L'élève doit se reconnecter à Instagram depuis ses paramètres Momentum.",
+    };
+  }
+  return {
+    cause: "Instagram refuse l'accès au compte.",
+    action: "Demande à l'élève de se reconnecter à Instagram depuis ses paramètres Momentum. Si le problème persiste, vérifie que le compte est toujours dans les testeurs de l'application Meta.",
+  };
+}
+
+async function sendAdminAlert(nomEleve: string, compteIg: string | null, brut: string) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
     console.error('[cron-refresh-tokens] RESEND_API_KEY manquant — email non envoyé');
     return false;
   }
+  const { cause, action } = expliquerRaison(brut);
+  const lien = `${process.env.NEXT_PUBLIC_PLATFORM_URL || 'https://momentum-plateforme.vercel.app'}/client/settings`;
+
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
     body: JSON.stringify({
       from: 'Momentum <noreply@ubizenai.com>',
       to: 'christianpenkov06@gmail.com',
-      subject: `[Momentum] Instagram déconnecté — ${label || profileId}`,
-      html: `<p>La collecte Instagram est <strong>arrêtée</strong> pour <strong>${label || profileId}</strong>.</p>
-             <p>Raison renvoyée par Meta : ${reason}</p>
-             <p>Rien ne repartira tout seul : un jeton révoqué ou expiré ne peut pas être renouvelé.
-             L'élève doit se reconnecter à Instagram depuis ses paramètres Momentum.</p>
-             <p>Tant que ce n'est pas fait, ses statistiques Instagram se figent à la date du jour.</p>`,
+      // Le nom de l'eleve dans l'objet : c'est la seule chose a savoir avant
+      // d'ouvrir. L'identifiant technique n'y a jamais sa place.
+      subject: `Instagram déconnecté — ${nomEleve}`,
+      html: `
+<div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:15px;line-height:1.55;color:#1a1815;max-width:560px">
+  <p style="font-size:17px;font-weight:600;margin:0 0 4px">Instagram ne collecte plus pour ${nomEleve}</p>
+  ${compteIg ? `<p style="margin:0 0 18px;color:#797569;font-size:13px">Compte concerné : ${compteIg}</p>` : '<p style="margin:0 0 18px"></p>'}
+
+  <p style="margin:0 0 6px"><strong>Ce qui s'est passé</strong></p>
+  <p style="margin:0 0 18px">${cause}</p>
+
+  <p style="margin:0 0 6px"><strong>Ce qu'il faut faire</strong></p>
+  <p style="margin:0 0 18px">${action}</p>
+
+  <p style="margin:0 0 6px"><strong>Si rien n'est fait</strong></p>
+  <p style="margin:0 0 22px">Les statistiques Instagram de ${nomEleve} restent figées à aujourd'hui.
+  Elles ne se rattraperont pas toutes seules : Instagram ne fournit certaines données que
+  pendant quelques jours, et ce qui est manqué au-delà est perdu.</p>
+
+  <p style="margin:0 0 24px">
+    <a href="${lien}" style="background:#1a1815;color:#fff;text-decoration:none;padding:10px 18px;border-radius:7px;font-weight:600;display:inline-block">Ouvrir les paramètres</a>
+  </p>
+
+  <p style="margin:0;padding-top:14px;border-top:1px solid #eeeae0;color:#797569;font-size:11px">
+    Un seul email est envoyé par panne, pas un par jour. Le prochain n'arrivera qu'après une reconnexion suivie d'une nouvelle coupure.<br>
+    Message renvoyé par Meta : ${brut}
+  </p>
+</div>`,
     }),
   }).catch(err => {
     console.error('[cron-refresh-tokens] Resend error:', err);
@@ -39,9 +96,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // Le nom de l'eleve vient de `profiles`, pas de `account_label` : ce dernier est
+  // souvent vide (1 integration sur 2 au 2026-08-27), et l'email retombait alors
+  // sur l'identifiant technique du profil — illisible pour qui doit agir.
   const { data: integrations, error } = await serviceSupabase
     .from('integrations')
-    .select('profile_id, expires_at, account_label, status, last_snapshot_error, token_alerte_envoyee_le')
+    .select('profile_id, expires_at, account_label, status, last_snapshot_error, token_alerte_envoyee_le, profiles!inner(full_name)')
     .eq('provider', 'instagram');
 
   if (error) {
@@ -100,7 +160,8 @@ export async function POST(request: Request) {
       return;
     }
 
-    const envoye = await sendAdminAlert(integ.profile_id, integ.account_label, raison);
+    const nomEleve = (integ as any).profiles?.full_name || integ.account_label || 'un élève';
+    const envoye = await sendAdminAlert(nomEleve, integ.account_label, raison);
     if (envoye) {
       results.emails_sent++;
       // Horodate seulement si l'envoi a REUSSI : sinon une panne de Resend
