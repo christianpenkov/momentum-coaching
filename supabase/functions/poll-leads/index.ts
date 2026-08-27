@@ -170,6 +170,29 @@ async function getIgCreds(profileId: string): Promise<{ token: string; igAccount
         .update({ status: 'failed', last_snapshot_status: 'error', last_snapshot_error: `ig_token: ${String(msg).slice(0, 200)}` })
         .eq('profile_id', profileId).eq('provider', 'instagram');
 
+      // Declenche l'alerte tout de suite, au lieu d'attendre le passage hebdomadaire
+      // du cron dedie : la detection passe d'une fois par semaine a moins d'une
+      // heure. Sur une donnee qu'Instagram ne sert que quelques jours, six jours de
+      // retard font perdre l'historique pour de bon.
+      //
+      // La route porte tout le reste — redaction du message, traduction de l'erreur
+      // Meta, et surtout le garde qui n'envoie qu'UN mail par panne. Sans lui, une
+      // detection horaire enverrait 24 mails par jour. Rien n'est duplique ici : une
+      // cinquieme copie d'une regle Instagram serait le defaut que ce projet paie
+      // deja cher ailleurs.
+      //
+      // Volontairement sans await et sans faire echouer la collecte : une panne de
+      // Resend ou de Vercel ne doit pas empecher le reste du passage. La route ne
+      // marque la colonne que si l'envoi a reussi, donc le prochain passage
+      // reessaiera de lui-meme.
+      try {
+        fetch(`${PLATFORM_URL}/api/instagram/cron-refresh-tokens`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${CRON_SECRET}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ profileId }),
+        }).catch(() => { /* sans effet sur la collecte */ });
+      } catch { /* idem */ }
+
       // On s'arrete LA. Auparavant la fonction renvoyait quand meme le jeton mort,
       // et le reste du passage l'utilisait : 3 appels Meta voues a l'echec par
       // heure, 3 lignes d'erreur dans cron_runs a chaque fois. Au bout d'une

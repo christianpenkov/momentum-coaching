@@ -96,13 +96,25 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // `profileId` optionnel : poll-leads appelle cette route pour UN profil des qu'il
+  // detecte un jeton mort, au lieu d'attendre le passage hebdomadaire. Le detail
+  // du message et le garde anti-repetition restent ici, en un seul endroit — les
+  // dupliquer dans l'Edge Function aurait cree une cinquieme copie d'une regle
+  // Instagram, ce que ce projet paie deja cher ailleurs.
+  //
+  // Sans `profileId`, la route parcourt tout, comme avant.
+  const corps = await request.json().catch(() => ({}));
+  const profileCible: string | null = corps?.profileId ?? null;
+
   // Le nom de l'eleve vient de `profiles`, pas de `account_label` : ce dernier est
   // souvent vide (1 integration sur 2 au 2026-08-27), et l'email retombait alors
   // sur l'identifiant technique du profil — illisible pour qui doit agir.
-  const { data: integrations, error } = await serviceSupabase
+  let requete = serviceSupabase
     .from('integrations')
     .select('profile_id, expires_at, account_label, status, last_snapshot_error, token_alerte_envoyee_le, profiles!inner(full_name)')
     .eq('provider', 'instagram');
+  if (profileCible) requete = requete.eq('profile_id', profileCible);
+  const { data: integrations, error } = await requete;
 
   if (error) {
     console.error('[cron-refresh-tokens] Erreur lecture integrations:', error.message);
