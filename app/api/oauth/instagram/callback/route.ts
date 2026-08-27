@@ -102,7 +102,13 @@ export async function GET(request: NextRequest) {
   // L'ancien code basculait dessus en silence, avec expires_at a NULL — l'integration
   // s'ecrivait « connectee » et mourait dans l'heure sans que rien ne le dise.
   if (!longTokenData.access_token || !longTokenData.expires_in) {
-    return echec('instagram_echange_jeton', longTokenData?.error ?? longTokenData);
+    // Une IGApiException code 100 ici n'est pas un incident passager : c'est deja le
+    // refus d'acces au compte, celui que /me renverrait juste apres. Lui laisser le
+    // message « reessayez dans quelques minutes » fait tourner l'utilisateur en rond —
+    // constate le 2026-08-27, deux reconnexions de suite, meme erreur a la seconde pres.
+    const err = longTokenData?.error;
+    if (err?.code === 100) return echec('instagram_jeton_inerte', err);
+    return echec('instagram_echange_jeton', err ?? longTokenData);
   }
   const accessToken: string = longTokenData.access_token;
   const expiresAt = new Date(Date.now() + longTokenData.expires_in * 1000).toISOString();
