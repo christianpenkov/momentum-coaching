@@ -2977,16 +2977,7 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
           celui des posts depuis l'unification. Les deux champs du milieu
           existaient déjà : `dm1Message` porte le lien, `dm2StoryMessage` relance.
           S'ajoutent l'accroche et les deux boutons, l'étape qui manquait aux
-          stories.
-
-          ⚠️ Ces trois nouveaux champs sont enregistrés mais pas encore envoyés :
-          le webhook bascule à l'étape suivante. Le bandeau ci-dessous le dit,
-          plutôt que de laisser croire que le parcours a déjà changé. */}
-      <div style={{ fontSize: 11.5, color: AMBER, background: AMBER_SOFT, border: `1px solid ${BORDER}`, borderRadius: 8, padding: '9px 11px', marginBottom: 14, lineHeight: 1.5 }}>
-        L’accroche et ses boutons sont enregistrés mais <strong>pas encore envoyés</strong> : pour l’instant,
-        le prospect reçoit toujours le message du lien directement, puis la relance.
-      </div>
-
+          stories. */}
       <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Accroche — 1ᵉʳ message, sans lien ({'{{username}}'})</label>
       <textarea value={dmLmMessage} onChange={e => setDmLmMessage(e.target.value)} rows={2} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box', resize: 'vertical' }} />
 
