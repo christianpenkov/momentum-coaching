@@ -1,4 +1,4 @@
-// SW v11 — push + coquille hors ligne + pastille persistante
+// SW v12 — push + coquille hors ligne + pastille persistante
 //
 // Strategie volontairement minimale, alignee sur les recommandations courantes :
 //   - navigations : RESEAU D'ABORD, repli sur /offline.html si le reseau echoue.
@@ -34,7 +34,7 @@ function swLog(event, data) {
 }
 
 self.addEventListener('install', e => {
-  swLog('install', { msg: 'SW v11 installing', ts: Date.now() });
+  swLog('install', { msg: 'SW v12 installing', ts: Date.now() });
   e.waitUntil(
     // L'ecran hors ligne doit etre en cache AVANT d'en avoir besoin : au moment
     // ou le reseau manque, il est trop tard pour le telecharger.
@@ -205,9 +205,18 @@ self.addEventListener('push', e => {
 // badge géré automatiquement par Android reste bloqué tant que la notif traîne.
 self.addEventListener('message', e => {
   if (e.data?.type === 'CLEAR_NOTIFICATIONS') {
-    swLog('clear_notifications_requested', e.data.tag || 'momentum-msg');
-    self.registration.getNotifications({ tag: e.data.tag || 'momentum-msg' })
-      .then(notifs => notifs.forEach(n => n.close()));
+    const tag = e.data.tag || 'momentum-msg';
+    self.registration.getNotifications({ tag })
+      .then(notifs => {
+        // On ne journalise QUE si quelque chose a reellement ete ferme. L'ordre
+        // etait auparavant trace a chaque reception, y compris quand le tiroir
+        // etait deja vide — soit la quasi-totalite des 43 000 lignes accumulees
+        // en deux semaines. Un journal doit enregistrer les evenements, pas les
+        // non-evenements.
+        if (notifs.length === 0) return;
+        swLog('clear_notifications_requested', { tag, closed: notifs.length });
+        notifs.forEach(n => n.close());
+      });
   }
 });
 

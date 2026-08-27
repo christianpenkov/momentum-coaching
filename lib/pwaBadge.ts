@@ -115,11 +115,26 @@ export function clearAppBadge() {
  * le nombre restant à traiter, lui, est recalculé par les hooks — l'effacer ici
  * supprimerait aussi les notifications de la cloche encore en attente.
  */
+const DISMISS_THROTTLE_MS = 3000;
+let lastDismissAt = 0;
+
 export function dismissDrawerNotifications() {
   if (typeof navigator === 'undefined') return;
-  if (navigator.serviceWorker?.controller) {
-    navigator.serviceWorker.controller.postMessage({ type: 'CLEAR_NOTIFICATIONS' });
-  }
+  if (!navigator.serviceWorker?.controller) return;
+
+  // Étranglé volontairement. L'appelant est `markMessageRead`, déclenché par
+  // l'IntersectionObserver de CHAQUE bulle : ouvrir une conversation de trente
+  // messages non lus émettait trente ordres en deux secondes, et le service
+  // worker écrivait une ligne en base pour chacun (43 000 lignes accumulées en
+  // deux semaines pour un seul testeur).
+  //
+  // Fermer le tiroir est idempotent : le refaire trente fois d'affilée ne ferme
+  // rien de plus. Un ordre par salve suffit.
+  const now = Date.now();
+  if (now - lastDismissAt < DISMISS_THROTTLE_MS) return;
+  lastDismissAt = now;
+
+  navigator.serviceWorker.controller.postMessage({ type: 'CLEAR_NOTIFICATIONS' });
 }
 
 /**

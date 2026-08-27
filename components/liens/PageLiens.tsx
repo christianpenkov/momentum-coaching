@@ -3820,12 +3820,14 @@ function RailContenus({ posts, rightView, ouvert, epingle, onRetour, onEpingler,
  * Les taux portent la lecture : vert quand ça passe, rouge quand ça décroche. C'est
  * la réponse à « où ça casse ? », pas un tableau de bord de plus.
  */
-function Entonnoir({ data, ouvert, onToggle, compact }: {
+function Entonnoir({ data, ouvert, onToggle, compact, mobile = false }: {
   data: { contenus: number; commentaires: number; accroches: number; liensCliques: number;
           tauxAccroches: number | null; tauxClics: number | null; pret: boolean };
   ouvert: boolean;
   onToggle: () => void;
   compact: boolean;
+  /** Rend la commande de pliage sous forme de pilule libellée, au doigt. */
+  mobile?: boolean;
 }) {
   // « Prospects » et non « Commentaires » : la source exclut ceux que le coach a
   // marqués « pas un lead » depuis le pipeline. Écrire « Commentaires » ferait
@@ -3853,7 +3855,14 @@ function Entonnoir({ data, ouvert, onToggle, compact }: {
     }}>
       {/* Le bandeau entier est cliquable — pas de bouton « déplier / replier » : un
           libellé d'action à côté d'un titre qui fait déjà la même chose est du
-          bruit. Le chevron suffit à dire que ça s'ouvre. */}
+          bruit. Le chevron suffit à dire que ça s'ouvre.
+
+          Sur mobile, non : un chevron de 13px sans contour ne se lit pas comme une
+          commande, et le doigt ne sait pas où viser. La commande y prend la forme
+          d'une pilule libellée, contour visible et cible de 36px. Elle reste un
+          `span` : le bandeau tout entier est déjà le bouton, imbriquer deux
+          `button` serait invalide — et la pilule gagne au passage toute la
+          largeur de la ligne comme surface de frappe. */}
       <button onClick={onToggle} style={{
         display: 'flex', alignItems: 'center', gap: 10, width: '100%',
         background: 'none', border: 'none', cursor: 'pointer', padding: 0,
@@ -3864,10 +3873,26 @@ function Entonnoir({ data, ouvert, onToggle, compact }: {
           flex: 1, font: "600 10px 'IBM Plex Mono', monospace", letterSpacing: '.07em',
           textTransform: 'uppercase', color: MUTED,
         }}>Du contenu au prospect</span>
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={MUTED} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-          style={{ flexShrink: 0, transform: ouvert ? 'rotate(180deg)' : 'none', transition: `transform var(--dur-quick) var(--ease-out)` }}>
-          <polyline points="6 9 12 15 18 9"/>
-        </svg>
+
+        {mobile ? (
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0,
+            minHeight: 36, padding: '0 12px', borderRadius: 999,
+            border: `1px solid ${BORDER}`, background: SURFACE2,
+            fontSize: 12.5, fontWeight: 600, color: INK,
+          }}>
+            {ouvert ? 'Masquer' : 'Voir'}
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
+              style={{ transform: ouvert ? 'rotate(180deg)' : 'none', transition: `transform var(--dur-quick) var(--ease-out)` }}>
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </span>
+        ) : (
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={MUTED} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+            style={{ flexShrink: 0, transform: ouvert ? 'rotate(180deg)' : 'none', transition: `transform var(--dur-quick) var(--ease-out)` }}>
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        )}
       </button>
 
       {ouvert && (
@@ -4613,6 +4638,18 @@ export default function PageLiens() {
 
   const [funnelOuvert, setFunnelOuvert] = useState(true);
 
+  // État distinct pour l'entonnoir du panneau mobile, replié par défaut.
+  //
+  // Les deux panneaux (desktop et mobile) rendent chacun leur `Entonnoir` ; l'un
+  // des deux est masqué en CSS. Un état partagé aurait donc replié aussi celui
+  // du desktop, où la place ne manque pas. Un état constant à `false` évite au
+  // passage la désynchronisation d'hydratation qu'aurait produite une lecture de
+  // la largeur de fenêtre dans l'initialiseur.
+  //
+  // Sur 390px, l'entonnoir déplié occupait le premier écran entier : on arrivait
+  // sur un tableau de bord là où l'on venait chercher la liste de ses contenus.
+  const [funnelOuvertMobile, setFunnelOuvertMobile] = useState(false);
+
   // « Sans lead magnet » se combine aux filtres de plateforme plutôt que de les
   // remplacer : la question « lesquels de mes Reels ne sont pas configurés ? »
   // est justement celle qui fait ouvrir cette page.
@@ -4748,6 +4785,16 @@ export default function PageLiens() {
     else unsavedGuardApi.guard(() => setRightView({ type: 'lm-library' }));
   };
 
+  // Même aiguillage que ci-dessus, et pour la même raison : `setRightView`
+  // alimente le panneau de droite du desktop, que le mobile masque
+  // (`.liens-desktop-only`). Sans ce branchement, le bouton de l'en-tête
+  // s'enfonçait sans que rien ne s'ouvre — le seul accès au Calendly prospect
+  // sur mobile passait par le bouton dupliqué au milieu de la page.
+  const handleHeaderProspect = () => {
+    if (isMobile) openMobileDetail({ type: 'prospect' });
+    else unsavedGuardApi.guard(() => { setRightView({ type: 'prospect' }); setMenuEpingle(false); setSurvolMenu(false); });
+  };
+
   return (
     <UnsavedGuardContext.Provider value={unsavedGuardApi}>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } } @keyframes pulse { 0%, 100% { opacity: .5 } 50% { opacity: 1 } }`}</style>
@@ -4847,7 +4894,7 @@ export default function PageLiens() {
 
             {/* Ardoise : c'est une vue de même niveau qu'un contenu, pas une action
                 secondaire. Le hi-fi lui réserve l'accent de marque. */}
-            <button onClick={() => unsavedGuardApi.guard(() => { setRightView({ type: 'prospect' }); setMenuEpingle(false); setSurvolMenu(false); })} aria-label="Lien Calendly prospect" style={{
+            <button onClick={handleHeaderProspect} aria-label="Lien Calendly prospect" style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 15px', fontSize: 12.5, fontWeight: 600,
               borderRadius: 8, cursor: 'pointer', border: 'none', flexShrink: 0,
               background: BLUE, color: '#fff', transition: `all var(--dur-quick) var(--ease-out)`,
@@ -4893,10 +4940,18 @@ export default function PageLiens() {
                   ouverte vers le haut à droite : l'aimant est plein cadre, donc
                   l'inclinaison ne lui coûte plus sa lisibilité. */}
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <g transform="rotate(45 12 12)">
-                  <path d="M4 8 L4 12.6 A8 8 0 0 0 20 12.6 L20 8 L15.4 8 L15.4 12.6 A3.4 3.4 0 0 1 8.6 12.6 L8.6 8 Z"/>
-                  <path d="M4 3.6 h4.6 v3.6 h-4.6 z"/>
-                  <path d="M15.4 3.6 h4.6 v3.6 h-4.6 z"/>
+                {/* Recentrage mesuré, pas estimé : tourné à 45°, le dessin occupe
+                    23,3 unités sur 24 et son centre tombe à (11,93 / 12,07). Il
+                    touchait donc les bords quand ses voisines gardent une marge,
+                    ce qui le faisait paraître trop haut et trop à droite. On le
+                    ramène à 20 unités — le gabarit des autres icônes — et on pose
+                    son centre exactement sur celui du cadre. */}
+                <g transform="translate(12 12) scale(0.857) translate(-11.93 -12.07)">
+                  <g transform="rotate(45 12 12)">
+                    <path d="M4 8 L4 12.6 A8 8 0 0 0 20 12.6 L20 8 L15.4 8 L15.4 12.6 A3.4 3.4 0 0 1 8.6 12.6 L8.6 8 Z"/>
+                    <path d="M4 3.6 h4.6 v3.6 h-4.6 z"/>
+                    <path d="M15.4 3.6 h4.6 v3.6 h-4.6 z"/>
+                  </g>
                 </g>
               </svg>
               <span className="liens-btn-label">Lead magnet</span>
@@ -4918,40 +4973,13 @@ export default function PageLiens() {
         <div className="liens-mobile-panel" style={{ display: 'none', flex: 1, overflowY: 'auto', padding: '16px 14px' }}>
           {(
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <Entonnoir data={funnel} ouvert={funnelOuvert} onToggle={() => setFunnelOuvert(v => !v)} compact={false} />
+              <Entonnoir data={funnel} ouvert={funnelOuvertMobile} onToggle={() => setFunnelOuvertMobile(v => !v)} compact={false} mobile />
 
-              {/* Les deux mêmes CTA qu'en desktop, où ils vivent sur la ligne de
-                  titre. Le mobile n'avait que le Calendly : la bibliothèque de
-                  lead magnets n'était atteignable d'aucune façon. */}
-              {/* Boutons pleins, comme le hi-fi : ce sont les deux actions du
-                  haut de page, elles doivent porter plus que la liste. Le
-                  Calendly prend l'accent, le LM l'encre — deux actions de rang
-                  égal mais de nature différente. Le libellé « LM » est abrégé :
-                  à côté d'un bouton pleine largeur, « Lead magnet » forçait un
-                  retour à la ligne sur 390px. */}
-              <div style={{ display: 'flex', gap: 9 }}>
-                <button onClick={() => openMobileDetail({ type: 'prospect' })} style={{
-                  flex: 1, minWidth: 0, minHeight: 48, padding: '0 14px', fontSize: 12.5, fontWeight: 600, borderRadius: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, boxSizing: 'border-box',
-                  border: 'none', background: BLUE, color: '#fff',
-                }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                    <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" />
-                    <line x1="3" y1="10" x2="21" y2="10" />
-                    <line x1="12" y1="14" x2="12" y2="18" /><line x1="10" y1="16" x2="14" y2="16" />
-                  </svg>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Calendly prospect</span>
-                </button>
-
-                <button onClick={() => openMobileDetail({ type: 'lm-library' })} style={{
-                  flexShrink: 0, minHeight: 48, padding: '0 16px', fontSize: 12.5, fontWeight: 600, borderRadius: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, boxSizing: 'border-box',
-                  border: 'none', background: INK, color: 'var(--bg)',
-                }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                  LM
-                </button>
-              </div>
-
+              {/* Pas de CTA Calendly / Lead magnet ici : ils sont déjà dans
+                  l'en-tête, juste au-dessus, et y fonctionnent depuis que le
+                  bouton Calendly aiguille vers la vue mobile. Les répéter au
+                  milieu de la page repoussait la liste — le contenu qu'on vient
+                  chercher — sous la ligne de flottaison. */}
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un contenu…"
                 style={{ width: '100%', minHeight: 44, padding: '10px 14px', fontSize: 14, borderRadius: 10, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, outline: 'none', boxSizing: 'border-box' }} />
 
