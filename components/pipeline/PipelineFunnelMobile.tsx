@@ -15,11 +15,16 @@ import Icon from '@/components/ui/Icon';
  * bascule .pipeline-desktop / .pipeline-mobile dans globals.css). Le desktop
  * reste strictement inchangé.
  *
- * Les no-shows sont sortis de l'entonnoir et regroupés à part : dans le
- * pipeline actuel, un no-show renvoie le lead à sa meilleure étape connue
- * (getBestKnownStage) avec un badge rouge, donc il se fond dans une étape
- * antérieure et devient invisible. Ici il a sa propre section, parce que c'est
- * une liste sur laquelle on agit — relancer — pas une étape de progression.
+ * ── DEUX AXES, COMME LE DESKTOP ───────────────────────────────────────────────
+ *
+ * L'entonnoir montre la PROGRESSION (les étapes). Les issues sont en dessous,
+ * dans une grille : ce ne sont pas des étapes plus avancées, ce sont des
+ * résultats. Les empiler dans le même entonnoir donnait « 3 show up » au-dessus
+ * de « 4 closés », ce qui n'a aucun sens dans un tunnel.
+ *
+ * Avant la refonte du 2026-08-27, ce fichier construisait sa propre liste de
+ * no-shows en filtrant sur un badge. Ce badge n'existe plus — no-show est une
+ * issue à part entière — et la section était devenue vide.
  */
 
 export interface FunnelCard {
@@ -27,9 +32,14 @@ export interface FunnelCard {
   name: string;
   sub: string;
   date: string;
+  /** La case où la carte se range : l'issue si le lead est classé, l'étape sinon. */
   stageKey: string;
   stageIdx: number;
+  /** L'étape réellement atteinte, conservée même quand le lead est classé. */
+  stage?: string;
+  issue?: string | null;
   badge?: 'no_show' | 'rescheduled' | 'not_qualified' | 'to_recontact' | null;
+  rapportEnRetard?: boolean;
   avatarUrl?: string | null;
 }
 
@@ -45,9 +55,14 @@ export interface FunnelStage {
 // ligne a 375px et forcaient soit la troncature a mi-mot, soit un passage a deux
 // lignes qui rallongeait tout l'entonnoir. Le sens est conserve, le desktop
 // garde les intitules longs.
+// `lm_sent` portait « LM reçu », ce qui est devenu faux avec la refonte : cette
+// étape veut dire « il a commenté », et « reçu » est l'étape SUIVANTE, celle du
+// clic sur le bouton du DM1. Garder l'ancien libellé aurait fait lire deux fois
+// « reçu » dans l'entonnoir, sur deux étapes différentes.
 const SHORT_LABELS: Record<string, string> = {
-  lm_sent: 'LM reçu',
-  link_clicked: 'Lien cliqué',
+  lm_sent: 'Commentaire',
+  lm_received: 'LM reçu',
+  calendly_sent: 'Calendly',
 };
 function shortLabel(key: string, label: string): string {
   return SHORT_LABELS[key] ?? label;
@@ -84,7 +99,11 @@ function LeadRow({ card, onClick }: { card: FunnelCard; onClick?: () => void }) 
       ) : (
         <span style={{
           width: 32, height: 32, borderRadius: 9, flexShrink: 0,
-          background: colorFor(card.key), color: '#fff',
+          // `card.name` et non `card.key` : le desktop dérive la couleur du nom.
+          // Avec la clé, un lead venu d'un lien (dont la clé est un identifiant
+          // technique) changeait de couleur entre le mobile et l'ordinateur —
+          // la même personne, deux pastilles différentes.
+          background: colorFor(card.name), color: '#fff',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 11, fontWeight: 700,
         }}>{initialsOf(card.name)}</span>
@@ -97,25 +116,41 @@ function LeadRow({ card, onClick }: { card: FunnelCard; onClick?: () => void }) 
           {card.sub}
         </span>
       </span>
+      {/* Les badges existaient dans le type sans être affichés nulle part : sur
+          mobile, rien ne distinguait un rendez-vous reporté d'un rendez-vous
+          normal, ni un rapport en retard. */}
+      {(card.rapportEnRetard || card.badge === 'rescheduled') && (
+        <span style={{
+          fontSize: 9.5, fontWeight: 700, borderRadius: 5, padding: '2px 6px',
+          flexShrink: 0, whiteSpace: 'nowrap',
+          background: card.rapportEnRetard ? 'var(--red-soft)' : '#fffbeb',
+          color: card.rapportEnRetard ? '#cd5b3f' : '#b58025',
+          border: `1px solid ${card.rapportEnRetard ? '#e2b3a5' : '#f0dcb0'}`,
+        }}>
+          {card.rapportEnRetard ? 'À remplir' : 'Reporté'}
+        </span>
+      )}
       <span style={{ fontSize: 11, color: 'var(--faint)', flexShrink: 0 }}>{card.date}</span>
     </button>
   );
 }
 
 export default function PipelineFunnelMobile({
-  cards, stages, onCardClick,
+  cards, stages, issues = [], onCardClick,
 }: {
   cards: FunnelCard[];
   stages: readonly FunnelStage[];
+  /** Les issues. Vide = comportement d'avant la refonte, entonnoir seul. */
+  issues?: readonly FunnelStage[];
   onCardClick?: (key: string) => void;
 }) {
   const [openStage, setOpenStage] = useState<string | null>(null);
 
-  // Les no-shows sortent de l'entonnoir : ils ne représentent pas une étape
-  // franchie mais une action en attente. Les laisser dans leur étape d'origine
-  // les rendrait indistinguables des leads qui progressent normalement.
-  const noShows = cards.filter(c => c.badge === 'no_show');
-  const inFunnel = cards.filter(c => c.badge !== 'no_show');
+  // L'entonnoir ne montre que la progression. Un lead classé n'y figure plus :
+  // il est descendu dans les issues, où il attend une décision et non une étape
+  // de plus.
+  const issueKeys = new Set(issues.map(i => i.key));
+  const inFunnel = cards.filter(c => !issueKeys.has(c.stageKey));
 
   const byStage = stages.map(s => ({
     stage: s,
@@ -123,25 +158,21 @@ export default function PipelineFunnelMobile({
   }));
   const max = Math.max(1, ...byStage.map(b => b.list.length));
 
-  // Le call a deux issues opposees : la personne est venue, ou pas. Les empiler
-  // l'une sous l'autre les ferait lire comme deux etapes successives, alors que
-  // c'est une bifurcation — d'ou les deux colonnes cote a cote.
-  //
-  // No-show a GAUCHE (l'echec, la liste sur laquelle on agit), Show up a DROITE
-  // (la progression, qui continue vers Closé juste en dessous).
-  const linear = byStage.filter(b => b.stage.key !== 'showed_up' && b.stage.key !== 'closed');
-  const showUp = byStage.find(b => b.stage.key === 'showed_up');
-  const closed = byStage.find(b => b.stage.key === 'closed');
+  const byIssue = issues.map(i => ({
+    stage: i,
+    list: cards.filter(c => c.stageKey === i.key),
+  }));
 
-  const selected = openStage ? byStage.find(b => b.stage.key === openStage) : null;
-  const showingNoShows = openStage === '__noshow';
+  const selected = openStage
+    ? [...byStage, ...byIssue].find(b => b.stage.key === openStage)
+    : null;
 
-  // ── Niveau 2 : leads d'une étape (ou les no-shows) ──
-  if (selected || showingNoShows) {
-    const label = showingNoShows ? 'No-show' : selected!.stage.label;
-    const color = showingNoShows ? 'var(--red)' : selected!.stage.color;
-    const bg = showingNoShows ? 'var(--red-soft)' : selected!.stage.lightBg;
-    const list = showingNoShows ? noShows : selected!.list;
+  // ── Niveau 2 : les leads d'une étape ou d'une issue ──
+  if (selected) {
+    const label = selected.stage.label;
+    const color = selected.stage.color;
+    const bg = selected.stage.lightBg;
+    const list = selected.list;
 
     return (
       <div>
@@ -245,32 +276,36 @@ export default function PipelineFunnelMobile({
 
   return (
     <div className="funnel-list" style={{ display: 'flex', flexDirection: 'column' }}>
-      {linear.map(b => <StageRow key={b.stage.key} b={b} />)}
+      {byStage.map(b => <StageRow key={b.stage.key} b={b} />)}
 
-      {/* Bifurcation : après le call, deux issues opposées. Les empiler les
-          ferait lire comme deux étapes successives, alors que c'en est une qui
-          se scinde. No-show à gauche (l'échec, sur lequel on agit), Show up à
-          droite (la progression, qui continue vers Closé juste en dessous). */}
-      <div style={{ display: 'flex', gap: 7, marginTop: 3 }}>
-        <OutcomeRow
-          label="No-show"
-          count={noShows.length}
-          color="#cd5b3f"
-          bg="var(--red-soft)"
-          onOpen={() => setOpenStage('__noshow')}
-        />
-        {showUp && (
-          <OutcomeRow
-            label={showUp.stage.label}
-            count={showUp.list.length}
-            color={showUp.stage.color}
-            bg={showUp.stage.lightBg}
-            onOpen={() => setOpenStage(showUp.stage.key)}
-          />
-        )}
-      </div>
-
-      {closed && <div style={{ marginTop: 3 }}><StageRow b={closed} /></div>}
+      {/* Les issues sous l'entonnoir, en grille de deux. Elles n'ont ni barre de
+          progression ni ordre entre elles : aucune n'est « après » une autre, et
+          leur donner une barre proportionnelle laisserait croire le contraire.
+          Une issue vide garde sa place — elle se remplira, et la voir bouger
+          d'un jour à l'autre ferait perdre le repère. */}
+      {byIssue.length > 0 && (
+        <>
+          <div style={{
+            fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em',
+            textTransform: 'uppercase', color: 'var(--muted)',
+            marginTop: 14, marginBottom: 7,
+          }}>
+            Issues
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7 }}>
+            {byIssue.map(b => (
+              <OutcomeRow
+                key={b.stage.key}
+                label={b.stage.label}
+                count={b.list.length}
+                color={b.stage.color}
+                bg={b.stage.lightBg}
+                onOpen={() => setOpenStage(b.stage.key)}
+              />
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -2404,6 +2404,7 @@ export default function PagePipeline() {
           <PipelineFunnelMobile
             cards={cards}
             stages={stages}
+            issues={ISSUES}
             onCardClick={cardKey => setDetailModal({ cardKey, platform: tab })}
           />
         </div>
