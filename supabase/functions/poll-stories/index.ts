@@ -62,12 +62,24 @@ async function getIgCreds(profileId: string): Promise<{ token: string; igAccount
     if (d.access_token) {
       token = d.access_token;
       const expiresAt = d.expires_in ? new Date(Date.now() + d.expires_in * 1000).toISOString() : null;
-      await supa.from('integrations').update({ access_token: token, expires_at: expiresAt })
+      await supa.from('integrations').update({ access_token: token, expires_at: expiresAt, status: 'ok', last_snapshot_error: null })
         .eq('profile_id', profileId).eq('provider', 'instagram');
     } else {
-      // Un refus signifie presque toujours un jeton revoque : sans cette trace,
-      // l'echec est totalement invisible.
-      console.error(`[poll-stories] ig_token_refresh_failed profile=${profileId}: ${d?.error?.message || 'refus'}`);
+      // Un refus signifie presque toujours un jeton revoque.
+      //
+      // La trace allait dans les logs, que personne ne lit et qui ne survivent pas
+      // a la retention — la regle du projet l'interdit explicitement pour
+      // diagnostiquer. Elle va desormais en base, ou le bandeau de l'interface et
+      // le cron d'alerte la voient.
+      //
+      // Et surtout : on renvoie null. Auparavant la fonction rendait quand meme le
+      // jeton mort, et la suite du passage l'utilisait pour des appels voues a
+      // l'echec (troisieme copie du meme defaut, avec poll-leads et lib/ig-fetch).
+      const msg = d?.error?.message || 'refresh refuse';
+      await supa.from('integrations')
+        .update({ status: 'failed', last_snapshot_status: 'error', last_snapshot_error: `ig_token: ${String(msg).slice(0, 200)}` })
+        .eq('profile_id', profileId).eq('provider', 'instagram');
+      return null;
     }
   }
 

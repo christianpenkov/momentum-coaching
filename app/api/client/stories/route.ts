@@ -38,7 +38,7 @@ export async function GET(request: Request) {
 
   const { data: stories, error } = await serviceSupabase
     .from('ig_stories')
-    .select('id, ig_story_id, storage_url, permalink, posted_at, expired_at, sequence_id, story_sequences!ig_stories_sequence_id_fkey(name, cta_story_id, lm_id, lm_keyword, dm1_message, dm2_story_message, calendly_short_url)')
+    .select('id, ig_story_id, storage_url, permalink, posted_at, expired_at, sequence_id, story_sequences!ig_stories_sequence_id_fkey(name, cta_story_id, lm_id, lm_keyword, dm_lm_message, dm_button_text, dm1_message, dm_link_button_text, dm2_story_message, calendly_short_url)')
     .eq('profile_id', targetProfileId)
     .is('archived_at', null)
     .order('posted_at', { ascending: false })
@@ -105,7 +105,10 @@ export async function GET(request: Request) {
     cta_story_id: s.story_sequences?.cta_story_id ?? null,
     lm_id: s.story_sequences?.lm_id ?? null,
     lm_keyword: s.story_sequences?.lm_keyword ?? null,
+    dm_lm_message: s.story_sequences?.dm_lm_message ?? null,
+    dm_button_text: s.story_sequences?.dm_button_text ?? null,
     dm1_message: s.story_sequences?.dm1_message ?? null,
+    dm_link_button_text: s.story_sequences?.dm_link_button_text ?? null,
     dm2_story_message: s.story_sequences?.dm2_story_message ?? null,
     calendly_short_url: s.story_sequences?.calendly_short_url ?? null,
     // Toutes les metriques, alignees sur ce que la route des SEQUENCES exposait deja

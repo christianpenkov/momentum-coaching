@@ -169,6 +169,21 @@ async function getIgCreds(profileId: string): Promise<{ token: string; igAccount
         // last_snapshot_error.
         .update({ status: 'failed', last_snapshot_status: 'error', last_snapshot_error: `ig_token: ${String(msg).slice(0, 200)}` })
         .eq('profile_id', profileId).eq('provider', 'instagram');
+
+      // On s'arrete LA. Auparavant la fonction renvoyait quand meme le jeton mort,
+      // et le reste du passage l'utilisait : 3 appels Meta voues a l'echec par
+      // heure, 3 lignes d'erreur dans cron_runs a chaque fois. Au bout d'une
+      // journee la table devenait illisible et cessait d'etre un outil de
+      // diagnostic — exactement ce que « table vide = aucun incident » promet.
+      //
+      // Un refus de rafraichissement est definitif : ni l'heure suivante ni le
+      // lendemain n'y changeront quoi que ce soit, seul l'utilisateur peut
+      // reconnecter son compte. L'information est deja tracee juste au-dessus
+      // (status failed + last_snapshot_error), c'est elle qui alimente le bandeau.
+      //
+      // Constate le 2026-08-27 : un compte retire des testeurs de l'app Meta voit
+      // ses jetons revoques a l'instant, et produisait ensuite 72 erreurs par jour.
+      return null;
     }
   }
 

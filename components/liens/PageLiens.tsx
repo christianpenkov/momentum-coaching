@@ -96,6 +96,11 @@ interface Post {
   sequenceStoryCount?: number;
   ctaStoryId?: string | null;
   lmId?: string | null;
+  // Séquence DM d'une story. Elle réutilise dmLmMessage / dmButtonText /
+  // dmLinkButtonText déclarés plus haut pour les posts — c'est tout l'objet de
+  // l'unification, les deux modèles portent les mêmes rôles. Restent ces deux-là,
+  // dont les noms de colonnes gardent la numérotation d'origine : dm1Message
+  // porte le lien, dm2StoryMessage est la relance.
   dm1Message?: string | null;
   dm2StoryMessage?: string | null;
   calendlyShortUrl?: string | null;
@@ -2889,9 +2894,28 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
   onSaved: (affectedPostIds: string[], patch: Partial<Post>) => void;
 }) {
   const isConfigured = !!primary.lmKeyword;
+  // Même source que l'aperçu des posts : le coach doit se reconnaître dans le
+  // fil, c'est ce qui rend la projection crédible. Repli neutre si aucun compte
+  // n'est connecté — la séquence peut se préparer avant la connexion.
+  const { data: igCompte } = useQuery({
+    queryKey: ['liens-ig', profileId],
+    queryFn: () => fetch(`/api/instagram/stats?profileId=${profileId}`).then(r => r.json()),
+    enabled: !!profileId,
+    staleTime: 5 * 60 * 1000,
+  });
+  const igNom = igCompte?.name || 'Ton compte';
+  const igPseudo = igCompte?.username || 'ton_compte';
+  const igPhoto: string | null = igCompte?.profilePicture ?? null;
+  const isMobileApercu = useIsMobile();
   const [lmId, setLmId] = useState(leadMagnets[0]?.id || '');
   const [lmKeyword, setLmKeyword] = useState(primary.lmKeyword || leadMagnets[0]?.keyword || '');
+  // Les cinq messages du parcours, dans l'ordre où le prospect les reçoit. Les
+  // noms d'état gardent ceux des colonnes : `dm1Message` est le message du lien
+  // et `dm2StoryMessage` la relance (voir la migration d'unification).
+  const [dmLmMessage, setDmLmMessage] = useState(primary.dmLmMessage || "Salut {{username}} ! Je t'envoie ça tout de suite 👇");
+  const [dmButtonText, setDmButtonText] = useState(primary.dmButtonText || '🚀 Je veux le lien !');
   const [dm1Message, setDm1Message] = useState(primary.dm1Message || '👋 {{username}} voici ton lien : {{lien_lm}}');
+  const [dmLinkButtonText, setDmLinkButtonText] = useState(primary.dmLinkButtonText || '📖 Accéder au lien');
   const [dm2StoryMessage, setDm2StoryMessage] = useState(primary.dm2StoryMessage || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2904,11 +2928,11 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
       if (isExistingSequence) {
         const res = await fetch('/api/client/story-sequences', {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: primary.sequenceId, lmKeyword, dm1Message, dm2StoryMessage }),
+          body: JSON.stringify({ id: primary.sequenceId, lmKeyword, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage }),
         });
         const data = await res.json();
         if (!res.ok) { setError(data.error || 'Erreur'); return; }
-        onSaved([primary.id], { lmKeyword, dm1Message, dm2StoryMessage, hasLeadMagnet: true });
+        onSaved([primary.id], { lmKeyword, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage, hasLeadMagnet: true });
         setSaved(true); setTimeout(() => setSaved(false), 2000);
         return;
       }
@@ -2916,11 +2940,11 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
       const lm = leadMagnets.find(l => l.id === lmId);
       const res = await fetch('/api/client/story-sequences', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profileId, name, ctaStoryId, storyIds, lmId, lmKeyword, lmUrl: lm?.url, dm1Message, dm2StoryMessage }),
+        body: JSON.stringify({ profileId, name, ctaStoryId, storyIds, lmId, lmKeyword, lmUrl: lm?.url, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || 'Erreur'); return; }
-      onSaved(storyIds, { sequenceId: data.id, sequenceName: name, sequenceStoryCount: storyIds.length, ctaStoryId, lmId, lmKeyword, dm1Message, dm2StoryMessage, hasLeadMagnet: true });
+      onSaved(storyIds, { sequenceId: data.id, sequenceName: name, sequenceStoryCount: storyIds.length, ctaStoryId, lmId, lmKeyword, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage, hasLeadMagnet: true });
     } catch (e: any) {
       setError(e.message || 'Erreur réseau');
     } finally { setSaving(false); }
@@ -2949,15 +2973,51 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
       <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Mot-clé (reply à la story)</label>
       <input value={lmKeyword} onChange={e => setLmKeyword(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box' }} />
 
-      {/* Une story n'a que deux messages là où un post en a cinq — les deux
-          modèles restent distincts (voir TODOS, « unifier les séquences DM »),
-          mais rien n'oblige à parler deux langues à l'écran : le premier porte le
-          lien, le second relance. Les mêmes mots que côté post. */}
+      {/* Le parcours complet, dans l'ordre où le prospect le reçoit — le même que
+          celui des posts depuis l'unification. Les deux champs du milieu
+          existaient déjà : `dm1Message` porte le lien, `dm2StoryMessage` relance.
+          S'ajoutent l'accroche et les deux boutons, l'étape qui manquait aux
+          stories.
+
+          ⚠️ Ces trois nouveaux champs sont enregistrés mais pas encore envoyés :
+          le webhook bascule à l'étape suivante. Le bandeau ci-dessous le dit,
+          plutôt que de laisser croire que le parcours a déjà changé. */}
+      <div style={{ fontSize: 11.5, color: AMBER, background: AMBER_SOFT, border: `1px solid ${BORDER}`, borderRadius: 8, padding: '9px 11px', marginBottom: 14, lineHeight: 1.5 }}>
+        L’accroche et ses boutons sont enregistrés mais <strong>pas encore envoyés</strong> : pour l’instant,
+        le prospect reçoit toujours le message du lien directement, puis la relance.
+      </div>
+
+      <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Accroche — 1ᵉʳ message, sans lien ({'{{username}}'})</label>
+      <textarea value={dmLmMessage} onChange={e => setDmLmMessage(e.target.value)} rows={2} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box', resize: 'vertical' }} />
+
+      <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Bouton de l’accroche — demande le lien · 20 car. max</label>
+      <input value={dmButtonText} onChange={e => setDmButtonText(e.target.value.slice(0, 20))} maxLength={20} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box' }} />
+
       <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Message du lien ({'{{username}}'}, {'{{lien_lm}}'})</label>
       <textarea value={dm1Message} onChange={e => setDm1Message(e.target.value)} rows={2} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box', resize: 'vertical' }} />
 
+      <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Bouton du lien — l’ouvre · 20 car. max</label>
+      <input value={dmLinkButtonText} onChange={e => setDmLinkButtonText(e.target.value.slice(0, 20))} maxLength={20} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box' }} />
+
       <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Relance — message libre, envoyé juste après</label>
       <textarea value={dm2StoryMessage} onChange={e => setDm2StoryMessage(e.target.value)} rows={2} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box', resize: 'vertical' }} />
+
+      {/* Le même aperçu que les posts, alimenté par les mêmes cinq champs — c'est
+          la contrepartie visible de l'unification : une séquence de stories se
+          relit désormais comme une conversation, pas comme un formulaire. */}
+      <div style={{ marginBottom: 14 }}>
+        <span style={{ display: 'block', font: "600 10px 'IBM Plex Mono', monospace", letterSpacing: '.07em', textTransform: 'uppercase', color: MUTED, marginBottom: 8 }}>
+          Ce que le prospect verra
+        </span>
+        <div style={{ display: 'flex', justifyContent: 'center' }}>
+          <IgFil
+            seq={{ accroche: dmLmMessage, accrocheBtn: dmButtonText, lien: dm1Message, lienBtn: dmLinkButtonText, relance: dm2StoryMessage }}
+            pseudo={igPseudo} avatarUrl={igPhoto} nom={igNom}
+            sc={isMobileApercu ? 1 : 314 / 390}
+            sansCadre={isMobileApercu}
+          />
+        </div>
+      </div>
 
       {error && <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 10 }}>{error}</div>}
 
@@ -4826,7 +4886,10 @@ export default function PageLiens() {
         ctaStoryId: s.cta_story_id ?? null,
         lmId: s.lm_id ?? null,
         lmKeyword: s.lm_keyword ?? undefined,
+        dmLmMessage: s.dm_lm_message ?? null,
+        dmButtonText: s.dm_button_text ?? null,
         dm1Message: s.dm1_message ?? null,
+        dmLinkButtonText: s.dm_link_button_text ?? null,
         dm2StoryMessage: s.dm2_story_message ?? null,
         calendlyShortUrl: s.calendly_short_url ?? null,
         hasLeadMagnet: !!s.lm_keyword,

@@ -26,7 +26,11 @@ export async function GET() {
 
   const { data: sequences, error } = await serviceSupabase
     .from('story_sequences')
-    .select('id, name, cta_story_id, lm_id, lm_keyword, lm_url, dm1_message, dm2_story_message, calendly_short_url, created_at')
+    // Les trois champs de l'étape du bouton accompagnent désormais les deux
+    // messages historiques : `dm1_message` est le message du lien et
+    // `dm2_story_message` la relance, malgré leurs noms (voir la migration
+    // story_sequences_dm_unification).
+    .select('id, name, cta_story_id, lm_id, lm_keyword, lm_url, dm_lm_message, dm_button_text, dm1_message, dm_link_button_text, dm2_story_message, calendly_short_url, created_at')
     .eq('profile_id', user.id)
     .order('created_at', { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -106,7 +110,7 @@ export async function POST(request: Request) {
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
 
-  const { name, ctaStoryId, storyIds, lmId, lmKeyword, lmUrl, dm1Message, dm2StoryMessage, wantsCalendly } = body;
+  const { name, ctaStoryId, storyIds, lmId, lmKeyword, lmUrl, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage, wantsCalendly } = body;
   const wantsLm = !!lmKeyword;
   if (!name?.trim() || !ctaStoryId || !Array.isArray(storyIds) || storyIds.length === 0) {
     return NextResponse.json({ error: 'Champs requis manquants' }, { status: 400 });
@@ -149,7 +153,10 @@ export async function POST(request: Request) {
       lm_keyword: wantsLm ? (lmKeyword || '').toUpperCase().trim() : null,
       lm_id: wantsLm ? (lmId || null) : null,
       lm_url: wantsLm ? (lmUrl || null) : null,
+      dm_lm_message: wantsLm ? (dmLmMessage || null) : null,
+      dm_button_text: wantsLm ? (dmButtonText || null) : null,
       dm1_message: wantsLm ? (dm1Message || null) : null,
+      dm_link_button_text: wantsLm ? (dmLinkButtonText || null) : null,
       dm2_story_message: wantsLm ? (dm2StoryMessage || null) : null,
     })
     .select('id')
@@ -215,7 +222,7 @@ export async function PATCH(request: Request) {
 
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
-  const { id, name, dm1Message, dm2StoryMessage, lmKeyword, generateCalendly, addStoryIds, removeStoryIds } = body;
+  const { id, name, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage, lmKeyword, generateCalendly, addStoryIds, removeStoryIds } = body;
   if (!id) return NextResponse.json({ error: 'id requis' }, { status: 400 });
 
   const { data: seq, error: seqFetchErr } = await serviceSupabase
@@ -289,7 +296,10 @@ export async function PATCH(request: Request) {
   // ── Champs simples + génération Calendly après coup ────────────────────
   const patch: Record<string, any> = { updated_at: new Date().toISOString() };
   if (name !== undefined) patch.name = name.trim();
+  if (dmLmMessage !== undefined) patch.dm_lm_message = dmLmMessage;
+  if (dmButtonText !== undefined) patch.dm_button_text = dmButtonText;
   if (dm1Message !== undefined) patch.dm1_message = dm1Message;
+  if (dmLinkButtonText !== undefined) patch.dm_link_button_text = dmLinkButtonText;
   if (dm2StoryMessage !== undefined) patch.dm2_story_message = dm2StoryMessage;
   if (lmKeyword !== undefined) patch.lm_keyword = (lmKeyword || '').toUpperCase().trim();
 

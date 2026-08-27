@@ -65,8 +65,27 @@ export async function getIgCreds(profileId: string): Promise<IgCreds | null> {
         ? new Date(Date.now() + data.expires_in * 1000).toISOString()
         : null;
       await serviceSupabase.from('integrations')
-        .update({ access_token: token, expires_at: expiresAt })
+        .update({ access_token: token, expires_at: expiresAt, status: 'ok', last_snapshot_error: null })
         .eq('profile_id', profileId).eq('provider', 'instagram');
+    } else {
+      // Il n'y avait AUCUNE branche ici : un refus de rafraichissement ne tracait
+      // rien et la fonction renvoyait quand meme le jeton mort.
+      //
+      // Consequence trouvee le 2026-08-27 : `cron-refresh-tokens` decide d'alerter
+      // sur `if (!creds)`. Comme creds etait toujours vrai, le profil etait compte
+      // comme « rafraichi » et l'email d'alerte n'est JAMAIS parti. Tout le
+      // mecanisme de detection des jetons morts etait donc inerte — un compte
+      // pouvait cesser de collecter pendant des semaines sans que personne ne le
+      // sache.
+      //
+      // Meme correction que dans poll-leads : on trace, et on renvoie null pour
+      // que l'appelant sache qu'il n'y a plus de jeton utilisable.
+      const msg = data?.error?.message || 'refresh refuse';
+      await serviceSupabase.from('integrations')
+        // status vaut 'ok' ou 'failed' — une contrainte CHECK l'impose.
+        .update({ status: 'failed', last_snapshot_status: 'error', last_snapshot_error: `ig_token: ${String(msg).slice(0, 200)}` })
+        .eq('profile_id', profileId).eq('provider', 'instagram');
+      return null;
     }
   }
 
