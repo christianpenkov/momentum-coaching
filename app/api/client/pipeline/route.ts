@@ -60,10 +60,14 @@ export async function GET() {
       .eq('profile_id', user.id)
       .is('archived_at', null)
       .order('created_at', { ascending: false }),
+    // Pas de filtre `deleted` : la colonne n'existe pas sur `prospects`. Postgres
+    // refusait donc la requête (42703), le résultat retombait sur `?? []` et
+    // `nonIgProspects` était TOUJOURS vide — vérifié en base le 2026-08-27 :
+    // 2 lignes valides pour le profil, 0 renvoyée. La suppression d'un prospect
+    // passe par `not_a_lead`, déjà filtré ci-dessous.
     supa.from('prospects')
       .select('id, platform, email, name, source, created_at')
       .eq('profile_id', user.id)
-      .neq('deleted', true)
       .eq('not_a_lead', false)
       .order('created_at', { ascending: false }),
     callsQuery,
@@ -292,7 +296,11 @@ export async function DELETE(request: Request) {
         .eq('profile_id', user.id).eq('prospect_key', prospect_id),
       supa.from('prospect_events').delete()
         .eq('profile_id', user.id).eq('prospect_key', prospect_id),
-      supa.from('prospects').update({ deleted: true } as any)
+      // `not_a_lead` et non `deleted` : cette colonne-là n'existe pas, et le
+      // `as any` masquait l'erreur — l'écriture échouait en silence, le prospect
+      // restait donc « supprimé » uniquement par ses calls ignorés. C'est aussi
+      // le champ que la lecture filtre, les deux côtés se répondent enfin.
+      supa.from('prospects').update({ not_a_lead: true })
         .eq('profile_id', user.id).eq('id', prospect_id),
       ...(call_id ? [supa.from('calls').update({ ignored: true, lead_deleted: true })
         .eq('coach_id', user.id).eq('id', call_id)] : []),

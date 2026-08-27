@@ -137,6 +137,80 @@ export async function POST(request: Request) {
   const keyword_matched = leadRow?.keyword_matched ?? null;
   const source_at_creation = leadRow?.source ?? null;
 
+  // ── Rattachement d'un lien de suivi à une personne déjà connue ──────────────
+  //
+  // Quelqu'un qui a réservé depuis une bio ou une description n'a PAS de ligne
+  // dans instagram_leads : sa seule trace est le call. Sans rattachement, le
+  // call réservé via ce nouveau lien formerait une fiche distincte de la
+  // sienne, et ses résultats seraient comptés à part.
+  //
+  // On s'appuie sur `calls.prospect_id`, la clé de regroupement que le pipeline
+  // honore déjà. Trois temps : retrouver la personne parmi ses calls, lui
+  // garantir une ligne `prospects`, puis marquer TOUS ses calls passés avec cet
+  // identifiant pour que l'ancien et le nouveau se rejoignent.
+  //
+  // Ne s'applique qu'aux prospects hors Instagram : un lead Instagram se
+  // rattache par ig_lead_id, mécanisme déjà en place et prioritaire.
+  let prospect_id: string | null = null;
+  if (!ig_lead_id) {
+    // L'e-mail est la clé la plus sûre — un nom peut être porté par deux
+    // personnes, et Calendly le fournit à chaque réservation. On le récupère
+    // depuis les calls passés de cette personne.
+    const { data: callsDeLaPersonne } = await supa
+      .from('calls')
+      .select('id, invitee_email, prospect_id, source')
+      .eq('coach_id', user.id)
+      .eq('call_type', 'calendly')
+      .eq('invitee_name', ig_username)
+      .order('scheduled_at', { ascending: false });
+
+    const connus = callsDeLaPersonne ?? [];
+    if (connus.length > 0) {
+      // Un prospect_id déjà posé sur l'un de ses calls fait autorité : le
+      // réutiliser évite de scinder une fiche que le coach voit déjà groupée.
+      prospect_id = connus.find(c => c.prospect_id)?.prospect_id ?? null;
+      const email = connus.find(c => c.invitee_email)?.invitee_email ?? null;
+
+      if (!prospect_id && email) {
+        const { data: dejaLa } = await supa
+          .from('prospects')
+          .select('id')
+          .eq('profile_id', user.id)
+          .eq('email', email)
+          .maybeSingle();
+        prospect_id = dejaLa?.id ?? null;
+      }
+
+      if (!prospect_id) {
+        const { data: cree } = await supa
+          .from('prospects')
+          .insert({
+            profile_id: user.id,
+            name: ig_username,
+            email,
+            // `platform` vaut 'other' pour tout ce qui n'est pas un lead
+            // Instagram, comme les lignes déjà en base ; `source` garde
+            // l'origine réelle du premier call, qui est l'information utile.
+            platform: 'other',
+            source: connus.find(c => c.source)?.source ?? null,
+            not_a_lead: false,
+          })
+          .select('id')
+          .maybeSingle();
+        prospect_id = cree?.id ?? null;
+      }
+
+      // Marquer les calls passés : sans ça, l'ancien resterait sur sa propre
+      // fiche et seul le nouveau porterait l'identité.
+      if (prospect_id) {
+        const aMarquer = connus.filter(c => !c.prospect_id).map(c => c.id);
+        if (aMarquer.length > 0) {
+          await supa.from('calls').update({ prospect_id }).in('id', aMarquer);
+        }
+      }
+    }
+  }
+
   // Régénérer un lien pour un prospect dont le lien avait été retiré doit RÉACTIVER sa
   // ligne, pas en créer une seconde : sinon l'historique commercial (calendly_link_sent,
   // first_click_at, min_stage_reached) reste sur l'ancienne ligne masquée pendant que
@@ -155,13 +229,13 @@ export async function POST(request: Request) {
   const { data, error } = retired
     ? await supa
         .from('prospect_links')
-        .update({ short_url, content_id: content_id || null, ig_lead_id, keyword_matched, source_at_creation, deleted_at: null })
+        .update({ short_url, content_id: content_id || null, ig_lead_id, prospect_id, keyword_matched, source_at_creation, deleted_at: null })
         .eq('id', retired.id)
         .select()
         .single()
     : await supa
         .from('prospect_links')
-        .insert({ profile_id: user.id, ig_username, short_url, content_id: content_id || null, ig_lead_id, keyword_matched, source_at_creation })
+        .insert({ profile_id: user.id, ig_username, short_url, content_id: content_id || null, ig_lead_id, prospect_id, keyword_matched, source_at_creation })
         .select()
         .single();
 

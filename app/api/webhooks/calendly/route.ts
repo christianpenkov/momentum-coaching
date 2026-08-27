@@ -187,16 +187,18 @@ export async function POST(request: NextRequest) {
 
     // Résoudre prospect_link_id via short_link_path
     let prospectLinkId: string | null = null;
+    let prospectLinkProspectId: string | null = null;
     if (shortLinkPath) {
       const { data: pl } = await serviceSupabase
         .from('prospect_links')
-        .select('id, ig_lead_id')
+        .select('id, ig_lead_id, prospect_id')
         .eq('profile_id', leadsProfileId)
         .filter('short_url', 'like', `%/${shortLinkPath}`)
         .maybeSingle();
       if (pl) {
         prospectLinkId = pl.id;
         igLeadId = igLeadId ?? pl.ig_lead_id ?? null;
+        prospectLinkProspectId = pl.prospect_id ?? null;
       }
     }
 
@@ -225,7 +227,12 @@ export async function POST(request: NextRequest) {
     const effectivePlatform: 'yt' | 'other' = effectiveSource?.toLowerCase().startsWith('yt') ? 'yt' : 'other';
     let prospectId: string | null = null;
     if (!igLeadId) {
-      prospectId = await upsertProspect({
+      // Un lien de suivi genere pour quelqu'un de deja connu porte son identite :
+      // elle fait autorite sur la resolution par e-mail, qui echouerait si la
+      // personne reserve avec une autre adresse que la premiere fois. C'est ce
+      // qui reunit l'ancien et le nouveau call sur la meme fiche de pipeline.
+      prospectId = prospectLinkProspectId ?? null;
+      if (!prospectId) prospectId = await upsertProspect({
         profileId: leadsProfileId,
         platform: effectivePlatform,
         email: inviteeEmail,
