@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 import PipelineFunnelMobile from './PipelineFunnelMobile';
+import PipelineListView from './PipelineListView';
 import Icon from '@/components/ui/Icon';
 import { mutate } from '@/lib/mutate';
 import Image from 'next/image';
@@ -222,6 +223,52 @@ function timeAgo(iso: string): string {
   return `${Math.floor(d / 30)}mois`;
 }
 
+/** La plus récente de plusieurs dates, en ignorant les vides et les invalides. */
+function latestOf(...dates: (string | null | undefined)[]): string | null {
+  let best: number | null = null;
+  let bestIso: string | null = null;
+  for (const d of dates) {
+    if (!d) continue;
+    const t = new Date(d).getTime();
+    if (Number.isNaN(t)) continue;
+    if (best === null || t > best) { best = t; bestIso = d; }
+  }
+  return bestIso;
+}
+
+/**
+ * Ce qu'on attend du lead, en clair. Une seule chose à la fois : la plus
+ * urgente. Rendre `null` est un cas normal — un lead closé n'attend rien.
+ */
+function computeNextDue(
+  state: { stage: string; issue: string | null; flags: { rapportEnRetard: boolean; relanceDue: boolean; relancesFaites: number } },
+  callScheduledAt: string | null,
+  lastMoveAt: string | null,
+  now: Date,
+): { label: string; at: string | null; urgent: boolean } | null {
+  if (state.flags.rapportEnRetard) {
+    return { label: 'rapport à remplir', at: callScheduledAt, urgent: true };
+  }
+  if (state.issue === 'to_recontact') {
+    const n = state.flags.relancesFaites;
+    const reste = Math.max(0, 3 - n);
+    if (state.flags.relanceDue) {
+      return { label: reste === 1 ? 'dernière relance' : 'à relancer', at: null, urgent: true };
+    }
+    return { label: `relancé ${n}/3`, at: null, urgent: false };
+  }
+  if (state.issue) return null;              // classé : plus rien à attendre
+  if (callScheduledAt && new Date(callScheduledAt).getTime() > now.getTime()) {
+    return { label: 'RDV', at: callScheduledAt, urgent: false };
+  }
+  // Actif sans rendez-vous : ce qui compte, c'est depuis quand ça dort.
+  if (lastMoveAt) {
+    const jours = Math.floor((now.getTime() - new Date(lastMoveAt).getTime()) / 86400000);
+    if (jours >= 21) return { label: `sans mouvement ${jours} j`, at: null, urgent: true };
+  }
+  return null;
+}
+
 const AVATAR_COLORS = ['#7C3AED','#2563EB','#059669','#D97706','#EA580C','#DB2777','#0891B2','#65A30D'];
 export function avatarColor(name: string): string {
   let h = 0;
@@ -422,6 +469,14 @@ interface CardData {
   /** Relances faites dans le cycle en cours, et si la prochaine est due. */
   relancesFaites?: number;
   relanceDue?: boolean;
+  /**
+   * Dernier signe de vie, quelle qu'en soit la nature : commentaire, réponse en
+   * DM, clic, rendez-vous, relance. C'est ce qui permet de trier par « ça dort
+   * depuis longtemps » — la colonne la plus utile pour rattraper un lead oublié.
+   */
+  lastMoveAt?: string | null;
+  /** Ce qui est attendu ensuite, en clair. Vide quand il n'y a rien à attendre. */
+  nextDue?: { label: string; at: string | null; urgent: boolean } | null;
   extra?: string;
   noSource?: boolean;
   // Badges post-call
@@ -1248,6 +1303,21 @@ export default function PagePipeline() {
   // ligne en un an. Ne restent que les deux états du rendez-vous.
   // Repli des filtres sur mobile uniquement (le desktop les affiche toujours).
   const [filtersOpen, setFiltersOpen] = useState(false);
+
+  // Board ou Liste. Le board répond à « où en est chaque lead », la liste à
+  // « lequel dois-je traiter maintenant ». Le choix est conservé d'une visite à
+  // l'autre : y revenir à chaque fois serait un pas de plus à refaire sans cesse.
+  const [vue, setVue] = useState<'board' | 'liste'>('board');
+  useEffect(() => {
+    try {
+      const v = window.localStorage.getItem('pipeline-vue');
+      if (v === 'liste' || v === 'board') setVue(v);
+    } catch { /* navigation privée, cookies bloqués : le board par défaut suffit */ }
+  }, []);
+  const changerVue = (v: 'board' | 'liste') => {
+    setVue(v);
+    try { window.localStorage.setItem('pipeline-vue', v); } catch { /* sans effet */ }
+  };
   const [filterCanceled, setFilterCanceled] = useState(false);
   const [filterRescheduled, setFilterRescheduled] = useState(false);
 
@@ -1424,6 +1494,11 @@ export default function PagePipeline() {
         calls:        matchingCalls,
         manualIssue:  override?.stage ?? null,
         manualReason: override?.reason ?? null,
+        relances:     events
+          .filter(e => e.prospect_key.toLowerCase() === username && e.platform === 'ig' && e.event_type === 'relance')
+          .map(e => e.occurred_at)
+          .sort(),
+        lastReplyAt:  lead?.hook_replied_at ?? null,
       }, new Date());
 
       // Le badge dit ce que la colonne ne dit pas. Un lead classé porte déjà son
@@ -1438,6 +1513,22 @@ export default function PagePipeline() {
       const stageIdx = IG_STAGES.findIndex(s => s.key === state.stage);
       const natural = state.stage;
       const detectedAt = lead?.detected_at ?? prospect?.created_at ?? new Date().toISOString();
+
+      // Dernier signe de vie, toutes sources confondues. Les événements sont
+      // inclus : ce sont eux qui portent le clic sur le lead magnet et, bientôt,
+      // les relances.
+      const leadEventDates = lead
+        ? events.filter(e => e.ig_lead_id === lead.id).map(e => e.occurred_at)
+        : [];
+      const lastMoveAt = latestOf(
+        detectedAt,
+        lead?.hook_replied_at,
+        prospect?.last_calendly_link_sent_at ?? prospect?.calendly_link_sent_at,
+        prospect?.first_click_at,
+        call?.scheduled_at,
+        ...leadEventDates,
+      );
+      const nextDue = computeNextDue(state, call?.scheduled_at ?? null, lastMoveAt, new Date());
       const sub = lead?.keyword_matched && lead.keyword_matched !== 'cold_dm'
         ? `#${lead.keyword_matched}`
         : (lead?.source === 'cold_dm' || prospect) ? 'Cold DM' : '';
@@ -1457,6 +1548,8 @@ export default function PagePipeline() {
         rapportEnRetard: state.flags.rapportEnRetard,
         relancesFaites: state.flags.relancesFaites,
         relanceDue: state.flags.relanceDue,
+        lastMoveAt,
+        nextDue,
         badge,
         lmNotReceived: lead && lead.source !== 'cold_dm' ? !lead.lead_magnet_sent : false,
         lmClickedAt: lmClickedEvent?.occurred_at ?? null,
@@ -1557,6 +1650,8 @@ export default function PagePipeline() {
 
       const stageKey = state.issue ?? state.stage;
       const stageIdx = IG_STAGES.findIndex(s => s.key === state.stage);
+      const lastMoveAt = latestOf(...groupCalls.map(c => c.booked_at ?? c.scheduled_at), call.scheduled_at);
+      const nextDue = computeNextDue(state, call.scheduled_at, lastMoveAt, new Date());
 
       // Libellé par canal. Le repli sur « Lien bio » ne vaut que pour ig_bio :
       // avant, tout ce qui n'était pas ig_description héritait de ce libellé,
@@ -1579,6 +1674,8 @@ export default function PagePipeline() {
         rapportEnRetard: state.flags.rapportEnRetard,
         relancesFaites: state.flags.relancesFaites,
         relanceDue: state.flags.relanceDue,
+        lastMoveAt,
+        nextDue,
         badge,
         lmClickedAt: null,
         callId: call.id,
@@ -1719,6 +1816,9 @@ export default function PagePipeline() {
         rapportEnRetard: state.flags.rapportEnRetard,
         relancesFaites: state.flags.relancesFaites,
         relanceDue: state.flags.relanceDue,
+        lastMoveAt: latestOf(...calls.map(c => c.booked_at ?? c.scheduled_at)),
+        nextDue: computeNextDue(state, latestCall.scheduled_at,
+                  latestOf(...calls.map(c => c.booked_at ?? c.scheduled_at)), new Date()),
         extra: latestCall.revenue ? `${latestCall.revenue.toLocaleString('fr-FR')} €` : undefined,
         noSource,
         badge,
@@ -1838,6 +1938,87 @@ export default function PagePipeline() {
     });
     await refetch();
   }, [refetch]);
+
+  // ── Actions en lot (vue liste) ──────────────────────────────────────────────
+  //
+  // Chaque lead est traité séparément côté serveur : il n'existe pas d'API de
+  // lot, et en inventer une pour ce seul écran serait une pièce de plus à
+  // maintenir. Le prix, c'est N requêtes — acceptable sur une sélection faite à
+  // la main, où l'ordre de grandeur est la dizaine.
+  //
+  // ⚠️ Un échec partiel ne doit JAMAIS passer pour un succès. On compte les
+  // échecs et on le dit : sans ça, supprimer 5 leads dont 2 refusés par le
+  // serveur afficherait le même écran qu'une réussite complète.
+
+  const executerEnLot = useCallback(async (
+    keys: string[],
+    action: (key: string) => Promise<boolean>,
+    verbe: string,
+  ) => {
+    const resultats = await Promise.all(keys.map(async k => {
+      try { return await action(k); } catch { return false; }
+    }));
+    const echecs = resultats.filter(r => !r).length;
+    if (echecs > 0) {
+      setDeleteError(
+        echecs === keys.length
+          ? `Aucun lead n'a pu être ${verbe}. Réessaie dans un instant.`
+          : `${echecs} lead${echecs > 1 ? 's' : ''} sur ${keys.length} n'${echecs > 1 ? 'ont' : 'a'} pas pu être ${verbe}. Les autres sont bien traités.`,
+      );
+    }
+    await refetch();
+  }, [refetch]);
+
+  const cardsByKey = useCallback((key: string) => cards.find(c => c.key === key), [cards]);
+
+  const handleBulkDelete = useCallback(async (keys: string[]) => {
+    await executerEnLot(keys, async key => {
+      const card = cardsByKey(key);
+      const isUUID = /^[0-9a-f-]{36}$/.test(key);
+      const callId = card?.callId ?? null;
+      const body = !isUUID
+        ? { ig_username: key, platform: tab }
+        : key === callId
+          ? { call_id: key, platform: tab }
+          : { prospect_id: key, call_id: callId, platform: tab };
+      const res = await fetch('/api/client/pipeline', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return res.ok;
+    }, 'supprimé');
+  }, [executerEnLot, cardsByKey, tab]);
+
+  const handleBulkNotALead = useCallback(async (keys: string[]) => {
+    await executerEnLot(keys, async key => {
+      const card = cardsByKey(key);
+      const isUUID = /^[0-9a-f-]{36}$/.test(key);
+      const callId = card?.callId ?? null;
+      const body = !isUUID
+        ? { ig_username: key, not_a_lead: true }
+        : key === callId
+          ? { call_id: key, not_a_lead: true }
+          : { prospect_id: key, not_a_lead: true };
+      const res = await fetch('/api/client/pipeline', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return res.ok;
+    }, 'retiré');
+  }, [executerEnLot, cardsByKey, tab]);
+
+  const handleBulkRelance = useCallback(async (keys: string[]) => {
+    await executerEnLot(keys, async key => {
+      const res = await fetch('/api/client/pipeline/relance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prospect_key: key, platform: tab }),
+      });
+      return res.ok;
+    }, 'marqué relancé');
+  }, [executerEnLot, tab]);
 
   // ── Drag & drop + modale de confirmation ────────────────────────────────────
 
@@ -2067,6 +2248,31 @@ export default function PagePipeline() {
             titre (order: -1 + position absolue) et les onglets prennent toute
             la largeur en pilules. */}
         <div className="pipeline-actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* Board ou Liste — desktop seulement : sur mobile l'entonnoir tient
+              déjà ce rôle, et un kanban ne se manipule pas au doigt (le
+              glisser-déposer HTML5 ne se déclenche pas au tactile). */}
+          <div className="pipeline-desktop" style={{
+            display: 'flex', background: 'var(--surface-2, #f7f4ec)',
+            border: '1px solid var(--border)', borderRadius: 10, padding: 3, gap: 3,
+          }}>
+            {([['board', 'Board'], ['liste', 'Liste']] as const).map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => changerVue(k)}
+                aria-pressed={vue === k}
+                style={{
+                  fontSize: 11.5, fontWeight: 600, borderRadius: 6, padding: '5px 12px',
+                  border: 'none', cursor: 'pointer',
+                  background: vue === k ? 'var(--surface)' : 'transparent',
+                  color: vue === k ? 'var(--ink)' : 'var(--muted)',
+                  boxShadow: vue === k ? '0 1px 2px rgba(0,0,0,.04)' : 'none',
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <button
             onClick={handleRefresh}
             disabled={refreshing}
@@ -2202,6 +2408,28 @@ export default function PagePipeline() {
           />
         </div>
 
+        {vue === 'liste' ? (
+          <div className="pipeline-desktop" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', paddingBottom: 16 }}>
+            <PipelineListView
+              cards={cards}
+              columns={columns}
+              stageKeys={stages.map(s => s.key)}
+              avatarColor={avatarColor}
+              avatarInitials={avatarInitials}
+              onCardClick={cardKey => setDetailModal({ cardKey, platform: tab })}
+              onRapportClick={c => c.callId && setRapportModal({
+                callId: c.callId,
+                inviteeName: c.name,
+                scheduledAt: c.callScheduledAt ?? '',
+                isFollowUp: c.callIsFollowUp ?? false,
+                existing: { revenue: c.callRevenue ?? null, comment: c.callComment ?? null },
+              })}
+              onBulkDelete={handleBulkDelete}
+              onBulkNotALead={handleBulkNotALead}
+              onBulkRelance={handleBulkRelance}
+            />
+          </div>
+        ) : (
         <div className="pipeline-desktop" style={{ flex: 1, overflowX: 'auto', overflowY: 'auto', paddingBottom: 16, scrollbarWidth: 'thin', scrollbarColor: 'var(--border) transparent' }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', minWidth: 'max-content', height: '100%' }}>
             {columns.map(stage => {
@@ -2233,6 +2461,7 @@ export default function PagePipeline() {
             })}
           </div>
         </div>
+        )}
         </>
       )}
 
