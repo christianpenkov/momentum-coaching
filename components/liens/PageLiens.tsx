@@ -3103,6 +3103,22 @@ function TabStoryCalendly({ primary, isExistingSequence, onSaved }: {
   );
 }
 
+/**
+ * D'où vient un prospect, en clair.
+ *
+ * `calls.source` est un code technique ; affiché tel quel dans une liste de
+ * choix, il obligerait à le décoder. Un libellé absent de cette table retombe
+ * sur « Call », qui reste vrai.
+ */
+const LIBELLE_SOURCE_CALL: Record<string, string> = {
+  ig_dm: 'DM Instagram',
+  ig_bio: 'Bio Instagram',
+  ig_description: 'Description Instagram',
+  ig_story: 'Story Instagram',
+  yt_description: 'Description YouTube',
+  yt_bio: 'Bio YouTube',
+};
+
 // ─── Panneau droit : Calendly prospect ───────────────────────────────────────
 
 function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calendlyUrl, posts }: {
@@ -3119,7 +3135,7 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
   const [igUserId, setIgUserId] = useState<string | null>(null);
   const [usernameSearch, setUsernameSearch] = useState('');
   const [showLeads, setShowLeads] = useState(false);
-  const [leads, setLeads] = useState<{ ig_username: string; ig_user_id: string | null; detected_at: string; keyword_matched: string; media_id: string | null; avatar_url?: string | null }[]>([]);
+  const [leads, setLeads] = useState<{ ig_username: string; ig_user_id: string | null; detected_at?: string; keyword_matched?: string; media_id?: string | null; avatar_url?: string | null; origine?: string }[]>([]);
   const [leadsLoading, setLeadsLoading] = useState(false);
 
   // Contenu source — postMode: 'auto' | 'lead' | 'manual' | 'none'
@@ -3132,21 +3148,53 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Charge les leads récents au montage
+  // Tous les prospects, pas seulement ceux venus d'un DM Instagram.
+  //
+  // Quelqu'un qui réserve depuis une bio ou une description de contenu n'a PAS
+  // de ligne dans `instagram_leads` — vérifié en base : sur les calls réservés
+  // par lien général (ig_bio, ig_description, yt_description), aucun ne porte
+  // d'`ig_lead_id`. Sa seule trace est le call lui-même. Ne lister que les leads
+  // Instagram revenait donc à masquer la majorité des gens à qui on veut
+  // justement envoyer un lien de suivi.
+  //
+  // Trois sources réunies, dédoublonnées par nom : les leads Instagram, la table
+  // `prospects`, et les personnes connues seulement par un call. Le pipeline
+  // charge déjà les trois — même queryKey, donc rien de plus sur le réseau.
+  const { data: pipelinePourProspects } = useQuery({
+    queryKey: ['liens-funnel', profileId],
+    queryFn: () => fetch('/api/client/pipeline').then(r => r.json()),
+    enabled: !!profileId,
+    staleTime: 5 * 60 * 1000,
+  });
+
   useEffect(() => {
-    setLeadsLoading(true);
-    fetch('/api/instagram/leads?page=1')
-      .then(r => r.json())
-      .then(d => {
-        const unique = new Map<string, any>();
-        (d.leads || []).forEach((l: any) => {
-          if (l.ig_username && !unique.has(l.ig_username)) unique.set(l.ig_username, l);
-        });
-        setLeads(Array.from(unique.values()));
-      })
-      .catch(() => {})
-      .finally(() => setLeadsLoading(false));
-  }, []);
+    if (!pipelinePourProspects) return;
+    const unique = new Map<string, any>();
+    const ajouter = (nom: string | null | undefined, extra: Record<string, any>) => {
+      const n = (nom || '').trim();
+      if (!n) return;
+      const cle = n.toLowerCase();
+      // Premier arrivé, premier servi : les leads Instagram passent en premier,
+      // ce sont les seuls à porter une photo et un ig_user_id.
+      if (!unique.has(cle)) unique.set(cle, { ig_username: n, ...extra });
+    };
+
+    (pipelinePourProspects.leads || []).forEach((l: any) =>
+      ajouter(l.ig_username, {
+        ig_user_id: l.ig_user_id ?? null, avatar_url: l.avatar_url ?? null,
+        detected_at: l.detected_at, keyword_matched: l.keyword_matched,
+        media_id: l.media_id ?? null, origine: 'Instagram',
+      }));
+
+    (pipelinePourProspects.nonIgProspects || []).forEach((p: any) =>
+      ajouter(p.name || p.email, { ig_user_id: null, avatar_url: null, origine: p.platform || 'Prospect' }));
+
+    (pipelinePourProspects.calls || []).forEach((c: any) =>
+      ajouter(c.invitee_name, { ig_user_id: null, avatar_url: null, origine: LIBELLE_SOURCE_CALL[c.source] || 'Call' }));
+
+    setLeads(Array.from(unique.values()));
+    setLeadsLoading(false);
+  }, [pipelinePourProspects]);
 
   const filteredLeads = leads.filter(l =>
     !usernameSearch || l.ig_username.toLowerCase().includes(usernameSearch.toLowerCase())
@@ -3320,8 +3368,14 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
                       onMouseEnter={e => (e.currentTarget.style.background = SURFACE2)}
                       onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
                       <Avatar initials={getInitials(l.ig_username)} avatarUrl={l.avatar_url} seed={l.ig_user_id || l.ig_username} size={24} />
-                      <span style={{ fontWeight: 600, flex: 1 }}>@{l.ig_username}</span>
-                      <span style={{ fontSize: 10, color: FAINT, flexShrink: 0 }}>{l.keyword_matched}</span>
+                      {/* L'arobase ne vaut que pour un pseudo Instagram : un
+                          invité de call s'appelle par son nom. */}
+                      <span style={{ fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {l.ig_user_id ? `@${l.ig_username}` : l.ig_username}
+                      </span>
+                      {/* D'où il vient : deux personnes peuvent porter le même
+                          nom, et c'est le seul moyen de les distinguer ici. */}
+                      <span style={{ fontSize: 10, color: FAINT, flexShrink: 0 }}>{l.keyword_matched || l.origine}</span>
                     </div>
                   ))}
                 </div>
