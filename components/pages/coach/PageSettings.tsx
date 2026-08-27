@@ -7,6 +7,7 @@ import Avatar, { getInitials } from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
 import { cropImageToSquare } from '@/lib/cropImageToSquare';
 import { useUser } from '@/lib/UserContext';
+import { messageErreurOAuth } from '@/lib/oauth-errors';
 import type { Integration, Provider } from '@/lib/supabase/types';
 import { COACH_WIZARD_INTEGRATIONS } from '@/lib/onboarding/integrationConfig';
 import LegalFooter from '@/components/ui/LegalFooter';
@@ -65,7 +66,7 @@ export default function PageSettings() {
       const name = INTEGRATION_CONFIG.find(c => c.provider === connected)?.name || connected;
       showToast(`${name} connecté avec succès ✓`);
     }
-    if (error) showToast(`Erreur de connexion (${error})`, true);
+    if (error) showToast(messageErreurOAuth(error), true);
 
     // Retire le parametre de l'URL une fois le message affiche : sans ca, chaque
     // rafraichissement rejoue « connecte avec succes ». Meme correction que la page
@@ -73,9 +74,11 @@ export default function PageSettings() {
     window.history.replaceState({}, '', window.location.pathname);
   }, [searchParams]);
 
+  // Un message d'echec de connexion fait deux phrases et explique quoi faire : 3,5 s
+  // ne suffisent pas a le lire. Meme reglage que la page Reglages de l'eleve.
   function showToast(msg: string, isError = false) {
     setToast({ msg, error: isError });
-    setTimeout(() => setToast(null), 3500);
+    setTimeout(() => setToast(null), isError ? 9000 : 3500);
   }
 
   useEffect(() => {

@@ -7,6 +7,7 @@ import Avatar, { getInitials } from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
 import { cropImageToSquare } from '@/lib/cropImageToSquare';
 import { useUser } from '@/lib/UserContext';
+import { messageErreurOAuth } from '@/lib/oauth-errors';
 import LegalFooter from '@/components/ui/LegalFooter';
 import ShortioDomainPicker from '@/components/settings/ShortioDomainPicker';
 import type { Provider } from '@/lib/supabase/types';
@@ -102,9 +103,11 @@ export default function PageClientSettings() {
     load();
   }, []);
 
-  function showToast(msg: string) {
+  // duree : 3 s suffisent pour « connecte avec succes », pas pour un message d'echec
+  // de deux phrases qui explique quoi faire — il disparaissait avant d'etre lu.
+  function showToast(msg: string, duree = 3000) {
     setToast(msg);
-    setTimeout(() => setToast(null), 3000);
+    setTimeout(() => setToast(null), duree);
   }
 
   // Confirmation apres un retour de connexion OAuth.
@@ -122,7 +125,7 @@ export default function PageClientSettings() {
       const nom = INTEGRATIONS.find(i => i.provider === connected)?.name || connected;
       showToast(`${nom} connecté avec succès ✓`);
     }
-    if (erreur) showToast(`Erreur de connexion (${erreur})`);
+    if (erreur) showToast(messageErreurOAuth(erreur), 9000);
 
     // Retire le parametre de l'URL une fois le message affiche.
     //

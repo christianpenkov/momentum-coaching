@@ -30,9 +30,46 @@ export async function GET(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.redirect(`${origin}/login`);
 
+  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+  const dest = profile?.role === 'coach' ? '/settings' : '/client/settings';
+
+  const serviceSupabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
+  // Sortie d'echec commune a toutes les etapes de la connexion.
+  //
+  // Avant, un echec d'echange de jeton ou de /me ne faisait rien : le code continuait,
+  // ecrivait la ligne integrations avec un jeton inerte et redirigeait vers
+  // `?connected=instagram`. L'utilisateur voyait « connecte », et la panne ne
+  // reapparaissait que plus tard, deformee, dans le bandeau de synchronisation des
+  // stats — a un endroit ou plus rien ne pointait vers sa cause. Constate le 2026-08-27
+  // avec un compte dont Meta refusait tous les appels (« Unsupported request - method
+  // type: get ») alors que les 4 permissions etaient bien accordees.
+  //
+  // La trace part dans cron_runs : c'est la table de sante que decrit AGENTS.md
+  // (`select * from cron_runs` — vide = aucun incident), donc un echec de connexion y
+  // devient visible sans avoir a fouiller les logs Vercel, qui ne gardent qu'une heure.
+  async function echec(code: string, detail: unknown) {
+    console.error(`[IG callback] ${code}:`, JSON.stringify(detail));
+    // La trace ne doit jamais empecher la redirection : si l'insert echoue, on
+    // renvoie quand meme l'utilisateur vers ses reglages avec le bon message.
+    try {
+      await serviceSupabase.from('cron_runs').insert({
+        fonction: 'oauth_instagram_callback',
+        profils_en_erreur: 1,
+        erreurs: { profile_id: user!.id, code, detail },
+      });
+    } catch (e) {
+      console.error('[IG callback] trace cron_runs impossible:', e);
+    }
+    return NextResponse.redirect(`${origin}${dest}?error=${code}`);
+  }
+
   const expectedState = Buffer.from(user.id).toString('base64');
   if (state !== expectedState) {
-    return NextResponse.redirect(`${origin}/client/settings?error=instagram_state`);
+    return NextResponse.redirect(`${origin}${dest}?error=instagram_state`);
   }
 
   // Échange le code contre un token court (Instagram)
@@ -51,7 +88,7 @@ export async function GET(request: NextRequest) {
   const tokenData = await tokenRes.json();
   console.log('[IG callback] short token:', JSON.stringify({ user_id: tokenData.user_id, has_token: !!tokenData.access_token, permissions: tokenData.permissions }));
   if (!tokenData.access_token) {
-    return NextResponse.redirect(`${origin}/client/settings?error=instagram_token`);
+    return echec('instagram_token', tokenData?.error ?? null);
   }
 
   // Échange contre un token long-terme (60 jours)
@@ -60,26 +97,46 @@ export async function GET(request: NextRequest) {
   );
   const longTokenData = await longTokenRes.json();
   console.log('[IG callback] long token:', JSON.stringify({ has_token: !!longTokenData.access_token, expires_in: longTokenData.expires_in, error: longTokenData.error }));
-  const accessToken = longTokenData.access_token || tokenData.access_token;
-  const expiresIn = longTokenData.expires_in || null;
+
+  // ⚠️ Un echec ici n'est PAS rattrapable en gardant le jeton court : il vaut 1 heure.
+  // L'ancien code basculait dessus en silence, avec expires_at a NULL — l'integration
+  // s'ecrivait « connectee » et mourait dans l'heure sans que rien ne le dise.
+  if (!longTokenData.access_token || !longTokenData.expires_in) {
+    return echec('instagram_echange_jeton', longTokenData?.error ?? longTokenData);
+  }
+  const accessToken: string = longTokenData.access_token;
+  const expiresAt = new Date(Date.now() + longTokenData.expires_in * 1000).toISOString();
 
   // Récupère l'ID réel + username via /me (ig_account_id)
+  //
+  // ⚠️ C'est AUSSI la validation du jeton, et elle doit rester avant toute ecriture :
+  // l'archivage plus bas est destructif pour un eleve qui a deja des donnees (il passe
+  // toutes ses lignes en archived_at). Le declencher sur une connexion qui n'aboutira
+  // pas ferait disparaitre ses stats pour rien.
   const meRes = await fetch(
     `https://graph.instagram.com/v22.0/me?fields=id,username,account_type&access_token=${accessToken}`
   );
   const meData = await meRes.json();
   console.log('[IG callback] /me response:', JSON.stringify(meData));
-  const igAccountId = meData.id ? String(meData.id) : (tokenData.user_id ? String(tokenData.user_id) : null);
+
+  // Meta emet un jeton et annonce les permissions accordees meme quand l'app n'a en
+  // realite aucun acces au compte : tous les appels renvoient alors « Unsupported
+  // request - method type: get », y compris /me. Le message ne decrit pas sa cause —
+  // les deux vraies causes sont un compte sans role dans une app encore en mode
+  // Developpement, et une permission restee en acces standard au lieu d'avance.
+  if (!meData?.id) {
+    return echec('instagram_jeton_inerte', meData?.error ?? meData);
+  }
+  // L'API Instagram exige un compte professionnel (Business ou Createur). Un compte
+  // personnel passe l'ecran d'autorisation mais ne peut rien lire ensuite.
+  if (meData.account_type === 'PERSONAL') {
+    return echec('instagram_compte_personnel', { account_type: meData.account_type, username: meData.username ?? null });
+  }
+
+  // Desormais toujours defini : /me a repondu, donc l'ID vient de l'API et non plus
+  // d'un repli sur tokenData.user_id qui masquait l'echec.
+  const igAccountId = String(meData.id);
   const accountLabel = meData.username ? `@${meData.username}` : null;
-
-  const expiresAt = expiresIn
-    ? new Date(Date.now() + expiresIn * 1000).toISOString()
-    : null;
-
-  const serviceSupabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
 
   // Isolation par compte IG connecté (bascule + archivage) — si ce profil bascule vers
   // un compte Instagram DIFFÉRENT de celui précédemment connecté, on archive toutes les
@@ -175,6 +232,16 @@ export async function GET(request: NextRequest) {
     connected_at: igConnectedNow,
     first_connected_at: existingInteg?.first_connected_at || igConnectedNow,
     metadata: igAccountId ? { ig_account_id: igAccountId } : null,
+    // ⚠️ Remettre le statut a zero fait partie de la connexion.
+    //
+    // Sans ces trois champs, une reconnexion reussie laissait status='failed' et
+    // l'ancien last_snapshot_error en place : le bandeau « Impossible de synchroniser
+    // les donnees » restait affiche sur les stats apres une connexion qui avait
+    // pourtant abouti, jusqu'au prochain passage du cron. Le jeton qu'on vient
+    // d'ecrire est valide — on l'a prouve par /me juste au-dessus.
+    status: 'ok',
+    last_snapshot_status: null,
+    last_snapshot_error: null,
   }, { onConflict: 'profile_id,provider' });
 
   // Réabonner aux deux niveaux webhook après chaque connexion
@@ -230,7 +297,5 @@ export async function GET(request: NextRequest) {
     }).catch(e => console.error('[IG callback] refresh-ig-posts trigger failed:', e));
   }
 
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
-  const dest = profile?.role === 'coach' ? '/settings' : '/client/settings';
   return NextResponse.redirect(`${origin}${dest}?connected=instagram`);
 }
