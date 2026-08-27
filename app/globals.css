@@ -2107,6 +2107,17 @@ a { color: inherit; text-decoration: none; }
 .pipeline-filters-toggle { display: none; }
 /* Reprend la valeur qui etait en style inline : desktop inchange. */
 .pipeline-page { gap: 16px; }
+
+/* Le pipeline occupe toute la hauteur, jusqu'au bas de l'écran.
+   `.main-content` réserve 60px de padding en bas — utile sur une page qui
+   défile, faux ici : le board a son propre défilement, et ces 60px poussaient
+   sa barre de défilement horizontale à 60px du bas, avec une bande vide en
+   dessous. Le débordement passe aussi en `hidden` : c'est le board qui défile,
+   pas la page autour de lui. */
+.main-content:has(.pipeline-page) {
+  padding-bottom: 16px;
+  overflow: hidden;
+}
 /* Entonnoir mobile — valeurs de base, surchargees sur ecran court. */
 .funnel-row { min-height: 56px; padding: 15px 14px; }
 .funnel-list { gap: 7px; }

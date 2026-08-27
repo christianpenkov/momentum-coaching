@@ -931,9 +931,11 @@ function BoutonCase({
       onClick={onClick}
       aria-pressed={actif}
       style={{
-        display: 'inline-flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap',
-        fontSize: 11.5, fontWeight: 600, padding: '7px 11px', borderRadius: 8,
-        cursor: 'pointer', font: 'inherit', minHeight: 32,
+        // Compact : plus d'étapes tiennent sur une ligne, donc moins de retours
+        // à la ligne et un bloc de filtres qui ne mange pas la moitié de l'écran.
+        display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap',
+        fontSize: 11, fontWeight: 600, padding: '5px 9px', borderRadius: 7,
+        cursor: 'pointer', font: 'inherit', minHeight: 27,
         background: actif ? 'var(--accent-brand, #3a6a86)' : 'var(--surface)',
         border: `1px solid ${actif ? 'var(--accent-brand, #3a6a86)' : 'var(--border)'}`,
         color: actif ? '#fff' : 'var(--ink)',
@@ -941,7 +943,7 @@ function BoutonCase({
     >
       {couleur && (
         <span style={{
-          width: forme === 'carre' ? 9 : 6, height: forme === 'carre' ? 9 : 6,
+          width: forme === 'carre' ? 8 : 5.5, height: forme === 'carre' ? 8 : 5.5,
           borderRadius: forme === 'carre' ? 2.5 : '50%', flexShrink: 0,
           background: actif ? '#fff' : couleur,
         }} />
@@ -993,7 +995,9 @@ function TuilesIssues({
           simple espace ne suffit pas à le dire. */}
       <div style={{ width: 1, background: 'var(--border)', flexShrink: 0, margin: '0 4px' }} />
 
-      <div style={{ width: 188, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {/* Toute la hauteur, comme une colonne : le bloc Issues est le pendant de
+          l'entonnoir, pas une annexe posée en haut à droite. */}
+      <div style={{ width: 188, flexShrink: 0, alignSelf: 'stretch', display: 'flex', flexDirection: 'column', gap: 6 }}>
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '7px 10px', flexShrink: 0,
@@ -1007,7 +1011,7 @@ function TuilesIssues({
           </span>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: 1 }}>
           {issues.map(issue => {
             const liste = cardsParIssue[issue.key] ?? [];
             const estOuverte = ouverte === issue.key;
@@ -1133,8 +1137,11 @@ function KanbanColumn({
     );
   }
 
+  // 172 px de PLANCHER, puis les colonnes s'étirent pour remplir l'écran. Replier
+  // les trois premières libère beaucoup de place : la laisser vide à droite
+  // gâcherait l'espace, et des colonnes larges rendent les fiches lisibles.
   return (
-    <div style={{ width: 172, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6, alignSelf: 'stretch' }}>
+    <div style={{ flex: '1 1 172px', minWidth: 172, maxWidth: 320, display: 'flex', flexDirection: 'column', gap: 6, alignSelf: 'stretch' }}>
       {/* En-tête de colonne — le dessin d'origine, gardé sur demande : fond
           `surface-2`, bordure, compteur en pastille colorée. Le chevron de repli
           s'y ajoute à gauche, sans rien changer d'autre. */}
@@ -1720,7 +1727,12 @@ export default function PagePipeline() {
   // Les colonnes repliées du board. Conservées d'une visite à l'autre : replier
   // « Commentaire LM » et ses 412 fiches pour dégager la vue n'aurait aucun
   // intérêt s'il fallait recommencer à chaque chargement.
-  const [colonnesRepliees, setColonnesRepliees] = useState<Set<string>>(new Set());
+  // Les trois premières étapes arrivent PLIÉES : « Commentaire LM » à lui seul
+  // peut contenir des centaines de fiches sur lesquelles il n'y a rien à faire —
+  // elles n'ont pas encore répondu. Dépliées, elles poussaient hors écran les
+  // étapes où le travail se trouve vraiment.
+  const REPLI_PAR_DEFAUT = ['lm_sent', 'lm_received', 'cold_dm'];
+  const [colonnesRepliees, setColonnesRepliees] = useState<Set<string>>(new Set(REPLI_PAR_DEFAUT));
 
   // La case isolée par les boutons d'étapes, en vue liste. `null` = tout.
   const [caseIsolee, setCaseIsolee] = useState<string | null>(null);
@@ -3091,7 +3103,12 @@ export default function PagePipeline() {
               retrouvait plus haut que le contenu. En minimum, elles remplissent
               l'écran quand il y a peu de fiches ET s'étirent quand il y en a
               beaucoup. */}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', minWidth: 'max-content', minHeight: '100%' }}>
+          {/* `minWidth: 100%` et non `max-content` : à `max-content`, la rangée se
+              calait sur la somme des largeurs des colonnes et celles-ci ne se
+              partageaient jamais la place restante. À 100 %, elles s'étirent pour
+              remplir l'écran, et débordent en défilement seulement quand leur
+              largeur minimale l'exige. */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', minWidth: '100%', minHeight: '100%' }}>
             {stages.map(stage => {
               const estIssue = false;
               // On range par `stageKey`, qui vaut l'ISSUE quand le lead est classé
