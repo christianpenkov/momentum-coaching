@@ -7568,7 +7568,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
   const since30d = customWindow ? customWindow.start : parisDateStr(_periodStart);
   const until30d = customWindow ? customWindow.end : parisDateStr(_periodEnd);
 
-  const [leadsRows, lmRes, calendlyRes, overridesRes, lmHistoryRows, prospectLinksRows, contentLinksRes, lmClickedEvents, linkClickedEvents] = await Promise.all([
+  const [leadsRows, lmRes, calendlyRes, lmHistoryRows, prospectLinksRows, contentLinksRes, lmClickedEvents, linkClickedEvents] = await Promise.all([
     // Paginé (fetchAllPages) — plafond fixe .limit(500) auparavant, trop facile à
     // atteindre sur le mode "Depuis connexion" (jusqu'à ~1 an) pour un profil actif.
     // not_a_lead / archived_at : mêmes filtres que lib/salesCallStats.ts (fetchIgLeadsCount)
@@ -7588,8 +7588,6 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
       .select('id, name, keyword, url').eq('profile_id', targetId).order('created_at', { ascending: true }),
     supabase.from('integrations')
       .select('metadata').eq('profile_id', targetId).eq('provider', 'calendly').maybeSingle(),
-    supabase.from('pipeline_overrides')
-      .select('prospect_key, stage').eq('profile_id', targetId).eq('stage', 'dismissed'),
     // Historique complet LM — pour les stats par keyword (1 ligne par interaction, pas par prospect).
     // Paginé (fetchAllPages) — plafond fixe .limit(2000) auparavant, même raison.
     fetchAllPages<any>(() =>
@@ -7732,9 +7730,11 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     ...lmData.filter((lm: any) => lm.url).map((lm: any) => ({ id: `lm-${lm.id}`, label: lm.name, url: lm.url, type: 'leadmagnet' as const })),
   ];
 
-  // Exclure les calls rejetés manuellement dans le pipeline ("Non, pas un lead")
-  const dismissedKeys = new Set((overridesRes.data ?? []).map((o: any) => o.prospect_key));
-  const callsData = (callsRes.data ?? []).filter((c: any) => !dismissedKeys.has(c.id));
+  // Les calls rejetés dans le pipeline (« Non, pas un lead ») sont désormais
+  // exclus à la source par `ignored`, comme toute autre exclusion de call. Le
+  // filtre qui vivait ici s'appuyait sur `pipeline_overrides.stage = 'dismissed'`,
+  // un mécanisme resté à zéro ligne en un an et retiré le 2026-08-27.
+  const callsData = callsRes.data ?? [];
 
   const lmHistory: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[] =
     lmHistoryRows.filter((h: any) => h.ig_user_id && h.keyword_matched);

@@ -12,7 +12,7 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import RapportModal from '@/components/ui/RapportModalLoader';
 import ProspectDetailModal from './ProspectDetailModal';
 import { isYtVideoId } from '@/lib/ytId';
-import { isCallHonored } from '@/lib/callHonored';
+import { resolveLeadState, type StageKey, type IssueKey } from '@/lib/pipelineStage';
 import { useViewerTimeZone } from '@/lib/UserContext';
 import { wallClockToUtc, cityLabelOf } from '@/lib/timezone';
 
@@ -157,29 +157,51 @@ export type { IgLead, ProspectLink, Call, ProspectEvent, LmHistoryEntry, Pipelin
 // préserver la cohérence visuelle de la palette (cyan/violet/orange/bleu/vert), pas
 // une dérive de la couleur de marque à corriger.
 
+// ⚠️ DEUX AXES, JAMAIS UN SEUL. Un lead porte une ÉTAPE (où il en est) ET une
+// ISSUE (ce qui a été décidé). Les mélanger produisait « 3 show up » affiché
+// au-dessus de « 4 closés » — impossible dans un entonnoir, et c'est ce qui a
+// déclenché la refonte du 2026-08-27. `showed_up` et `closed` étaient des
+// étapes ; ce sont des résultats. Voir lib/pipelineStage.ts pour le modèle.
+
 const IG_STAGES = [
-  { key: 'cold_dm',       label: 'Cold DM',            color: '#0891B2', lightBg: '#ECFEFF', dot: '#0891B2' },
-  { key: 'lm_sent',       label: 'Lead Commentaire / LM reçu', color: '#7C3AED', lightBg: '#F5F3FF', dot: '#7C3AED' },
-  { key: 'in_convo',      label: 'En conversation',   color: '#9333EA', lightBg: '#FDF4FF', dot: '#9333EA' },
-  { key: 'calendly_sent', label: 'Calendly envoyé',   color: '#D97706', lightBg: '#FFFBEB', dot: '#D97706' },
-  { key: 'link_clicked',  label: 'Lien Calendly cliqué', color: '#EA580C', lightBg: '#FFF7ED', dot: '#EA580C' },
-  { key: 'call_booked',   label: 'Call booké',         color: '#2563EB', lightBg: '#EFF6FF', dot: '#2563EB' },
-  { key: 'showed_up',     label: 'Show up',            color: '#059669', lightBg: '#ECFDF5', dot: '#059669' },
-  { key: 'closed',        label: 'Closé',              color: '#047857', lightBg: '#D1FAE5', dot: '#047857' },
+  { key: 'lm_sent',       label: 'Commentaire LM',      color: '#7C3AED', lightBg: '#F5F3FF', dot: '#7C3AED' },
+  { key: 'lm_received',   label: 'Lead magnet reçu',    color: '#A855F7', lightBg: '#FAF5FF', dot: '#A855F7' },
+  { key: 'cold_dm',       label: 'Cold DM',             color: '#0891B2', lightBg: '#ECFEFF', dot: '#0891B2' },
+  { key: 'in_convo',      label: 'En conversation',     color: '#9333EA', lightBg: '#FDF4FF', dot: '#9333EA' },
+  { key: 'calendly_sent', label: 'Calendly envoyé',     color: '#D97706', lightBg: '#FFFBEB', dot: '#D97706' },
+  { key: 'link_clicked',  label: 'Lien cliqué',         color: '#EA580C', lightBg: '#FFF7ED', dot: '#EA580C' },
+  { key: 'call_booked',   label: 'RDV pris',            color: '#2563EB', lightBg: '#EFF6FF', dot: '#2563EB' },
 ] as const;
 
+// YouTube n'a qu'une étape : un lead YouTube arrive directement par un lien
+// Calendly en description, sans DM ni lead magnet. Tout le reste de son parcours
+// se joue dans les issues.
 const YT_STAGES = [
-  { key: 'call_booked', label: 'Call booké', color: '#2563EB', lightBg: '#EFF6FF', dot: '#2563EB' },
-  { key: 'showed_up',   label: 'Show up',    color: '#059669', lightBg: '#ECFDF5', dot: '#059669' },
-  { key: 'closed',      label: 'Closé',      color: '#047857', lightBg: '#D1FAE5', dot: '#047857' },
+  { key: 'call_booked', label: 'RDV pris', color: '#2563EB', lightBg: '#EFF6FF', dot: '#2563EB' },
+] as const;
+
+// Les issues ne sont PAS ordonnées : aucune n'est « après » une autre. Elles ne
+// portent donc pas d'index de progression, contrairement aux étapes.
+const ISSUES = [
+  { key: 'to_recontact',  label: 'À recontacter', color: '#C2410C', lightBg: '#FFF7ED', dot: '#C2410C' },
+  { key: 'no_show',       label: 'No show',       color: '#DC2626', lightBg: '#FEF2F2', dot: '#DC2626' },
+  { key: 'not_qualified', label: 'Pas qualifié',  color: '#6B7280', lightBg: '#F9FAFB', dot: '#6B7280' },
+  { key: 'lost',          label: 'Perdu',         color: '#7A7361', lightBg: '#F7F4EC', dot: '#7A7361' },
+  { key: 'closed',        label: 'Closé',         color: '#047857', lightBg: '#D1FAE5', dot: '#047857' },
 ] as const;
 
 type IgStageKey = typeof IG_STAGES[number]['key'];
 type YtStageKey = typeof YT_STAGES[number]['key'];
 
-// Ensembles pour la règle pré-call / post-call
-const POST_CALL_STAGES = new Set(['call_booked', 'showed_up', 'closed']);
-const PRE_CALL_STAGES  = new Set(['cold_dm', 'lm_sent', 'in_convo', 'calendly_sent', 'link_clicked']);
+/** Une colonne du kanban : une étape ou une issue. Même forme, deux natures. */
+type ColumnDef = { key: string; label: string; color: string; lightBg: string; dot: string };
+
+const ISSUE_LABELS: Record<string, string> = Object.fromEntries(ISSUES.map(i => [i.key, i.label]));
+
+// Ensembles pour la règle pré-call / post-call. `showed_up` et `closed` n'en
+// font plus partie : ce ne sont plus des étapes.
+const POST_CALL_STAGES = new Set(['call_booked']);
+const PRE_CALL_STAGES  = new Set(['lm_sent', 'lm_received', 'cold_dm', 'in_convo', 'calendly_sent', 'link_clicked']);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -230,23 +252,16 @@ function resolveYtSource(
   return { label, videoId: null, title: null };
 }
 
-// ── resolveStage ──────────────────────────────────────────────────────────────
-
-function resolveStage(
-  naturalKey: string,
-  overrideKey: string | null | undefined,
-  stages: readonly { key: string }[],
-): string {
-  if (!overrideKey) return naturalKey;
-  const naturalIdx  = stages.findIndex(s => s.key === naturalKey);
-  const overrideIdx = stages.findIndex(s => s.key === overrideKey);
-  // Le naturel gagne s'il est au moins aussi avancé que l'override
-  if (naturalIdx >= overrideIdx) return naturalKey;
-  return overrideKey;
-}
-
 // ── getBestKnownStage ─────────────────────────────────────────────────────────
-// Meilleure étape connue d'un lead avant call_booked, basée sur prospect_events
+// Meilleure étape connue d'un lead avant call_booked, basée sur prospect_events.
+// Sert au recul manuel depuis « RDV pris » : où remettre la carte.
+//
+// `resolveStage` vivait ici. Elle est morte avec l'unification : elle arbitrait
+// entre étape naturelle et override sur un axe unique et ordonné, alors que
+// l'override porte désormais une ISSUE, qui n'est pas une position sur cet axe.
+// C'était aussi la cause structurelle du bug 3 — un override ne pouvait jamais
+// faire reculer une carte, puisque « le naturel gagne s'il est au moins aussi
+// avancé ».
 
 function getBestKnownStage(
   prospect: ProspectLink | undefined,
@@ -263,8 +278,13 @@ function getBestKnownStage(
     return true;
   });
   if (leadEvents.some(e => e.event_type === 'link_clicked')) return 'link_clicked';
+  // `calendly_link_sent` n'a jamais existé en base avant le 2026-08-27 : son
+  // écriture échouait en silence (voir migration 20260827000000). Cette branche
+  // ne se déclenchera donc que pour les liens envoyés à partir de cette date.
   if (leadEvents.some(e => e.event_type === 'calendly_link_sent')) return 'calendly_sent';
   if (lead?.hook_replied) return 'in_convo';
+  if (leadEvents.some(e => e.event_type === 'lm_link_requested')) return 'lm_received';
+  if (lead?.source === 'cold_dm') return 'cold_dm';
   return 'lm_sent';
 }
 
@@ -387,8 +407,21 @@ interface CardData {
   name: string;
   sub: string;
   date: string;
+  /** La colonne où la carte s'affiche : l'issue si le lead est classé, l'étape sinon. */
   stageKey: string;
+  /** Index dans IG_STAGES de l'ÉTAPE — jamais de l'issue, qui n'est pas ordonnée. */
   stageIdx: number;
+  /** L'étape réellement atteinte, conservée même quand le lead est classé. */
+  stage: StageKey;
+  /** Le résultat, quand il y en a un. `null` = le lead est encore actif. */
+  issue: IssueKey | null;
+  /** Pourquoi cette issue : motif saisi, ou 'sans_reponse' pour une sortie de cycle. */
+  issueReason?: string | null;
+  /** Le RDV est passé et personne n'a rempli le rapport. */
+  rapportEnRetard?: boolean;
+  /** Relances faites dans le cycle en cours, et si la prochaine est due. */
+  relancesFaites?: number;
+  relanceDue?: boolean;
   extra?: string;
   noSource?: boolean;
   // Badges post-call
@@ -412,15 +445,14 @@ interface CardData {
 }
 
 function PipelineCard({
-  card, stages, isDragging, onDragStart, platform, onConfirmLead, onDismissLead, onDeleteLead, onRapportClick, onCardClick, onNotALead,
+  card, stages, isDragging, onDragStart, platform, onConfirmLead, onDeleteLead, onRapportClick, onCardClick, onNotALead,
 }: {
   card: CardData;
-  stages: typeof IG_STAGES | typeof YT_STAGES;
+  stages: readonly ColumnDef[];
   isDragging: boolean;
   onDragStart: (e: React.DragEvent, cardKey: string) => void;
   platform: 'ig' | 'yt' | 'other';
   onConfirmLead?: (key: string) => void;
-  onDismissLead?: (key: string) => void;
   onDeleteLead?: (key: string, callId?: string | null) => void;
   onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string, isFollowUp: boolean, existing?: { revenue?: number | null; comment?: string | null } | null) => void;
   onCardClick?: (cardKey: string) => void;
@@ -619,8 +651,13 @@ function PipelineCard({
             >
               Oui, c'est un lead
             </button>
+            {/* Répondre « Non » à « est-ce bien un lead ? » EST la confirmation :
+                le bandeau pose la question, le bouton y répond. Il écrivait
+                `dismissed`, qui masquait la carte sans l'exclure des statistiques
+                — deux gestes voisins pour une seule intention. Il n'en reste
+                qu'un : « ce n'est pas un lead ». */}
             <button
-              onMouseDown={e => { e.stopPropagation(); onDismissLead?.(card.key); }}
+              onMouseDown={e => { e.stopPropagation(); onNotALead?.(card.key, card.callId); }}
               onClick={e => e.stopPropagation()}
               style={{ padding: '5px 10px', fontSize: 10, fontWeight: 600, cursor: 'pointer', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', transition: 'all .12s' }}
               onMouseEnter={e => { e.currentTarget.style.background = 'var(--border)'; }}
@@ -770,11 +807,11 @@ function PipelineCard({
 
 function KanbanColumn({
   stage, cards, stages, draggingKey, onDragStart, onDrop, onDragOver, onDragLeave,
-  isDropTarget, platform, onConfirmLead, onDismissLead, onDeleteLead, onRapportClick, onCardClick, onNotALead,
+  isDropTarget, platform, onConfirmLead, onDeleteLead, onRapportClick, onCardClick, onNotALead,
 }: {
-  stage: typeof IG_STAGES[number] | typeof YT_STAGES[number];
+  stage: ColumnDef;
   cards: CardData[];
-  stages: typeof IG_STAGES | typeof YT_STAGES;
+  stages: readonly ColumnDef[];
   draggingKey: string | null;
   onDragStart: (e: React.DragEvent, key: string) => void;
   onDrop: (e: React.DragEvent, stageKey: string) => void;
@@ -783,7 +820,6 @@ function KanbanColumn({
   isDropTarget: boolean;
   platform: 'ig' | 'yt' | 'other';
   onConfirmLead?: (key: string) => void;
-  onDismissLead?: (key: string) => void;
   onDeleteLead?: (key: string, callId?: string | null) => void;
   onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string, isFollowUp: boolean, existing?: { revenue?: number | null; comment?: string | null } | null) => void;
   onCardClick?: (cardKey: string) => void;
@@ -840,7 +876,6 @@ function KanbanColumn({
             onDragStart={onDragStart}
             platform={platform}
             onConfirmLead={onConfirmLead}
-            onDismissLead={onDismissLead}
             onDeleteLead={onDeleteLead}
             onRapportClick={onRapportClick}
             onCardClick={onCardClick}
@@ -857,10 +892,9 @@ function KanbanColumn({
 type ConfirmCase =
   | 'backward_pre_call'         // recul vers un stage pré-call (reset complet des signaux)
   | 'forward_pre_call'          // avancée manuelle vers un stage pré-call (injection signaux)
-  | 'backward_from_post_call'   // recul depuis call_booked / showed_up / closed
+  | 'backward_from_post_call'   // recul depuis call_booked vers une étape pré-call
   | 'forward_to_call_booked'    // avancée manuelle vers call_booked
-  | 'forward_to_showed_up'      // avancée manuelle vers showed_up
-  | 'forward_to_closed'         // avancée manuelle vers closed
+  | 'forward_to_closed'         // classement manuel en Closé
   | 'no_prospect_link'          // lien Calendly prospect non généré — blocage
   | 'simple_move';              // tout autre déplacement
 
@@ -1077,15 +1111,6 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
           </>
         )}
 
-        {modalCase === 'forward_to_showed_up' && (
-          <>
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>@{cardName} s&apos;est présenté au call ?</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>
-              Confirme que le lead était bien présent. Cela sera compté dans ton taux de show-up.
-            </div>
-          </>
-        )}
-
         {modalCase === 'forward_to_closed' && (
           <>
             <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Deal fermé avec @{cardName} ?</div>
@@ -1213,21 +1238,18 @@ export default function PagePipeline() {
   const [overrides, setOverrides] = useState<Override[]>([]);
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
-  const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set());
   const [confirmedKeys, setConfirmedKeys] = useState<Set<string>>(new Set());
   const dropCounters = useRef<Record<string, number>>({});
 
   const [refreshing, setRefreshing] = useState(false);
 
-  // Filtres
-  const [filterNoShow, setFilterNoShow] = useState(false);
+  // Filtres. No-shows, Pas qualifiés et À recontacter sont devenus des colonnes
+  // du kanban ; Archivés reposait sur `dismissed`, un mécanisme resté à zéro
+  // ligne en un an. Ne restent que les deux états du rendez-vous.
   // Repli des filtres sur mobile uniquement (le desktop les affiche toujours).
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [filterArchived, setFilterArchived] = useState(false);
   const [filterCanceled, setFilterCanceled] = useState(false);
   const [filterRescheduled, setFilterRescheduled] = useState(false);
-  const [filterNotQualified, setFilterNotQualified] = useState(false);
-  const [filterToRecontact, setFilterToRecontact] = useState(false);
 
   // Modale de confirmation drag-and-drop
   const [confirmModal, setConfirmModal] = useState<{
@@ -1279,7 +1301,6 @@ export default function PagePipeline() {
 
   useEffect(() => {
     if (data?.overrides) {
-      setDismissedKeys(new Set(data.overrides.filter((o: Override) => o.stage === 'dismissed').map((o: Override) => o.prospect_key)));
       setConfirmedKeys(new Set(data.overrides.filter((o: Override) => o.stage === 'confirmed_lead').map((o: Override) => o.prospect_key)));
     }
   }, [data?.overrides]);
@@ -1365,21 +1386,6 @@ export default function PagePipeline() {
         linkSentRef &&
         new Date(prospect.first_click_at) > new Date(linkSentRef);
 
-      let natural: IgStageKey = lead ? 'lm_sent' : 'calendly_sent';
-      if (lead?.source === 'cold_dm') { natural = 'cold_dm'; }
-      if (lead?.hook_replied) { natural = 'in_convo'; }
-      if (calendlySentValid) { natural = 'calendly_sent'; }
-      if (linkClickedValid)  { natural = 'link_clicked'; }
-
-      // Plancher : un signal auto qui se re-déclenche (ex: nouveau commentaire du même
-      // lead) ne doit jamais faire reculer la carte en dessous de l'étape déjà atteinte
-      // (auto ou confirmée manuellement) — seule une vraie progression peut la dépasser.
-      if (prospect?.min_stage_reached) {
-        const floorIdx = IG_STAGES.findIndex(s => s.key === prospect.min_stage_reached);
-        const naturalIdx = IG_STAGES.findIndex(s => s.key === natural);
-        if (floorIdx > naturalIdx) natural = prospect.min_stage_reached as IgStageKey;
-      }
-
       const prospectPath = prospect?.short_url
         ? (() => { try { return new URL(prospect.short_url).pathname.slice(1); } catch { return null; } })()
         : null;
@@ -1398,38 +1404,39 @@ export default function PagePipeline() {
       });
       const call = matchingCalls.find(c => c.status === 'active' && !c.no_show) ?? matchingCalls[0];
 
-      let badge: CardData['badge'] = null;
+      const override = effectiveOverrides.find(o => o.prospect_key.toLowerCase() === username && o.platform === 'ig');
 
-      if (call) {
-        if (['canceled', 'cancelled'].includes(call.status ?? '')) {
-          // Call annulé → meilleure étape connue (events chargés = pas de flash)
-          natural = getBestKnownStage(prospect, lead, events);
-        } else if (call.no_show === true) {
-          // No-show → meilleure étape connue + badge rouge
-          natural = getBestKnownStage(prospect, lead, events);
-          badge = 'no_show';
-        } else if (call.rescheduled) {
-          // Reporté : reste en call_booked mais badge orange si après l'heure prévue
-          natural = 'call_booked';
-          if (new Date(call.scheduled_at).getTime() < Date.now()) badge = 'rescheduled';
-        } else if (call.outcome === 'not_qualified') {
-          natural = 'showed_up';
-          badge = 'not_qualified';
-        } else if (call.outcome === 'to_recontact') {
-          natural = 'showed_up';
-          badge = 'to_recontact';
-        } else if (call.deal_closed) {
-          natural = 'closed';
-        } else if (isCallHonored(call, new Date())) {
-          natural = 'showed_up';
-        } else {
-          natural = 'call_booked';
-        }
+      // Source unique de l'état — remplace la cascade qui vivait ici et ses deux
+      // jumelles divergentes plus bas. Le call annulé ou reporté ne décide pas :
+      // pickDecidingCall les écarte, et le lead retombe sur ses signaux réels.
+      const lmRequested = lead
+        ? events.some(e => e.ig_lead_id === lead.id && e.event_type === 'lm_link_requested')
+        : false;
+      const state = resolveLeadState({
+        signals: {
+          isColdDm:         lead?.source === 'cold_dm',
+          lmLinkRequested:  lmRequested,
+          hasReplied:       !!lead?.hook_replied,
+          calendlySentValid: !!calendlySentValid,
+          linkClickedValid:  !!linkClickedValid,
+          minStageReached:  (prospect?.min_stage_reached as StageKey | null) ?? null,
+        },
+        calls:        matchingCalls,
+        manualIssue:  override?.stage ?? null,
+        manualReason: override?.reason ?? null,
+      }, new Date());
+
+      // Le badge dit ce que la colonne ne dit pas. Un lead classé porte déjà son
+      // issue en colonne — inutile de la répéter dessus.
+      let badge: CardData['badge'] = null;
+      if (state.status === 'active' && call?.rescheduled
+          && new Date(call.scheduled_at).getTime() < Date.now()) {
+        badge = 'rescheduled';
       }
 
-      const override = effectiveOverrides.find(o => o.prospect_key.toLowerCase() === username && o.platform === 'ig');
-      const stageKey = resolveStage(natural, override?.stage, IG_STAGES);
-      const stageIdx = IG_STAGES.findIndex(s => s.key === stageKey);
+      const stageKey = state.issue ?? state.stage;
+      const stageIdx = IG_STAGES.findIndex(s => s.key === state.stage);
+      const natural = state.stage;
       const detectedAt = lead?.detected_at ?? prospect?.created_at ?? new Date().toISOString();
       const sub = lead?.keyword_matched && lead.keyword_matched !== 'cold_dm'
         ? `#${lead.keyword_matched}`
@@ -1444,6 +1451,12 @@ export default function PagePipeline() {
         date: timeAgo(detectedAt),
         stageKey,
         stageIdx: stageIdx >= 0 ? stageIdx : 0,
+        stage: state.stage,
+        issue: state.issue,
+        issueReason: state.issueReason,
+        rapportEnRetard: state.flags.rapportEnRetard,
+        relancesFaites: state.flags.relancesFaites,
+        relanceDue: state.flags.relanceDue,
         badge,
         lmNotReceived: lead && lead.source !== 'cold_dm' ? !lead.lead_magnet_sent : false,
         lmClickedAt: lmClickedEvent?.occurred_at ?? null,
@@ -1523,23 +1536,27 @@ export default function PagePipeline() {
       )[0];
 
       const cardKey = `ig_link_${call.id}`;
-      // Étape naturelle : la plus avancée de TOUTE la chaîne. Un deal conclu sur
-      // le 1er rendez-vous ne doit pas être perdu parce que le dernier a été annulé.
-      let natural: IgStageKey = 'call_booked';
-      if (groupCalls.some(c => c.deal_closed)) natural = 'closed';
-      else if (groupCalls.some(c => isCallHonored(c, new Date()))) natural = 'showed_up';
-      else if (call.no_show) natural = 'call_booked';
-      else if (['canceled', 'cancelled'].includes(call.status ?? '')) natural = 'call_booked';
+      const override = effectiveOverrides.find(o => o.prospect_key === cardKey && o.platform === 'ig');
+
+      // Toute la chaîne est passée à la fonction, pas seulement le call affiché :
+      // c'est elle qui écarte les reprogrammés et fait gagner un deal conclu sur
+      // un rendez-vous plus récent. Un lead venu d'un lien n'a ni DM ni lead
+      // magnet — son étape est « RDV pris » dès le départ.
+      const state = resolveLeadState({
+        signals:      { minStageReached: 'call_booked' },
+        calls:        groupCalls,
+        manualIssue:  override?.stage ?? null,
+        manualReason: override?.reason ?? null,
+      }, new Date());
 
       let badge: CardData['badge'] = null;
-      if (call.no_show === true) badge = 'no_show';
-      else if (call.rescheduled && new Date(call.scheduled_at).getTime() < Date.now()) badge = 'rescheduled';
-      else if (call.outcome === 'not_qualified') badge = 'not_qualified';
-      else if (call.outcome === 'to_recontact') badge = 'to_recontact';
+      if (state.status === 'active' && call.rescheduled
+          && new Date(call.scheduled_at).getTime() < Date.now()) {
+        badge = 'rescheduled';
+      }
 
-      const override = effectiveOverrides.find(o => o.prospect_key === cardKey && o.platform === 'ig');
-      const stageKey = resolveStage(natural, override?.stage, IG_STAGES);
-      const stageIdx = IG_STAGES.findIndex(s => s.key === stageKey);
+      const stageKey = state.issue ?? state.stage;
+      const stageIdx = IG_STAGES.findIndex(s => s.key === state.stage);
 
       // Libellé par canal. Le repli sur « Lien bio » ne vaut que pour ig_bio :
       // avant, tout ce qui n'était pas ig_description héritait de ce libellé,
@@ -1556,6 +1573,12 @@ export default function PagePipeline() {
         date: timeAgo(call.scheduled_at),
         stageKey,
         stageIdx: stageIdx >= 0 ? stageIdx : 0,
+        stage: state.stage,
+        issue: state.issue,
+        issueReason: state.issueReason,
+        rapportEnRetard: state.flags.rapportEnRetard,
+        relancesFaites: state.flags.relancesFaites,
+        relanceDue: state.flags.relanceDue,
         badge,
         lmClickedAt: null,
         callId: call.id,
@@ -1565,7 +1588,7 @@ export default function PagePipeline() {
         callRevenue: call.revenue ?? null,
         callComment: call.lead_rapport_comment ?? null,
         callIsFollowUp: call.is_follow_up ?? false,
-        naturalKey: natural,
+        naturalKey: state.stage,
         hasProspectLink: false,
         avatarUrl: null,
         isIgLink: true,
@@ -1652,24 +1675,29 @@ export default function PagePipeline() {
         - new Date(a.booked_at ?? a.scheduled_at).getTime()
       )[0];
 
-      // Étape naturelle : la plus avancée parmi tous les calls du prospect
-      let natural: YtStageKey = 'call_booked';
-      if (calls.some(c => c.deal_closed)) natural = 'closed';
-      else if (calls.some(c => isCallHonored(c, new Date()))) natural = 'showed_up';
-
       const effectiveSrc = latestCall.source?.toLowerCase() ?? '';
       const platform: 'yt' | 'other' = effectiveSrc.startsWith('yt') ? 'yt' : 'other';
 
       const override = effectiveOverrides.find(o => o.prospect_key === prospectKey && o.platform === platform);
-      const stageKey = resolveStage(natural, override?.stage, YT_STAGES);
-      const stageIdx = YT_STAGES.findIndex(s => s.key === stageKey);
 
-      // Badge : priorité au call le plus récent
+      // Troisième et dernière cascade unifiée. YouTube n'a qu'une étape : le lead
+      // arrive par un lien Calendly en description, sans DM ni lead magnet. Tout
+      // son parcours se joue donc dans les issues.
+      const state = resolveLeadState({
+        signals:      { minStageReached: 'call_booked' },
+        calls,
+        manualIssue:  override?.stage ?? null,
+        manualReason: override?.reason ?? null,
+      }, new Date());
+
+      const stageKey = state.issue ?? state.stage;
+      const stageIdx = YT_STAGES.findIndex(s => s.key === state.stage);
+
       let badge: CardData['badge'] = null;
-      if (latestCall.no_show === true) badge = 'no_show';
-      else if (latestCall.rescheduled && new Date(latestCall.scheduled_at).getTime() < Date.now()) badge = 'rescheduled';
-      else if (latestCall.outcome === 'not_qualified') badge = 'not_qualified';
-      else if (latestCall.outcome === 'to_recontact') badge = 'to_recontact';
+      if (state.status === 'active' && latestCall.rescheduled
+          && new Date(latestCall.scheduled_at).getTime() < Date.now()) {
+        badge = 'rescheduled';
+      }
 
       const noSource = !latestCall.source && !latestCall.utm_medium && !latestCall.utm_content;
 
@@ -1685,6 +1713,12 @@ export default function PagePipeline() {
         date: timeAgo(latestCall.scheduled_at),
         stageKey,
         stageIdx: stageIdx >= 0 ? stageIdx : 0,
+        stage: state.stage,
+        issue: state.issue,
+        issueReason: state.issueReason,
+        rapportEnRetard: state.flags.rapportEnRetard,
+        relancesFaites: state.flags.relancesFaites,
+        relanceDue: state.flags.relanceDue,
         extra: latestCall.revenue ? `${latestCall.revenue.toLocaleString('fr-FR')} €` : undefined,
         noSource,
         badge,
@@ -1694,7 +1728,7 @@ export default function PagePipeline() {
         callOutcome: latestCall.outcome ?? null,
         callRevenue: latestCall.revenue ?? null,
         callComment: latestCall.lead_rapport_comment ?? null,
-        naturalKey: natural,
+        naturalKey: state.stage,
         hasProspectLink: false,
         avatarUrl: null,
       };
@@ -1707,31 +1741,44 @@ export default function PagePipeline() {
     }
   }
 
-  // Filtre dismissed + retire noSource des confirmés
+  // Retire noSource des confirmés. Le filtre `dismissed` a disparu avec le
+  // mécanisme lui-même : zéro ligne en base en un an d'usage, et « Ce n'est pas
+  // un lead » (not_a_lead) couvrait déjà le besoin.
   const filteredYtCards = ytCards
-    .filter(c => !dismissedKeys.has(c.key))
     .map(c => confirmedKeys.has(c.key) ? { ...c, noSource: false } : c);
 
-  const filteredOtherCards = otherCards.filter(c => !dismissedKeys.has(c.key));
+  const filteredOtherCards = otherCards;
 
   const stages = tab === 'ig' ? IG_STAGES : YT_STAGES;
+  // Les colonnes affichées = les étapes, puis les issues. Deux natures sur une
+  // seule rangée, mais deux axes distincts : `stages` reste la progression
+  // ordonnée (c'est elle que la carte affiche en jauge), `columns` n'est que
+  // l'ordre de lecture à l'écran.
+  const columns: readonly ColumnDef[] =
+    [...stages, ...ISSUES];
   const platform = tab;
 
-  // Application des filtres IG
-  const filteredIgCards = igCards.filter(c => {
-    // Par défaut, les dismissed sont cachés sauf si filtre Archivés actif
-    if (!filterArchived && dismissedKeys.has(c.key)) return false;
-    if (filterNoShow && c.badge !== 'no_show') return false;
-    if (filterArchived && c.stageKey !== 'dismissed') return false;
-    if (filterCanceled) {
-      const call = data?.calls.find(ca => ca.id === c.callId);
-      if (!call || !['canceled', 'cancelled'].includes(call.status ?? '')) return false;
-    }
-    if (filterRescheduled && c.badge !== 'rescheduled') return false;
-    if (filterNotQualified && c.badge !== 'not_qualified') return false;
-    if (filterToRecontact && c.badge !== 'to_recontact') return false;
-    return true;
-  });
+  // Filtres IG, cumulés en UNION et non en intersection.
+  //
+  // L'ancienne version enchaînait des `if (filtre && carte ne correspond pas)
+  // return false`. Deux filtres actifs donnaient donc toujours une liste vide :
+  // une carte ne porte qu'un badge à la fois, elle ne pouvait pas satisfaire les
+  // deux conditions. Aucun filtre actif = tout passe.
+  //
+  // No-shows, Pas qualifiés et À recontacter ont été retirés : ce sont des
+  // colonnes du kanban depuis la refonte, et un bouton qui filtre le contenu
+  // d'une colonne déjà visible est le même geste en deux endroits.
+  const isCanceled = (c: CardData) => {
+    const call = data?.calls.find(ca => ca.id === c.callId);
+    return !!call && ['canceled', 'cancelled'].includes(call.status ?? '');
+  };
+  const filtresActifs: ((c: CardData) => boolean)[] = [];
+  if (filterCanceled)    filtresActifs.push(isCanceled);
+  if (filterRescheduled) filtresActifs.push(c => c.badge === 'rescheduled');
+
+  const filteredIgCards = filtresActifs.length === 0
+    ? igCards
+    : igCards.filter(c => filtresActifs.some(f => f(c)));
 
   const cards = tab === 'ig' ? filteredIgCards : tab === 'yt' ? filteredYtCards : filteredOtherCards;
 
@@ -1774,8 +1821,11 @@ export default function PagePipeline() {
       // IG : cardKey = ig_username
       body = { ig_username: cardKey, not_a_lead: true };
     } else if (cardKey === callId) {
-      // YT/Autre fallback : pas de ligne prospects à marquer, rien à faire
-      return;
+      // Le rendez-vous n'a aucune fiche prospect derrière lui. Ce chemin ne
+      // faisait RIEN auparavant — le geste échouait en silence sur les cartes
+      // « Source inconnue », qui sont justement celles qui le proposent. Le
+      // serveur exclut le call par `ignored`.
+      body = { call_id: callId, not_a_lead: true };
     } else {
       // YT/Autre normal : cardKey = prospect_id
       body = { prospect_id: cardKey, not_a_lead: true };
@@ -1852,7 +1902,6 @@ export default function PagePipeline() {
     const isBackwardFromPostCall =
       POST_CALL_STAGES.has(card.stageKey) && targetStageIdx < currentStageIdx;
     const isForwardToCallBooked = targetStageKey === 'call_booked' && !card.callId;
-    const isForwardToShowedUp   = targetStageKey === 'showed_up';
     const isForwardToClosed     = targetStageKey === 'closed';
 
     // Bloquer si le lead n'a pas de lien Calendly généré et qu'on tente de l'avancer vers calendly_sent / link_clicked / call_booked
@@ -1878,10 +1927,10 @@ export default function PagePipeline() {
       setConfirmModal({ case: 'forward_to_call_booked', cardKey, cardName: card.name, targetStageKey, targetStageLabel, currentStageKey, callId: card.callId ?? null, naturalKey });
       return;
     }
-    if (isForwardToShowedUp) {
-      setConfirmModal({ case: 'forward_to_showed_up', cardKey, cardName: card.name, targetStageKey, targetStageLabel, currentStageKey, callId: card.callId ?? null, naturalKey });
-      return;
-    }
+    // Le cas « avancée manuelle vers Show up » a disparu avec sa colonne : dire
+    // « il est venu » n'est pas un résultat, et cette modale promettait d'écrire
+    // sur le rendez-vous sans rien écrire (bug 5). Un RDV passé sans rapport se
+    // signale désormais tout seul, par le drapeau rapportEnRetard.
     if (isForwardToClosed) {
       setConfirmModal({ case: 'forward_to_closed', cardKey, cardName: card.name, targetStageKey, targetStageLabel, currentStageKey, callId: card.callId ?? null, naturalKey });
       return;
@@ -1965,8 +2014,6 @@ export default function PagePipeline() {
           source: 'ig',
         }),
       });
-    } else if (modalCase === 'forward_to_showed_up') {
-      await saveOverride(cardKey, platform, 'showed_up', 'manual', naturalKey);
     } else if (modalCase === 'forward_to_closed') {
       if (callId) await patchCall(callId, { deal_closed: true, revenue: extraData?.revenue ?? null });
       await saveOverride(cardKey, platform, 'closed', 'manual', naturalKey);
@@ -1983,7 +2030,7 @@ export default function PagePipeline() {
   // changer quand on passe d'un onglet à l'autre, sinon il se lit comme un total alors
   // qu'il ne compte que l'onglet courant (demande Chris, 2026-08-19).
   const totalProspects = filteredIgCards.length + filteredYtCards.length + filteredOtherCards.length;
-  const activeFilterCount = [filterNoShow, filterArchived, filterCanceled, filterRescheduled, filterNotQualified, filterToRecontact].filter(Boolean).length;
+  const activeFilterCount = [filterCanceled, filterRescheduled].filter(Boolean).length;
   const anyFilter = activeFilterCount > 0;
 
   return (
@@ -2096,12 +2143,13 @@ export default function PagePipeline() {
           style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}
         >
           {[
-            { key: 'no_show', label: 'No-shows', value: filterNoShow, set: setFilterNoShow, color: '#dc2626', bg: '#fef2f2' },
-            { key: 'archived', label: 'Archivés', value: filterArchived, set: setFilterArchived, color: '#6b7280', bg: '#f3f4f6' },
+            // No-shows / Pas qualifiés / À recontacter sont devenus des colonnes,
+            // et Archivés reposait sur un mécanisme jamais utilisé (0 ligne en
+            // base). Restent les deux états du RENDEZ-VOUS, qui n'ont pas de
+            // colonne parce qu'ils ne disent rien du résultat du lead : la carte
+            // reste en « RDV pris » et seul ce bouton permet de la retrouver.
             { key: 'canceled', label: 'Annulés', value: filterCanceled, set: setFilterCanceled, color: '#7C3AED', bg: '#F5F3FF' },
             { key: 'rescheduled', label: 'Reportés', value: filterRescheduled, set: setFilterRescheduled, color: '#d97706', bg: '#fffbeb' },
-            { key: 'not_qualified', label: 'Pas qualifiés', value: filterNotQualified, set: setFilterNotQualified, color: '#6b7280', bg: '#f3f4f6' },
-            { key: 'to_recontact', label: 'À recontacter', value: filterToRecontact, set: setFilterToRecontact, color: '#c2410c', bg: '#fff7ed' },
           ].map(f => (
             <button
               key={f.key}
@@ -2120,7 +2168,7 @@ export default function PagePipeline() {
           ))}
           {anyFilter && (
             <button
-              onClick={() => { setFilterNoShow(false); setFilterArchived(false); setFilterCanceled(false); setFilterRescheduled(false); setFilterNotQualified(false); setFilterToRecontact(false); }}
+              onClick={() => { setFilterCanceled(false); setFilterRescheduled(false); }}
               className="pipeline-filter"
               style={{ fontWeight: 500, borderRadius: 6, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)' }}
             >
@@ -2156,8 +2204,12 @@ export default function PagePipeline() {
 
         <div className="pipeline-desktop" style={{ flex: 1, overflowX: 'auto', overflowY: 'auto', paddingBottom: 16, scrollbarWidth: 'thin', scrollbarColor: 'var(--border) transparent' }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', minWidth: 'max-content', height: '100%' }}>
-            {stages.map(stage => {
-              const stageCards = cards.filter(c => c.stageIdx === stages.findIndex(s => s.key === stage.key));
+            {columns.map(stage => {
+              // On range par `stageKey`, qui vaut l'ISSUE quand le lead est classé
+              // et l'ÉTAPE sinon. L'ancien filtrage passait par `stageIdx`, un
+              // index dans le tableau des étapes — il ne pouvait donc pas
+              // désigner une issue, qui n'a pas de position sur cet axe.
+              const stageCards = cards.filter(c => c.stageKey === stage.key);
               return (
                 <KanbanColumn
                   key={stage.key}
@@ -2172,7 +2224,6 @@ export default function PagePipeline() {
                   onDragLeave={e => handleDragLeave(stage.key)}
                   platform={platform}
                   onConfirmLead={key => { setConfirmedKeys(prev => new Set([...prev, key])); saveOverride(key, platform, 'confirmed_lead'); }}
-                  onDismissLead={key => { setDismissedKeys(prev => new Set([...prev, key])); saveOverride(key, platform, 'dismissed'); }}
                   onDeleteLead={handleDeleteLead}
                   onNotALead={handleNotALead}
                   onRapportClick={(callId, inviteeName, scheduledAt, isFollowUp, existing) => setRapportModal({ callId, inviteeName, scheduledAt, isFollowUp, existing })}

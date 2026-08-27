@@ -192,12 +192,25 @@ export async function PATCH(request: Request) {
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
 
-  const { ig_username, prospect_id, not_a_lead } = body;
-  if (typeof not_a_lead !== 'boolean' || (!ig_username && !prospect_id)) {
-    return NextResponse.json({ error: 'ig_username ou prospect_id, et not_a_lead requis' }, { status: 400 });
+  const { ig_username, prospect_id, call_id, not_a_lead } = body;
+  if (typeof not_a_lead !== 'boolean' || (!ig_username && !prospect_id && !call_id)) {
+    return NextResponse.json({ error: 'ig_username, prospect_id ou call_id, et not_a_lead requis' }, { status: 400 });
   }
 
-  const { error } = ig_username
+  // `call_id` : le rendez-vous n'a aucune fiche prospect derrière lui (call
+  // orphelin d'une source inconnue). Il n'y a donc pas de `not_a_lead` à poser
+  // quelque part — on l'exclut par `ignored`, la convention du projet que toute
+  // requête sur `calls` respecte déjà (`ignored is not true`).
+  //
+  // Sans cette branche, le geste « Non, ce n'est pas un lead » ne faisait RIEN
+  // sur ces cartes-là : c'est exactement le cas que couvrait `dismissed`, retiré
+  // le 2026-08-27. `lead_deleted` reste à false — on n'efface rien, on exclut.
+  const { error } = call_id
+    ? await supa.from('calls')
+        .update({ ignored: not_a_lead })
+        .eq('coach_id', user.id)
+        .eq('id', call_id)
+    : ig_username
     ? await supa.from('instagram_leads')
         .update({ not_a_lead })
         .eq('profile_id', user.id)

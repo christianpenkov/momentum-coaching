@@ -99,20 +99,40 @@ test('qualified absent ne change rien à l’issue', () => {
 
 // ── Priorité entre plusieurs calls ────────────────────────────────────────────
 
-test('deux RDV : le plus récent décide, dans les deux sens', () => {
-  const noShowPuisClose = etat({ calls: [
-    call({ id: 'a', scheduled_at: jours(20), outcome: 'no_show', no_show: true }),
-    call({ id: 'b', scheduled_at: jours(2),  outcome: 'closed' }),
+test('deux RDV sans deal : le plus récent décide', () => {
+  const s = etat({ calls: [
+    call({ id: 'a', scheduled_at: jours(20), outcome: 'to_recontact' }),
+    call({ id: 'b', scheduled_at: jours(2),  outcome: 'no_show', no_show: true }),
   ]});
-  assert.equal(noShowPuisClose.issue, 'closed');
-  assert.equal(noShowPuisClose.decidedByCallId, 'b');
+  assert.equal(s.issue, 'no_show');
+  assert.equal(s.decidedByCallId, 'b');
+});
 
+// La règle vivait déjà dans PagePipeline avant l'unification : « un deal conclu
+// sur le 1er rendez-vous ne doit pas être perdu parce que le dernier a été
+// annulé ». L'argent est encaissé — un no-show au call de suivi ne l'annule pas.
+test('un deal conclu l’emporte sur un RDV plus récent', () => {
   const closePuisNoShow = etat({ calls: [
     call({ id: 'a', scheduled_at: jours(20), outcome: 'closed' }),
     call({ id: 'b', scheduled_at: jours(2),  outcome: 'no_show', no_show: true }),
   ]});
-  assert.equal(closePuisNoShow.issue, 'no_show');
-  assert.equal(closePuisNoShow.decidedByCallId, 'b');
+  assert.equal(closePuisNoShow.issue, 'closed', 'le closé gagne malgré sa date plus ancienne');
+  assert.equal(closePuisNoShow.decidedByCallId, 'a');
+
+  const noShowPuisClose = etat({ calls: [
+    call({ id: 'a', scheduled_at: jours(20), outcome: 'no_show', no_show: true }),
+    call({ id: 'b', scheduled_at: jours(2),  outcome: 'closed' }),
+  ]});
+  assert.equal(noShowPuisClose.issue, 'closed', 'et il gagne aussi quand il est le plus récent');
+  assert.equal(noShowPuisClose.decidedByCallId, 'b');
+});
+
+test('deux deals conclus : le plus récent des deux décide', () => {
+  const s = etat({ calls: [
+    call({ id: 'a', scheduled_at: jours(40), outcome: 'closed' }),
+    call({ id: 'b', scheduled_at: jours(9),  outcome: 'closed' }),
+  ]});
+  assert.equal(s.decidedByCallId, 'b');
 });
 
 test('un call reprogrammé ne décide pas — son remplaçant le fait', () => {
@@ -295,7 +315,7 @@ test('« ce n’est pas un lead » l’emporte sur tout', () => {
 // ── Les étapes ────────────────────────────────────────────────────────────────
 
 test('chaque signal fait avancer d’un cran, jamais reculer', () => {
-  assert.equal(resolveNaturalStage({}), 'comment_lm');
+  assert.equal(resolveNaturalStage({}), 'lm_sent');
   assert.equal(resolveNaturalStage({ lmLinkRequested: true }), 'lm_received');
   assert.equal(resolveNaturalStage({ isColdDm: true }), 'cold_dm');
   assert.equal(resolveNaturalStage({ hasReplied: true }), 'in_convo');

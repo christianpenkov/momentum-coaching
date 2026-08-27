@@ -12,13 +12,23 @@
 //
 //   ÉTAPES (progression, ordonnées)        ISSUES (résultat, non ordonnées)
 //   ────────────────────────────────       ─────────────────────────────────
-//   comment_lm    Commentaire LM           to_recontact   À recontacter
+//   lm_sent       Commentaire LM           to_recontact   À recontacter
 //   lm_received   Lead magnet reçu         no_show        No show
 //   cold_dm       Cold DM                  not_qualified  Pas qualifié
 //   in_convo      En conversation          lost           Perdu
 //   calendly_sent Calendly envoyé          closed         Closé
 //   link_clicked  Lien cliqué
 //   call_booked   RDV pris
+//
+// Les clés d'étape sont celles déjà en base — `lm_sent` porte « Commentaire LM »
+// malgré son nom, parce que `lead_magnet_sent` est posé au commentaire. La
+// renommer casserait IG_PRE_CALL dans reset/route.ts et advance/route.ts pour
+// zéro gain. `lm_received` est la seule clé nouvelle.
+//
+// `closed` est à la fois une ancienne clé d'étape et la nouvelle clé d'issue :
+// les overrides `closed` existants deviennent donc des issues valides sans
+// migration. `showed_up`, en revanche, n'existe plus — un override qui le porte
+// est ignoré et le lead retombe sur son calcul naturel (comportement testé).
 //
 // ── D'OÙ VIENT L'ISSUE ────────────────────────────────────────────────────────
 //
@@ -43,7 +53,7 @@
 // leur. Les traiter comme des issues créerait deux colonnes fantômes.
 
 export type StageKey =
-  | 'comment_lm'
+  | 'lm_sent'
   | 'lm_received'
   | 'cold_dm'
   | 'in_convo'
@@ -60,7 +70,7 @@ export type IssueKey =
 
 /** Ordre de progression. L'index sert de plancher : un lead ne recule jamais tout seul. */
 export const STAGE_ORDER: readonly StageKey[] = [
-  'comment_lm',
+  'lm_sent',
   'lm_received',
   'cold_dm',
   'in_convo',
@@ -191,7 +201,7 @@ const JOUR_MS = 86_400_000;
  * des calls. Chaque signal ne peut que faire avancer.
  */
 export function resolveNaturalStage(signals: StageSignals): StageKey {
-  let stage: StageKey = signals.isColdDm ? 'cold_dm' : 'comment_lm';
+  let stage: StageKey = signals.isColdDm ? 'cold_dm' : 'lm_sent';
   if (signals.lmLinkRequested)   stage = 'lm_received';
   if (signals.isColdDm)          stage = 'cold_dm';
   if (signals.hasReplied)        stage = 'in_convo';
@@ -207,17 +217,31 @@ export function resolveNaturalStage(signals: StageSignals): StageKey {
 }
 
 /**
- * Le call qui décide de l'issue : le plus récemment programmé parmi ceux qui
- * comptent. Un call reprogrammé ne décide pas — son remplaçant le fera.
+ * Le call qui décide de l'issue.
+ *
+ * Un deal conclu l'emporte sur tout, même sur un rendez-vous plus récent : le
+ * lead qui a signé puis manqué son call de suivi reste CLOSÉ — l'argent est
+ * encaissé, un no-show postérieur ne l'annule pas. Cette règle vivait déjà dans
+ * PagePipeline (« un deal conclu sur le 1er rendez-vous ne doit pas être perdu
+ * parce que le dernier a été annulé ») et doit survivre à l'unification.
+ *
+ * Sinon, le plus récemment programmé. Un call reprogrammé ne décide jamais —
+ * son remplaçant le fera.
  */
 export function pickDecidingCall(calls: readonly StageCall[]): StageCall | null {
   const utiles = calls.filter(c =>
     !c.ignored && !c.lead_deleted && c.status === 'active' && !c.rescheduled,
   );
   if (utiles.length === 0) return null;
-  return utiles.reduce((meilleur, c) =>
-    (toTime(c.scheduled_at) ?? 0) > (toTime(meilleur.scheduled_at) ?? 0) ? c : meilleur,
-  );
+
+  const plusRecent = (a: StageCall, b: StageCall) =>
+    (toTime(b.scheduled_at) ?? 0) > (toTime(a.scheduled_at) ?? 0) ? b : a;
+
+  // Un deal conclu passe devant, quelle que soit sa date.
+  const closes = utiles.filter(c => !c.no_show && OUTCOME_TO_ISSUE[c.outcome ?? ''] === 'closed');
+  if (closes.length > 0) return closes.reduce(plusRecent);
+
+  return utiles.reduce(plusRecent);
 }
 
 /**
