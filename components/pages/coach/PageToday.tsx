@@ -165,14 +165,16 @@ export default function PageToday() {
           </div>
         ))}
       </div>
+      {/* Pas de carte a la forme du bandeau « Prochain call » ici : ce bandeau
+          est CONDITIONNEL (rien a afficher si aucun call dans les 24 h). Le
+          squelette en dessinait pourtant un systematiquement, donc il affirmait
+          une chose qu'il ne savait pas. Les deux issues sautaient : avec un
+          call, la vraie carte est bien plus haute que le placeholder et poussait
+          tout vers le bas ; sans call, la carte disparaissait et tout remontait.
+          On ne represente donc que la structure TOUJOURS presente. */}
       <div className="card" style={{ marginTop: 20, padding: '18px 20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <Skeleton width={40} height={40} radius={20} />
-          <div style={{ flex: 1 }}>
-            <Skeleton width="40%" height={14} />
-            <Skeleton width="26%" height={11} style={{ marginTop: 7 }} />
-          </div>
-        </div>
+        <Skeleton width="30%" height={14} />
+        <Skeleton width="45%" height={11} style={{ marginTop: 8 }} />
       </div>
     </div>
   );

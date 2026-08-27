@@ -33,6 +33,30 @@ const reported: Record<BadgeSource, boolean> = { notifs: false, messages: false 
 // une notification reçue app ouverte était refermée dans la minute.
 let lastAppliedTotal: number | null = null;
 
+// Total partagé avec le service worker via IndexedDB — seul stockage accessible
+// aux deux. L'API Badging ne permet pas de relire la pastille : sans cette
+// trace, le service worker qui reçoit un push app fermée ne peut qu'écraser le
+// total par une valeur devinée (voir sw.js, badgeStore). L'application écrit
+// donc la vérité chaque fois qu'elle la calcule, et le worker se contente
+// d'incrémenter à partir de là.
+function persistBadgeTotal(total: number) {
+  if (typeof indexedDB === 'undefined') return;
+  try {
+    const req = indexedDB.open('momentum-badge', 1);
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains('kv')) req.result.createObjectStore('kv');
+    };
+    req.onsuccess = () => {
+      try {
+        const tx = req.result.transaction('kv', 'readwrite');
+        tx.objectStore('kv').put(total, 'total');
+      } catch { /* stockage indisponible : la pastille reste correcte tant que
+                  l'app est ouverte, seul l'incrément hors ligne est perdu */ }
+    };
+    req.onerror = () => {};
+  } catch { /* idem */ }
+}
+
 function applyBadge() {
   if (typeof navigator === 'undefined') return;
   // Tant qu'aucune source n'a répondu, on ne sait rien : ne rien affirmer.
@@ -41,6 +65,9 @@ function applyBadge() {
   const total = counts.notifs + counts.messages;
   const previous = lastAppliedTotal;
   lastAppliedTotal = total;
+  // Ecrit AVANT de poser la pastille : c'est cette valeur que le service worker
+  // incrementera au prochain push recu app fermee.
+  persistBadgeTotal(total);
 
   if (total <= 0) {
     if ('clearAppBadge' in navigator) {

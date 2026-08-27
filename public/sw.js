@@ -1,4 +1,4 @@
-// SW v12 — push + coquille hors ligne + pastille persistante
+// SW v13 — push + coquille hors ligne + pastille persistante
 //
 // Strategie volontairement minimale, alignee sur les recommandations courantes :
 //   - navigations : RESEAU D'ABORD, repli sur /offline.html si le reseau echoue.
@@ -15,6 +15,52 @@ const OFFLINE_URL = '/offline.html';
 
 const SUPABASE_URL = 'https://nvjgwtetyuatnkjihmtw.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im52amd3dGV0eXVhdG5ramlobXR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwMzc3ODUsImV4cCI6MjA5NDYxMzc4NX0.0apyZEDUtM6LFBX5uDK5amD_jhKAgrYsZ61JSrA9gxk';
+
+// ── Compteur de pastille partage avec l'application ────────────────────────
+//
+// L'API Badging ne permet PAS de relire la valeur courante de la pastille. Le
+// service worker, qui ne voit que le tiroir de notifications, ne pouvait donc
+// que poser un nombre devine — et comme les notifications de messagerie
+// partagent un tag (elles se remplacent l'une l'autre), il n'en voyait jamais
+// qu'une seule : il ecrasait « 6 en attente » par « 1 ».
+//
+// Le total est donc range dans IndexedDB, seul stockage accessible AUX DEUX.
+// L'application y ecrit la verite chaque fois qu'elle la calcule ; le service
+// worker se contente d'incrementer pendant qu'elle est fermee. A la
+// reouverture, l'application recalcule et corrige.
+const BADGE_DB = 'momentum-badge';
+const BADGE_STORE = 'kv';
+const BADGE_KEY = 'total';
+
+function badgeStore(mode, value) {
+  return new Promise(resolve => {
+    let req;
+    try { req = indexedDB.open(BADGE_DB, 1); } catch { return resolve(null); }
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains(BADGE_STORE)) {
+        req.result.createObjectStore(BADGE_STORE);
+      }
+    };
+    req.onerror = () => resolve(null);
+    req.onsuccess = () => {
+      const db = req.result;
+      let tx;
+      try {
+        tx = db.transaction(BADGE_STORE, mode === 'read' ? 'readonly' : 'readwrite');
+      } catch { return resolve(null); }
+      const store = tx.objectStore(BADGE_STORE);
+      if (mode === 'read') {
+        const g = store.get(BADGE_KEY);
+        g.onsuccess = () => resolve(typeof g.result === 'number' ? g.result : null);
+        g.onerror = () => resolve(null);
+      } else {
+        store.put(value, BADGE_KEY);
+        tx.oncomplete = () => resolve(value);
+        tx.onerror = () => resolve(null);
+      }
+    };
+  });
+}
 
 function swLog(event, data) {
   fetch(`${SUPABASE_URL}/rest/v1/sw_logs`, {
@@ -34,7 +80,7 @@ function swLog(event, data) {
 }
 
 self.addEventListener('install', e => {
-  swLog('install', { msg: 'SW v12 installing', ts: Date.now() });
+  swLog('install', { msg: 'SW v13 installing', ts: Date.now() });
   e.waitUntil(
     // L'ecran hors ligne doit etre en cache AVANT d'en avoir besoin : au moment
     // ou le reseau manque, il est trop tard pour le telecharger.
@@ -172,16 +218,23 @@ self.addEventListener('push', e => {
           // ignore setAppBadge et gère déjà un badge automatique via showNotification.
           if ('setAppBadge' in self.navigator) {
             try {
-              // L'émetteur ne fournit pas de total (`unreadCount` n'est envoyé
-              // par aucune route) : on COMPTE donc les notifications encore
-              // présentes dans le tiroir plutôt que de poser 1 en dur. Poser 1
-              // écrasait la pastille à chaque push — cinq messages non lus
-              // affichaient « 1 », et la pastille semblait « oublier » ce qui
-              // s'était accumulé pendant l'absence.
-              const shown = await self.registration.getNotifications();
-              const count = payload.unreadCount || Math.max(shown.length, 1);
+              // On INCREMENTE le total connu au lieu d'en deviner un nouveau.
+              //
+              // Compter les notifications du tiroir ne marchait pas : elles
+              // partagent un tag et se remplacent, donc le compte valait
+              // toujours 1 — six notifications en attente devenaient « 1 » des
+              // qu'un septieme message arrivait. La valeur precedente n'est pas
+              // relisable depuis l'API Badging, d'ou le total range dans
+              // IndexedDB par l'application (voir badgeStore plus haut).
+              //
+              // `unreadCount` reste prioritaire si un emetteur le fournit un
+              // jour : un total calcule cote serveur vaut mieux qu'un compte
+              // incremental.
+              const previous = await badgeStore('read');
+              const count = payload.unreadCount ?? ((previous ?? 0) + 1);
               await self.navigator.setAppBadge(count);
-              swLog('badge_set', count);
+              await badgeStore('write', count);
+              swLog('badge_set', { count, previous });
             } catch (err) {
               swLog('badge_error', String(err));
             }

@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { resolveUser } from '@/lib/waitForSession';
 import { CALL_COLUMNS } from '@/lib/supabase/types';
@@ -68,8 +68,16 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
   const [userId, setUserId] = useState<string | null>(null);
   const supabase = createClient();
 
+  // Distingue « rien a afficher, on charge » de « on a deja les donnees, on les
+  // rafraichit ». Sans ca, `refetch()` — appele apres la fermeture d'une modale
+  // de rapport ou la creation d'un call — repassait `loading` a true et les
+  // ecrans remplacaient toute la page par un squelette avant de la restaurer.
+  // Un rafraichissement de fond ne doit rien effacer : les donnees courantes
+  // restent affichees jusqu'a leur remplacement.
+  const hasLoadedRef = useRef(false);
+
   const load = useCallback(async () => {
-    setLoading(true);
+    if (!hasLoadedRef.current) setLoading(true);
     setError(null);
     try {
       // Attend l'evenement de restauration du SDK plutot qu'un delai fixe :
@@ -423,6 +431,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
     } catch (e: any) {
       setError(e.message || 'Erreur chargement');
     } finally {
+      hasLoadedRef.current = true;
       setLoading(false);
     }
   }, []);
