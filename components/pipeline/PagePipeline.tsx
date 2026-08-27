@@ -15,6 +15,7 @@ import RapportModal from '@/components/ui/RapportModalLoader';
 import ProspectDetailModal from './ProspectDetailModal';
 import { isYtVideoId } from '@/lib/ytId';
 import { isCallHonored } from '@/lib/callHonored';
+import { objectionsPour, type OutcomeChoice } from '@/lib/rapportPatch';
 import { resolveLeadState, ISSUE_KEYS, ISSUE_TO_OUTCOME, type StageKey, type IssueKey } from '@/lib/pipelineStage';
 import { useViewerTimeZone } from '@/lib/UserContext';
 import { wallClockToUtc, cityLabelOf } from '@/lib/timezone';
@@ -90,6 +91,13 @@ interface Call {
   // Commentaire libre saisi dans le rapport de vente — sert à pré-remplir la modale
   // quand on rouvre le rapport pour le corriger.
   lead_rapport_comment: string | null;
+  /** Lien du replay Fathom. Nul tant que Fathom n'a reçu aucun enregistrement —
+   *  ce qui est le cas depuis le début : la chronologie l'affiche en pointillé. */
+  fathom_share_url: string | null;
+  /** Ce qui a bloqué, saisi au rapport. Affiché sur la ligne « Résultat ». */
+  objection: string | null;
+  objection_autre: string | null;
+  relance_at: string | null;
 }
 
 interface NonIgProspect {
@@ -896,11 +904,53 @@ function PipelineCard({
   );
 }
 
+// ── BoutonCase ────────────────────────────────────────────────────────────────
+// Un bouton par étape et par issue, au-dessus de la vue liste. La forme dit la
+// nature : pastille ronde pour une étape (une position dans un parcours), carré
+// plein pour une issue (un résultat, sans position).
+
+function BoutonCase({
+  label, n, actif, couleur, forme, onClick,
+}: {
+  label: string; n: number; actif: boolean;
+  couleur?: string; forme?: 'rond' | 'carre'; onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={actif}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap',
+        fontSize: 11.5, fontWeight: 600, padding: '7px 11px', borderRadius: 8,
+        cursor: 'pointer', font: 'inherit', minHeight: 32,
+        background: actif ? 'var(--accent-brand, #3a6a86)' : 'var(--surface)',
+        border: `1px solid ${actif ? 'var(--accent-brand, #3a6a86)' : 'var(--border)'}`,
+        color: actif ? '#fff' : 'var(--ink)',
+      }}
+    >
+      {couleur && (
+        <span style={{
+          width: forme === 'carre' ? 9 : 6, height: forme === 'carre' ? 9 : 6,
+          borderRadius: forme === 'carre' ? 2.5 : '50%', flexShrink: 0,
+          background: actif ? '#fff' : couleur,
+        }} />
+      )}
+      {label}
+      <span style={{
+        fontSize: 10.5, fontWeight: 700, fontVariantNumeric: 'tabular-nums',
+        color: actif ? 'rgba(255,255,255,.78)' : 'var(--muted)',
+      }}>{n}</span>
+    </button>
+  );
+}
+
 // ── KanbanColumn ──────────────────────────────────────────────────────────────
 
 function KanbanColumn({
   stage, cards, stages, draggingKey, onDragStart, onDrop, onDragOver, onDragLeave,
   isDropTarget, platform, onConfirmLead, onDeleteLead, onRapportClick, onCardClick, onNotALead,
+  estIssue, replie, onToggleRepli,
 }: {
   stage: ColumnDef;
   cards: CardData[];
@@ -917,28 +967,88 @@ function KanbanColumn({
   onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string, isFollowUp: boolean, existing?: { revenue?: number | null; comment?: string | null } | null) => void;
   onCardClick?: (cardKey: string) => void;
   onNotALead?: (key: string, callId?: string | null) => void;
+  /** Une issue se dessine en carré plein, une étape en pastille ronde. */
+  estIssue?: boolean;
+  replie?: boolean;
+  onToggleRepli?: () => void;
 }) {
-  return (
-    <div style={{ width: 220, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6, transition: 'background .1s', alignSelf: 'stretch' }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '7px 10px', borderRadius: 7,
-        background: isDropTarget ? stage.lightBg : 'var(--surface-2)',
-        border: `1px solid ${isDropTarget ? stage.color + '55' : 'var(--border)'}`,
-        transition: 'all .12s', flexShrink: 0,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <div style={{ width: 7, height: 7, borderRadius: '50%', background: stage.color, flexShrink: 0 }} />
-          <span style={{ fontSize: 11, fontWeight: 600, color: isDropTarget ? stage.color : 'var(--ink)' }}>
-            {stage.label}
-          </span>
-        </div>
+  // ── LARGEUR FIXE, JAMAIS ÉLASTIQUE ──────────────────────────────────────────
+  // 172 px quoi qu'il arrive. Des colonnes élastiques se resserrent quand une
+  // autre s'ouvre : tout le board bouge sous les yeux au moment précis où on
+  // vise une carte. Le défilement horizontal est direct, sans compression.
+  if (replie) {
+    return (
+      <button
+        type="button"
+        onClick={onToggleRepli}
+        onDrop={e => onDrop(e, stage.key)}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        title={`Déplier « ${stage.label} »`}
+        style={{
+          width: 44, flexShrink: 0, alignSelf: 'stretch', cursor: 'pointer',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+          padding: '9px 0', font: 'inherit', color: 'inherit',
+          background: isDropTarget ? stage.lightBg : 'transparent',
+          border: `1px dashed ${isDropTarget ? stage.color + '66' : 'transparent'}`,
+          borderRadius: 10,
+        }}
+      >
+        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-2)' }}>▸</span>
         <span style={{
-          fontSize: 10, fontWeight: 700,
-          color: cards.length > 0 ? stage.color : 'var(--faint)',
-          background: cards.length > 0 ? stage.lightBg : 'transparent',
-          border: cards.length > 0 ? `1px solid ${stage.color}33` : '1px solid transparent',
-          borderRadius: 5, padding: '1px 6px', minWidth: 18, textAlign: 'center',
+          width: estIssue ? 9 : 7, height: estIssue ? 9 : 7,
+          borderRadius: estIssue ? 2.5 : '50%', background: stage.color, flexShrink: 0,
+        }} />
+        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>
+          {cards.length}
+        </span>
+        {/* Le libellé à la verticale : sans lui, une colonne repliée n'est plus
+            qu'un chiffre, et retrouver la bonne demande de toutes les rouvrir. */}
+        <span style={{
+          writingMode: 'vertical-rl', transform: 'rotate(180deg)',
+          fontSize: 10, fontWeight: 600, color: 'var(--muted)',
+          letterSpacing: '.04em', whiteSpace: 'nowrap', overflow: 'hidden',
+          textOverflow: 'ellipsis', maxHeight: 130,
+        }}>{stage.label}</span>
+      </button>
+    );
+  }
+
+  return (
+    <div style={{ width: 172, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6, alignSelf: 'stretch' }}>
+      {/* ── PAS DE CARTE-DANS-CARTE ──────────────────────────────────────────
+          L'en-tête n'a ni fond opaque ni bordure permanente : le board garde un
+          fond continu et seules les FICHES portent une surface. Une colonne
+          encadrée contenant des cartes encadrées, c'est deux niveaux de boîtes
+          pour une seule information. */}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onToggleRepli}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggleRepli?.(); } }}
+        title={`Plier « ${stage.label} »`}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer',
+          padding: '6px 8px', borderRadius: 8, flexShrink: 0, userSelect: 'none',
+          background: isDropTarget ? stage.lightBg : 'transparent',
+          transition: 'background .12s',
+        }}
+      >
+        <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', width: 9 }}>▾</span>
+        <span style={{
+          width: estIssue ? 9 : 7, height: estIssue ? 9 : 7,
+          borderRadius: estIssue ? 2.5 : '50%', background: stage.color, flexShrink: 0,
+        }} />
+        <span style={{
+          fontSize: 11, fontWeight: 600, color: isDropTarget ? stage.color : 'var(--ink)',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
+          {stage.label}
+        </span>
+        <span style={{
+          marginLeft: 'auto', fontSize: 10, fontWeight: 700,
+          color: cards.length > 0 ? 'var(--muted)' : 'var(--faint)',
+          fontVariantNumeric: 'tabular-nums',
         }}>
           {cards.length}
         </span>
@@ -1050,6 +1160,14 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
   useEscapeKey(onCancel);
   const [reason, setReason] = useState('');
   const [irreversibleChecked, setIrreversibleChecked] = useState(false);
+
+  // Le parcours de classement à la main : les mêmes questions que le rapport de
+  // vente, dans le même ordre. Aucune n'est obligatoire.
+  const [classQualified, setClassQualified] = useState<boolean | null>(null);
+  const [classObjection, setClassObjection] = useState<string | null>(null);
+  const [classObjectionAutre, setClassObjectionAutre] = useState('');
+  const [classRelanceAt, setClassRelanceAt] = useState('');
+  const classeEnIssue = ISSUE_KEYS.some(k => k === targetStageKey);
   const [advanceChecked, setAdvanceChecked] = useState<Set<string>>(new Set());
 
   // call_booked manuel
@@ -1218,11 +1336,135 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
           </>
         )}
 
-        {modalCase === 'simple_move' && (
+        {modalCase === 'simple_move' && !classeEnIssue && (
           <>
             <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Déplacer vers &laquo;&nbsp;{targetStageLabel}&nbsp;&raquo; ?</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>
               @{cardName} sera déplacé manuellement. Le pipeline automatique continuera de s&apos;appliquer si un signal plus avancé est détecté.
+            </div>
+          </>
+        )}
+
+        {/* ── CLASSER À LA MAIN : LE MÊME PARCOURS QUE LE RAPPORT ─────────────
+            Déposer une carte sur une issue pose les mêmes questions que le
+            rapport de vente, dans le même ordre. Sans elles, un lead classé à la
+            main serait un trou dans les statistiques : on saurait qu'il est
+            perdu, jamais pourquoi.
+
+            « No show » ne pose aucune question — le fait suffit. */}
+        {modalCase === 'simple_move' && classeEnIssue && (
+          <>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>
+              Classer @{cardName} en &laquo;&nbsp;{targetStageLabel}&nbsp;&raquo;
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
+              {targetStageKey === 'no_show'
+                ? "Le rendez-vous n'a pas été honoré. Rien d'autre à renseigner."
+                : 'Deux précisions, pour que le chiffre garde un sens.'}
+            </div>
+
+            {/* Qualifié : la question ne se pose pas sur « Pas qualifié », dont
+                l'intitulé y répond déjà. */}
+            {targetStageKey !== 'no_show' && targetStageKey !== 'not_qualified' && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 6 }}>
+                  Était-il la cible ?
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {[[true, 'Oui'], [false, 'Non']].map(([v, label]) => (
+                    <button
+                      key={String(v)}
+                      type="button"
+                      onMouseDown={() => setClassQualified(v as boolean)}
+                      style={{
+                        padding: '7px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: 'pointer',
+                        border: `1px solid ${classQualified === v ? '#2563EB' : 'var(--border)'}`,
+                        background: classQualified === v ? '#2563EB' : 'transparent',
+                        color: classQualified === v ? '#fff' : 'var(--ink)',
+                      }}
+                    >{label as string}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {targetStageKey !== 'no_show' && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 6 }}>
+                  Qu&apos;est-ce qui a bloqué ?
+                </div>
+                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                  {objectionsPour(targetStageKey as OutcomeChoice).map(o => (
+                    <button
+                      key={o.key}
+                      type="button"
+                      onMouseDown={() => setClassObjection(o.key)}
+                      style={{
+                        padding: '7px 11px', fontSize: 11.5, fontWeight: 600, borderRadius: 8, cursor: 'pointer',
+                        border: `1px solid ${classObjection === o.key ? '#2563EB' : 'var(--border)'}`,
+                        background: classObjection === o.key ? '#2563EB' : 'transparent',
+                        color: classObjection === o.key ? '#fff' : 'var(--ink)',
+                      }}
+                    >{o.label}</button>
+                  ))}
+                </div>
+                {classObjection === 'autre' && (
+                  <input
+                    type="text"
+                    value={classObjectionAutre}
+                    onChange={e => setClassObjectionAutre(e.target.value.slice(0, 500))}
+                    placeholder="Par exemple : il déménage à l'étranger"
+                    style={{
+                      width: '100%', marginTop: 8, padding: '9px 11px', fontSize: 13,
+                      borderRadius: 8, border: '1px solid var(--border)',
+                      background: 'var(--surface)', color: 'var(--ink)',
+                    }}
+                  />
+                )}
+              </div>
+            )}
+
+            {/* Quand recontacter — sur la seule issue qui ouvre un cycle. */}
+            {targetStageKey === 'to_recontact' && (
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 6 }}>
+                  Quand le recontacter ?
+                </div>
+                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 8 }}>
+                  {[[14, 'Dans 2 sem'], [21, 'Dans 3 sem'], [30, 'Dans 1 mois'], [90, 'Dans 3 mois']].map(([j, label]) => {
+                    const d = new Date(Date.now() + (j as number) * 86400000).toISOString().slice(0, 10);
+                    return (
+                      <button
+                        key={j as number}
+                        type="button"
+                        onMouseDown={() => setClassRelanceAt(d)}
+                        style={{
+                          padding: '7px 11px', fontSize: 11.5, fontWeight: 600, borderRadius: 8, cursor: 'pointer',
+                          border: `1px solid ${classRelanceAt === d ? '#2563EB' : 'var(--border)'}`,
+                          background: classRelanceAt === d ? '#2563EB' : 'transparent',
+                          color: classRelanceAt === d ? '#fff' : 'var(--ink)',
+                        }}
+                      >{label as string}</button>
+                    );
+                  })}
+                </div>
+                <input
+                  type="date"
+                  value={classRelanceAt}
+                  min={new Date().toISOString().slice(0, 10)}
+                  onChange={e => setClassRelanceAt(e.target.value)}
+                  style={{
+                    width: '100%', padding: '9px 11px', fontSize: 13, borderRadius: 8,
+                    border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)',
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Rien n'est obligatoire : forcer une réponse pousserait à en
+                inventer une, et une objection inventée vaut moins qu'un trou. */}
+            <div style={{ fontSize: 11, color: 'var(--faint)', marginBottom: 16 }}>
+              Tu peux valider sans répondre — mieux vaut un trou qu&apos;une réponse au hasard.
             </div>
           </>
         )}
@@ -1270,6 +1512,12 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
               if (modalCase === 'forward_to_call_booked' && !callBookedValid) return;
               if (modalCase === 'forward_to_closed' && !closedValid) return;
               const extraData: Record<string, any> = {};
+              if (modalCase === 'simple_move' && classeEnIssue) {
+                extraData.qualified = classQualified;
+                extraData.objection = classObjection;
+                extraData.objectionAutre = classObjectionAutre.trim();
+                extraData.relanceAt = classRelanceAt;
+              }
               if (modalCase === 'forward_to_call_booked') {
                 // .toISOString() produit un Z explicite. Avant ce fix, la chaîne
                 // `${callDate}T${callTime}:00` partait SANS offset : Postgres
@@ -1346,10 +1594,21 @@ export default function PagePipeline() {
   // « lequel dois-je traiter maintenant ». Le choix est conservé d'une visite à
   // l'autre : y revenir à chaque fois serait un pas de plus à refaire sans cesse.
   const [vue, setVue] = useState<'board' | 'liste'>('board');
+
+  // Les colonnes repliées du board. Conservées d'une visite à l'autre : replier
+  // « Commentaire LM » et ses 412 fiches pour dégager la vue n'aurait aucun
+  // intérêt s'il fallait recommencer à chaque chargement.
+  const [colonnesRepliees, setColonnesRepliees] = useState<Set<string>>(new Set());
+
+  // La case isolée par les boutons d'étapes, en vue liste. `null` = tout.
+  const [caseIsolee, setCaseIsolee] = useState<string | null>(null);
+
   useEffect(() => {
     try {
       const v = window.localStorage.getItem('pipeline-vue');
       if (v === 'liste' || v === 'board') setVue(v);
+      const r = window.localStorage.getItem('pipeline-colonnes-repliees');
+      if (r) setColonnesRepliees(new Set(JSON.parse(r) as string[]));
     } catch { /* navigation privée, cookies bloqués : le board par défaut suffit */ }
   }, []);
   const changerVue = (v: 'board' | 'liste') => {
@@ -2337,7 +2596,21 @@ export default function PagePipeline() {
       // resterait invisible et la carte reviendrait aussitôt en « RDV pris ».
       const issue = ISSUE_KEYS.find(k => k === targetStageKey);
       if (issue && callId) {
-        await patchCall(callId, ISSUE_TO_OUTCOME[issue]);
+        // Les réponses du parcours partent AVEC le résultat, jamais séparément :
+        // c'est la même règle que le rapport de vente, et c'est ce qui empêche
+        // qu'une objection se retrouve en base sur un call sans résultat.
+        const patch: Record<string, any> = { ...ISSUE_TO_OUTCOME[issue] };
+        // « Pas qualifié » répond déjà à la question : son intitulé EST la
+        // réponse, et il ne faut pas qu'une réponse antérieure la contredise.
+        if (issue === 'not_qualified') patch.qualified = false;
+        else if (typeof extraData?.qualified === 'boolean') patch.qualified = extraData.qualified;
+        if (extraData?.objection) {
+          patch.objection = extraData.objection;
+          patch.objection_autre = extraData.objection === 'autre' && extraData.objectionAutre
+            ? extraData.objectionAutre : null;
+        }
+        if (extraData?.relanceAt) patch.relance_at = extraData.relanceAt;
+        await patchCall(callId, patch);
       }
       await saveOverride(cardKey, platform, targetStageKey, 'manual', naturalKey);
     }
@@ -2393,31 +2666,6 @@ export default function PagePipeline() {
             titre (order: -1 + position absolue) et les onglets prennent toute
             la largeur en pilules. */}
         <div className="pipeline-actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {/* Board ou Liste — desktop seulement : sur mobile l'entonnoir tient
-              déjà ce rôle, et un kanban ne se manipule pas au doigt (le
-              glisser-déposer HTML5 ne se déclenche pas au tactile). */}
-          <div className="pipeline-desktop" style={{
-            display: 'flex', background: 'var(--surface-2, #f7f4ec)',
-            border: '1px solid var(--border)', borderRadius: 10, padding: 3, gap: 3,
-          }}>
-            {([['board', 'Board'], ['liste', 'Liste']] as const).map(([k, label]) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => changerVue(k)}
-                aria-pressed={vue === k}
-                style={{
-                  fontSize: 11.5, fontWeight: 600, borderRadius: 6, padding: '5px 12px',
-                  border: 'none', cursor: 'pointer',
-                  background: vue === k ? 'var(--surface)' : 'transparent',
-                  color: vue === k ? 'var(--ink)' : 'var(--muted)',
-                  boxShadow: vue === k ? '0 1px 2px rgba(0,0,0,.04)' : 'none',
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
           <button
             onClick={handleRefresh}
             disabled={refreshing}
@@ -2461,6 +2709,31 @@ export default function PagePipeline() {
                   fontSize: 10, fontWeight: 700, minWidth: 16, height: 16,
                   borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px',
                 }}>{t.count}</span>
+              </button>
+            ))}
+          </div>
+          {/* Board ou Liste — desktop seulement : sur mobile l'entonnoir tient
+              déjà ce rôle, et un kanban ne se manipule pas au doigt (le
+              glisser-déposer HTML5 ne se déclenche pas au tactile). */}
+          <div className="pipeline-desktop" style={{
+            display: 'flex', background: 'var(--surface-2, #f7f4ec)',
+            border: '1px solid var(--border)', borderRadius: 10, padding: 3, gap: 3,
+          }}>
+            {([['board', 'Board'], ['liste', 'Liste']] as const).map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => changerVue(k)}
+                aria-pressed={vue === k}
+                style={{
+                  fontSize: 11.5, fontWeight: 600, borderRadius: 6, padding: '5px 12px',
+                  border: 'none', cursor: 'pointer',
+                  background: vue === k ? 'var(--surface)' : 'transparent',
+                  color: vue === k ? 'var(--ink)' : 'var(--muted)',
+                  boxShadow: vue === k ? '0 1px 2px rgba(0,0,0,.04)' : 'none',
+                }}
+              >
+                {label}
               </button>
             ))}
           </div>
@@ -2546,7 +2819,11 @@ export default function PagePipeline() {
           <InlineLoader />
         </div>
       ) : (
-        <>
+        // Conteneur positionné : c'est LUI qui borne le voile du panneau
+        // latéral. Le voile est en `position: absolute; inset: 0` ici, donc il
+        // s'arrête exactement au board — la barre latérale, le titre, les
+        // onglets et les filtres restent clairs et cliquables.
+        <div style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {/* Vue mobile : entonnoir en consultation. Le kanban ci-dessous n'est pas
             utilisable au doigt (le glisser-deposer HTML5 ne se declenche pas au
             tactile) et ses 8 colonnes demandent de defiler lateralement.
@@ -2562,9 +2839,43 @@ export default function PagePipeline() {
 
         {vue === 'liste' ? (
           <div className="pipeline-desktop" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', paddingBottom: 16 }}>
+            {/* Les boutons d'étapes et d'issues PASSENT À LA LIGNE : tout est
+                visible d'un coup, sans défilement horizontal. Une barre qui
+                défile cache la moitié des étapes, et il faut alors se souvenir
+                de ce qu'on ne voit pas pour choisir.
+
+                Les étapes portent une pastille ronde, les issues un carré plein :
+                deux natures, deux formes. Cliquer isole une case ; recliquer
+                revient à tout. */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 9, flexShrink: 0 }}>
+              <BoutonCase
+                label="Tous" n={cards.length} actif={caseIsolee === null}
+                onClick={() => setCaseIsolee(null)}
+              />
+              {stages.map(s => (
+                <BoutonCase
+                  key={s.key} label={s.label} couleur={s.color} forme="rond"
+                  n={cards.filter(c => c.stageKey === s.key).length}
+                  actif={caseIsolee === s.key}
+                  onClick={() => setCaseIsolee(k => k === s.key ? null : s.key)}
+                />
+              ))}
+              {/* Retour à la ligne forcé : les issues ne sont pas la suite des
+                  étapes, et les aligner à la queue leur donnerait l'air d'en
+                  être. */}
+              <div style={{ flexBasis: '100%', height: 0 }} />
+              {ISSUES.map(i => (
+                <BoutonCase
+                  key={i.key} label={i.label} couleur={i.color} forme="carre"
+                  n={cards.filter(c => c.stageKey === i.key).length}
+                  actif={caseIsolee === i.key}
+                  onClick={() => setCaseIsolee(k => k === i.key ? null : i.key)}
+                />
+              ))}
+            </div>
             <PipelineListView
-              cards={cards}
-              columns={columns}
+              cards={caseIsolee ? cards.filter(c => c.stageKey === caseIsolee) : cards}
+              columns={caseIsolee ? columns.filter(c => c.key === caseIsolee) : columns}
               stageKeys={stages.map(s => s.key)}
               avatarColor={avatarColor}
               avatarInitials={avatarInitials}
@@ -2582,9 +2893,18 @@ export default function PagePipeline() {
             />
           </div>
         ) : (
+        // Fond crème continu, aucune surface intermédiaire : le board n'est pas
+        // une carte, les colonnes non plus. Seules les fiches en sont.
         <div className="pipeline-desktop" style={{ flex: 1, overflowX: 'auto', overflowY: 'auto', paddingBottom: 16, scrollbarWidth: 'thin', scrollbarColor: 'var(--border) transparent' }}>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', minWidth: 'max-content', height: '100%' }}>
+          {/* `minHeight` et non `height` : à 100 % de hauteur, la rangée se calait sur la
+              partie VISIBLE du board. Dès qu'une colonne dépassait, les colonnes
+              s'arrêtaient net au milieu du défilement — la limite du bas se
+              retrouvait plus haut que le contenu. En minimum, elles remplissent
+              l'écran quand il y a peu de fiches ET s'étirent quand il y en a
+              beaucoup. */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', minWidth: 'max-content', minHeight: '100%' }}>
             {columns.map(stage => {
+              const estIssue = !stages.some(s => s.key === stage.key);
               // On range par `stageKey`, qui vaut l'ISSUE quand le lead est classé
               // et l'ÉTAPE sinon. L'ancien filtrage passait par `stageIdx`, un
               // index dans le tableau des étapes — il ne pouvait donc pas
@@ -2608,13 +2928,48 @@ export default function PagePipeline() {
                   onNotALead={handleNotALead}
                   onRapportClick={(callId, inviteeName, scheduledAt, isFollowUp, existing) => setRapportModal({ callId, inviteeName, scheduledAt, isFollowUp, existing })}
                   onCardClick={cardKey => setDetailModal({ cardKey, platform })}
+                  estIssue={estIssue}
+                  replie={colonnesRepliees.has(stage.key)}
+                  onToggleRepli={() => setColonnesRepliees(prev => {
+                    const n = new Set(prev);
+                    if (n.has(stage.key)) n.delete(stage.key); else n.add(stage.key);
+                    try { window.localStorage.setItem('pipeline-colonnes-repliees', JSON.stringify([...n])); } catch { /* sans effet */ }
+                    return n;
+                  })}
                 />
               );
             })}
           </div>
         </div>
         )}
-        </>
+        {detailModal && data && (() => {
+          const ctx = resolveProspectContext(detailModal.cardKey, detailModal.platform, data);
+          if (!ctx) return null;
+          const detailStages = detailModal.platform === 'ig' ? IG_STAGES : YT_STAGES;
+          const sourceCards = detailModal.platform === 'ig' ? igCards : detailModal.platform === 'yt' ? filteredYtCards : filteredOtherCards;
+          const matchedCard = sourceCards.find(c => c.key === detailModal.cardKey);
+          // Le badge affiche la CASE où la fiche se range — l'issue quand le lead
+          // est classé, l'étape sinon. Passer par `stageIdx` ne donnait que
+          // l'étape : un lead perdu s'annonçait « En conversation ».
+          const stageIdx = matchedCard ? matchedCard.stageIdx : 0;
+          const stage =
+            (matchedCard && [...detailStages, ...ISSUES].find(s => s.key === matchedCard.stageKey))
+            ?? detailStages[stageIdx] ?? detailStages[0];
+          const displayName = matchedCard
+            ? (detailModal.platform === 'ig' && !matchedCard.isIgLink ? `@${matchedCard.name}` : matchedCard.name)
+            : (ctx.lead?.ig_username ? `@${ctx.lead.ig_username}` : ctx.calls[0]?.invitee_name || 'Prospect');
+          return (
+            <ProspectDetailModal
+              context={ctx}
+              displayName={displayName}
+              stageLabel={stage.label}
+              stageColor={stage.color}
+              onClose={() => setDetailModal(null)}
+              commePanneau={!tactile}
+            />
+          );
+        })()}
+        </div>
       )}
 
       {/* Empty state — sur l'onglet affiché (son message le nomme : "Aucun lead
@@ -2696,27 +3051,6 @@ export default function PagePipeline() {
       )}
 
       {/* Modal détail prospect — timeline chronologique */}
-      {detailModal && data && (() => {
-        const ctx = resolveProspectContext(detailModal.cardKey, detailModal.platform, data);
-        if (!ctx) return null;
-        const detailStages = detailModal.platform === 'ig' ? IG_STAGES : YT_STAGES;
-        const sourceCards = detailModal.platform === 'ig' ? igCards : detailModal.platform === 'yt' ? filteredYtCards : filteredOtherCards;
-        const matchedCard = sourceCards.find(c => c.key === detailModal.cardKey);
-        const stageIdx = matchedCard ? matchedCard.stageIdx : 0;
-        const stage = detailStages[stageIdx] ?? detailStages[0];
-        const displayName = matchedCard
-          ? (detailModal.platform === 'ig' && !matchedCard.isIgLink ? `@${matchedCard.name}` : matchedCard.name)
-          : (ctx.lead?.ig_username ? `@${ctx.lead.ig_username}` : ctx.calls[0]?.invitee_name || 'Prospect');
-        return (
-          <ProspectDetailModal
-            context={ctx}
-            displayName={displayName}
-            stageLabel={stage.label}
-            stageColor={stage.color}
-            onClose={() => setDetailModal(null)}
-          />
-        );
-      })()}
     </div>
   );
 }

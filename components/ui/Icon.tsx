@@ -311,6 +311,15 @@ const icons = {
       <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
     </>
   ),
+  // Le résultat d'un rendez-vous, dans la chronologie du prospect : un drapeau
+  // planté, distinct du calendrier (le rendez-vous pris) et de la caméra (le
+  // rendez-vous tenu). Trois symboles pour trois faits différents.
+  flag: (
+    <>
+      <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+      <line x1="4" y1="22" x2="4" y2="15" />
+    </>
+  ),
   edit: (
     <>
       <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />

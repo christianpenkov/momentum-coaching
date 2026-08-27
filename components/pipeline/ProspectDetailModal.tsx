@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useLayoutEffect } from 'react';
+import { useState, useRef, useLayoutEffect, useEffect } from 'react';
 import Image from 'next/image';
 import Icon from '@/components/ui/Icon';
 import ModalShell from '@/components/ui/ModalShell';
@@ -21,6 +21,12 @@ interface TimelineEvent {
   linkLabel?: string; // partie cliquable du label (ex: titre de la vidéo YouTube, légende du post IG)
   linkUrl?: string;
   thumbnail?: string | null; // miniature du post/vidéo source, affichée à côté du lien
+  /** URL du replay Fathom, sur la ligne du RENDEZ-VOUS. */
+  replayUrl?: string | null;
+  /** Vrai pour la ligne « Résultat » d'un call. Elle ne porte PAS d'heure : la
+   *  durée réelle d'un appel n'existe nulle part (Calendly donne la durée prévue
+   *  du créneau, Fathom n'envoie aucune fin). Afficher une heure serait inventer. */
+  estResultat?: boolean;
 }
 
 const EVENT_STYLE: Record<string, { icon: Parameters<typeof Icon>[0]['name']; color: string }> = {
@@ -35,6 +41,16 @@ const EVENT_STYLE: Record<string, { icon: Parameters<typeof Icon>[0]['name']; co
   rescheduled:         { icon: 'calendar-clock',         color: '#b58025' },
   call_canceled:       { icon: 'calendar-x',              color: '#cd5b3f' },
   closed:              { icon: 'circle-dollar-sign',     color: '#3f8a52' },
+};
+
+// Un symbole par NATURE d'événement — le drapeau pour un résultat, le calendrier
+// pour un rendez-vous pris, la caméra pour un rendez-vous tenu. On lit la
+// chronologie à la forme avant de lire le texte.
+const RESULTAT_STYLE: Record<string, { icon: Parameters<typeof Icon>[0]['name']; color: string }> = {
+  resultat_to_recontact:  { icon: 'flag', color: '#c2410c' },
+  resultat_second_call:   { icon: 'flag', color: '#2563EB' },
+  resultat_lost:          { icon: 'flag', color: '#7a7361' },
+  resultat_not_qualified: { icon: 'flag', color: '#6b7280' },
 };
 
 const DEFAULT_STYLE = { icon: 'message-circle' as const, color: '#6b6a66' };
@@ -94,6 +110,26 @@ const EVENT_LABELS: Record<string, string> = {
   call_canceled:      'Call annulé',
   showed_up:          'Call honoré',
   closed:             'Deal closé',
+};
+
+// Les résultats qui ont DÉJÀ leur propre ligne plus bas (no-show, deal closé,
+// report) : en ajouter une seconde afficherait deux fois le même fait.
+const RESULTATS_SANS_LIGNE = new Set(['no_show', 'closed', 'rescheduled']);
+
+const RESULTAT_LABELS: Record<string, string> = {
+  to_recontact:  'à recontacter',
+  second_call:   '2ᵉ rendez-vous prévu',
+  lost:          'perdu',
+  not_qualified: 'pas qualifié',
+};
+
+const OBJECTION_LABELS: Record<string, string> = {
+  prix:           'le prix',
+  temps:          'le manque de temps',
+  reflechir:      'doit réfléchir',
+  confiance:      'pas assez convaincu',
+  autre_priorite: 'une autre priorité',
+  pas_la_cible:   "n'était pas la cible",
 };
 
 function labelForEvent(type: string): string {
@@ -208,8 +244,35 @@ function buildProspectTimeline(ctx: ProspectContext): TimelineEvent[] {
         // Toujours afficher l'heure du call prévue — distincte du moment de réservation
         // (occurredAt ci-dessus) affiché en bas de la carte timeline.
         detail: call.scheduled_at ? `Prévu le ${new Date(call.scheduled_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}` : undefined,
+        replayUrl: call.fathom_share_url ?? null,
         ...sourceLink,
       });
+
+      // ── DEUXIÈME LIGNE : le RÉSULTAT du rendez-vous ────────────────────────
+      //
+      // Le rendez-vous et son résultat sont deux faits distincts, séparés dans le
+      // temps : l'un est pris des semaines avant, l'autre se décide pendant
+      // l'appel. Les fondre en une seule ligne obligeait à lire un badge collé à
+      // une date qui n'est pas la sienne.
+      //
+      // Cette ligne ne porte PAS d'heure — voir `estResultat`.
+      if (call.outcome && !RESULTATS_SANS_LIGNE.has(call.outcome)) {
+        const objection = call.objection === 'autre' && call.objection_autre
+          ? call.objection_autre
+          : call.objection ? OBJECTION_LABELS[call.objection] ?? call.objection : null;
+        const relance = call.relance_at
+          ? `à recontacter le ${new Date(call.relance_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}`
+          : null;
+        events.push({
+          id: `${call.id}-resultat`,
+          type: `resultat_${call.outcome}`,
+          occurredAt: call.scheduled_at ?? call.created_at,
+          source: 'derived',
+          label: `Résultat : ${RESULTAT_LABELS[call.outcome] ?? call.outcome}`,
+          detail: [objection, relance].filter(Boolean).join(' · ') || undefined,
+          estResultat: true,
+        });
+      }
     }
 
     if (call.no_show === true) {
@@ -342,7 +405,7 @@ function TimelineList({ timeline }: { timeline: TimelineEvent[] }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }}>
       {timeline.map((ev, i) => {
-        const style = EVENT_STYLE[ev.type] ?? DEFAULT_STYLE;
+        const style = EVENT_STYLE[ev.type] ?? RESULTAT_STYLE[ev.type] ?? DEFAULT_STYLE;
         const isLast = i === timeline.length - 1;
         const isClosedHighlight = ev.type === 'closed' && isLast;
         return (
@@ -390,9 +453,50 @@ function TimelineList({ timeline }: { timeline: TimelineEvent[] }) {
               ) : ev.detail ? (
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{ev.detail}</div>
               ) : null}
-              <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 3 }}>
-                {new Date(ev.occurredAt).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}
+              {/* Le JOUR en premier, l'heure en dessous et en plus petit : dans un
+                  historique on cherche « quel jour », l'heure ne sert qu'ensuite.
+                  Sur la ligne d'un RÉSULTAT, aucune heure — la durée réelle d'un
+                  appel n'existe nulle part, et en afficher une l'inventerait. */}
+              <div style={{ marginTop: 4 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>
+                  {new Date(ev.occurredAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
+                </div>
+                {!ev.estResultat && (
+                  <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 1 }}>
+                    {new Date(ev.occurredAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                )}
               </div>
+
+              {/* Le replay, sur la ligne du rendez-vous. Quand il n'y en a pas, la
+                  mention reste, en pointillé : « pas de replay » est une
+                  information, un vide n'en est pas une. */}
+              {ev.type === 'call_booked' && (
+                ev.replayUrl ? (
+                  <a
+                    href={ev.replayUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8,
+                      padding: '6px 11px', borderRadius: 8, fontSize: 11.5, fontWeight: 600,
+                      border: '1px solid var(--border)', background: 'var(--surface-2)',
+                      color: 'var(--ink)', textDecoration: 'none',
+                    }}
+                  >
+                    <Icon name="video" size={12} />
+                    Voir le replay
+                  </a>
+                ) : (
+                  <div style={{
+                    display: 'inline-flex', alignItems: 'center', marginTop: 8,
+                    padding: '5px 10px', borderRadius: 8, fontSize: 11,
+                    border: '1px dashed var(--border)', color: 'var(--faint)',
+                  }}>
+                    Pas de replay
+                  </div>
+                )
+              )}
             </div>
           </div>
         );
@@ -411,7 +515,68 @@ interface Props {
   onClose: () => void;
 }
 
-export default function ProspectDetailModal({ context, displayName, stageLabel, stageColor, onClose }: Props) {
+// ── Enveloppe : panneau latéral dans le board, ou modale centrée ──────────────
+//
+// Sur ordinateur, la fiche s'ouvre en PANNEAU de 500 px À L'INTÉRIEUR du board,
+// sous la barre du haut. Le voile s'arrête donc au board : la barre latérale, le
+// titre, les onglets et les filtres restent clairs ET cliquables.
+//
+// Ce n'est pas un voile à trous arbitraires — l'anti-pattern habituel. Il épouse
+// exactement la zone qui devient inactive, donc il dit la vérité : ce qui est
+// sombre ne répond plus, ce qui reste clair répond encore.
+//
+// 34 % d'opacité, teinté bleu sombre. Pas de flou : coûteux à chaque image sur un
+// écran qui se met à jour, pour un gain nul ici. (Références : Material 3 à 32 %,
+// Fluent 40 %, Atlassian 46 %, Carbon 60 %, Polaris 71 %.)
+//
+// Sur téléphone il n'y a pas de board : on retombe sur la modale centrée.
+function Enveloppe({
+  onClose, commePanneau, children,
+}: { onClose: () => void; commePanneau: boolean; children: React.ReactNode }) {
+  useEffect(() => {
+    if (!commePanneau) return;
+    const echap = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', echap);
+    return () => document.removeEventListener('keydown', echap);
+  }, [commePanneau, onClose]);
+
+  if (!commePanneau) return <ModalShell onClose={onClose} width={420}>{children}</ModalShell>;
+
+  return (
+    <>
+      <div
+        onClick={onClose}
+        aria-hidden
+        style={{ position: 'absolute', inset: 0, background: 'rgba(12,16,28,.34)', zIndex: 20 }}
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        style={{
+          position: 'absolute', top: 0, right: 0, bottom: 0, width: 'min(500px, 92%)',
+          zIndex: 21, display: 'flex', flexDirection: 'column', overflowY: 'auto',
+          background: 'var(--surface)', borderLeft: '1px solid var(--border)',
+          boxShadow: '-12px 0 32px rgba(0,0,0,.10)',
+        }}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Fermer la fiche"
+          style={{
+            position: 'absolute', top: 10, right: 12, zIndex: 1,
+            width: 30, height: 30, borderRadius: 8, cursor: 'pointer',
+            border: '1px solid var(--border)', background: 'var(--surface)',
+            color: 'var(--muted)', fontSize: 14, lineHeight: 1,
+          }}
+        >×</button>
+        {children}
+      </div>
+    </>
+  );
+}
+
+export default function ProspectDetailModal({ context, displayName, stageLabel, stageColor, onClose, commePanneau = false }: Props & { commePanneau?: boolean }) {
   const [error, setError] = useState(false);
   const timelineRef = useRef<HTMLDivElement>(null);
 
@@ -437,7 +602,7 @@ export default function ProspectDetailModal({ context, displayName, stageLabel, 
   const latestCall = context.calls[0];
 
   return (
-    <ModalShell onClose={onClose} width={420}>
+    <Enveloppe onClose={onClose} commePanneau={commePanneau}>
         {/* Header — badge d'étape dominant */}
         <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--border)' }}>
           <div style={{
@@ -510,6 +675,6 @@ export default function ProspectDetailModal({ context, displayName, stageLabel, 
             Fermer
           </button>
         </div>
-    </ModalShell>
+    </Enveloppe>
   );
 }
