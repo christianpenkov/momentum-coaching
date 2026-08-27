@@ -11,6 +11,19 @@ const serviceSupabase = createClient(
  * mais permet quand même de dédupliquer les rebooks du même invité.
  * Retourne le prospect.id à utiliser comme prospect_key dans pipeline_overrides.
  */
+/**
+ * Retrouve ou cree le prospect correspondant a un call.
+ *
+ * Delegue a la fonction SQL `resolve_prospect`, source de verite unique
+ * partagee avec l'Edge Function sync-calendly. Cette derniere tourne en Deno et
+ * ne peut pas importer ce fichier : sans la fonction SQL, la logique existerait
+ * en deux exemplaires — ce qui est exactement ce qui a produit le bug corrige le
+ * 2026-08-27, ou seul le chemin Vercel posait prospect_id.
+ *
+ * Renvoie null quand rien ne permet d'identifier la personne, et quand elle a
+ * ete supprimee du pipeline : une suppression est une decision du coach, la
+ * resolution automatique n'a pas a la defaire.
+ */
 export async function upsertProspect({
   profileId,
   platform,
@@ -26,48 +39,17 @@ export async function upsertProspect({
 }): Promise<string | null> {
   if (!email && !name) return null;
 
-  if (email) {
-    // Vérifie si le prospect existe déjà et est supprimé manuellement
-    const { data: existing } = await serviceSupabase
-      .from('prospects')
-      .select('id, deleted')
-      .eq('profile_id', profileId)
-      .eq('email', email)
-      .maybeSingle();
+  const { data, error } = await serviceSupabase.rpc('resolve_prospect', {
+    p_profile_id: profileId,
+    p_email: email,
+    p_name: name,
+    p_platform: platform,
+    p_source: source,
+  });
 
-    // Prospect supprimé → ne pas réactiver, retourner null pour que le call soit fantôme
-    if (existing && (existing as any).deleted) return null;
-
-    const { data } = await serviceSupabase
-      .from('prospects')
-      .upsert({
-        profile_id: profileId,
-        platform,
-        email,
-        name,
-        source,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'profile_id,email' })
-      .select('id')
-      .maybeSingle();
-    return data?.id ?? null;
+  if (error) {
+    console.error('[prospects] resolve_prospect:', error.message);
+    return null;
   }
-
-  // Pas d'email : lookup par (profile_id, name, source) puis insert si absent
-  const { data: existing } = await serviceSupabase
-    .from('prospects')
-    .select('id')
-    .eq('profile_id', profileId)
-    .eq('name', name!)
-    .eq('source', source ?? '')
-    .maybeSingle();
-
-  if (existing) return existing.id;
-
-  const { data: inserted } = await serviceSupabase
-    .from('prospects')
-    .insert({ profile_id: profileId, platform, email: null, name, source, updated_at: new Date().toISOString() })
-    .select('id')
-    .maybeSingle();
-  return inserted?.id ?? null;
+  return (data as string | null) ?? null;
 }

@@ -305,16 +305,25 @@ async function syncCalendlyEleve(
       resolvedIgLeadId = leadRow?.id ?? null;
     }
 
+    // Rattachement du call a une personne. Cette fonction ne le posait pas du
+    // tout : sur 13 calls sans ig_lead_id, 11 n'avaient aucun prospect_id, et le
+    // pipeline affichait donc une fiche par call au lieu d'une par personne.
+    let resolvedProspectId: string | null = null;
+
     if (shortLinkPath) {
       const { data: pl } = await supabase
         .from('prospect_links')
-        .select('id, ig_lead_id')
+        .select('id, ig_lead_id, prospect_id')
         .eq('profile_id', profileId)
         .filter('short_url', 'like', `%/${shortLinkPath}`)
         .maybeSingle();
       if (pl) {
         resolvedProspectLinkId = pl.id;
         resolvedIgLeadId = resolvedIgLeadId ?? pl.ig_lead_id ?? null;
+        // Un lien de suivi genere pour quelqu'un de deja connu porte son
+        // identite : elle fait autorite sur la resolution par e-mail, qui
+        // echouerait si la personne reserve avec une autre adresse.
+        resolvedProspectId = pl.prospect_id ?? null;
       }
     }
 
@@ -348,6 +357,27 @@ async function syncCalendlyEleve(
     const finalIgLeadId = resolvedIgLeadId ?? inheritedIgLeadId;
     const finalProspectLinkId = resolvedProspectLinkId ?? inheritedProspectLinkId;
 
+    // A defaut d'identite portee par le lien, on resout par e-mail. La logique
+    // vit dans la fonction SQL `resolve_prospect`, partagee avec la route
+    // Vercel : cette fonction tourne en Deno et ne peut pas importer
+    // lib/prospects.ts, et c'est precisement d'avoir laisse les deux chemins
+    // diverger qui a produit le bug corrige ici.
+    //
+    // Rien pour un call rattache a un lead Instagram : il se groupe par
+    // ig_lead_id, mecanisme deja en place et prioritaire.
+    let finalProspectId = resolvedProspectId;
+    if (!finalProspectId && !finalIgLeadId && (inviteeEmail || inviteeName)) {
+      const { data: resolved, error: resolveErr } = await supabase.rpc('resolve_prospect', {
+        p_profile_id: profileId,
+        p_email: inviteeEmail ?? null,
+        p_name: inviteeName ?? null,
+        p_platform: String(utmSource || '').toLowerCase().startsWith('yt') ? 'yt' : 'other',
+        p_source: source,
+      });
+      if (resolveErr) console.error('[sync-calendly] resolve_prospect:', resolveErr.message);
+      finalProspectId = (resolved as string | null) ?? null;
+    }
+
     const upsertData: Record<string, any> = {
       coach_id: profileId,
       client_id: null,
@@ -360,6 +390,7 @@ async function syncCalendlyEleve(
       join_url: event.location?.join_url || null,
       invitee_email: inviteeEmail,
       invitee_name: inviteeName,
+      prospect_id: finalProspectId,
       calendly_qa: questionsAndAnswers,
       // Si le call vient d'un lien description ou bio IG, garder la source UTM (ig_description / ig_bio)
       // Écraser en ig_dm seulement si c'est un vrai DM (pas de medium description/bio)
