@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildRapportPatch, isSubmittable, estimateTotal, countAnswered, parseAmount, EMPTY_ANSWERS, type RapportAnswers } from './rapportPatch.ts';
+import { buildRapportPatch, isSubmittable, estimateTotal, countAnswered, parseAmount, objectionsPour, demandeObjection, EMPTY_ANSWERS, type RapportAnswers } from './rapportPatch.ts';
 
 // Lancé par `npm test`. Couvre les 5 chemins terminaux du rapport de vente sans
 // React, sans réseau, sans base — c'est ce qui protège le prochain changement.
@@ -222,4 +222,161 @@ test('le montant compte comme une réponse, sur la branche closed seulement', ()
   // Sur une autre branche, un montant résiduel ne doit rien ajouter.
   const autreBranche = reponses({ showedUp: true, qualified: true, outcomeChoice: 'to_recontact', revenue: '2000' });
   assert.equal(countAnswered(autreBranche), 3);
+});
+
+// ── Les deux issues arrivées le 2026-08-27 ─────────────────────────────────
+// Le pipeline affichait « Perdu » et « Pas qualifié » sans qu'aucun rapport ne
+// puisse les produire. La carte du parcours passe de 5 à 7 sorties.
+
+test('perdu : outcome lost, aucun revenu', () => {
+  const { rapport, callFields } = buildRapportPatch(reponses({
+    showedUp: true, qualified: true, outcomeChoice: 'lost',
+  }));
+  assert.equal(rapport.outcome, 'lost');
+  assert.equal(rapport.no_show, false);
+  assert.equal(rapport.deal_closed, false);
+  assert.equal(rapport.revenue, 0);
+  assert.equal(rapport.qualified, true, 'un lead qualifié peut être perdu');
+  assert.deepEqual(callFields, {});
+});
+
+test('pas qualifié : qualified part à false SANS la question dédiée', () => {
+  // Choisir « pas qualifié » EST la réponse à « était-il la cible ? ». Sans ça,
+  // le % Calls Qualifiés compterait ce call comme non renseigné.
+  const { rapport } = buildRapportPatch(reponses({
+    showedUp: true, qualified: null, outcomeChoice: 'not_qualified',
+  }));
+  assert.equal(rapport.outcome, 'not_qualified');
+  assert.equal(rapport.qualified, false);
+});
+
+test('pas qualifié : la réponse à qualified ne peut pas la contredire', () => {
+  const { rapport } = buildRapportPatch(reponses({
+    showedUp: true, qualified: true, outcomeChoice: 'not_qualified',
+  }));
+  assert.equal(rapport.qualified, false, 'l’issue prime sur une réponse antérieure');
+});
+
+// ── L'objection ────────────────────────────────────────────────────────────
+
+test('l’objection part sur les trois branches qui la posent', () => {
+  for (const outcome of ['lost', 'not_qualified', 'to_recontact'] as const) {
+    const { rapport } = buildRapportPatch(reponses({
+      showedUp: true, outcomeChoice: outcome, objection: 'prix',
+    }));
+    assert.equal(rapport.objection, 'prix', outcome);
+    assert.equal(rapport.objection_autre, null);
+  }
+});
+
+test('l’objection ne part JAMAIS sur les autres branches', () => {
+  for (const outcome of ['closed', 'second_call', 'rescheduled'] as const) {
+    const { rapport } = buildRapportPatch(reponses({
+      showedUp: true, outcomeChoice: outcome, revenue: '100', objection: 'prix',
+    }));
+    assert.equal(rapport.objection, undefined, `${outcome} ne pose pas la question`);
+  }
+});
+
+test('« autre » transmet le texte libre, rogné', () => {
+  const { rapport } = buildRapportPatch(reponses({
+    showedUp: true, outcomeChoice: 'lost', objection: 'autre', objectionAutre: '  il déménage  ',
+  }));
+  assert.equal(rapport.objection, 'autre');
+  assert.equal(rapport.objection_autre, 'il déménage');
+});
+
+test('changer d’objection efface le texte libre devenu faux', () => {
+  // Sans ça, corriger un rapport laisserait en base un texte qui ne correspond
+  // plus au choix — invisible à l'écran, faux dans toute lecture ultérieure.
+  const { rapport } = buildRapportPatch(reponses({
+    showedUp: true, outcomeChoice: 'lost', objection: 'prix', objectionAutre: 'ancien texte',
+  }));
+  assert.equal(rapport.objection_autre, null);
+});
+
+test('« autre » sans texte n’envoie pas une chaîne vide', () => {
+  const { rapport } = buildRapportPatch(reponses({
+    showedUp: true, outcomeChoice: 'lost', objection: 'autre', objectionAutre: '   ',
+  }));
+  assert.equal(rapport.objection_autre, null);
+});
+
+test('objection non répondue : le champ est absent, la colonne intacte', () => {
+  const { rapport } = buildRapportPatch(reponses({
+    showedUp: true, outcomeChoice: 'lost', objection: null,
+  }));
+  assert.equal('objection' in rapport, false);
+});
+
+test('objectionsPour : « pas la cible » n’existe que sur pas qualifié', () => {
+  const nq = objectionsPour('not_qualified').map(o => o.key);
+  assert.ok(nq.includes('pas_la_cible'));
+  for (const o of ['lost', 'to_recontact'] as const) {
+    assert.ok(!objectionsPour(o).map(x => x.key).includes('pas_la_cible'), o);
+  }
+  assert.equal(objectionsPour('lost').length, 6);
+  assert.equal(objectionsPour('not_qualified').length, 7);
+});
+
+test('demandeObjection : trois branches, pas une de plus', () => {
+  assert.equal(demandeObjection('lost'), true);
+  assert.equal(demandeObjection('not_qualified'), true);
+  assert.equal(demandeObjection('to_recontact'), true);
+  assert.equal(demandeObjection('closed'), false);
+  assert.equal(demandeObjection('second_call'), false);
+  assert.equal(demandeObjection('rescheduled'), false);
+  assert.equal(demandeObjection(null), false);
+});
+
+// ── La date de relance ─────────────────────────────────────────────────────
+
+test('relance_at va sur le call, pas dans le rapport', () => {
+  const { rapport, callFields } = buildRapportPatch(reponses({
+    showedUp: true, outcomeChoice: 'to_recontact', relanceAt: '2026-09-20',
+  }));
+  assert.equal(callFields.relance_at, '2026-09-20');
+  assert.equal('relance_at' in rapport, false, 'la route rapport a sa propre liste blanche');
+});
+
+test('relance_at absente : callFields reste vide', () => {
+  const { callFields } = buildRapportPatch(reponses({
+    showedUp: true, outcomeChoice: 'to_recontact',
+  }));
+  assert.deepEqual(callFields, {});
+});
+
+test('relance_at ignorée hors de la branche à recontacter', () => {
+  const { callFields } = buildRapportPatch(reponses({
+    showedUp: true, outcomeChoice: 'lost', relanceAt: '2026-09-20',
+  }));
+  assert.equal(callFields.relance_at, undefined);
+});
+
+// ── Progression ────────────────────────────────────────────────────────────
+
+test('les nouvelles questions comptent là où elles sont posées', () => {
+  const sansObjection = reponses({ showedUp: true, qualified: true, outcomeChoice: 'lost' });
+  const avecObjection = { ...sansObjection, objection: 'prix' as const };
+  assert.equal(countAnswered(avecObjection), countAnswered(sansObjection) + 1);
+
+  const sansDate = reponses({ showedUp: true, qualified: true, outcomeChoice: 'to_recontact', objection: 'prix' as const });
+  const avecDate = { ...sansDate, relanceAt: '2026-09-20' };
+  assert.equal(countAnswered(avecDate), countAnswered(sansDate) + 1);
+});
+
+test('estimateTotal garde répondues <= total sur les nouvelles branches', () => {
+  for (const outcome of ['lost', 'not_qualified', 'to_recontact'] as const) {
+    const a = reponses({
+      showedUp: true, qualified: true, outcomeChoice: outcome,
+      objection: 'autre' as const, objectionAutre: 'x', relanceAt: '2026-09-20',
+    });
+    assert.ok(estimateTotal(a) >= countAnswered(a), `${outcome} : ${countAnswered(a)}/${estimateTotal(a)}`);
+  }
+});
+
+test('les six branches sont soumettables', () => {
+  for (const outcome of ['closed', 'second_call', 'to_recontact', 'rescheduled', 'lost', 'not_qualified'] as const) {
+    assert.equal(isSubmittable(reponses({ showedUp: true, outcomeChoice: outcome })), true, outcome);
+  }
 });

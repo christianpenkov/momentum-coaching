@@ -10,7 +10,7 @@ import RapportChoiceStep from '@/components/ui/RapportChoiceStep';
 import ConfirmCheckboxDialog from '@/components/ui/ConfirmCheckboxDialog';
 import celebrationAnimation from '@/public/animations/celebration.json';
 import { useRapportDraftWriter, type RapportDraft } from '@/lib/useRapportDraft';
-import { buildRapportPatch, estimateTotal, countAnswered, EMPTY_ANSWERS, type RapportAnswers } from '@/lib/rapportPatch';
+import { buildRapportPatch, estimateTotal, countAnswered, objectionsPour, EMPTY_ANSWERS, type RapportAnswers, type ObjectionChoice } from '@/lib/rapportPatch';
 import { wallClockToUtc, cityLabelOf, formatDateIn, formatTimeIn } from '@/lib/timezone';
 import { useViewerTimeZone } from '@/lib/UserContext';
 
@@ -40,6 +40,11 @@ type RapportStep =
   // question, un virement simplement convenu était compté comme encaissé.
   | 'offline'
   | 'celebration'
+  // Ce qui a bloqué. Même question sur les trois branches qui la posent (perdu,
+  // pas qualifié, à recontacter) — seule la formulation change.
+  | 'objection'
+  // Quand recontacter, sur la seule branche « à recontacter ».
+  | 'relance_date'
   // Appel reporté
   | 'rescheduled_check'       // vérification en cours (refresh Calendly)
   | 'rescheduled_found'       // nouveau call trouvé automatiquement
@@ -288,8 +293,14 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
   async function patchRapport(patch: Record<string, any>) {
     const rapportFields: Record<string, any> = {};
     const callFields: Record<string, any> = {};
+    // Ce qui appartient au CALL part vers /api/client/calls, le reste vers la
+    // route du rapport. Un champ oublié dans cette liste est routé vers le
+    // rapport, dont la liste blanche est stricte : il serait jeté en silence.
+    // C'est ce qui est arrivé à `revenue` (corrigé en août) — d'où `relance_at`
+    // ajouté ici EN MÊME TEMPS que dans les deux listes blanches serveur.
+    const CHAMPS_DU_CALL = ['rescheduled', 'rescheduled_at', 'scheduled_at', 'relance_at'];
     for (const [k, v] of Object.entries(patch)) {
-      if (['rescheduled', 'rescheduled_at', 'scheduled_at'].includes(k)) callFields[k] = v;
+      if (CHAMPS_DU_CALL.includes(k)) callFields[k] = v;
       else rapportFields[k] = v;
     }
     const calls: Promise<Response>[] = [];
@@ -579,7 +590,22 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
 
   function handleToRecontact() {
     setAfterComment('close');
-    goTo('comment', { outcomeChoice: 'to_recontact' });
+    goTo('objection', { outcomeChoice: 'to_recontact' });
+  }
+
+  // Perdu et Pas qualifié passent par la même question que « à recontacter » :
+  // c'est la même chose qu'on cherche à savoir, à un moment différent du
+  // parcours. Seule la formulation de l'écran change.
+  function handleLost() {
+    setAfterComment('close');
+    goTo('objection', { outcomeChoice: 'lost' });
+  }
+
+  function handleNotQualified() {
+    setAfterComment('close');
+    // `qualified: false` part avec l'issue depuis buildRapportPatch — inutile de
+    // le poser ici, et le poser deux fois ouvrirait la porte à un désaccord.
+    goTo('objection', { outcomeChoice: 'not_qualified' });
   }
 
   /**
@@ -808,15 +834,125 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                 { value: 'closed', label: 'Oui, lead closé !', tone: 'primary' },
                 { value: 'second_call', label: isFollowUp ? 'Prochain call prévu' : '2ème call prévu' },
                 { value: 'to_recontact', label: 'Pas closé — à recontacter' },
+                // Deux issues qui existaient dans le pipeline sans qu'aucun
+                // rapport ne puisse les produire, jusqu'au 2026-08-27.
+                { value: 'lost', label: 'Perdu — il a dit non' },
+                { value: 'not_qualified', label: "Pas qualifié — ce n'était pas la cible" },
               ]}
               onChoose={v => {
                 // `goTo` et non `setStep` : sans lui l'étape n'est pas empilée dans
                 // l'historique, et le Retour depuis l'écran du montant serait mort.
                 if (v === 'closed') goTo('revenue', { outcomeChoice: 'closed' });
                 else if (v === 'second_call') handleSecondCall();
+                else if (v === 'lost') handleLost();
+                else if (v === 'not_qualified') handleNotQualified();
                 else handleToRecontact();
               }}
             />
+          )}
+
+          {/* ── Ce qui a bloqué ─────────────────────────────────────────────── */}
+          {step === 'objection' && (
+            <RapportChoiceStep
+              question={
+                answers.outcomeChoice === 'not_qualified'
+                  ? "Qu'est-ce qui ne collait pas ?"
+                  : answers.outcomeChoice === 'lost'
+                    ? "Qu'est-ce qui a bloqué ?"
+                    : "Qu'est-ce qui bloque pour l'instant ?"
+              }
+              hint="Une seule réponse — la principale."
+              disabled={saving}
+              value={answers.objection ?? null}
+              choices={objectionsPour(answers.outcomeChoice).map(o => ({
+                value: o.key,
+                label: o.label,
+              }))}
+              onChoose={v => {
+                const suite = answers.outcomeChoice === 'to_recontact' ? 'relance_date' : 'comment';
+                goTo(suite as RapportStep, { objection: v as ObjectionChoice });
+              }}
+            />
+          )}
+
+          {/* Texte libre de « Autre » — visible avec son exemple, sur le même
+              écran que le choix : le replier derrière un second clic ferait
+              perdre la précision qu'on vient justement de demander. */}
+          {step === 'objection' && answers.objection === 'autre' && (
+            <div style={{ marginTop: -8, marginBottom: 20 }}>
+              <input
+                type="text"
+                value={answers.objectionAutre ?? ''}
+                onChange={e => setAnswers(a => ({ ...a, objectionAutre: e.target.value.slice(0, 500) }))}
+                placeholder="Par exemple : il déménage à l'étranger"
+                disabled={saving}
+                style={{
+                  width: '100%', padding: '10px 12px', fontSize: 14,
+                  borderRadius: 10, border: '1px solid var(--border)',
+                  background: 'var(--surface)', color: 'var(--ink)',
+                }}
+              />
+            </div>
+          )}
+
+          {/* ── Quand recontacter ───────────────────────────────────────────── */}
+          {step === 'relance_date' && (
+            <div>
+              <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>Quand le recontacter ?</div>
+              <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.6 }}>
+                Trois relances espacées, puis le lead sort du pipeline tout seul.
+                Tu peux passer si tu ne sais pas encore.
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+                {[
+                  { j: 14, label: 'Dans 2 semaines' },
+                  { j: 21, label: 'Dans 3 semaines' },
+                  { j: 30, label: 'Dans 1 mois' },
+                  { j: 90, label: 'Dans 3 mois' },
+                ].map(({ j, label }) => {
+                  const d = new Date(Date.now() + j * 86400000).toISOString().slice(0, 10);
+                  const actif = answers.relanceAt === d;
+                  return (
+                    <button
+                      key={j}
+                      type="button"
+                      disabled={saving}
+                      onClick={() => setAnswers(a => ({ ...a, relanceAt: d }))}
+                      style={{
+                        padding: '9px 14px', fontSize: 13, fontWeight: 600, borderRadius: 10,
+                        border: `1px solid ${actif ? 'var(--accent)' : 'var(--border)'}`,
+                        background: actif ? 'var(--accent)' : 'var(--surface)',
+                        color: actif ? '#fff' : 'var(--ink)', cursor: 'pointer',
+                      }}
+                    >{label}</button>
+                  );
+                })}
+              </div>
+              <input
+                type="date"
+                value={answers.relanceAt ?? ''}
+                min={new Date().toISOString().slice(0, 10)}
+                onChange={e => setAnswers(a => ({ ...a, relanceAt: e.target.value }))}
+                disabled={saving}
+                style={{
+                  width: '100%', padding: '10px 12px', fontSize: 14, marginBottom: 20,
+                  borderRadius: 10, border: '1px solid var(--border)',
+                  background: 'var(--surface)', color: 'var(--ink)',
+                }}
+              />
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => goTo('comment')}
+                style={{
+                  width: '100%', padding: '12px 0', fontSize: 14, fontWeight: 700,
+                  borderRadius: 10, border: 'none', background: 'var(--accent)',
+                  color: '#fff', cursor: 'pointer',
+                }}
+              >
+                {answers.relanceAt ? 'Continuer' : 'Je ne sais pas encore'}
+              </button>
+            </div>
           )}
 
           {/* ── Prochain call : trouvé auto ─────────────────────────────────── */}

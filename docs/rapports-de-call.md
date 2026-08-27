@@ -72,8 +72,34 @@ brouillon avant le premier rendu.
       payment ──► createDeal ──► celebration / second_call_done / fermeture
 ```
 
-**Les 5 outcomes possibles** : `no_show`, `closed`, `rescheduled`, `second_call`,
-`to_recontact`.
+**Les 7 outcomes possibles** : `no_show`, `closed`, `rescheduled`, `second_call`,
+`to_recontact`, `lost`, `not_qualified`.
+
+`lost` et `not_qualified` sont arrivés le 2026-08-27 avec la refonte du pipeline :
+deux colonnes existaient à l'écran sans qu'aucun rapport ne puisse les produire.
+Elles passent par la même branche que `to_recontact` — question **objection**,
+puis commentaire — à deux différences près :
+
+- `not_qualified` ne pose PAS « était-il la cible ? » : choisir cette issue EST la
+  réponse. `qualified: false` part avec l'outcome depuis `buildRapportPatch`.
+- `to_recontact` pose en plus **quand recontacter** (`calls.relance_at`).
+
+⚠️ **Un outcome n'est PAS une colonne du pipeline.** `rescheduled` et
+`second_call` sont des rendez-vous qui n'ont pas encore donné leur résultat : le
+lead reste actif en « RDV pris ». La traduction outcome → colonne vit dans
+`lib/pipelineStage.ts` (`OUTCOME_TO_ISSUE`), et nulle part ailleurs.
+
+⚠️ **La soumission d'un rapport n'écrit plus de `pipeline_overrides`.** Elle le
+faisait jusqu'au 2026-08-27, via une fonction `outcomeToStage()`. C'était une
+double écriture du même fait : l'issue d'un lead se calcule à l'affichage depuis
+le call. `pipeline_overrides` ne sert plus qu'au classement à la main, seul cas
+où il n'existe aucun call à lire.
+
+**L'objection** : six valeurs communes aux trois branches qui la posent (`lost`,
+`not_qualified`, `to_recontact`), plus « Aucune — il n'était pas la cible » sur la
+seule branche `not_qualified`. `objection_autre` porte le texte libre, et est
+remis à `null` dès que le choix n'est plus `autre` — sinon une correction
+laisserait en base un texte qui ne correspond plus à rien.
 
 **Le parcours de coaching** est linéaire : `attended` → (présent) `topic_notes` →
 `done`. Un no-show soumet directement depuis la première étape.

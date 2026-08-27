@@ -47,10 +47,24 @@ export async function PATCH(
   // montant et l'envoie ici (PagePipeline.tsx, cas forward_to_closed), en promettant
   // à l'écran que le chiffre d'affaires sera comptabilisé. Sans lui dans cette liste
   // le serveur jetait le montant en silence — l'appel passait « closé » à 0 €.
-  const allowed = ['status', 'no_show', 'no_show_at', 'rescheduled', 'rescheduled_at', 'scheduled_at', 'cancellation_reason', 'deal_closed', 'revenue', 'ig_lead_id', 'is_follow_up'];
+  // `relance_at` y figure pour la même raison : la branche « à recontacter » du
+  // rapport de vente demande quand recontacter et l'envoie ici. Absent de cette
+  // liste, il serait jeté en silence et le lead n'aurait aucune échéance.
+  const allowed = ['status', 'no_show', 'no_show_at', 'rescheduled', 'rescheduled_at', 'scheduled_at', 'cancellation_reason', 'deal_closed', 'revenue', 'ig_lead_id', 'is_follow_up', 'relance_at'];
   const update: Record<string, any> = {};
   for (const field of allowed) {
     if (field in body) update[field] = body[field];
+  }
+
+  // `relance_at` est une date, pas un texte libre : une valeur invalide passerait
+  // en base et ferait échouer toute lecture ultérieure. `null` reste accepté —
+  // c'est ainsi qu'on retire une échéance posée par erreur.
+  if ('relance_at' in update && update.relance_at !== null) {
+    const d = new Date(update.relance_at);
+    if (Number.isNaN(d.getTime())) {
+      return NextResponse.json({ error: 'Date de relance invalide' }, { status: 400 });
+    }
+    update.relance_at = d.toISOString();
   }
 
   // `revenue` porte de l'argent : on refuse une valeur qui n'en est pas plutôt que

@@ -12,7 +12,51 @@
  * terminaux sans ouvrir un navigateur.
  */
 
-export type OutcomeChoice = 'closed' | 'second_call' | 'to_recontact' | 'rescheduled';
+/**
+ * Les résultats possibles d'un rendez-vous.
+ *
+ * ⚠️ Ce ne sont PAS les colonnes du pipeline. `rescheduled` et `second_call` ne
+ * sont pas des résultats — ce sont des rendez-vous qui n'ont pas encore donné le
+ * leur, et le lead reste actif en « RDV pris ». La traduction en colonne se fait
+ * dans lib/pipelineStage.ts (OUTCOME_TO_ISSUE), pas ici.
+ *
+ * `lost` et `not_qualified` sont arrivés le 2026-08-27 : le pipeline avait deux
+ * colonnes sans aucune source. La carte du parcours (docs/rapports-de-call.md)
+ * passe donc de 5 à 7 sorties.
+ */
+export type OutcomeChoice =
+  | 'closed' | 'second_call' | 'to_recontact' | 'rescheduled' | 'lost' | 'not_qualified';
+
+/**
+ * Ce qui a bloqué. Mêmes valeurs sur les trois branches qui la posent (perdu,
+ * pas qualifié, à recontacter) : c'est la même question à deux moments, seule la
+ * formulation change à l'écran.
+ *
+ * `pas_la_cible` n'est proposée que sur « pas qualifié » — ailleurs, elle
+ * contredirait l'issue choisie.
+ */
+export type ObjectionChoice =
+  | 'prix' | 'temps' | 'reflechir' | 'confiance' | 'autre_priorite' | 'pas_la_cible' | 'autre';
+
+export const OBJECTIONS: readonly { key: ObjectionChoice; label: string; only?: OutcomeChoice }[] = [
+  { key: 'prix',           label: 'Le prix / le budget' },
+  { key: 'temps',          label: 'Le manque de temps' },
+  { key: 'reflechir',      label: 'Doit réfléchir ou en parler' },
+  { key: 'confiance',      label: 'Pas assez convaincu' },
+  { key: 'autre_priorite', label: 'Une autre priorité passe avant' },
+  { key: 'pas_la_cible',   label: "Aucune — il n'était pas la cible", only: 'not_qualified' },
+  { key: 'autre',          label: 'Autre' },
+] as const;
+
+/** Les objections proposées pour une issue donnée. */
+export function objectionsPour(outcome: OutcomeChoice | null): typeof OBJECTIONS {
+  return OBJECTIONS.filter(o => !o.only || o.only === outcome) as unknown as typeof OBJECTIONS;
+}
+
+/** Les trois branches sur lesquelles la question « qu'est-ce qui a bloqué ? » se pose. */
+export function demandeObjection(outcome: OutcomeChoice | null): boolean {
+  return outcome === 'lost' || outcome === 'not_qualified' || outcome === 'to_recontact';
+}
 
 /** Toutes les réponses saisies. C'est cet objet qu'on sérialise dans le brouillon. */
 export interface RapportAnswers {
@@ -41,6 +85,16 @@ export interface RapportAnswers {
    * sans elle un virement simplement convenu était compté comme encaissé.
    */
   offlineReceived?: boolean | null;
+  /** Ce qui a bloqué. Posée sur perdu / pas qualifié / à recontacter. */
+  objection?: ObjectionChoice | null;
+  /** Le texte libre de « Autre ». Ignoré si l'objection n'est pas 'autre'. */
+  objectionAutre?: string;
+  /**
+   * Quand recontacter, sur la seule branche « à recontacter ». Date locale
+   * (AAAA-MM-JJ) : l'heure n'a pas de sens pour un rappel à trois semaines, et en
+   * demander une serait une question de plus pour rien.
+   */
+  relanceAt?: string;
   /** Mode correction d'un rapport déjà soumis — sert aussi à détecter un brouillon périmé. */
   isCorrection: boolean;
 }
@@ -56,6 +110,9 @@ export const EMPTY_ANSWERS: RapportAnswers = {
   manualTimeStart: '',
   manualTimeEnd: '',
   foundCall: null,
+  objection: null,
+  objectionAutre: '',
+  relanceAt: '',
   isCorrection: false,
 };
 
@@ -93,6 +150,19 @@ export function buildRapportPatch(answers: RapportAnswers, scheduledAt?: string 
   // disparaître le bug d'origine par construction et non par discipline.
   const qualifiedField = (): Record<string, unknown> =>
     a.qualified === null ? {} : { qualified: a.qualified };
+
+  // L'objection part avec son texte libre, et seulement quand elle est posée.
+  // `objection_autre` est vidé dès que le choix n'est plus « autre » : sans ça,
+  // corriger un rapport laisserait en base un texte qui ne correspond plus à
+  // rien — invisible à l'écran, et faux dans toute lecture ultérieure.
+  const objectionField = (): Record<string, unknown> => {
+    if (!demandeObjection(a.outcomeChoice) || !a.objection) return {};
+    const libre = (a.objectionAutre ?? '').trim();
+    return {
+      objection: a.objection,
+      objection_autre: a.objection === 'autre' && libre ? libre.slice(0, 500) : null,
+    };
+  };
 
   // ── No-show : terminal dès la première question ──────────────────────────
   if (a.showedUp === false) {
@@ -147,7 +217,51 @@ export function buildRapportPatch(answers: RapportAnswers, scheduledAt?: string 
     };
   }
 
+  // ── Perdu ────────────────────────────────────────────────────────────────
+  // Le prospect a dit non, et il n'y a pas de suite prévue. Distinct de « pas
+  // qualifié » : perdre un prospect qui était la cible et écarter quelqu'un qui
+  // ne l'était jamais ne se lisent pas dans le même chiffre.
+  if (a.outcomeChoice === 'lost') {
+    return {
+      rapport: {
+        outcome: 'lost',
+        no_show: false,
+        deal_closed: false,
+        revenue: 0,
+        ...qualifiedField(),
+        ...objectionField(),
+        ...commentField(),
+      },
+      callFields: {},
+    };
+  }
+
+  // ── Pas qualifié ─────────────────────────────────────────────────────────
+  // `qualified: false` part TOUJOURS avec cette issue, sans attendre la question
+  // dédiée : choisir « pas qualifié » EST la réponse à « était-il la cible ? ».
+  // C'est ce qui garde le « % Calls Qualifiés » juste sans le recalculer.
+  if (a.outcomeChoice === 'not_qualified') {
+    return {
+      rapport: {
+        outcome: 'not_qualified',
+        no_show: false,
+        deal_closed: false,
+        revenue: 0,
+        qualified: false,
+        ...objectionField(),
+        ...commentField(),
+      },
+      callFields: {},
+    };
+  }
+
   // ── À recontacter ────────────────────────────────────────────────────────
+  // `relance_at` vit sur le call et non dans le rapport : c'est une échéance du
+  // rendez-vous, pas une réponse à une question. Le COMPTEUR de relances, lui,
+  // n'est écrit nulle part ici — il vit dans prospect_events.cycle.
+  const callFields: Record<string, unknown> = {};
+  if (a.relanceAt) callFields.relance_at = a.relanceAt;
+
   return {
     rapport: {
       outcome: 'to_recontact',
@@ -155,9 +269,10 @@ export function buildRapportPatch(answers: RapportAnswers, scheduledAt?: string 
       deal_closed: false,
       revenue: 0,
       ...qualifiedField(),
+      ...objectionField(),
       ...commentField(),
     },
-    callFields: {},
+    callFields,
   };
 }
 
@@ -195,6 +310,11 @@ export function countAnswered(a: RapportAnswers): number {
   // Chemin hors Stripe seulement : une question de plus, « l'argent est-il déjà
   // arrivé ? ». Elle n'existe pas sur un paiement par lien, d'où le total variable.
   if (a.outcomeChoice === 'closed' && a.offlineReceived != null) n++;
+  // L'objection ne compte que là où elle est posée — perdu, pas qualifié, à
+  // recontacter. Ailleurs, la question n'existe pas.
+  if (demandeObjection(a.outcomeChoice) && a.objection != null) n++;
+  // La date de relance : une question de plus, sur la seule branche qui la pose.
+  if (a.outcomeChoice === 'to_recontact' && a.relanceAt) n++;
   return n;
 }
 
@@ -229,5 +349,12 @@ export function estimateTotal(a: RapportAnswers, answeredCount = countAnswered(a
     return Math.max(minimum, a.offlineReceived != null ? 6 : 5);
   }
   if (a.outcomeChoice === 'rescheduled') return Math.max(minimum, 3);
+  // Pas qualifié : la question « était-il la cible ? » ne se pose pas, l'issue y
+  // répond. Présent, résultat, objection, commentaire.
+  if (a.outcomeChoice === 'not_qualified') return Math.max(minimum, 4);
+  // Perdu : présent, qualifié, résultat, objection, commentaire.
+  if (a.outcomeChoice === 'lost') return Math.max(minimum, 5);
+  // À recontacter : les cinq de « perdu », plus la date de relance.
+  if (a.outcomeChoice === 'to_recontact') return Math.max(minimum, 6);
   return Math.max(minimum, 4);
 }

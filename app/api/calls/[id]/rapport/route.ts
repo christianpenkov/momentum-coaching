@@ -1,47 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireCallAccess, serviceSupabase } from '@/lib/callAccess';
 
-// Mapping outcome → stage pipeline
-function outcomeToStage(outcome: string): string | null {
-  switch (outcome) {
-    case 'closed':       return 'closed';
-    case 'no_show':      return null; // recul vers meilleure étape connue
-    case 'rescheduled':  return 'call_booked'; // reste en call_booked avec badge orange
-    case 'showed_up':
-    case 'second_call':
-    case 'to_recontact':
-    case 'not_qualified': return 'showed_up';
-    default:             return null;
-  }
-}
-
-// Meilleure étape connue avant le call (pour no_show)
-async function getBestKnownStage(profileId: string, igLeadId: string, igUsername: string): Promise<string> {
-  const { data: events } = await serviceSupabase
-    .from('prospect_events')
-    .select('event_type')
-    .eq('profile_id', profileId)
-    .eq('ig_lead_id', igLeadId)
-    .in('event_type', ['link_clicked', 'calendly_link_sent', 'call_booked']);
-
-  const types = new Set((events || []).map((e: any) => e.event_type));
-  if (types.has('link_clicked'))      return 'link_clicked';
-  if (types.has('calendly_link_sent')) return 'calendly_sent';
-
-  // Fallback : hook_replied sur le lead
-  const { data: lead } = await serviceSupabase
-    .from('instagram_leads')
-    .select('hook_replied')
-    .eq('id', igLeadId)
-    .single();
-  if (lead?.hook_replied) return 'in_convo';
-
-  return 'lm_sent';
-}
-
 // PATCH /api/calls/[id]/rapport
-// Body: { no_show?: boolean, deal_closed?: boolean, revenue?: number, outcome?: string, qualified?: boolean }
-// Seul l'élève hôte du call (coach_id = user.id pour les calls Calendly) peut remplir.
+//
+// Body : { no_show?, deal_closed?, revenue?, outcome?, qualified?,
+//          objection?, objection_autre?, lead_rapport_comment? }
+//
+// Seul l'élève hôte du call (coach_id = user.id pour les calls Calendly) peut
+// remplir. La liste blanche ci-dessous est STRICTE : un champ non déclaré est
+// ignoré en silence, donc tout nouveau champ du rapport doit être ajouté ici en
+// même temps que dans lib/rapportPatch.ts.
+//
+// ── CE QUI A ÉTÉ RETIRÉ LE 2026-08-27 ─────────────────────────────────────────
+//
+// Cette route écrivait aussi un `pipeline_overrides` à chaque rapport, via une
+// fonction outcomeToStage() qui traduisait le résultat en étape de kanban
+// (`showed_up`, `closed`, `call_booked`…).
+//
+// C'est exactement la double écriture que la refonte du pipeline élimine :
+// l'issue d'un lead n'est PLUS stockée nulle part, elle est calculée à
+// l'affichage par lib/pipelineStage.ts à partir du call lui-même. Garder cet
+// override, c'était écrire deux fois le même fait — et l'écriture partait en
+// fire-and-forget, avec une erreur seulement loguée. Si elle échouait, le
+// pipeline et les statistiques se contredisaient sans que rien ne le signale.
+//
+// Le classement à la main continue, lui, d'écrire dans `pipeline_overrides` :
+// c'est sa seule source, puisqu'un lead classé sans rendez-vous n'a aucune ligne
+// dans `calls`. Les deux ne se marchent pas dessus — le call gagne toujours.
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -55,10 +40,9 @@ export async function PATCH(
   const access = await requireCallAccess(id);
   if (!access.ok) return access.response;
 
-  // Champs propres au lien pipeline, hors du périmètre du contrôle d'accès.
   const { data: call } = await serviceSupabase
     .from('calls')
-    .select('id, coach_id, ig_lead_id, source, prospect_id')
+    .select('id')
     .eq('id', id)
     .single();
 
@@ -74,6 +58,13 @@ export async function PATCH(
   if (typeof body.qualified === 'boolean')  patch.qualified = body.qualified;
   if (typeof body.lead_rapport_comment === 'string') patch.lead_rapport_comment = body.lead_rapport_comment.slice(0, 2000) || null;
 
+  // L'objection et son texte libre. `objection_autre` accepte `null` en plus
+  // d'une chaîne : c'est ainsi qu'on EFFACE un texte devenu faux quand l'élève
+  // corrige son rapport et change d'objection.
+  if (typeof body.objection === 'string')   patch.objection = body.objection;
+  if (typeof body.objection_autre === 'string') patch.objection_autre = body.objection_autre.slice(0, 500) || null;
+  else if (body.objection_autre === null)   patch.objection_autre = null;
+
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: 'Aucune donnée à mettre à jour' }, { status: 400 });
   }
@@ -84,64 +75,6 @@ export async function PATCH(
     .eq('id', id);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  // ── Mise à jour pipeline automatique si le call est lié à un lead IG ──
-  const outcome = typeof body.outcome === 'string' ? body.outcome : null;
-  const igLeadId: string | null = call.ig_lead_id ?? null;
-
-  if (outcome && igLeadId) {
-    // Récupère ig_username pour prospect_key
-    const { data: lead } = await serviceSupabase
-      .from('instagram_leads')
-      .select('ig_username, profile_id')
-      .eq('id', igLeadId)
-      .single();
-
-    if (lead?.ig_username) {
-      const profileId: string = lead.profile_id;
-      const prospectKey: string = lead.ig_username.toLowerCase();
-
-      let targetStage: string;
-      if (outcome === 'no_show') {
-        targetStage = await getBestKnownStage(profileId, igLeadId, lead.ig_username);
-      } else {
-        targetStage = outcomeToStage(outcome) ?? 'showed_up';
-      }
-
-      // Upsert pipeline_override — fire and forget (non bloquant pour la réponse)
-      serviceSupabase.from('pipeline_overrides').upsert({
-        profile_id:   profileId,
-        prospect_key: prospectKey,
-        platform:     'ig',
-        stage:        targetStage,
-        reason:       `rapport:${outcome}`,
-        updated_at:   new Date().toISOString(),
-      }, { onConflict: 'profile_id,prospect_key,platform' }).then(({ error: ovErr }) => {
-        if (ovErr) console.error('[rapport] pipeline_override upsert:', ovErr.message);
-      });
-    }
-  }
-
-  // ── Leads non-IG (YT, bio, autres) — pipeline override via prospect_id ──
-  if (outcome && !igLeadId) {
-    const platform: 'yt' | 'other' = call.source?.toLowerCase().startsWith('yt') ? 'yt' : 'other';
-    const targetStage = outcome === 'no_show'
-      ? 'calendly_sent'
-      : (outcomeToStage(outcome) ?? 'showed_up');
-    // prospect_id = fiche prospect persistante → même key si le lead rebook un 2ème call
-    const prospectKey: string = call.prospect_id ?? call.id;
-
-    serviceSupabase.from('pipeline_overrides').upsert({
-      profile_id:   call.coach_id,
-      prospect_key: prospectKey,
-      platform,
-      stage:        targetStage,
-      reason:       `rapport:${outcome}`,
-      updated_at:   new Date().toISOString(),
-    }, { onConflict: 'profile_id,prospect_key,platform' }).then(({ error: ovErr }) => {
-      if (ovErr) console.error('[rapport] pipeline_override non-IG upsert:', ovErr.message);
-    });
-  }
 
   return NextResponse.json({ ok: true });
 }
