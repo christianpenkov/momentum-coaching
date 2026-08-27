@@ -7,6 +7,7 @@ import Link from 'next/link';
 import Ring from '@/components/ui/Ring';
 import Icon from '@/components/ui/Icon';
 import { useClientSelfData } from '@/lib/supabase/useCoachData';
+import { readAccueilShape, writeAccueilShape, EMPTY_SHAPE, type AccueilShape } from '@/lib/accueilLayoutHint';
 import { createClient } from '@/lib/supabase/client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNotifications } from '@/lib/useNotifications';
@@ -110,15 +111,39 @@ export default function PageClientView() {
     return () => clearInterval(interval);
   }, []);
 
+  // Forme du dernier passage — même dispositif que l'accueil coach, cloisonné
+  // par espace. Lue APRÈS le montage : le stockage local n'existe pas au rendu
+  // serveur, et lire pendant le rendu produirait deux sorties différentes.
+  const [shape, setShape] = useState<AccueilShape>(EMPTY_SHAPE);
+  useEffect(() => { setShape(readAccueilShape('client')); }, []);
+
+  // EXACTEMENT la condition du rendu, pas une approximation : `upcomingCalls`
+  // peut etre non vide sans qu'aucun bandeau ne s'affiche (call a plus de 24 h,
+  // rapport deja rempli). Reserver la place dans ce cas creerait le saut qu'on
+  // cherche a supprimer, dans l'autre sens.
+  const hasNextCallNow = !!pickAccueilCall(client?.business?.upcomingCalls ?? [], nowTick);
+  useEffect(() => {
+    if (loading) return;
+    writeAccueilShape('client', {
+      hasNextCall: hasNextCallNow,
+      pendingRapports: rapportNotifs.length + callRequestNotifs.length,
+    });
+  }, [loading, hasNextCallNow, rapportNotifs.length, callRequestNotifs.length]);
+
   const toggleTask = useCallback(async (taskId: string, done: boolean) => {
     setTaskOverrides(prev => ({ ...prev, [taskId]: done }));
     await supabase.from('tasks').update({ done }).eq('id', taskId);
   }, [supabase]);
 
   // Squelette plutôt qu'un loader centré : il reproduit la structure réelle de
-  // la page (en-tête, carte du prochain call, grille de KPI), donc l'app paraît
-  // déjà là et le contenu remplace des formes de mêmes dimensions au lieu de
-  // surgir dans le vide.
+  // la page, donc l'app paraît déjà là et le contenu remplace des formes de
+  // mêmes dimensions au lieu de surgir dans le vide.
+  //
+  // La carte du prochain call n'est dessinée que si l'écran en contenait une au
+  // dernier passage. Elle l'était auparavant SYSTÉMATIQUEMENT, alors que le
+  // bandeau est conditionnel : sans call, elle disparaissait et tout remontait ;
+  // avec un call, la vraie carte est plus haute et poussait tout vers le bas.
+  // Voir lib/accueilLayoutHint et docs/pastille-et-sauts-accueil.md.
   if (loading) {
     return (
       <div className="page-content">
@@ -128,15 +153,29 @@ export default function PageClientView() {
             <Skeleton width={110} height={12} style={{ marginTop: 8 }} />
           </div>
         </div>
-        <div className="card" style={{ padding: '18px 20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <Skeleton width={40} height={40} radius={20} />
-            <div style={{ flex: 1 }}>
-              <Skeleton width="45%" height={14} />
-              <Skeleton width="30%" height={11} style={{ marginTop: 8 }} />
+        {shape.hasNextCall && (
+          <div className="card" style={{ padding: '18px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <Skeleton width={40} height={40} radius={20} />
+              <div style={{ flex: 1 }}>
+                <Skeleton width="45%" height={14} />
+                <Skeleton width="30%" height={11} style={{ marginTop: 8 }} />
+              </div>
             </div>
           </div>
-        </div>
+        )}
+        {shape.pendingRapports > 0 && (
+          <div className="card" style={{ marginTop: shape.hasNextCall ? 20 : 0, padding: '18px 20px' }}>
+            <Skeleton width="42%" height={12} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 14 }}>
+              <Skeleton width={36} height={36} radius={18} />
+              <div style={{ flex: 1 }}>
+                <Skeleton width="52%" height={13} />
+                <Skeleton width="34%" height={11} style={{ marginTop: 6 }} />
+              </div>
+            </div>
+          </div>
+        )}
         <div className="grid-4 client-kpi-grid" style={{ marginTop: 24 }}>
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="card" style={{ padding: '16px 20px' }}>

@@ -51,10 +51,28 @@ export interface ClientSelfData extends ClientWithMetrics {
 }
 
 // Hook léger pour l'espace client (vue client connecté)
+// Derniere reponse connue, conservee ENTRE les montages du hook.
+//
+// Ce hook n'avait AUCUN cache : chaque montage repartait de `data: null,
+// loading: true` et relançait la quinzaine de requetes en parallele. Or il est
+// monte par cinq ecrans eleve (accueil, calendrier, calendrier mobile, calls,
+// prochains calls) : chaque navigation entre eux vidait l'ecran, affichait un
+// squelette, puis reconstruisait tout. Cote coach, les memes donnees passent
+// par un provider monte dans le layout et survivent aux navigations — d'ou
+// l'ecart de comportement entre les deux espaces.
+//
+// La derniere reponse est reaffichee immediatement, puis remplacee sur place
+// par la version fraiche : le rechargement continue d'avoir lieu, il n'efface
+// simplement plus l'ecran pendant qu'il tourne. Meme intention que le cache de
+// useNotifications et que l'abonnement partage de useUnreadMessagesCount.
+let cachedSelf: ClientSelfData | null = null;
+
 export function useClientSelfData() {
-  const [data, setData] = useState<ClientSelfData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [clientId, setClientId] = useState<string | null>(null);
+  const [data, setData] = useState<ClientSelfData | null>(cachedSelf);
+  // `loading` ne vaut vrai que s'il n'y a REELLEMENT rien a montrer. Avec une
+  // reponse en cache, le rafraichissement est silencieux.
+  const [loading, setLoading] = useState(cachedSelf === null);
+  const [clientId, setClientId] = useState<string | null>(cachedSelf?.id ?? null);
   const supabase = createClient();
 
   const loadRef = useRef<() => void>(() => {});
@@ -246,7 +264,7 @@ export function useClientSelfData() {
         ? (stripePaymentsRes.data || []).reduce((s: number, p: any) => s + Number(p.amount || 0), 0)
         : null;
 
-      setData({
+      const next = {
         ...clientRow,
         tasks: tasksRes.data || [],
         currentStats: null,
@@ -272,7 +290,11 @@ export function useClientSelfData() {
           cashCollectedThisMonth,
           closingRateThisMonth,
         },
-      });
+      } as ClientSelfData;
+      // Le cache est alimente ici et nulle part ailleurs : une seule ecriture,
+      // au seul endroit ou la reponse est complete.
+      cachedSelf = next;
+      setData(next);
       setLoading(false);
     }
     loadRef.current = load;

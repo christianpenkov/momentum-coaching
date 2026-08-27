@@ -1,7 +1,7 @@
 # Pastille de notification et sauts de mise en page
 
 Journal des défauts corrigés les 25–27 août 2026 sur la pastille PWA et sur les
-sursauts de l'accueil coach. Sept bugs, **un seul mécanisme** : une valeur
+sursauts des deux accueils (coach et élève). Huit bugs, **un seul mécanisme** : une valeur
 inconnue traitée comme une valeur connue.
 
 > À lire avant de toucher : `lib/pwaBadge.ts`, `public/sw.js` (bloc pastille),
@@ -24,11 +24,12 @@ lue comme une information**.
 | `unreadCount` du serveur | « total » | 6 notifs + 2 messages affichaient 2 |
 | `loading` du contexte | « premier chargement » | tout rafraîchissement effaçait la page |
 | Squelette dessinant un bandeau conditionnel | « il y aura un bandeau » | saut dans les deux cas |
+| État local d'un hook sans cache | « il n'y a rien, donc on charge » | écran élève vidé à chaque navigation |
 
 **Règle qui en découle** : avant qu'une valeur ne déclenche une action
 destructrice (effacer, supprimer, masquer), vérifier qu'elle a été *réellement
 observée*, et pas seulement initialisée. Un drapeau « cette source a parlé »
-coûte trois lignes ; les sept bugs ci-dessous en découlent tous.
+coûte trois lignes ; les huit bugs ci-dessous en découlent tous.
 
 ---
 
@@ -131,7 +132,30 @@ Trois causes distinctes, découvertes dans cet ordre :
 
 Reste le **démarrage à froid**, où rien n'est en mémoire :
 `lib/accueilLayoutHint.ts` retient la *forme* du dernier passage (y avait-il un
-bandeau, combien de rapports) pour que le squelette réserve la place.
+bandeau, combien de rapports) pour que le squelette réserve la place. La forme
+est **cloisonnée par espace** (`'coach'` / `'client'`) : les deux accueils n'ont
+pas la même structure et un même navigateur voit souvent les deux.
+
+> 🔑 L'indice doit être calculé avec **exactement** la condition du rendu, pas
+> une approximation. Côté élève, `upcomingCalls` peut être non vide sans qu'aucun
+> bandeau ne s'affiche (call à plus de 24 h, rapport déjà rempli) : réserver la
+> place dans ce cas recrée le saut, dans l'autre sens.
+
+## 8. L'espace élève n'avait aucun cache
+
+`useClientSelfData` est un hook à état local **sans provider** : chaque montage
+repartait de `data: null, loading: true` et relançait une quinzaine de requêtes
+en parallèle. Or cinq écrans élève l'utilisent (accueil, calendrier, calendrier
+mobile, calls, prochains calls) — chaque navigation entre eux vidait l'écran,
+affichait un squelette, puis reconstruisait tout.
+
+Côté coach les mêmes données passent par `SupabaseClientsProvider`, monté dans
+le layout : elles survivent aux navigations. **D'où l'écart de comportement
+entre les deux espaces**, longtemps attribué à tort à la page elle-même.
+
+**Corrigé** : cache module-level, réaffiché immédiatement puis remplacé sur
+place par la version fraîche. Le rechargement continue d'avoir lieu — il
+n'efface simplement plus l'écran pendant qu'il tourne.
 
 > ⚠️ On ne mémorise **que des formes**, jamais du contenu. Réafficher un nom ou
 > une heure du lancement précédent afficherait un call annulé comme s'il tenait

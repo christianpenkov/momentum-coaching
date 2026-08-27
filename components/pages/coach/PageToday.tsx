@@ -69,14 +69,14 @@ export default function PageToday() {
   // stockage local n'existe pas au rendu serveur, et lire pendant le rendu
   // produirait deux sorties differentes entre serveur et client.
   const [shape, setShape] = useState<AccueilShape>(EMPTY_SHAPE);
-  useEffect(() => { setShape(readAccueilShape()); }, []);
+  useEffect(() => { setShape(readAccueilShape('coach')); }, []);
 
   // Memorise la forme courante pour le prochain demarrage a froid. Uniquement
   // une fois charge : tant que `loading` est vrai, `nextCall` vaut null faute de
   // donnees, et l'enregistrer effacerait l'indice au lieu de le mettre a jour.
   useEffect(() => {
     if (loading) return;
-    writeAccueilShape({
+    writeAccueilShape('coach', {
       hasNextCall: !!nextCall?.scheduled_at,
       pendingRapports: rapportNotifs.length,
     });

@@ -21,7 +21,15 @@
  * une donnee perimee, si.
  */
 
-const KEY = 'momentum:accueil-shape';
+/**
+ * Cloisonne par espace : les deux accueils n'ont ni la meme structure ni les
+ * memes donnees, et un meme navigateur peut voir les deux (Chris teste avec un
+ * compte coach et un compte eleve). Une cle commune ferait reserver a l'un la
+ * forme observee chez l'autre.
+ */
+export type AccueilScope = 'coach' | 'client';
+
+const KEY = (scope: AccueilScope) => `momentum:accueil-shape:${scope}`;
 
 export interface AccueilShape {
   /** Le bandeau « Prochain call » etait-il affiche au dernier passage ? */
@@ -32,10 +40,10 @@ export interface AccueilShape {
 
 export const EMPTY_SHAPE: AccueilShape = { hasNextCall: false, pendingRapports: 0 };
 
-export function readAccueilShape(): AccueilShape {
+export function readAccueilShape(scope: AccueilScope): AccueilShape {
   if (typeof localStorage === 'undefined') return EMPTY_SHAPE;
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(KEY(scope));
     if (!raw) return EMPTY_SHAPE;
     const parsed = JSON.parse(raw);
     return {
@@ -49,9 +57,9 @@ export function readAccueilShape(): AccueilShape {
   }
 }
 
-export function writeAccueilShape(shape: AccueilShape) {
+export function writeAccueilShape(scope: AccueilScope, shape: AccueilShape) {
   if (typeof localStorage === 'undefined') return;
   try {
-    localStorage.setItem(KEY, JSON.stringify(shape));
+    localStorage.setItem(KEY(scope), JSON.stringify(shape));
   } catch { /* idem : perdre l'indice degrade l'affichage, ne le casse pas */ }
 }
