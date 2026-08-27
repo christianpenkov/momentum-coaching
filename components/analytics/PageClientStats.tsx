@@ -5221,7 +5221,12 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const lmDetectes = postLeadsInPeriod.length;
     const lmSent = postLeadsInPeriod.filter((l: MockLead) => l.leadMagnetSent).length;
     const lmClics = postLeadsInPeriod.filter((l: MockLead) => l.id && lmClickedByLeadId?.has(l.id)).length;
-    const lmReponses = postLeads.filter((l: MockLead) => l.hookReplied).length;
+    // `postLeadsInPeriod` et non `postLeads` : cette colonne était la SEULE de la
+    // ligne à ignorer la période. Un vieux contenu la gonflait quelle que soit la
+    // fenêtre affichée, et elle pouvait donc dépasser « Commentaires LM » juste
+    // au-dessus — plus de conversations que de commentaires, ce qui est
+    // impossible et donnait un taux de réponse supérieur à 100 %.
+    const lmReponses = postLeadsInPeriod.filter((l: MockLead) => l.hookReplied).length;
     const dmCount = dmProspects.length;
     // Calls bookés/closés/revenue depuis la table calls (source de vérité)
     // postCalls = calls rattachés à ce contenu (DM + description), filtrés sur la période sélectionnée (scheduled_at)
@@ -5260,8 +5265,17 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const revenueLifetime = postCallsLifetime.reduce((s, c) => s + (c.revenue || 0), 0);
     const cashParVue = viewsLifetime !== null && viewsLifetime > 0 ? revenueLifetime / viewsLifetime : null;
 
-    // % qualifié : parmi les calls honorés avec qualified renseigné (exclut no-show et non-renseignés)
-    const qualifiableCalls = postCallsLifetime.filter(c => isCallHonored(c, now) && c.qualified !== null && c.qualified !== undefined);
+    // % Calls Qualifiés : parmi les calls honorés dont `qualified` est renseigné
+    // (exclut les no-shows et les rapports où la question n'a pas été posée).
+    //
+    // ⚠️ `postCalls` et non `postCallsLifetime` : ce chiffre était calculé sur
+    // TOUT l'historique alors que son jumeau du tableau Performance LM, portant
+    // le même libellé juste en dessous, suivait la période affichée. Deux
+    // tableaux voisins, deux sémantiques, aucun moyen de le deviner à l'écran.
+    // Aligné sur la période — c'est ce que le reste de la ligne fait déjà.
+    //
+    // Cash/Vue reste all-time, lui, et son libellé le dit.
+    const qualifiableCalls = postCalls.filter(c => isCallHonored(c, now) && c.qualified !== null && c.qualified !== undefined);
     const qualifiedCount = qualifiableCalls.filter(c => c.qualified === true).length;
     const qualifiedAnswered = qualifiableCalls.length;
     const qualifiedPct = qualifiedAnswered > 0 ? Math.round((qualifiedCount / qualifiedAnswered) * 100) : null;
@@ -6147,15 +6161,15 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                   ['clicsDesc',    'Clics desc.'],
                   ['lmDetectes',   'Commentaires LM'],
                   ['lmClics',      'Clics LM'],
-                  ['lmReponses',   'Réponses LM'],
-                  ['dmCount',      'Liens DM'],
+                  ['lmReponses',   'Conversations DM'],
+                  ['dmCount',      'Calendly envoyés DM'],
                   ['callsBooked',  'Calls bookés'],
                   ['callsHonored', 'Calls honorés'],
-                  ['qualifiedPct', '% Qualifié'],
+                  ['qualifiedPct', '% Calls Qualifiés'],
                   ['closed',       'Closés'],
                   ['revenue',      'Revenue'],
                   ['vuesParCall',  'Vues / Call'],
-                  ['cashParVue',   'Cash / Vue (lifetime)'],
+                  ['cashParVue',   'Cash / Vue (all-time)'],
                 ] as [SortKey, string][]).map(([key, label]) => {
                   const active = sortKey === key;
                   return (
@@ -6259,7 +6273,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     <th style={{ position: 'sticky', left: 0, zIndex: 3, background: 'var(--surface)', width: 44, borderBottom: '1px solid var(--border)', padding: '6px 10px 10px' }} />
                     <th className="eyebrow-sm" style={{ position: 'sticky', left: 44, zIndex: 3, background: 'var(--surface)', textAlign: 'left', color: 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>Contenu</th>
                     {(['clicsDesc', 'lmDetectes', 'lmClics', 'lmReponses', 'dmCount', 'callsBooked', 'callsHonored', 'qualifiedPct', 'closed', 'revenue', 'vuesParCall', 'cashParVue'] as SortKey[]).map(key => {
-                      const labels: Record<string, string> = { clicsDesc: 'Clics desc.', lmDetectes: 'Commentaires LM', lmClics: 'Clics LM', lmReponses: 'Réponses LM', dmCount: 'Liens DM', callsBooked: 'Calls bookés', callsHonored: 'Calls honorés', qualifiedPct: '% Qualifié', closed: 'Closés', revenue: 'Revenue', vuesParCall: 'Vues / Call', cashParVue: 'Cash / Vue (lifetime)' };
+                      const labels: Record<string, string> = { clicsDesc: 'Clics desc.', lmDetectes: 'Commentaires LM', lmClics: 'Clics LM', lmReponses: 'Conversations DM', dmCount: 'Calendly envoyés DM', callsBooked: 'Calls bookés', callsHonored: 'Calls honorés', qualifiedPct: '% Calls Qualifiés', closed: 'Closés', revenue: 'Revenue', vuesParCall: 'Vues / Call', cashParVue: 'Cash / Vue (all-time)' };
                       const active = sortKey === key;
                       return (
                         <th key={key} onClick={() => { if (active) setSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setSortKey(key); setSortDir('desc'); } }}
@@ -6363,21 +6377,17 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         const r2_callHon = f2_calls > 0 ? Math.round((f2_honored / f2_calls) * 100) : null;
         const r2_honClosed = f2_honored > 0 ? Math.round((f2_closed / f2_honored) * 100) : null;
 
-        // Rétention YT — 11 points calqués sur la vraie courbe YouTube Studio
-        // Chute brutale 100→22 entre 1% et 11%, puis décroissance exponentielle douce
-        const retentionData = row.platform === 'YT' ? [
-          { pct: '1%',   viewers: 100 },
-          { pct: '11%',  viewers: 22 },
-          { pct: '21%',  viewers: 14 },
-          { pct: '31%',  viewers: 10 },
-          { pct: '41%',  viewers: 8 },
-          { pct: '51%',  viewers: 6 },
-          { pct: '61%',  viewers: 5 },
-          { pct: '71%',  viewers: 4 },
-          { pct: '81%',  viewers: 5 },
-          { pct: '91%',  viewers: 4 },
-          { pct: '100%', viewers: 3 },
-        ] : null;
+        // La courbe de rétention était CODÉE EN DUR : onze points identiques pour
+        // toutes les vidéos, quelles qu'elles soient. Elle donnait donc à lire
+        // « 22 % restent après 11 % de la vidéo » sur des contenus dont personne
+        // n'a jamais mesuré la rétention — une affirmation inventée, exactement ce
+        // que la règle « aucune donnée simulée » du projet interdit.
+        //
+        // La vraie donnée (audienceWatchRatio) demande l'API YouTube Analytics
+        // avec l'autorisation du propriétaire de la chaîne, qui n'est pas branchée.
+        // Tant qu'elle ne l'est pas, l'écran dit qu'on ne sait pas — un trou est
+        // une information, une fausse courbe n'en est pas une.
+        const retentionIndisponible = row.platform === 'YT';
 
         // Prospects DM liés — source fiable prospectLinksData (même raison que dmProspects plus haut :
         // prospectLinks/shortio.links est tronqué côté serveur par période dès periodIndex > 0), filtré
@@ -6504,50 +6514,21 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     })()}
                   </div>
 
-                  {/* Courbe rétention YT */}
-                  {retentionData && (() => {
-                    const W = 400; const H = 80;
-                    const n = retentionData.length - 1;
-                    const pts = retentionData.map((d, i) => ({ x: (i / n) * W, y: H - (d.viewers / 100) * H }));
-                    const linePts = pts.map(p => `${p.x},${p.y}`).join(' ');
-                    // fill sous la courbe : path fermé vers le bas
-                    const fillPath = `M${pts[0].x},${pts[0].y} ` + pts.slice(1).map(p => `L${p.x},${p.y}`).join(' ') + ` L${pts[n].x},${H} L${pts[0].x},${H} Z`;
-                    return (
-                      <div style={{ marginTop: 14 }}>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 8 }}>Courbe de rétention</div>
-                        <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '14px 16px 10px', border: '1px solid var(--border)' }}>
-                          <div style={{ position: 'relative' }}>
-                            {/* Lignes de grille horizontales */}
-                            <svg width="100%" viewBox={`0 0 ${W} ${H + 4}`} preserveAspectRatio="none" style={{ display: 'block', height: 90 }}>
-                              {[100, 50, 25, 0].map(v => (
-                                <line key={v} x1="0" y1={H - (v / 100) * H} x2={W} y2={H - (v / 100) * H}
-                                  stroke="var(--border)" strokeWidth="0.8" opacity="0.7" />
-                              ))}
-                              {/* Fill sous courbe */}
-                              <path d={fillPath} fill={GREEN} opacity="0.12" />
-                              {/* Courbe principale */}
-                              <polyline points={linePts} fill="none" stroke={GREEN} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-                            </svg>
-                            {/* Labels Y */}
-                            <div style={{ position: 'absolute', top: 0, left: 0, height: 90, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', pointerEvents: 'none' }}>
-                              {[100, 50, 25, 0].map(v => (
-                                <div key={v} style={{ fontSize: 8, color: 'var(--faint)', lineHeight: 1 }}>{v}</div>
-                              ))}
-                            </div>
-                          </div>
-                          {/* Labels X */}
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, paddingLeft: 14 }}>
-                            {retentionData.map((d, i) => (
-                              <div key={i} style={{ fontSize: 8, color: 'var(--faint)', textAlign: 'center' }}>{d.pct}</div>
-                            ))}
-                          </div>
-                        </div>
-                        <div style={{ marginTop: 6, fontSize: 10, color: 'var(--muted)', textAlign: 'center' }}>
-                          <a href={ytVideo?.url} target="_blank" rel="noopener noreferrer" style={{ color: RED, fontWeight: 700, textDecoration: 'none' }}>Voir sur YouTube →</a>
-                        </div>
-                      </div>
-                    );
-                  })()}
+                  {/* Rétention YouTube — non mesurée, donc pas affichée. Le dire
+                      explicitement vaut mieux que de laisser un vide : sans ce
+                      message, l'absence de courbe se lirait comme un bug. */}
+                  {retentionIndisponible && (
+                    <div style={{
+                      marginTop: 14, padding: '10px 12px', borderRadius: 8,
+                      background: 'var(--surface-2)', border: '1px dashed var(--border)',
+                      fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5,
+                    }}>
+                      <b style={{ color: 'var(--ink-2)' }}>Rétention non disponible.</b>{' '}
+                      Elle demande l’API YouTube Analytics, qui n’est pas connectée.
+                      Retrouve-la dans YouTube Studio en attendant.
+                    </div>
+                  )}
+
                 </div>
 
                 {/* Bloc 2 : Performance business */}
@@ -6685,12 +6666,12 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     <th style={thS}>Clics desc.</th>
                     <th style={thS}>Leads générés</th>
                     <th style={thS}>Clics LM DM</th>
-                    <th style={thS}>Réponses DM</th>
+                    <th style={thS}>Conversations DM</th>
                     <th style={thS}>Calendly envoyés DM</th>
                     <th style={thS}>Clics Calendly DM</th>
                     <th style={thS}>Calls bookés</th>
                     <th style={thS}>Calls honorés</th>
-                    <th style={thS}>% Qualifié</th>
+                    <th style={thS}>% Calls Qualifiés</th>
                     <th style={thS}>Closés</th>
                     <th style={thS}>Revenue</th>
                   </tr>
