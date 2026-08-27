@@ -20,6 +20,7 @@ import { getClientSignals, getAggregatedSignals } from '@/lib/clientSignals';
 import { getClientWeek } from '@/lib/clientWeek';
 import { isNotCanceled } from '@/lib/salesCallStats';
 import { isCallReallyOver, isCallJoinable } from '@/lib/sessionRapport';
+import { readAccueilShape, writeAccueilShape, EMPTY_SHAPE, type AccueilShape } from '@/lib/accueilLayoutHint';
 import TrendBadge from '@/components/ui/TrendBadge';
 import type { Call } from '@/lib/supabase/types';
 
@@ -62,6 +63,24 @@ export default function PageToday() {
   }, []);
 
   const nextCall = pickAccueilCall(calls, nowTick);
+
+  // Forme du dernier passage, pour que le squelette reserve la bonne place au
+  // demarrage a froid. Lue APRES le montage et non pendant le rendu : le
+  // stockage local n'existe pas au rendu serveur, et lire pendant le rendu
+  // produirait deux sorties differentes entre serveur et client.
+  const [shape, setShape] = useState<AccueilShape>(EMPTY_SHAPE);
+  useEffect(() => { setShape(readAccueilShape()); }, []);
+
+  // Memorise la forme courante pour le prochain demarrage a froid. Uniquement
+  // une fois charge : tant que `loading` est vrai, `nextCall` vaut null faute de
+  // donnees, et l'enregistrer effacerait l'indice au lieu de le mettre a jour.
+  useEffect(() => {
+    if (loading) return;
+    writeAccueilShape({
+      hasNextCall: !!nextCall?.scheduled_at,
+      pendingRapports: rapportNotifs.length,
+    });
+  }, [loading, nextCall?.scheduled_at, rapportNotifs.length]);
 
   const activeCount = clients.length;
   const clientsWithSignals = clients.map(c => ({ client: c, signals: getClientSignals(c.tasks, c.sessionReports) }));
@@ -148,7 +167,15 @@ export default function PageToday() {
   const firstName = (user?.full_name || '').split(' ')[0];
 
   // Squelette plutot qu'un loader centre : reproduit la structure reelle de
-  // l'accueil (en-tete, ruban de 4 KPI, carte du prochain call).
+  // l'accueil, DANS LE MEME ORDRE que le rendu final (bandeau, rapports en
+  // attente, rubans de KPI). L'ancienne version placait les KPI avant le
+  // bandeau et dessinait ce dernier systematiquement : elle affirmait une
+  // presence qu'elle ne connaissait pas, et les deux issues sautaient — avec un
+  // call, la vraie carte est bien plus haute que le placeholder et poussait
+  // tout vers le bas ; sans call, la carte disparaissait et tout remontait.
+  //
+  // Les deux blocs conditionnels ne sont donc reserves que si l'ecran les
+  // contenait au dernier passage (voir lib/accueilLayoutHint).
   if (loading) return (
     <div className="page-content">
       <div className="page-header">
@@ -157,24 +184,41 @@ export default function PageToday() {
           <Skeleton width={140} height={12} style={{ marginTop: 8 }} />
         </div>
       </div>
-      <div className="grid-4" style={{ marginTop: 20 }}>
+
+      {shape.hasNextCall && (
+        <div className="card" style={{ marginTop: 20, marginBottom: 20, borderLeft: '3px solid var(--border)', padding: '24px 24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+            <div style={{ flex: 1 }}>
+              <Skeleton width={104} height={11} />
+              <Skeleton width="58%" height={20} style={{ marginTop: 9 }} />
+              <Skeleton width="32%" height={16} style={{ marginTop: 6 }} />
+              <Skeleton width="44%" height={13} style={{ marginTop: 6 }} />
+            </div>
+            <Skeleton width={110} height={74} radius={12} />
+          </div>
+        </div>
+      )}
+
+      {shape.pendingRapports > 0 && (
+        <div className="card" style={{ marginTop: shape.hasNextCall ? 0 : 20, marginBottom: 20, padding: '18px 20px' }}>
+          <Skeleton width="42%" height={12} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 14 }}>
+            <Skeleton width={36} height={36} radius={18} />
+            <div style={{ flex: 1 }}>
+              <Skeleton width="52%" height={13} />
+              <Skeleton width="34%" height={11} style={{ marginTop: 6 }} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="grid-4" style={{ marginTop: (shape.hasNextCall || shape.pendingRapports > 0) ? 0 : 20 }}>
         {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="card" style={{ padding: '16px 20px' }}>
             <Skeleton width="65%" height={11} />
             <Skeleton width="45%" height={24} style={{ marginTop: 10 }} />
           </div>
         ))}
-      </div>
-      {/* Pas de carte a la forme du bandeau « Prochain call » ici : ce bandeau
-          est CONDITIONNEL (rien a afficher si aucun call dans les 24 h). Le
-          squelette en dessinait pourtant un systematiquement, donc il affirmait
-          une chose qu'il ne savait pas. Les deux issues sautaient : avec un
-          call, la vraie carte est bien plus haute que le placeholder et poussait
-          tout vers le bas ; sans call, la carte disparaissait et tout remontait.
-          On ne represente donc que la structure TOUJOURS presente. */}
-      <div className="card" style={{ marginTop: 20, padding: '18px 20px' }}>
-        <Skeleton width="30%" height={14} />
-        <Skeleton width="45%" height={11} style={{ marginTop: 8 }} />
       </div>
     </div>
   );

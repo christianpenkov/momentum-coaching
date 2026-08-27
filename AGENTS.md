@@ -15,6 +15,10 @@ This version has breaking changes — APIs, conventions, and file structure may 
   Calendry, Stripe) → **`docs/checklist-scalabilite.md`**. Objectif 30-40 élèves
   sans maintenance ; chaque point de la liste a trouvé un vrai défaut. L'audit
   YouTube qui l'a produite est dans `docs/youtube-scalabilite.md`.
+- **Toucher la pastille de notification, le service worker ou un squelette de
+  chargement** → `docs/pastille-et-sauts-accueil.md`. Sept bugs, un seul
+  mécanisme : une valeur inconnue lue comme une valeur connue. Contient aussi
+  les requêtes de diagnostic de la chaîne push.
 - **Auditer des chiffres affichés** → skill `audit-metrique-bout-en-bout`
   (`~/.claude/skills/`). La méthode API → base → écran, et les six pièges
   récurrents.
