@@ -10,6 +10,21 @@ import type { Call } from '@/lib/supabase/types';
 
 let instanceCounter = 0;
 
+// Dernière liste connue, conservée ENTRE les montages du hook.
+//
+// Sans ce cache, revenir sur l'accueil repartait systématiquement d'une liste
+// vide : le carrousel « rapports en attente » disparaît quand il n'a rien à
+// montrer, donc il occupait zéro hauteur au premier rendu puis surgissait à
+// pleine hauteur une fois la requête revenue, en poussant tout le contenu
+// situé en dessous. Le saut était garanti à CHAQUE arrivée sur l'écran.
+//
+// La liste précédente est réaffichée immédiatement, puis remplacée sur place
+// par la version fraîche. Même intention que l'abonnement partagé de
+// useUnreadMessagesCount : un compteur global n'a aucune raison de repartir de
+// zéro parce qu'un composant a été démonté.
+let cachedNotifs: AppNotif[] = [];
+let cachedKey: string | null = null;
+
 export type NotifType = 'rapport_call' | 'session_rapport' | 'call_request' | 'call_canceled' | 'call_rescheduled' | 'call_accepted' | 'call_declined' | 'rapport_ready';
 
 export interface AppNotif {
@@ -29,7 +44,17 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
   // Rendu CLIENT : le fuseau du lecteur s'applique normalement, contrairement aux
   // notifications serveur qui doivent lire profiles.timezone du destinataire.
   const viewerTz = useViewerTimeZone();
-  const [notifs, setNotifs] = useState<AppNotif[]>([]);
+  const cacheKey = `${profileId ?? ''}:${isClient}`;
+  const [notifs, setNotifsState] = useState<AppNotif[]>(
+    () => (cachedKey === cacheKey ? cachedNotifs : [])
+  );
+  // Toute écriture passe par ici : l'état local et le cache inter-montages ne
+  // doivent jamais diverger.
+  const setNotifs = useCallback((list: AppNotif[]) => {
+    cachedNotifs = list;
+    cachedKey = cacheKey;
+    setNotifsState(list);
+  }, [cacheKey]);
   const coachNameRef = useRef<string | null>(null);
   const instanceId = useRef(`${++instanceCounter}`);
 
@@ -283,7 +308,7 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
     setBadgeCount('notifs', allNotifs.length);
     // viewerTz dans les dépendances : sans lui, les libellés d'heure des notifs
     // resteraient figés sur l'ancien fuseau après un changement de pays.
-  }, [profileId, isClient, viewerTz]);
+  }, [profileId, isClient, viewerTz, setNotifs]);
 
   const refreshRef = useRef(refresh);
   useEffect(() => { refreshRef.current = refresh; }, [refresh]);

@@ -39,7 +39,10 @@ let lastAppliedTotal: number | null = null;
 // total par une valeur devinée (voir sw.js, badgeStore). L'application écrit
 // donc la vérité chaque fois qu'elle la calcule, et le worker se contente
 // d'incrémenter à partir de là.
-function persistBadgeTotal(total: number) {
+// On écrit les DEUX compteurs, jamais leur somme : les pushs de messagerie
+// portent `unreadCount`, qui ne concerne que les messages. Le worker doit
+// pouvoir remplacer ce compteur-là sans perdre celui de la cloche.
+function persistBadgeCounts(snapshot: Record<BadgeSource, number>) {
   if (typeof indexedDB === 'undefined') return;
   try {
     const req = indexedDB.open('momentum-badge', 1);
@@ -49,7 +52,7 @@ function persistBadgeTotal(total: number) {
     req.onsuccess = () => {
       try {
         const tx = req.result.transaction('kv', 'readwrite');
-        tx.objectStore('kv').put(total, 'total');
+        tx.objectStore('kv').put({ ...snapshot }, 'counts');
       } catch { /* stockage indisponible : la pastille reste correcte tant que
                   l'app est ouverte, seul l'incrément hors ligne est perdu */ }
     };
@@ -65,9 +68,9 @@ function applyBadge() {
   const total = counts.notifs + counts.messages;
   const previous = lastAppliedTotal;
   lastAppliedTotal = total;
-  // Ecrit AVANT de poser la pastille : c'est cette valeur que le service worker
-  // incrementera au prochain push recu app fermee.
-  persistBadgeTotal(total);
+  // Ecrit AVANT de poser la pastille : c'est de cet etat que partira le service
+  // worker au prochain push recu app fermee.
+  persistBadgeCounts(counts);
 
   if (total <= 0) {
     if ('clearAppBadge' in navigator) {

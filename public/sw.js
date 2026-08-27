@@ -1,4 +1,4 @@
-// SW v13 — push + coquille hors ligne + pastille persistante
+// SW v14 — push + coquille hors ligne + pastille persistante
 //
 // Strategie volontairement minimale, alignee sur les recommandations courantes :
 //   - navigations : RESEAU D'ABORD, repli sur /offline.html si le reseau echoue.
@@ -24,13 +24,20 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 // partagent un tag (elles se remplacent l'une l'autre), il n'en voyait jamais
 // qu'une seule : il ecrasait « 6 en attente » par « 1 ».
 //
-// Le total est donc range dans IndexedDB, seul stockage accessible AUX DEUX.
+// L'etat est donc range dans IndexedDB, seul stockage accessible AUX DEUX.
 // L'application y ecrit la verite chaque fois qu'elle la calcule ; le service
-// worker se contente d'incrementer pendant qu'elle est fermee. A la
-// reouverture, l'application recalcule et corrige.
+// worker part de la pendant qu'elle est fermee. A la reouverture, l'application
+// recalcule et corrige.
+//
+// On range les DEUX sources separement, jamais leur somme. Les pushs de
+// messagerie transportent `unreadCount`, qui ne compte QUE les messages non lus
+// (voir app/api/push/webhook/route.ts) : l'appliquer comme total ecrasait les
+// notifications de la cloche — six notifications plus deux messages affichaient
+// « 2 ». En gardant les deux compteurs, le worker remplace celui que le serveur
+// lui donne et conserve l'autre.
 const BADGE_DB = 'momentum-badge';
 const BADGE_STORE = 'kv';
-const BADGE_KEY = 'total';
+const BADGE_KEY = 'counts';
 
 function badgeStore(mode, value) {
   return new Promise(resolve => {
@@ -51,7 +58,12 @@ function badgeStore(mode, value) {
       const store = tx.objectStore(BADGE_STORE);
       if (mode === 'read') {
         const g = store.get(BADGE_KEY);
-        g.onsuccess = () => resolve(typeof g.result === 'number' ? g.result : null);
+        g.onsuccess = () => {
+          const r = g.result;
+          resolve(r && typeof r === 'object'
+            ? { notifs: Number(r.notifs) || 0, messages: Number(r.messages) || 0 }
+            : null);
+        };
         g.onerror = () => resolve(null);
       } else {
         store.put(value, BADGE_KEY);
@@ -80,7 +92,7 @@ function swLog(event, data) {
 }
 
 self.addEventListener('install', e => {
-  swLog('install', { msg: 'SW v13 installing', ts: Date.now() });
+  swLog('install', { msg: 'SW v14 installing', ts: Date.now() });
   e.waitUntil(
     // L'ecran hors ligne doit etre en cache AVANT d'en avoir besoin : au moment
     // ou le reseau manque, il est trop tard pour le telecharger.
@@ -227,14 +239,21 @@ self.addEventListener('push', e => {
               // relisable depuis l'API Badging, d'ou le total range dans
               // IndexedDB par l'application (voir badgeStore plus haut).
               //
-              // `unreadCount` reste prioritaire si un emetteur le fournit un
-              // jour : un total calcule cote serveur vaut mieux qu'un compte
-              // incremental.
-              const previous = await badgeStore('read');
-              const count = payload.unreadCount ?? ((previous ?? 0) + 1);
+              // `unreadCount` ne vaut QUE pour les messages : c'est le nombre de
+              // messages non lus calcule par le serveur (push/webhook). Il
+              // remplace donc le compteur « messages » et laisse le compteur
+              // « notifs » intact, au lieu d'ecraser le total comme avant.
+              const previous = await badgeStore('read') || { notifs: 0, messages: 0 };
+              const next = {
+                notifs: previous.notifs,
+                messages: typeof payload.unreadCount === 'number'
+                  ? payload.unreadCount
+                  : previous.messages + 1,
+              };
+              const count = next.notifs + next.messages;
               await self.navigator.setAppBadge(count);
-              await badgeStore('write', count);
-              swLog('badge_set', { count, previous });
+              await badgeStore('write', next);
+              swLog('badge_set', { count, previous, next });
             } catch (err) {
               swLog('badge_error', String(err));
             }
