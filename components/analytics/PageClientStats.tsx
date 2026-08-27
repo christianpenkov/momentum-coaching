@@ -181,15 +181,30 @@ function CoverageNotice({ periodStartStr, integrationsReadyAt }: {
   if (!integrationsReadyAt || !periodStartStr) return null;
   const arrival = new Date(integrationsReadyAt).toISOString().slice(0, 10);
   if (periodStartStr >= arrival) return null;
+
+  // « le debut de la periode affichee n'est pas couvert » etait exact mais ne
+  // disait ni ce que ca change, ni quoi en faire (retour de Chris, 2026-08-27).
+  //
+  // Ce qui compte pour qui lit les chiffres : les totaux de cette periode portent
+  // sur MOINS de jours qu'une periode complete. Les comparer a un autre mois
+  // conduirait a voir une baisse la ou il n'y a qu'un historique plus court. On
+  // donne donc le nombre de jours manquants et la conclusion a en tirer.
+  const joursManquants = Math.max(
+    1,
+    Math.round((new Date(arrival).getTime() - new Date(periodStartStr).getTime()) / 86400000),
+  );
+  const dateLisible = new Date(arrival).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+
   return (
-    <div style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6, padding: '0 2px 10px' }}>
-      <span aria-hidden style={{ opacity: .6 }}>◷</span>
+    <div style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'flex-start', gap: 6, padding: '0 2px 10px', lineHeight: 1.5 }}>
+      <span aria-hidden style={{ opacity: .6, marginTop: 1 }}>◷</span>
       <span>
-        Données disponibles depuis le{' '}
-        <strong style={{ color: 'var(--ink-2)' }}>
-          {new Date(arrival).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
-        </strong>
-        {' '}— le début de la période affichée n'est pas couvert.
+        Les comptes de cet élève ont été connectés le{' '}
+        <strong style={{ color: 'var(--ink-2)' }}>{dateLisible}</strong>
+        {' '}: les <strong style={{ color: 'var(--ink-2)' }}>{joursManquants} premiers jours</strong> de cette période
+        sont antérieurs et n&apos;ont aucune donnée.
+        Les totaux ci-dessous sont donc à lire sur une période plus courte — ils ne se comparent pas
+        à un mois complet. Rien à faire, cet historique n&apos;existe pas.
       </span>
     </div>
   );
@@ -1229,7 +1244,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
 
 // ─── TAB 2 : Instagram ────────────────────────────────────────────────────────
 
-function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: { ig: IGStats | null; period: Period; periodIndex?: number; profileId?: string; sinceConnection?: boolean }) {
+function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, connexionCassee }: { ig: IGStats | null; period: Period; periodIndex?: number; profileId?: string; sinceConnection?: boolean; connexionCassee?: boolean }) {
   const [selectedPost, setSelectedPost] = useState<IGPost | null>(null);
   const [statModal, setStatModal] = useState<{ label: string; value: string; color: string; data: { date: string; v: number }[]; unit?: string } | null>(null);
   const [contentSubTab, setContentSubTab] = useState<'posts' | 'stories'>('posts');
@@ -1270,7 +1285,18 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
   });
   const allStories: any[] = allStoriesData?.stories ?? [];
 
-  if (!ig) return <Empty msg={periodIndex && periodIndex > 0 ? "Pas de données Instagram pour cette période." : "Connecte ton compte Instagram pour voir les stats."} />;
+  // « Connecte ton compte » etait faux quand le compte EST connecte mais que son
+  // jeton est mort : on renvoyait l'eleve faire une action deja faite, sans jamais
+  // lui dire que la connexion etait rompue (constate sur un compte revoque le
+  // 2026-08-27). Les deux situations demandent la meme action — se reconnecter —
+  // mais pas le meme message : l'une est un demarrage, l'autre une panne.
+  if (!ig) return <Empty msg={
+    connexionCassee
+      ? "La connexion à Instagram s'est interrompue : la collecte est arrêtée. Reconnecte le compte depuis les paramètres pour la relancer."
+      : periodIndex && periodIndex > 0
+        ? "Pas de données Instagram pour cette période."
+        : "Connecte ton compte Instagram pour voir les stats."
+  } />;
 
   // Valeurs sur la période sélectionnée — filtre par vraie date calendaire (pas
   // .slice(-N), qui suppose que chartData s'arrête pile aujourd'hui) et somme réelle
@@ -2355,7 +2381,7 @@ function StorySequenceDetailModal({ profileId, sequence, onClose }: { profileId?
 
 // ─── TAB 3 : YouTube ──────────────────────────────────────────────────────────
 
-function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceConnection }: { yt: YTStats | null; period: Period; profileId?: string; periodIndex?: number; ytIsFallback?: boolean; sinceConnection?: boolean }) {
+function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceConnection, connexionCassee }: { yt: YTStats | null; period: Period; profileId?: string; periodIndex?: number; ytIsFallback?: boolean; sinceConnection?: boolean; connexionCassee?: boolean }) {
   const [selectedVideo, setSelectedVideo] = useState<YTVideo | null>(null);
   useEscapeKey(() => setSelectedVideo(null), !!selectedVideo);
   const [videosTypeFilter, setVideosTypeFilter] = useState<'all' | 'short' | 'long'>('all');
@@ -2427,7 +2453,13 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
     finally { setLoadingRetention(false); }
   }, [profileId]);
 
-  if (!yt) return <Empty msg={periodIndex && periodIndex > 0 ? "Pas de données YouTube pour cette période." : "Connecte ton compte YouTube pour voir les stats."} />;
+  if (!yt) return <Empty msg={
+    connexionCassee
+      ? "La connexion à YouTube s'est interrompue : la collecte est arrêtée. Reconnecte le compte depuis les paramètres pour la relancer."
+      : periodIndex && periodIndex > 0
+        ? "Pas de données YouTube pour cette période."
+        : "Connecte ton compte YouTube pour voir les stats."
+  } />;
 
   // Filtre par vraie date calendaire (pas .slice(-N), qui suppose chartData aligné
   // sur aujourd'hui).
@@ -8451,8 +8483,8 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
       {loading ? <InlineLoader /> : (
         <>
           {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} stripe={stripeEff} msgs={msgsEff} calls={callsEff} callsAllTime={calls} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} />}
-          {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} />}
-          {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} />}
+          {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} />}
+          {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.yt?.snapshotError} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} />}
           {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={calls} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} />}
           {tab === 5 && <TabRevenues stripe={stripeEff} calls={callsEff} deals={dealsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} />}
