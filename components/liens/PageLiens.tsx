@@ -2907,6 +2907,9 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
   const igPseudo = igCompte?.username || 'ton_compte';
   const igPhoto: string | null = igCompte?.profilePicture ?? null;
   const isMobileApercu = useIsMobile();
+  // Même bascule que les posts : sur 390px, empiler cinq champs puis un fil de
+  // conversation fait un écran interminable où l'on ne voit jamais les deux.
+  const [vueMobileStory, setVueMobileStory] = useState<'modifier' | 'apercu'>('modifier');
   const [lmId, setLmId] = useState(leadMagnets[0]?.id || '');
   const [lmKeyword, setLmKeyword] = useState(primary.lmKeyword || leadMagnets[0]?.keyword || '');
   // Les cinq messages du parcours, dans l'ordre où le prospect les reçoit. Les
@@ -2970,6 +2973,23 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
         </div>
       )}
 
+      {/* Bascule Modifier / Aperçu — mobile seulement, comme les posts. */}
+      {isMobileApercu && (
+        <div style={{ display: 'flex', gap: 7, marginBottom: 14 }}>
+          {([['modifier', 'Modifier'], ['apercu', 'Aperçu']] as const).map(([cle, libelle]) => (
+            <button key={cle} onClick={() => setVueMobileStory(cle)} style={{
+              flex: 1, minHeight: 44, borderRadius: 999, cursor: 'pointer',
+              fontSize: 12.5, fontWeight: 600, fontFamily: 'inherit',
+              border: `1px solid ${vueMobileStory === cle ? INK : BORDER}`,
+              background: vueMobileStory === cle ? INK : SURFACE,
+              color: vueMobileStory === cle ? '#fff' : MUTED,
+              transition: `all var(--dur-quick) var(--ease-out)`,
+            }}>{libelle}</button>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: isMobileApercu && vueMobileStory === 'apercu' ? 'none' : 'block' }}>
       <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Mot-clé (reply à la story)</label>
       <input value={lmKeyword} onChange={e => setLmKeyword(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box' }} />
 
@@ -2993,10 +3013,14 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
       <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Relance — message libre, envoyé juste après</label>
       <textarea value={dm2StoryMessage} onChange={e => setDm2StoryMessage(e.target.value)} rows={2} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box', resize: 'vertical' }} />
 
+      </div>
+
       {/* Le même aperçu que les posts, alimenté par les mêmes cinq champs — c'est
           la contrepartie visible de l'unification : une séquence de stories se
-          relit désormais comme une conversation, pas comme un formulaire. */}
-      <div style={{ marginBottom: 14 }}>
+          relit désormais comme une conversation, pas comme un formulaire.
+          Sur mobile il occupe tout l'écran quand la bascule est sur Aperçu, et
+          disparaît le reste du temps. */}
+      <div style={{ marginBottom: 14, display: isMobileApercu && vueMobileStory !== 'apercu' ? 'none' : 'block' }}>
         <span style={{ display: 'block', font: "600 10px 'IBM Plex Mono', monospace", letterSpacing: '.07em', textTransform: 'uppercase', color: MUTED, marginBottom: 8 }}>
           Ce que le prospect verra
         </span>
