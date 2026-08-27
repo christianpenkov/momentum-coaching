@@ -3149,6 +3149,12 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
             const post = posts.find(p => p.id === h.content_id);
             const copied = historyCopied === h.id;
             const isDeleting = deletingId === h.id;
+            // La photo du prospect vient de `instagram_leads`, pas de
+            // `prospect_links` : elle se retrouve par le pseudo dans les leads
+            // déjà chargés au-dessus, sans requête de plus. Le repli en initiales
+            // couvre les liens générés à la main, pour quelqu'un qui n'a jamais
+            // commenté et n'a donc pas de lead.
+            const lead = leads.find(l => l.ig_username.toLowerCase() === h.ig_username.toLowerCase());
             return (
               // Cinq colonnes — pseudo, lien, date, clics, deux boutons — ne
               // tiennent pas dans 390px : le lien court se tronquait à
@@ -3157,7 +3163,9 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
               // copier. Sur mobile la ligne passe en deux temps : l'identité et
               // le lien sur toute la largeur, les actions dessous.
               <div key={h.id} style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: isMobile ? 8 : 12, padding: '11px 14px', background: SURFACE, opacity: isDeleting ? 0.4 : 1, transition: 'opacity .15s' }}>
-                <div style={{ flex: isMobile ? '1 1 100%' : 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: isMobile ? '1 1 100%' : 1, minWidth: 0 }}>
+                  <Avatar initials={getInitials(h.ig_username)} avatarUrl={lead?.avatar_url ?? null} seed={lead?.ig_user_id || h.ig_username} size={30} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
                     <span style={{ fontSize: 12.5, fontWeight: 600, color: INK, flexShrink: 0 }}>@{h.ig_username}</span>
                     {post && <span style={{ fontSize: 10, color: FAINT, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>· {post.platform} · {post.caption.slice(0, 22)}…</span>}
@@ -3167,6 +3175,7 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
                       qu'on prend le bon. */}
                   <div style={{ fontSize: 10.5, color: FAINT, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {h.short_url.replace(/^https?:\/\//, '')}
+                  </div>
                   </div>
                 </div>
 
