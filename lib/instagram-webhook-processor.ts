@@ -518,7 +518,7 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
       if (quickReplyPayload === 'LM_LINK_CLICKED' && senderId) {
         const { data: leadForDm2 } = await serviceSupabase
           .from('instagram_leads')
-          .select('id, ig_username, pending_dm2, pending_dm3, keyword_matched, pending_lm_content_id, pending_lm_media_id')
+          .select('id, ig_username, pending_dm2, pending_dm3, keyword_matched, pending_lm_content_id, pending_lm_media_id, story_sequence_id')
           .eq('profile_id', pid)
           .eq('ig_user_id', senderId)
           .eq('lead_magnet_sent', true)
@@ -581,7 +581,45 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
           // pour qu'un champ laissé vide envoie exactement ce qui y est montré.
           let lmButtonLabel = DM2_DEFAULT_BUTTON;
           let lmMessageText = DM2_DEFAULT_MESSAGE;
-          if (leadForDm2.pending_lm_content_id && leadForDm2.keyword_matched && leadForDm2.ig_username) {
+          // Prospect venu d'une story : sa configuration vit sur
+          // `story_sequences`, pas sur `content_links`. `story_sequence_id`, posé
+          // à la réponse à la story, est ce qui permet de le reconnaître ici.
+          if (leadForDm2.story_sequence_id && leadForDm2.ig_username) {
+            const { data: seqForLink } = await serviceSupabase
+              .from('story_sequences')
+              .select('id, lm_url, lm_keyword, dm1_message, dm_link_button_text')
+              .eq('id', leadForDm2.story_sequence_id)
+              .maybeSingle();
+
+            if (seqForLink?.dm_link_button_text) lmButtonLabel = seqForLink.dm_link_button_text.slice(0, 20);
+            if (seqForLink?.dm1_message) {
+              // {{lien_lm}} est retiré du texte : dans le gabarit à bouton, c'est
+              // le bouton qui porte l'URL. La laisser en clair afficherait le lien
+              // deux fois, et le message perdrait ce qui le rend propre.
+              lmMessageText = seqForLink.dm1_message
+                .replace(/\{\{lien_lm\}\}/gi, '')
+                .replace(/{{username}}/gi, `@${leadForDm2.ig_username}`)
+                .replace(/\s{2,}/g, ' ')
+                .replace(/[:\-–—]\s*$/, '')
+                .trim() || DM2_DEFAULT_MESSAGE;
+            }
+            if (seqForLink?.lm_url) {
+              lmLink = await createProspectLmLink({
+                supabase: serviceSupabase,
+                profileId: pid,
+                lmUrl: seqForLink.lm_url,
+                lmKeyword: seqForLink.lm_keyword,
+                username: leadForDm2.ig_username,
+                // utm_content = la séquence, jamais un post : c'est ce que
+                // Performance par contenu attend pour rattacher le call.
+                mediaId: seqForLink.id ? String(seqForLink.id) : null,
+                fallbackUrl: seqForLink.lm_url,
+                pathPrefix: 'lm-story',
+                utmMedium: 'story',
+                titlePrefix: 'LM Story',
+              });
+            }
+          } else if (leadForDm2.pending_lm_content_id && leadForDm2.keyword_matched && leadForDm2.ig_username) {
             const { data: clForLink } = await serviceSupabase
               .from('content_links')
               .select('lm_url, lm_short_url, lm_keyword, dm_link_message, dm_link_button_text')
@@ -715,58 +753,61 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
             // le prospect a déjà écrit (c'est lui qui répond à la story), donc il
             // est engagé et le lien part immédiatement dans le DM1. Il n'y a pas
             // d'étape de clic intermédiaire où la différer.
-            let shortLink = seq.lm_url || null;
-            if (seq.lm_url && senderUsername) {
-              shortLink = await createProspectLmLink({
-                supabase: serviceSupabase,
-                profileId: pid,
-                lmUrl: seq.lm_url,
-                lmKeyword: seq.lm_keyword,
-                username: senderUsername,
-                // utm_content = la séquence story (et non un post), comme le fait
-                // déjà le lien Calendly de séquence (story-sequences/route.ts).
-                mediaId: seq.id ? String(seq.id) : null,
-                fallbackUrl: seq.lm_url,
-                pathPrefix: 'lm-story',
-                utmMedium: 'story',
-                titlePrefix: 'LM Story',
-              });
-            }
+            // ── Parcours unifie (2026-08-27) ────────────────────────────
+            //
+            // On n'envoie plus le lien d'emblee. Le prospect recoit l'accroche
+            // et son bouton ; le lien part au clic, dans le bloc
+            // LM_LINK_CLICKED, exactement comme pour un commentaire de post.
+            //
+            // Le lien Short.io personnalise n'est donc plus cree ici : seuls
+            // ceux qui cliquent en consomment un (voir createProspectLmLink
+            // pour le detail du quota).
+            const shortLink: string | null = null;
 
-            const dm1Text = (seq.dm1_message || '')
-              .replace(/\{\{lien_lm\}\}/gi, shortLink || '')
+            const accrocheText = (seq.dm_lm_message || '')
               .replace(/{{username}}/gi, `@${senderUsername || 'toi'}`)
               .replace(/\s{2,}/g, ' ')
-              .trim() || shortLink || '';
-            const dm2Text = (seq.dm2_story_message || '').replace(/{{username}}/gi, `@${senderUsername || 'toi'}`).trim();
+              .trim();
+            const accrocheBtn = (seq.dm_button_text || DM2_DEFAULT_BUTTON).slice(0, 20);
 
-            const sendDm = (text: string) => fetch(
+            // Gabarit generique a bouton postback, comme le DM1 des posts : c'est
+            // le clic sur un postback qui ouvre la fenetre de 24 h cote Meta. Un
+            // bouton web_url ne l'ouvrirait pas, et le message du lien ne pourrait
+            // plus partir.
+            const sendAccroche = (text: string, btn: string) => fetch(
               `https://graph.instagram.com/v21.0/${canonicalIgAccountId ?? igAccountId}/messages`,
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ recipient: { id: senderId }, messaging_type: 'RESPONSE', message: { text }, access_token: resolvedMatch?.access_token }),
+                body: JSON.stringify({
+                  recipient: { id: senderId },
+                  messaging_type: 'RESPONSE',
+                  message: {
+                    attachment: {
+                      type: 'template',
+                      payload: {
+                        template_type: 'generic',
+                        elements: [{
+                          title: text.slice(0, 80),
+                          buttons: [{ type: 'postback', title: btn, payload: 'LM_LINK_CLICKED' }],
+                        }],
+                      },
+                    },
+                  },
+                  access_token: resolvedMatch?.access_token,
+                }),
               }
             ).then(r => r.json());
 
             let leadMagnetSent = false;
-            if (dm1Text) {
-              const dm1Data = await sendDm(dm1Text);
+            if (accrocheText) {
+              const dm1Data = await sendAccroche(accrocheText, accrocheBtn);
               if (dm1Data.error) {
-                console.error('[IG Webhook] Erreur DM1 story:', dm1Data.error);
+                console.error('[IG Webhook] Erreur accroche story:', dm1Data.error);
                 pushEvent({ type: 'dm1_error', error: dm1Data.error, ig_user_id: senderId });
               } else {
                 leadMagnetSent = true;
                 pushEvent({ type: 'dm1_sent', message_id: dm1Data.message_id, ig_user_id: senderId });
-              }
-            }
-            if (dm2Text) {
-              const dm2Data = await sendDm(dm2Text);
-              if (dm2Data.error) {
-                console.error('[IG Webhook] Erreur DM2 story:', dm2Data.error);
-                pushEvent({ type: 'dm2_error', error: dm2Data.error, ig_user_id: senderId });
-              } else {
-                pushEvent({ type: 'dm2_sent', message_id: dm2Data.message_id, ig_user_id: senderId });
               }
             }
 
@@ -791,6 +832,10 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
                 detected_at: existingLead?.detected_at ?? nowIso,
                 lead_magnet_sent: leadMagnetSent,
                 tracking_link: shortLink || null,
+                // La relance est mise de côté ici et programmée au clic, comme
+                // pour un post : la planifier dès maintenant l'enverrait à
+                // quelqu'un qui n'a jamais demandé le lien.
+                pending_dm3: seq.dm2_story_message || null,
                 story_sequence_id: story.sequence_id,
                 story_id: story.id,
                 awaiting_story_followup: true,
