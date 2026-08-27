@@ -209,6 +209,16 @@ type ColumnDef = { key: string; label: string; color: string; lightBg: string; d
 
 const ISSUE_LABELS: Record<string, string> = Object.fromEntries(ISSUES.map(i => [i.key, i.label]));
 
+// Les tris de la vue liste. Par défaut « le plus immobile » : la liste sert à
+// rattraper ce qui dort, pas à relire ce qu'on vient de traiter.
+export type TriKey = 'immobile' | 'recent' | 'ancien' | 'nom';
+const TRIS: readonly { key: TriKey; label: string }[] = [
+  { key: 'immobile', label: 'le plus immobile' },
+  { key: 'recent',   label: 'le plus récent' },
+  { key: 'ancien',   label: 'le plus ancien' },
+  { key: 'nom',      label: 'par nom' },
+] as const;
+
 // Ensembles pour la règle pré-call / post-call. `showed_up` et `closed` n'en
 // font plus partie : ce ne sont plus des étapes.
 const POST_CALL_STAGES = new Set(['call_booked']);
@@ -945,6 +955,115 @@ function BoutonCase({
   );
 }
 
+// ── TuilesIssues ──────────────────────────────────────────────────────────────
+//
+// Les issues ne sont pas des colonnes. Une colonne, c'est une étape d'un
+// parcours : elle a une position, une largeur, et on la lit de gauche à droite.
+// Une issue est un RÉSULTAT — aucune n'est « après » une autre, et leur donner
+// la même forme qu'une étape recrée exactement le mélange qui a déclenché la
+// refonte : « 3 no show » lu comme une étape plus avancée que « RDV pris ».
+//
+// D'où des TUILES : compactes, empilées, dans un bloc à part en fin de board.
+// Elles DÉFILENT avec le reste — les ancrer à droite les aurait posées comme un
+// panneau permanent, alors que ce sont les cinq dernières cases d'un même
+// tableau.
+//
+// Une tuile s'ouvre au clic pour montrer ses fiches. Fermée, elle ne construit
+// rien : les issues accumulent tout l'historique et « Closé » finira par en
+// contenir plus que n'importe quelle étape.
+
+function TuilesIssues({
+  issues, cardsParIssue, ouverte, onOuvrir, onDrop, onDragOver, onDragLeave, dropTarget, rendreCarte,
+}: {
+  issues: readonly ColumnDef[];
+  cardsParIssue: Record<string, CardData[]>;
+  ouverte: string | null;
+  onOuvrir: (key: string | null) => void;
+  onDrop: (e: React.DragEvent, key: string) => void;
+  onDragOver: (e: React.DragEvent, key: string) => void;
+  onDragLeave: (key: string) => void;
+  dropTarget: string | null;
+  rendreCarte: (card: CardData) => React.ReactNode;
+}) {
+  const total = issues.reduce((n, i) => n + (cardsParIssue[i.key]?.length ?? 0), 0);
+
+  return (
+    <div style={{ display: 'flex', gap: 8, alignSelf: 'stretch', flexShrink: 0 }}>
+      {/* Séparateur : les issues ne sont pas la suite de l'entonnoir, et un
+          simple espace ne suffit pas à le dire. */}
+      <div style={{ width: 1, background: 'var(--border)', flexShrink: 0, margin: '0 4px' }} />
+
+      <div style={{ width: 188, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '7px 10px', flexShrink: 0,
+        }}>
+          <span style={{
+            fontSize: 10, fontWeight: 700, letterSpacing: '.07em',
+            textTransform: 'uppercase', color: 'var(--muted)',
+          }}>Issues</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--faint)', fontVariantNumeric: 'tabular-nums' }}>
+            {total}
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          {issues.map(issue => {
+            const liste = cardsParIssue[issue.key] ?? [];
+            const estOuverte = ouverte === issue.key;
+            const cible = dropTarget === issue.key;
+            return (
+              <div key={issue.key}>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onOuvrir(estOuverte ? null : issue.key)}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOuvrir(estOuverte ? null : issue.key); } }}
+                  onDrop={e => onDrop(e, issue.key)}
+                  onDragOver={e => onDragOver(e, issue.key)}
+                  onDragLeave={() => onDragLeave(issue.key)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
+                    padding: '9px 10px', borderRadius: 8, userSelect: 'none',
+                    background: cible ? issue.lightBg : (estOuverte ? issue.lightBg : 'var(--surface)'),
+                    border: `1px ${cible ? 'dashed' : 'solid'} ${cible || estOuverte ? issue.color + '55' : 'var(--border)'}`,
+                    transition: 'all .12s',
+                  }}
+                >
+                  {/* Carré plein : la forme dit « résultat », la pastille ronde
+                      des colonnes dit « étape ». */}
+                  <span style={{ width: 9, height: 9, borderRadius: 2, background: issue.color, flexShrink: 0 }} />
+                  <span style={{
+                    fontSize: 11.5, fontWeight: 600, flex: 1, minWidth: 0,
+                    color: liste.length > 0 ? 'var(--ink)' : 'var(--muted)',
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>{issue.label}</span>
+                  <span style={{
+                    fontSize: 12, fontWeight: 700, flexShrink: 0,
+                    fontVariantNumeric: 'tabular-nums',
+                    color: liste.length > 0 ? issue.color : 'var(--faint)',
+                  }}>{liste.length}</span>
+                </div>
+
+                {estOuverte && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5, paddingTop: 6 }}>
+                    {liste.length === 0 ? (
+                      <div style={{
+                        border: '1px dashed var(--border)', borderRadius: 7,
+                        padding: '12px 10px', textAlign: 'center', fontSize: 10, color: 'var(--faint)',
+                      }}>Aucun lead ici</div>
+                    ) : liste.map(rendreCarte)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── KanbanColumn ──────────────────────────────────────────────────────────────
 
 function KanbanColumn({
@@ -1016,11 +1135,9 @@ function KanbanColumn({
 
   return (
     <div style={{ width: 172, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6, alignSelf: 'stretch' }}>
-      {/* ── PAS DE CARTE-DANS-CARTE ──────────────────────────────────────────
-          L'en-tête n'a ni fond opaque ni bordure permanente : le board garde un
-          fond continu et seules les FICHES portent une surface. Une colonne
-          encadrée contenant des cartes encadrées, c'est deux niveaux de boîtes
-          pour une seule information. */}
+      {/* En-tête de colonne — le dessin d'origine, gardé sur demande : fond
+          `surface-2`, bordure, compteur en pastille colorée. Le chevron de repli
+          s'y ajoute à gauche, sans rien changer d'autre. */}
       <div
         role="button"
         tabIndex={0}
@@ -1028,27 +1145,32 @@ function KanbanColumn({
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggleRepli?.(); } }}
         title={`Plier « ${stage.label} »`}
         style={{
-          display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer',
-          padding: '6px 8px', borderRadius: 8, flexShrink: 0, userSelect: 'none',
-          background: isDropTarget ? stage.lightBg : 'transparent',
-          transition: 'background .12s',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '7px 10px', borderRadius: 7, cursor: 'pointer', userSelect: 'none',
+          background: isDropTarget ? stage.lightBg : 'var(--surface-2)',
+          border: `1px solid ${isDropTarget ? stage.color + '55' : 'var(--border)'}`,
+          transition: 'all .12s', flexShrink: 0,
         }}
       >
-        <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', width: 9 }}>▾</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--faint)', flexShrink: 0 }}>▾</span>
+          <div style={{
+            width: estIssue ? 8 : 7, height: estIssue ? 8 : 7,
+            borderRadius: estIssue ? 2 : '50%', background: stage.color, flexShrink: 0,
+          }} />
+          <span style={{
+            fontSize: 11, fontWeight: 600, color: isDropTarget ? stage.color : 'var(--ink)',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            {stage.label}
+          </span>
+        </div>
         <span style={{
-          width: estIssue ? 9 : 7, height: estIssue ? 9 : 7,
-          borderRadius: estIssue ? 2.5 : '50%', background: stage.color, flexShrink: 0,
-        }} />
-        <span style={{
-          fontSize: 11, fontWeight: 600, color: isDropTarget ? stage.color : 'var(--ink)',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}>
-          {stage.label}
-        </span>
-        <span style={{
-          marginLeft: 'auto', fontSize: 10, fontWeight: 700,
-          color: cards.length > 0 ? 'var(--muted)' : 'var(--faint)',
-          fontVariantNumeric: 'tabular-nums',
+          fontSize: 10, fontWeight: 700, flexShrink: 0,
+          color: cards.length > 0 ? stage.color : 'var(--faint)',
+          background: cards.length > 0 ? stage.lightBg : 'transparent',
+          border: cards.length > 0 ? `1px solid ${stage.color}33` : '1px solid transparent',
+          borderRadius: 5, padding: '1px 6px', minWidth: 18, textAlign: 'center',
         }}>
           {cards.length}
         </span>
@@ -1602,6 +1724,13 @@ export default function PagePipeline() {
 
   // La case isolée par les boutons d'étapes, en vue liste. `null` = tout.
   const [caseIsolee, setCaseIsolee] = useState<string | null>(null);
+
+  // La tuile d'issue dépliée dans le board. Une seule à la fois : les issues
+  // accumulent tout l'historique, les ouvrir toutes noierait l'entonnoir.
+  const [issueOuverte, setIssueOuverte] = useState<string | null>(null);
+
+  const [tri, setTri] = useState<TriKey>('immobile');
+  const [triOuvert, setTriOuvert] = useState(false);
 
   useEffect(() => {
     try {
@@ -2665,7 +2794,13 @@ export default function PagePipeline() {
             Plutot que de compresser les onglets, le bouton remonte a cote du
             titre (order: -1 + position absolue) et les onglets prennent toute
             la largeur en pilules. */}
-        <div className="pipeline-actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {/* `marginLeft: auto` : le bandeau du haut passe à la ligne quand titre et
+            actions ne tiennent pas côte à côte (flexWrap). Sans cette marge, le
+            groupe retombait COLLÉ À GAUCHE sous le titre — d'où le « flash » à
+            droite puis le saut à gauche, au moment où les polices chargées
+            changent les largeurs et déclenchent le retour à la ligne. La marge
+            automatique le garde à droite dans les deux cas. */}
+        <div className="pipeline-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
           <button
             onClick={handleRefresh}
             disabled={refreshing}
@@ -2761,6 +2896,47 @@ export default function PagePipeline() {
           <Icon name="chevR" size={13} style={{ transform: filtersOpen ? 'rotate(90deg)' : 'none', transition: 'transform .15s', marginLeft: 'auto' }} />
         </button>
       )}
+      {/* L'ORDRE COMPTE : les étapes d'abord, les filtres ensuite. Les étapes
+          disent OÙ on regarde, les filtres QUOI on garde dedans — l'inverse
+          obligeait à filtrer avant de savoir sur quoi. */}
+      {tab === 'ig' && vue === 'liste' && (
+        <div className="pipeline-desktop" style={{ flexShrink: 0, marginBottom: 8 }}>
+          {/* Les boutons d'étapes et d'issues PASSENT À LA LIGNE : tout est
+              visible d'un coup, sans défilement horizontal. Une barre qui
+              défile cache la moitié des étapes, et il faut alors se souvenir
+              de ce qu'on ne voit pas pour choisir.
+
+              Les étapes portent une pastille ronde, les issues un carré plein :
+              deux natures, deux formes. Cliquer isole une case ; recliquer
+              revient à tout. */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 9, flexShrink: 0 }}>
+            <BoutonCase
+              label="Tous" n={cards.length} actif={caseIsolee === null}
+              onClick={() => setCaseIsolee(null)}
+            />
+            {stages.map(s => (
+              <BoutonCase
+                key={s.key} label={s.label} couleur={s.color} forme="rond"
+                n={cards.filter(c => c.stageKey === s.key).length}
+                actif={caseIsolee === s.key}
+                onClick={() => setCaseIsolee(k => k === s.key ? null : s.key)}
+              />
+            ))}
+            {/* Retour à la ligne forcé : les issues ne sont pas la suite des
+                étapes, et les aligner à la queue leur donnerait l'air d'en
+                être. */}
+            <div style={{ flexBasis: '100%', height: 0 }} />
+            {ISSUES.map(i => (
+              <BoutonCase
+                key={i.key} label={i.label} couleur={i.color} forme="carre"
+                n={cards.filter(c => c.stageKey === i.key).length}
+                actif={caseIsolee === i.key}
+                onClick={() => setCaseIsolee(k => k === i.key ? null : i.key)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
       {tab === 'ig' && (
         <div
           className={`pipeline-filters${filtersOpen ? ' is-open' : ''}`}
@@ -2805,6 +2981,52 @@ export default function PagePipeline() {
               Effacer filtres
             </button>
           )}
+
+          {/* Le tri, tout à droite de la barre. En vue liste seulement : dans le
+              board, l'ordre des fiches se lit dans les colonnes, pas dans un
+              menu. */}
+          {vue === 'liste' && (
+            <div className="pipeline-desktop" style={{ marginLeft: 'auto', position: 'relative' }}>
+              <button
+                type="button"
+                onClick={() => setTriOuvert(o => !o)}
+                aria-expanded={triOuvert}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6, minHeight: 32,
+                  padding: '0 11px', borderRadius: 8, cursor: 'pointer', font: 'inherit',
+                  fontSize: 11.5, fontWeight: 500, color: 'var(--muted)',
+                  background: 'var(--surface)', border: '1px solid var(--border)',
+                }}
+              >
+                Trier : {TRIS.find(t => t.key === tri)?.label ?? '—'}
+                <span style={{ fontSize: 9, opacity: .6 }}>▾</span>
+              </button>
+              {triOuvert && (
+                <div style={{
+                  position: 'absolute', top: 'calc(100% + 5px)', right: 0, zIndex: 30,
+                  minWidth: 210, padding: 6, borderRadius: 10,
+                  background: 'var(--surface)', border: '1px solid var(--border)',
+                  boxShadow: '0 8px 28px rgba(0,0,0,.16)',
+                }}>
+                  {TRIS.map(t => (
+                    <button
+                      key={t.key}
+                      type="button"
+                      onClick={() => { setTri(t.key); setTriOuvert(false); }}
+                      style={{
+                        display: 'block', width: '100%', textAlign: 'left',
+                        padding: '8px 10px', borderRadius: 7, cursor: 'pointer',
+                        fontSize: 12, fontWeight: tri === t.key ? 700 : 500, font: 'inherit',
+                        border: 'none',
+                        background: tri === t.key ? 'var(--surface-2)' : 'transparent',
+                        color: 'var(--ink)',
+                      }}
+                    >{t.label}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -2839,44 +3061,11 @@ export default function PagePipeline() {
 
         {vue === 'liste' ? (
           <div className="pipeline-desktop" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', paddingBottom: 16 }}>
-            {/* Les boutons d'étapes et d'issues PASSENT À LA LIGNE : tout est
-                visible d'un coup, sans défilement horizontal. Une barre qui
-                défile cache la moitié des étapes, et il faut alors se souvenir
-                de ce qu'on ne voit pas pour choisir.
-
-                Les étapes portent une pastille ronde, les issues un carré plein :
-                deux natures, deux formes. Cliquer isole une case ; recliquer
-                revient à tout. */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 9, flexShrink: 0 }}>
-              <BoutonCase
-                label="Tous" n={cards.length} actif={caseIsolee === null}
-                onClick={() => setCaseIsolee(null)}
-              />
-              {stages.map(s => (
-                <BoutonCase
-                  key={s.key} label={s.label} couleur={s.color} forme="rond"
-                  n={cards.filter(c => c.stageKey === s.key).length}
-                  actif={caseIsolee === s.key}
-                  onClick={() => setCaseIsolee(k => k === s.key ? null : s.key)}
-                />
-              ))}
-              {/* Retour à la ligne forcé : les issues ne sont pas la suite des
-                  étapes, et les aligner à la queue leur donnerait l'air d'en
-                  être. */}
-              <div style={{ flexBasis: '100%', height: 0 }} />
-              {ISSUES.map(i => (
-                <BoutonCase
-                  key={i.key} label={i.label} couleur={i.color} forme="carre"
-                  n={cards.filter(c => c.stageKey === i.key).length}
-                  actif={caseIsolee === i.key}
-                  onClick={() => setCaseIsolee(k => k === i.key ? null : i.key)}
-                />
-              ))}
-            </div>
             <PipelineListView
               cards={caseIsolee ? cards.filter(c => c.stageKey === caseIsolee) : cards}
               columns={caseIsolee ? columns.filter(c => c.key === caseIsolee) : columns}
               stageKeys={stages.map(s => s.key)}
+              tri={tri}
               avatarColor={avatarColor}
               avatarInitials={avatarInitials}
               onCardClick={cardKey => setDetailModal({ cardKey, platform: tab })}
@@ -2903,8 +3092,8 @@ export default function PagePipeline() {
               l'écran quand il y a peu de fiches ET s'étirent quand il y en a
               beaucoup. */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', minWidth: 'max-content', minHeight: '100%' }}>
-            {columns.map(stage => {
-              const estIssue = !stages.some(s => s.key === stage.key);
+            {stages.map(stage => {
+              const estIssue = false;
               // On range par `stageKey`, qui vaut l'ISSUE quand le lead est classé
               // et l'ÉTAPE sinon. L'ancien filtrage passait par `stageIdx`, un
               // index dans le tableau des étapes — il ne pouvait donc pas
@@ -2939,6 +3128,34 @@ export default function PagePipeline() {
                 />
               );
             })}
+
+            <TuilesIssues
+              issues={ISSUES}
+              cardsParIssue={Object.fromEntries(
+                ISSUES.map(i => [i.key, cards.filter(c => c.stageKey === i.key)]),
+              )}
+              ouverte={issueOuverte}
+              onOuvrir={setIssueOuverte}
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              dropTarget={dropTarget}
+              rendreCarte={card => (
+                <PipelineCard
+                  key={card.key}
+                  card={card}
+                  stages={stages}
+                  isDragging={draggingKey === card.key}
+                  onDragStart={handleDragStart}
+                  platform={platform}
+                  onConfirmLead={key => { setConfirmedKeys(prev => new Set([...prev, key])); saveOverride(key, platform, 'confirmed_lead'); }}
+                  onDeleteLead={handleDeleteLead}
+                  onNotALead={handleNotALead}
+                  onRapportClick={(callId, inviteeName, scheduledAt, isFollowUp, existing) => setRapportModal({ callId, inviteeName, scheduledAt, isFollowUp, existing })}
+                  onCardClick={cardKey => setDetailModal({ cardKey, platform })}
+                />
+              )}
+            />
           </div>
         </div>
         )}

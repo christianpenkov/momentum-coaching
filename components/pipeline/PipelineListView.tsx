@@ -60,6 +60,8 @@ interface Props {
   columns: readonly ListColumn[];
   /** Les étapes seules — sert à savoir si une colonne est une étape ou une issue. */
   stageKeys: readonly string[];
+  /** Ordre des lignes dans chaque section. */
+  tri?: 'immobile' | 'recent' | 'ancien' | 'nom';
   avatarColor: (name: string) => string;
   avatarInitials: (name: string) => string;
   onCardClick: (key: string) => void;
@@ -86,7 +88,7 @@ function libelleAnciennete(j: number | null): string {
 }
 
 export default function PipelineListView({
-  cards, columns, stageKeys, avatarColor, avatarInitials,
+  cards, columns, stageKeys, tri = 'immobile', avatarColor, avatarInitials,
   onCardClick, onRapportClick, onBulkDelete, onBulkNotALead, onBulkRelance,
 }: Props) {
   const now = Date.now();
@@ -95,15 +97,20 @@ export default function PipelineListView({
     const m = new Map<string, ListCard[]>();
     for (const col of columns) m.set(col.key, []);
     for (const c of cards) m.get(c.stageKey)?.push(c);
-    // Le plus immobile en premier : la liste sert à rattraper ce qui dort.
+    // Un rapport à remplir passe TOUJOURS devant, quel que soit le tri : c'est
+    // la seule ligne qui bloque une statistique tant qu'elle n'est pas traitée.
+    const bouge = (c: ListCard) => new Date(c.lastMoveAt ?? 0).getTime();
     for (const arr of m.values()) {
       arr.sort((a, b) => {
         if (!!b.rapportEnRetard !== !!a.rapportEnRetard) return b.rapportEnRetard ? 1 : -1;
-        return (new Date(a.lastMoveAt ?? 0).getTime()) - (new Date(b.lastMoveAt ?? 0).getTime());
+        if (tri === 'recent') return bouge(b) - bouge(a);
+        if (tri === 'ancien') return bouge(a) - bouge(b);
+        if (tri === 'nom')    return a.name.localeCompare(b.name, 'fr');
+        return bouge(a) - bouge(b);   // immobile : le plus vieux mouvement d'abord
       });
     }
     return m;
-  }, [cards, columns]);
+  }, [cards, columns, tri]);
 
   // Repli : les grosses sections arrivent fermées. L'état n'est calculé qu'une
   // fois — rouvrir puis recharger ne doit pas refermer sous les doigts.
@@ -162,6 +169,25 @@ export default function PipelineListView({
         flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden',
         border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface)',
       }}>
+        {/* En-tête de colonnes. Sans lui, « 2 mois » et « — » sont deux nombres
+            sans nom : on ne sait pas si c'est l'ancienneté du lead, celle de son
+            dernier rendez-vous, ou autre chose. */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '30px 26px minmax(0,1.35fr) minmax(0,.95fr) minmax(0,.85fr) minmax(0,1fr) 92px',
+          gap: 10, alignItems: 'center', padding: '7px 14px',
+          borderBottom: '1px solid var(--border)', background: 'var(--surface-2, #f7f4ec)',
+          fontSize: 9.5, fontWeight: 700, letterSpacing: '.06em',
+          textTransform: 'uppercase', color: 'var(--muted)',
+          position: 'sticky', top: 0, zIndex: 3,
+        }}>
+          <span /><span />
+          <span>Lead</span>
+          <span>Étape actuelle</span>
+          <span>Sans mouvement</span>
+          <span>Prochaine échéance</span>
+          <span />
+        </div>
         {columns.map(col => {
           const liste = parColonne.get(col.key) ?? [];
           const replie = replies.has(col.key);
@@ -181,7 +207,10 @@ export default function PipelineListView({
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(col.key); } }}
                 className="pipeline-list-header"
                 style={{
-                  position: 'sticky', top: 0, zIndex: 2,
+                  // 32 px et non 0 : l'en-tête de colonnes colle déjà en haut.
+                  // À zéro, les deux se superposaient et le nom des colonnes
+                  // disparaissait sous le titre de section au défilement.
+                  position: 'sticky', top: 32, zIndex: 2,
                   display: 'flex', alignItems: 'center', gap: 10,
                   padding: '8px 14px', background: 'var(--surface-2, #f7f4ec)',
                   borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)',
