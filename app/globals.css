@@ -3305,7 +3305,14 @@ html[data-splash='1'] .dot-wave {
    l'écran entier bouge. Ancrés, ils restent fixes pendant que le contenu
    défile dessous — le comportement d'une app native. */
 .topbar { view-transition-name: vt-topbar; }
-.bottom-nav-wrapper { view-transition-name: vt-bottomnav; }
+/* Sur .bottom-nav, PAS sur .bottom-nav-wrapper : ce dernier est un passthrough
+   en `display: contents` (voir plus haut), donc il ne genere aucune boite. Or
+   `view-transition-name` n'a d'effet que sur un element qui en genere une —
+   l'ancrage etait donc silencieusement inoperant, et la barre du bas, faute
+   d'etre isolee, se retrouvait capturee dans l'instantane de la page entiere :
+   elle glissait et disparaissait a chaque navigation. Symptome mobile
+   uniquement, la barre etant masquee au-dela de 767px. */
+.bottom-nav { view-transition-name: vt-bottomnav; }
 .sidebar { view-transition-name: vt-sidebar; }
 
 ::view-transition-group(vt-topbar),
