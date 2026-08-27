@@ -2395,6 +2395,129 @@ function PanneauActions({ post, profileId, activeDomain, domainsLoaded, calendly
 // une story seule (créée en coulisses comme une "séquence à 1 story" — aucune
 // colonne CTA sur ig_stories). Voir plan Stories pour le détail.
 
+/**
+ * Stats d'une séquence de stories.
+ *
+ * Aucune collecte n'est écrite ici : `/api/instagram/story-sequences-stats`
+ * calculait déjà tout — la rétention de la première story au CTA, le détail par
+ * story, et l'entonnoir du lead magnet. Ces chiffres n'étaient jusqu'ici
+ * affichés que dans « Mes Stats », donc invisibles depuis l'écran où l'on règle
+ * la séquence.
+ *
+ * Les sorties (`navigation_exits`) sont la colonne qui répond à la question
+ * qu'on se pose vraiment : à quelle story les gens décrochent. La story qui en
+ * compte le plus est signalée, sinon il faut comparer neuf nombres de tête.
+ */
+function TabStorySequenceStats({ sequenceId, profileId }: { sequenceId: string; profileId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['liens-seq-stats', sequenceId, profileId],
+    queryFn: () => fetch(`/api/instagram/story-sequences-stats?sequenceId=${sequenceId}${profileId ? `&profileId=${profileId}` : ''}`).then(r => r.json()),
+    enabled: !!sequenceId,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  if (isLoading) return <div style={{ fontSize: 12.5, color: FAINT }}>Chargement…</div>;
+
+  const s = data?.stats;
+  const stories: any[] = s?.storiesDetail ?? [];
+  if (!s || stories.length === 0) {
+    return (
+      <div style={{ fontSize: 12.5, color: FAINT, background: SURFACE2, border: `1px solid ${BORDER}`, borderRadius: 10, padding: '14px 16px', lineHeight: 1.5 }}>
+        Aucune statistique pour cette séquence. Instagram ne fournit les chiffres d’une story
+        qu’à partir d’un certain volume, et jamais pour une story publiée avant la connexion du compte.
+      </div>
+    );
+  }
+
+  const num = (v: number | null | undefined) => (v == null ? '—' : v.toLocaleString('fr-FR'));
+  // Story qui perd le plus de monde — repère visuel, pas une alerte : sur une
+  // séquence courte, la dernière sort toujours en tête sans que ce soit un défaut.
+  const maxExits = Math.max(...stories.map(st => st.navigation_exits ?? -1));
+
+  const cellule: React.CSSProperties = { padding: '7px 8px', fontSize: 11.5, color: INK, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
+  const entete: React.CSSProperties = { ...cellule, fontSize: 10, fontWeight: 600, color: MUTED, textAlign: 'right' };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {[
+          { l: '1ʳᵉ story', v: num(stories[0]?.reach), a: 'comptes touchés' },
+          { l: 'Story du CTA', v: num(stories[stories.length - 1]?.reach), a: 'comptes touchés' },
+          { l: 'Rétention', v: s.retentionPct != null ? `${s.retentionPct} %` : '—', a: 'arrivés au CTA' },
+        ].map(c => (
+          <div key={c.l} style={{ flex: '1 1 100px', minWidth: 0, border: `1px solid ${BORDER}`, borderRadius: 10, background: SURFACE, padding: '9px 10px' }}>
+            <div style={{ fontSize: 10, fontWeight: 600, color: INK, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.l}</div>
+            <div style={{ fontSize: 17, fontWeight: 700, color: INK, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>{c.v}</div>
+            <div style={{ fontSize: 9, color: FAINT, marginTop: 1 }}>{c.a}</div>
+          </div>
+        ))}
+      </div>
+
+      <div>
+        <div className="eyebrow-sm" style={{ color: INK, marginBottom: 6 }}>Story par story</div>
+        {/* Le tableau défile seul : cinq colonnes de chiffres ne tiennent pas
+            dans 390px, et laisser la page déborder latéralement serait pire. */}
+        <div style={{ overflowX: 'auto', border: `1px solid ${BORDER}`, borderRadius: 10, background: SURFACE }}>
+          <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 340 }}>
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
+                <th style={{ ...entete, textAlign: 'left' }}>Story</th>
+                <th style={entete}>Touchés</th>
+                <th style={entete}>Vues</th>
+                <th style={entete}>Sorties</th>
+                <th style={entete}>Retours</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stories.map((st, i) => {
+                const decrochage = (st.navigation_exits ?? -1) === maxExits && maxExits > 0;
+                return (
+                  <tr key={st.id} style={{ borderTop: i ? `1px solid ${BORDER_SOFT}` : undefined }}>
+                    <td style={{ ...cellule, fontWeight: 600 }}>
+                      {i + 1}
+                      {i === stories.length - 1 && <span style={{ fontSize: 9, color: FAINT, marginLeft: 5 }}>CTA</span>}
+                    </td>
+                    <td style={{ ...cellule, textAlign: 'right' }}>{num(st.reach)}</td>
+                    <td style={{ ...cellule, textAlign: 'right' }}>{num(st.views)}</td>
+                    <td style={{ ...cellule, textAlign: 'right', color: decrochage ? RED : INK, fontWeight: decrochage ? 700 : 400 }}>{num(st.navigation_exits)}</td>
+                    <td style={{ ...cellule, textAlign: 'right' }}>{num(st.navigation_taps_back)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ fontSize: 10, color: FAINT, marginTop: 5, lineHeight: 1.5 }}>
+          « Sorties » compte ceux qui ont quitté les stories à ce moment-là — c’est là que la séquence perd du monde.
+          « Retours » compte les retours à la story précédente.
+        </div>
+      </div>
+
+      {/* L'API va plus loin que le lead magnet : elle rattache les calls et les
+          deals aux prospects venus de cette séquence. C'est la réponse à
+          « qu'est-ce que cette série de stories m'a rapporté », que l'écran de
+          réglage ne donnait nulle part. */}
+      <div>
+        <div className="eyebrow-sm" style={{ color: INK, marginBottom: 6 }}>Ce que la séquence a rapporté</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {[
+            { l: 'Prospects', v: num(s.leadsCount) },
+            { l: 'Calls bookés', v: num(s.callsBooked) },
+            { l: 'Calls honorés', v: num(s.callsHonored) },
+            { l: 'Deals', v: num(s.dealsClosed) },
+            { l: 'Revenu', v: s.revenue ? `${Math.round(s.revenue).toLocaleString('fr-FR')} €` : '—' },
+          ].map(c => (
+            <div key={c.l} style={{ flex: '1 1 90px', minWidth: 0, border: `1px solid ${BORDER}`, borderRadius: 10, background: SURFACE, padding: '9px 10px' }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: INK, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.l}</div>
+              <div style={{ fontSize: 17, fontWeight: 700, color: INK, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>{c.v}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function formatDefaultSequenceName(isoDate: string): string {
   const d = new Date(isoDate);
   const dd = String(d.getDate()).padStart(2, '0');
@@ -2432,7 +2555,7 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
 
   const [name, setName] = useState('');
   const [ctaStoryId, setCtaStoryId] = useState('');
-  const [activeTab, setActiveTab] = useState<'lm' | 'calendly'>('lm');
+  const [activeTab, setActiveTab] = useState<'lm' | 'calendly' | 'stats'>('lm');
   const [addingStories, setAddingStories] = useState(false);
   const [confirmRemoveLast, setConfirmRemoveLast] = useState(false);
   const [blockedRemoveMsg, setBlockedRemoveMsg] = useState<string | null>(null);
@@ -2612,6 +2735,9 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
         {([
           { key: 'calendly' as const, label: `Calendly${primary.calendlyShortUrl ? ' ✓' : ''}` },
           { key: 'lm' as const, label: `Lead Magnet${primary.lmKeyword ? ' ✓' : ''}` },
+          // Stats seulement sur une séquence enregistrée : une sélection en cours
+          // de groupement n'a pas encore d'identifiant à interroger.
+          ...(isExistingSequence && primary.sequenceId ? [{ key: 'stats' as const, label: 'Stats' }] : []),
         ]).map(tab => (
           <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{
             flex: 1, minHeight: 44, padding: '0', fontSize: 13, fontWeight: 600, border: 'none', cursor: 'pointer',
@@ -2622,7 +2748,9 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '14px' : '18px 24px' }}>
-        {activeTab === 'lm' ? (
+        {activeTab === 'stats' && isExistingSequence && primary.sequenceId ? (
+          <TabStorySequenceStats sequenceId={primary.sequenceId} profileId={profileId} />
+        ) : activeTab === 'lm' ? (
           <TabStoryLeadMagnet
             primary={primary} isExistingSequence={isExistingSequence} isGroup={isGroup}
             name={name} ctaStoryId={ctaStoryId} candidateStories={candidateStories}
