@@ -305,14 +305,23 @@ async function handleColdDmCandidate(params: {
     .maybeSingle();
 
   if (newLead?.id) {
-    await serviceSupabase.from('prospect_events').upsert({
-      profile_id:   pid,
-      prospect_key: recipientUsername.toLowerCase(),
-      platform:     'ig',
-      event_type:   'cold_dm_sent',
-      occurred_at:  now,
-      ig_lead_id:   newLead.id,
-    }, { onConflict: 'ig_lead_id,event_type', ignoreDuplicates: false });
+    // RPC obligatoire — aucun index ne couvrait (ig_lead_id, event_type) pour
+    // 'cold_dm_sent', donc ce .upsert() échouait à chaque appel sans que rien ne
+    // le dise : zéro événement cold_dm_sent en base au 2026-08-27. Les index de
+    // lm_sent / hook_replied / lm_clicked fonctionnent, eux, parce que leur
+    // prédicat porte sur event_type et que Postgres sait alors l'inférer.
+    // L'index manquant est créé par la migration 20260827000000.
+    const { error: coldErr } = await serviceSupabase.rpc('upsert_prospect_event_by_lead', {
+      p_profile_id:   pid,
+      p_prospect_key: recipientUsername.toLowerCase(),
+      p_platform:     'ig',
+      p_event_type:   'cold_dm_sent',
+      p_occurred_at:  now,
+      p_ig_lead_id:   newLead.id,
+    });
+    if (coldErr) {
+      console.error(`[IG Webhook] cold_dm_sent NON écrit — lead: ${newLead.id} — ${coldErr.message}`);
+    }
 
     console.log(`[IG Webhook] cold_dm créé — @${recipientUsername}, lead: ${newLead.id}`);
     pushEvent({ type: 'cold_dm_created', ig_username: recipientUsername, lead_id: newLead.id });
@@ -496,18 +505,27 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
         // calculé depuis prospect_links.calendly_link_sent dans le pipeline.
         // Un override manuel bloquerait les signaux suivants (ex: link_clicked).
 
-        // Événement prospect_events
-        await serviceSupabase.from('prospect_events').upsert({
-          profile_id:       pid,
-          prospect_key:     matchedLink.ig_username,
-          platform:         'ig',
-          event_type:       'calendly_link_sent',
-          occurred_at:      now,
-          ig_lead_id:       igLeadId,
-          prospect_link_id: matchedLink.id,
-        }, { onConflict: 'prospect_link_id,event_type', ignoreDuplicates: false });
-
-        console.log(`[IG Webhook] calendly_link_sent — prospect_link: ${matchedLink.id}, url: ${matchedLink.short_url}`);
+        // Événement prospect_events — RPC obligatoire, jamais .upsert().
+        // L'index visé (prospect_events_link_event_type_uidx) est PARTIEL, et le
+        // client Supabase JS ne sait cibler un ON CONFLICT que sur un index total.
+        // Le .upsert() qui était ici échouait à chaque appel depuis toujours, sans
+        // que rien ne le signale : Supabase JS ne lève pas, il retourne { error },
+        // et le résultat n'était pas lu. D'où l'absence totale d'événements
+        // calendly_link_sent en base. Voir migration 20260827000000.
+        const { error: calSentErr } = await serviceSupabase.rpc('upsert_prospect_event_by_link', {
+          p_profile_id:       pid,
+          p_prospect_key:     matchedLink.ig_username,
+          p_platform:         'ig',
+          p_event_type:       'calendly_link_sent',
+          p_occurred_at:      now,
+          p_prospect_link_id: matchedLink.id,
+          p_ig_lead_id:       igLeadId,
+        });
+        if (calSentErr) {
+          console.error(`[IG Webhook] calendly_link_sent NON écrit — prospect_link: ${matchedLink.id} — ${calSentErr.message}`);
+        } else {
+          console.log(`[IG Webhook] calendly_link_sent — prospect_link: ${matchedLink.id}, url: ${matchedLink.short_url}`);
+        }
         pushEvent({ type: 'calendly_link_sent', prospect_link_id: matchedLink.id, short_url: matchedLink.short_url });
         continue;
       }
@@ -527,6 +545,36 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
           .maybeSingle();
 
         if (leadForDm2 && resolvedMatch) {
+          // Le lead a RÉCLAMÉ son lead magnet. C'est ici, et pas à l'envoi du DM1,
+          // que le contenu part réellement : `lead_magnet_sent` est posé dès le
+          // DM1 alors que seuls 30 à 50 % cliquent ce bouton (voir plus bas).
+          // Sans cet événement, « lead magnet reçu » et « lead magnet réclamé »
+          // sont indiscernables, et l'écart entre les deux — la vraie mesure de
+          // la qualité du DM1 — n'existe nulle part.
+          //
+          // RPC obligatoire : tous les index uniques de prospect_events sont
+          // partiels, un .upsert() échouerait en silence. Voir migration
+          // 20260827000000.
+          //
+          // L'historique passé reste inconnu : on n'invente pas rétroactivement
+          // qui a cliqué. L'étape « Lead magnet reçu » démarre donc à 0.
+          const { error: lmReqErr } = await serviceSupabase.rpc('upsert_prospect_event_by_lead', {
+            p_profile_id:   pid,
+            p_prospect_key: leadForDm2.ig_username,
+            p_platform:     'ig',
+            p_event_type:   'lm_link_requested',
+            p_occurred_at:  new Date().toISOString(),
+            p_ig_lead_id:   leadForDm2.id,
+            p_metadata:     {
+              keyword:    leadForDm2.keyword_matched ?? null,
+              content_id: leadForDm2.pending_lm_content_id ?? null,
+              media_id:   leadForDm2.pending_lm_media_id ?? null,
+            },
+          });
+          if (lmReqErr) {
+            console.error(`[IG Webhook] lm_link_requested NON écrit — lead: ${leadForDm2.id} — ${lmReqErr.message}`);
+          }
+
           const { access_token: at } = resolvedMatch;
           const sendDm = (text: string) => fetch(
             `https://graph.instagram.com/v21.0/${canonicalIgAccountId ?? igAccountId}/messages`,
