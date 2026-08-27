@@ -13,7 +13,7 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import RapportModal from '@/components/ui/RapportModalLoader';
 import ProspectDetailModal from './ProspectDetailModal';
 import { isYtVideoId } from '@/lib/ytId';
-import { resolveLeadState, type StageKey, type IssueKey } from '@/lib/pipelineStage';
+import { resolveLeadState, ISSUE_KEYS, ISSUE_TO_OUTCOME, type StageKey, type IssueKey } from '@/lib/pipelineStage';
 import { useViewerTimeZone } from '@/lib/UserContext';
 import { wallClockToUtc, cityLabelOf } from '@/lib/timezone';
 
@@ -2196,9 +2196,22 @@ export default function PagePipeline() {
         }),
       });
     } else if (modalCase === 'forward_to_closed') {
-      if (callId) await patchCall(callId, { deal_closed: true, revenue: extraData?.revenue ?? null });
+      // `outcome: 'closed'` en plus de `deal_closed` : c'est l'outcome que lit
+      // resolveLeadState pour choisir la colonne. Sans lui, le call restait sans
+      // résultat, l'issue calculée était nulle, et le lead repassait en « RDV
+      // pris » juste après avoir été marqué closé — l'override étant masqué par
+      // le call, qui a toujours la priorité.
+      if (callId) await patchCall(callId, { deal_closed: true, outcome: 'closed', revenue: extraData?.revenue ?? null });
       await saveOverride(cardKey, platform, 'closed', 'manual', naturalKey);
     } else if (modalCase === 'simple_move') {
+      // Classer à la main un lead QUI A UN RENDEZ-VOUS demande d'écrire aussi le
+      // résultat sur le call. Le call a toujours la priorité sur l'override
+      // (règle 1 de resolveLeadState) : sans cette écriture, le classement
+      // resterait invisible et la carte reviendrait aussitôt en « RDV pris ».
+      const issue = ISSUE_KEYS.find(k => k === targetStageKey);
+      if (issue && callId) {
+        await patchCall(callId, ISSUE_TO_OUTCOME[issue]);
+      }
       await saveOverride(cardKey, platform, targetStageKey, 'manual', naturalKey);
     }
 

@@ -106,6 +106,26 @@ export const OUTCOME_TO_ISSUE: Readonly<Record<string, IssueKey | null>> = {
   second_call:   null,
 };
 
+/**
+ * L'inverse : quel `calls.outcome` écrire quand on classe À LA MAIN un lead qui
+ * a un rendez-vous.
+ *
+ * C'est indispensable, et ce n'est pas une commodité : le call a TOUJOURS la
+ * priorité sur le classement manuel (règle 1). Classer un lead sans écrire son
+ * outcome laisserait donc l'override invisible — le lead resterait affiché en
+ * « RDV pris », et le geste semblerait n'avoir servi à rien.
+ *
+ * `no_show` porte en plus le booléen du même nom, que `rapportPatch` pose à part
+ * de l'outcome.
+ */
+export const ISSUE_TO_OUTCOME: Readonly<Record<IssueKey, { outcome: string; no_show?: boolean }>> = {
+  closed:        { outcome: 'closed' },
+  no_show:       { outcome: 'no_show', no_show: true },
+  to_recontact:  { outcome: 'to_recontact' },
+  lost:          { outcome: 'lost' },
+  not_qualified: { outcome: 'not_qualified' },
+};
+
 /** Une issue dont on ne revient jamais, quoi que le lead fasse ensuite. */
 export const TERMINAL_ISSUES: readonly IssueKey[] = ['closed'] as const;
 

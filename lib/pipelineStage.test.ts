@@ -6,6 +6,8 @@ import {
   pickDecidingCall,
   countRelancesCycle,
   OUTCOME_TO_ISSUE,
+  ISSUE_TO_OUTCOME,
+  ISSUE_KEYS,
   MAX_RELANCES,
   RELANCE_EXPIRY_DAYS,
   type StageCall,
@@ -343,4 +345,64 @@ test('un lead Cold DM part de Cold DM, pas de Commentaire LM', () => {
 test('un RDV pris place toujours le lead en « RDV pris »', () => {
   const s = etat({ signals: {}, calls: [call({ scheduled_at: dans(2) })] });
   assert.equal(s.stage, 'call_booked', 'même sans aucun signal antérieur');
+});
+
+// ── Classer à la main un lead QUI A un rendez-vous ─────────────────────────
+// Le piège le plus subtil du modèle : le call a toujours la priorité. Classer
+// sans écrire le résultat sur le call laisse l'override invisible, et la carte
+// revient aussitôt à sa place. ISSUE_TO_OUTCOME existe pour ça.
+
+test('un override est INVISIBLE tant que le call n’a pas de résultat', () => {
+  const s = etat({
+    calls: [call({ outcome: null, scheduled_at: dans(2) })],
+    manualIssue: 'lost',
+  });
+  assert.equal(s.issue, null, 'le call sans résultat gagne, et il n’en a aucun');
+  assert.equal(s.status, 'active');
+  assert.equal(s.stage, 'call_booked');
+});
+
+test('avec le résultat écrit sur le call, le classement prend effet', () => {
+  const s = etat({
+    calls: [call({ outcome: ISSUE_TO_OUTCOME.lost.outcome })],
+    manualIssue: 'lost',
+  });
+  assert.equal(s.issue, 'lost');
+  assert.equal(s.status, 'classed');
+});
+
+test('ISSUE_TO_OUTCOME couvre les cinq issues, et se relit dans les deux sens', () => {
+  for (const issue of ISSUE_KEYS) {
+    const patch = ISSUE_TO_OUTCOME[issue];
+    assert.ok(patch, `${issue} doit avoir un outcome`);
+    assert.equal(
+      OUTCOME_TO_ISSUE[patch.outcome], issue,
+      `${issue} → ${patch.outcome} doit se retraduire en ${issue}`,
+    );
+  }
+});
+
+test('no_show porte aussi son booléen, posé à part par le rapport', () => {
+  assert.equal(ISSUE_TO_OUTCOME.no_show.no_show, true);
+  // Et le résultat est bien lu dans les deux sens.
+  const s = etat({ calls: [call({ outcome: 'no_show', no_show: true })] });
+  assert.equal(s.issue, 'no_show');
+});
+
+test('classer en Closé écrit un outcome, pas seulement deal_closed', () => {
+  // Le kanban écrivait deal_closed sans outcome : la fonction ne lit QUE
+  // l'outcome, donc le lead repassait en « RDV pris » juste après le closing.
+  const sansOutcome = etat({ calls: [call({ outcome: null })], manualIssue: 'closed' });
+  assert.equal(sansOutcome.issue, null, 'c’était le bug');
+
+  const avecOutcome = etat({ calls: [call({ outcome: 'closed' })], manualIssue: 'closed' });
+  assert.equal(avecOutcome.issue, 'closed');
+});
+
+test('sans aucun call, l’override suffit — c’est sa raison d’être', () => {
+  for (const issue of ISSUE_KEYS) {
+    const s = etat({ signals: { hasReplied: true }, manualIssue: issue });
+    assert.equal(s.issue, issue, issue);
+    assert.equal(s.status, 'classed');
+  }
 });

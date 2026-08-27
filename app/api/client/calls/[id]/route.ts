@@ -50,7 +50,11 @@ export async function PATCH(
   // `relance_at` y figure pour la même raison : la branche « à recontacter » du
   // rapport de vente demande quand recontacter et l'envoie ici. Absent de cette
   // liste, il serait jeté en silence et le lead n'aurait aucune échéance.
-  const allowed = ['status', 'no_show', 'no_show_at', 'rescheduled', 'rescheduled_at', 'scheduled_at', 'cancellation_reason', 'deal_closed', 'revenue', 'ig_lead_id', 'is_follow_up', 'relance_at'];
+  // `outcome` y figure pour le closing manuel depuis le kanban : sans lui, le
+  // call restait avec `deal_closed: true` et `outcome: null`. Or c'est l'outcome
+  // qui décide de la colonne du pipeline (lib/pipelineStage.ts) — le lead
+  // repassait donc en « RDV pris » juste après avoir été marqué closé.
+  const allowed = ['status', 'no_show', 'no_show_at', 'rescheduled', 'rescheduled_at', 'scheduled_at', 'cancellation_reason', 'deal_closed', 'revenue', 'ig_lead_id', 'is_follow_up', 'relance_at', 'outcome'];
   const update: Record<string, any> = {};
   for (const field of allowed) {
     if (field in body) update[field] = body[field];
@@ -65,6 +69,15 @@ export async function PATCH(
       return NextResponse.json({ error: 'Date de relance invalide' }, { status: 400 });
     }
     update.relance_at = d.toISOString();
+  }
+
+  // `outcome` décide de la colonne du pipeline : une valeur inconnue y ferait
+  // disparaître le lead d'un écran sans que rien ne l'explique. La liste est la
+  // même que celle de lib/rapportPatch.ts (OutcomeChoice) plus `no_show`, posé à
+  // part par le rapport.
+  const OUTCOMES = ['closed', 'no_show', 'to_recontact', 'rescheduled', 'second_call', 'lost', 'not_qualified'];
+  if ('outcome' in update && update.outcome !== null && !OUTCOMES.includes(update.outcome)) {
+    return NextResponse.json({ error: 'Résultat de call inconnu' }, { status: 400 });
   }
 
   // `revenue` porte de l'argent : on refuse une valeur qui n'en est pas plutôt que
