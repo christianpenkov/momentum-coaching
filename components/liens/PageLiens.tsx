@@ -4252,8 +4252,8 @@ function RailContenus({ posts, rightView, ouvert, epingle, onRetour, onEpingler,
  * la réponse à « où ça casse ? », pas un tableau de bord de plus.
  */
 function Entonnoir({ data, ouvert, onToggle, compact, mobile = false }: {
-  data: { contenus: number; commentaires: number; accroches: number; liensCliques: number;
-          tauxAccroches: number | null; tauxClics: number | null; pret: boolean };
+  data: { contenus: number; commentaires: number; conversations: number; callsBookes: number;
+          tauxConversations: number | null; tauxCalls: number | null; pret: boolean };
   ouvert: boolean;
   onToggle: () => void;
   compact: boolean;
@@ -4266,8 +4266,8 @@ function Entonnoir({ data, ouvert, onToggle, compact, mobile = false }: {
   const etapes = [
     { libelle: 'Contenus', valeur: data.contenus, taux: null as number | null },
     { libelle: 'Prospects', valeur: data.commentaires, taux: null as number | null },
-    { libelle: 'Accroches', valeur: data.accroches, taux: data.tauxAccroches },
-    { libelle: 'Liens cliqués', valeur: data.liensCliques, taux: data.tauxClics },
+    { libelle: 'Conversations', valeur: data.conversations, taux: data.tauxConversations },
+    { libelle: 'Calls bookés', valeur: data.callsBookes, taux: data.tauxCalls },
   ];
 
   // Sous 60 %, l'étape décroche — le rouge doit se voir sans lire le chiffre.
@@ -5027,26 +5027,33 @@ export default function PageLiens() {
   // un filtre par ig_account_id créerait un second mécanisme concurrent du premier
   // (voir docs/a-deployer-apres-meta-review.md).
   //
-  // La 5e étape (réponses à la relance) n'est PAS calculable aujourd'hui : la base
-  // sait qu'un prospect a répondu (hook_replied) mais pas à quel message. Il faudra
-  // tracer un prospect_event à l'envoi de la relance — d'ici là l'étape est masquée
-  // plutôt qu'approximée avec hook_replied, qui donnerait un taux faux.
+  // « Conversations » compte les prospects qui ont répondu en DM, quel que soit le
+  // message : la base sait qu'un prospect a répondu (hook_replied), jamais à quoi.
+  // L'entonnoir s'arrête donc au call booké, qui lui est certain — et non à une
+  // « réponse à la relance » que rien ne permet d'isoler.
   const funnel = useMemo(() => {
     const leads: any[] = pipelineData?.leads ?? [];
-    const events: any[] = pipelineData?.events ?? [];
+    const calls: any[] = pipelineData?.calls ?? [];
 
     const commentaires = leads.length;
-    const accroches = leads.filter(l => l.lead_magnet_sent).length;
 
-    // Un clic compte une fois par prospect, pas une fois par événement : un prospect
-    // qui reclique son lien ne fait pas un lead de plus.
-    const cliqueurs = new Set(
-      events
-        .filter(e => e.event_type === 'lm_clicked' || e.event_type === 'link_clicked')
-        .map(e => e.ig_lead_id)
-        .filter(Boolean)
+    // « Conversations » et non « Accroches ». L'ancienne marche comptait les DM1
+    // envoyes (lead_magnet_sent), or le DM1 part a la detection : elle valait
+    // donc toujours 100 % des prospects et n'apprenait rien — mesure du
+    // 2026-08-27, 4 sur 4. Repondre en DM, en revanche, est un vrai
+    // franchissement : 3 sur 4.
+    const conversations = leads.filter(l => l.hook_replied).length;
+
+    // Calls bookes, compte une fois par prospect. Source : `calls`, pas
+    // `prospect_events` — la table des calls est la source canonique des
+    // reservations, et la route la filtre deja sur call_type = 'calendly' et
+    // ignored, les deux filtres sans lesquels le chiffre serait faux. Les deux
+    // sources donnent le meme resultat aujourd'hui (3), mais un evenement peut
+    // manquer la ou un call ne peut pas.
+    const bookeurs = new Set(
+      calls.map((c: any) => c.ig_lead_id).filter(Boolean)
     );
-    const liensCliques = cliqueurs.size;
+    const callsBookes = bookeurs.size;
 
     const taux = (num: number, den: number) => (den > 0 ? Math.round((num / den) * 100) : null);
 
@@ -5070,10 +5077,10 @@ export default function PageLiens() {
     return {
       contenus: posts.length + mediasDisparus.size,
       commentaires,
-      accroches,
-      liensCliques,
-      tauxAccroches: taux(accroches, commentaires),
-      tauxClics: taux(liensCliques, accroches),
+      conversations,
+      callsBookes,
+      tauxConversations: taux(conversations, commentaires),
+      tauxCalls: taux(callsBookes, conversations),
       pret: !!pipelineData,
     };
   }, [pipelineData, posts]);
