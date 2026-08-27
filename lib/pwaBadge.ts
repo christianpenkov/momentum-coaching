@@ -18,9 +18,29 @@ type BadgeSource = 'notifs' | 'messages';
 
 const counts: Record<BadgeSource, number> = { notifs: 0, messages: 0 };
 
+// Une source n'est prise en compte qu'une fois qu'elle a VRAIMENT parlé.
+//
+// Sans ce garde, `counts` valant {0, 0} au démarrage du module, la moindre
+// application de la pastille avant la fin du premier chargement des données
+// concluait « rien en attente » et EFFAÇAIT une pastille pourtant légitime —
+// celle posée par un push pendant que l'app était fermée. Un simple démarrage à
+// froid suffisait donc à la faire disparaître.
+const reported: Record<BadgeSource, boolean> = { notifs: false, messages: false };
+
+// Dernier total réellement posé, pour ne fermer les notifications du tiroir
+// qu'au moment où l'on PASSE à zéro. Le faire à chaque application d'un total
+// nul revenait à balayer le tiroir toutes les 60 secondes (rythme du refresh) :
+// une notification reçue app ouverte était refermée dans la minute.
+let lastAppliedTotal: number | null = null;
+
 function applyBadge() {
   if (typeof navigator === 'undefined') return;
+  // Tant qu'aucune source n'a répondu, on ne sait rien : ne rien affirmer.
+  if (!reported.notifs && !reported.messages) return;
+
   const total = counts.notifs + counts.messages;
+  const previous = lastAppliedTotal;
+  lastAppliedTotal = total;
 
   if (total <= 0) {
     if ('clearAppBadge' in navigator) {
@@ -28,8 +48,8 @@ function applyBadge() {
     }
     // Android : ferme les notifs actives dans le tiroir (sinon le badge, déduit
     // par le système du nombre de notifs présentes, reste bloqué même une fois
-    // le message lu dans l'app).
-    if (navigator.serviceWorker?.controller) {
+    // le message lu dans l'app). Uniquement sur la TRANSITION vers zéro.
+    if (previous !== 0 && navigator.serviceWorker?.controller) {
       navigator.serviceWorker.controller.postMessage({ type: 'CLEAR_NOTIFICATIONS' });
     }
     return;
@@ -46,6 +66,7 @@ function applyBadge() {
  */
 export function setBadgeCount(source: BadgeSource, count: number) {
   counts[source] = Math.max(0, count);
+  reported[source] = true;
   applyBadge();
 }
 
@@ -57,6 +78,11 @@ export function setBadgeCount(source: BadgeSource, count: number) {
  * Rien ne la rétablit tout seul. On la réaffirme donc à chaque retour au
  * premier plan, pour qu'elle survive indéfiniment tant qu'il reste quelque
  * chose à traiter.
+ *
+ * Sans effet tant qu'aucune source n'a communiqué son compte : au démarrage à
+ * froid, `pageshow` se déclenche AVANT que les données soient chargées, et
+ * réaffirmer un total de zéro à cet instant effacerait la pastille posée par un
+ * push reçu app fermée. On ne réaffirme que ce que l'on sait.
  */
 export function reassertAppBadge() {
   applyBadge();
@@ -72,6 +98,11 @@ export function reassertAppBadge() {
 export function clearAppBadge() {
   counts.notifs = 0;
   counts.messages = 0;
+  // Effacement explicite : c'est une affirmation (« plus rien en attente »),
+  // pas une absence d'information — les deux sources comptent donc comme ayant
+  // parlé, sans quoi le garde de `applyBadge` bloquerait l'effacement demandé.
+  reported.notifs = true;
+  reported.messages = true;
   applyBadge();
 }
 

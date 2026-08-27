@@ -47,6 +47,11 @@ export async function POST(req: NextRequest) {
     endpoint: subscription.endpoint,
     p256dh: subscription.keys.p256dh,
     auth: subscription.keys.auth,
+    // Trace de fraîcheur : `created_at` n'est jamais réécrit par un upsert, donc
+    // sans cette colonne rien ne distingue un abonnement revalidé ce matin d'un
+    // abonnement fossile jamais reconfirmé. Diagnostic uniquement — ne JAMAIS
+    // s'en servir pour supprimer une ligne (voir le commentaire en tête).
+    last_seen_at: new Date().toISOString(),
   }, { onConflict: 'profile_id,endpoint' });
 
   if (error) {
