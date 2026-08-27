@@ -121,6 +121,13 @@ interface Post {
   totalInteractions?: number | null;
   follows?: number | null;
   profileVisits?: number | null;
+  // Stories seulement — l'API /api/client/stories les renvoyait déjà toutes, le
+  // mapping n'en gardait que deux. Ce sont elles qui disent où une story perd
+  // son audience, ce que reach et vues seuls ne peuvent pas dire.
+  replies?: number | null;
+  navTapsForward?: number | null;
+  navTapsBack?: number | null;
+  navExits?: number | null;
   // YouTube seulement
   watchTime30d?: number | null;
   avgViewPct?: number | null;
@@ -2453,6 +2460,38 @@ function TabStorySequenceStats({ sequenceId, profileId }: { sequenceId: string; 
         ))}
       </div>
 
+      {/* Courbe de rétention — seulement à partir de trois stories : sur deux
+          points, une ligne droite n'apprend rien que les deux cartes ci-dessus
+          ne disent déjà. La surface est tracée en SVG plein cadre, sans
+          bibliothèque : c'est une sparkline, pas un graphe interactif. */}
+      {(() => {
+        const pts = stories.map(st => st.reach).filter((r: any) => r != null) as number[];
+        if (pts.length < 3) return null;
+        const max = Math.max(...pts, 1);
+        const L = 100, H = 34;
+        const coords = pts.map((r, i) => [ (i / (pts.length - 1)) * L, H - (r / max) * (H - 4) - 2 ]);
+        const ligne = coords.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`).join(' ');
+        const aire = `${ligne} L${L} ${H} L0 ${H} Z`;
+        return (
+          <div>
+            <div className="eyebrow-sm" style={{ color: INK, marginBottom: 6 }}>Rétention story par story</div>
+            <div style={{ border: `1px solid ${BORDER}`, borderRadius: 10, background: SURFACE, padding: '10px 12px 6px' }}>
+              <svg viewBox={`0 0 ${L} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height: 60, display: 'block', overflow: 'visible' }}>
+                <path d={aire} fill={BLUE_SOFT} />
+                <path d={ligne} fill="none" stroke={BLUE} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+                {coords.map(([x, y], i) => (
+                  <circle key={i} cx={x} cy={y} r="2" fill={SURFACE} stroke={BLUE} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+                ))}
+              </svg>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9.5, color: FAINT, marginTop: 4 }}>
+                <span>Story 1 · {pts[0].toLocaleString('fr-FR')}</span>
+                <span>Story {pts.length} · {pts[pts.length - 1].toLocaleString('fr-FR')}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       <div>
         <div className="eyebrow-sm" style={{ color: INK, marginBottom: 6 }}>Story par story</div>
         {/* Le tableau défile seul : cinq colonnes de chiffres ne tiennent pas
@@ -2514,6 +2553,73 @@ function TabStorySequenceStats({ sequenceId, profileId }: { sequenceId: string; 
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Stats d'une story seule — l'équivalent de l'onglet Stats d'un post.
+ *
+ * Les chiffres viennent du même chargement que la liste : `/api/client/stories`
+ * les renvoyait tous, le mapping n'en gardait que deux. Aucune requête ajoutée.
+ *
+ * Une story ne se mesure pas comme un post : pas de likes ni d'enregistrements,
+ * mais une navigation — qui avance, qui revient, qui sort. C'est là que se lit
+ * ce qu'elle vaut.
+ */
+function TabStoryStats({ story }: { story: Post }) {
+  const v = (n: number | null | undefined) => (n == null ? '—' : n.toLocaleString('fr-FR'));
+
+  const audience = [
+    { l: 'Comptes touchés', v: v(story.reach) },
+    { l: 'Vues', v: v(story.views) },
+    { l: 'Interactions', v: v(story.totalInteractions) },
+  ];
+  const navigation = [
+    { l: 'Sorties', v: v(story.navExits), a: 'ont quitté les stories ici' },
+    { l: 'Retours', v: v(story.navTapsBack), a: 'sont revenus en arrière' },
+    { l: 'Passages', v: v(story.navTapsForward), a: 'ont avancé à la suivante' },
+  ];
+  const gains = [
+    { l: 'Réponses', v: v(story.replies) },
+    { l: 'Partages', v: v(story.shares) },
+    { l: 'Visites du profil', v: v(story.profileVisits) },
+    { l: 'Abonnements', v: v(story.follows) },
+  ];
+
+  const rien = [...audience, ...navigation, ...gains].every(c => c.v === '—');
+  if (rien) {
+    return (
+      <div style={{ fontSize: 12.5, color: FAINT, background: SURFACE2, border: `1px solid ${BORDER}`, borderRadius: 10, padding: '14px 16px', lineHeight: 1.5 }}>
+        Aucune statistique pour cette story. Instagram ne fournit ses chiffres qu’à partir d’un
+        certain volume, et jamais pour une story publiée avant la connexion du compte.
+      </div>
+    );
+  }
+
+  const bloc = (titre: string, cartes: { l: string; v: string; a?: string }[]) => (
+    <div>
+      <div className="eyebrow-sm" style={{ color: INK, marginBottom: 6 }}>{titre}</div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {cartes.map(c => (
+          <div key={c.l} style={{ flex: '1 1 100px', minWidth: 0, border: `1px solid ${BORDER}`, borderRadius: 10, background: SURFACE, padding: '9px 10px' }}>
+            <div style={{ fontSize: 10, fontWeight: 600, color: INK, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.l}</div>
+            <div style={{ fontSize: 17, fontWeight: 700, color: INK, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>{c.v}</div>
+            {c.a && <div style={{ fontSize: 9, color: FAINT, marginTop: 1, lineHeight: 1.3 }}>{c.a}</div>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ fontSize: 12.5, color: MUTED, lineHeight: 1.5 }}>
+        Les chiffres de cette story, tels qu’Instagram les rapporte. Ils cessent d’évoluer à son expiration.
+      </div>
+      {bloc('Audience', audience)}
+      {bloc('Navigation', navigation)}
+      {bloc('Ce que la story a rapporté', gains)}
     </div>
   );
 }
@@ -2735,9 +2841,10 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
         {([
           { key: 'calendly' as const, label: `Calendly${primary.calendlyShortUrl ? ' ✓' : ''}` },
           { key: 'lm' as const, label: `Lead Magnet${primary.lmKeyword ? ' ✓' : ''}` },
-          // Stats seulement sur une séquence enregistrée : une sélection en cours
-          // de groupement n'a pas encore d'identifiant à interroger.
-          ...(isExistingSequence && primary.sequenceId ? [{ key: 'stats' as const, label: 'Stats' }] : []),
+          // Stats sur une séquence enregistrée comme sur une story seule — pas
+          // pendant un groupement en cours, où il n'y a encore ni séquence à
+          // interroger ni story unique à décrire.
+          ...(!isGroup ? [{ key: 'stats' as const, label: 'Stats' }] : []),
         ]).map(tab => (
           <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{
             flex: 1, minHeight: 44, padding: '0', fontSize: 13, fontWeight: 600, border: 'none', cursor: 'pointer',
@@ -2748,8 +2855,13 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '14px' : '18px 24px' }}>
-        {activeTab === 'stats' && isExistingSequence && primary.sequenceId ? (
-          <TabStorySequenceStats sequenceId={primary.sequenceId} profileId={profileId} />
+        {activeTab === 'stats' ? (
+          // Une séquence se juge sur sa rétention d'une story à l'autre ; une
+          // story seule n'a personne à qui se comparer, on montre alors sa
+          // propre navigation.
+          isExistingSequence && primary.sequenceId
+            ? <TabStorySequenceStats sequenceId={primary.sequenceId} profileId={profileId} />
+            : <TabStoryStats story={primary} />
         ) : activeTab === 'lm' ? (
           <TabStoryLeadMagnet
             primary={primary} isExistingSequence={isExistingSequence} isGroup={isGroup}
@@ -4721,6 +4833,14 @@ export default function PageLiens() {
         hasDescLink: false,
         reach: s.reach,
         views: s.views,
+        replies: s.replies ?? null,
+        shares: s.shares ?? null,
+        follows: s.follows ?? null,
+        profileVisits: s.profile_visits ?? null,
+        totalInteractions: s.total_interactions ?? null,
+        navTapsForward: s.navigation_taps_forward ?? null,
+        navTapsBack: s.navigation_taps_back ?? null,
+        navExits: s.navigation_exits ?? null,
         postedAt: s.posted_at,
         expiredAt: s.expired_at,
       };
