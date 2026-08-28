@@ -1340,13 +1340,15 @@ function PanneauIssue({
                       <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         {/* Trois pastilles : le cycle est borné, et sa fin se voit
                             AVANT d'arriver. « 2/3 » seul demande de se rappeler
-                            que la borne est à trois. */}
+                            que la borne est à trois.
+                            Les pastilles restantes sont PLEINES, en gris : en
+                            anneau de 1 px sur fond blanc, elles mesuraient 1,09:1
+                            de contraste — à 0/3, l'indicateur n'affichait rien. */}
                         <span style={{ display: 'flex', gap: 3 }}>
                           {Array.from({ length: MAX_RELANCES }, (_, i) => (
                             <span key={i} style={{
                               width: 7, height: 7, borderRadius: '50%',
-                              background: i < faites ? issue.color : 'transparent',
-                              border: i < faites ? 'none' : '1px solid var(--border)',
+                              background: i < faites ? issue.color : '#cdc7b8',
                             }} />
                           ))}
                         </span>
