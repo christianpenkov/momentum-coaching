@@ -13,7 +13,7 @@ import Image from 'next/image';
 import { useQuery } from '@tanstack/react-query';
 import InlineLoader from '@/components/ui/InlineLoader';
 import RapportModal from '@/components/ui/RapportModalLoader';
-import ProspectDetailModal from './ProspectDetailModal';
+import ProspectDetailModal, { GEOMETRIE_VIDE, type Geometrie } from './ProspectDetailModal';
 import { isYtVideoId } from '@/lib/ytId';
 import { isCallHonored } from '@/lib/callHonored';
 import { objectionsPour, type OutcomeChoice } from '@/lib/rapportPatch';
@@ -1037,7 +1037,7 @@ function PanneauIssue({
   issue: ColumnDef;
   cards: CardData[];
   /** Où commence la zone à assombrir, mesurée sur la page. */
-  voile: { top: number; left: number };
+  voile: Geometrie;
   onFermer: () => void;
   onOuvrirFiche: (key: string) => void;
   avatarColor: (n: string) => string;
@@ -1051,12 +1051,13 @@ function PanneauIssue({
 
   return (
     <>
-      {/* Le voile part de `voile.left` : la barre latérale reste claire ET
-          cliquable. Il commence au-dessus des onglets, qui cessent eux aussi de
-          répondre. Le titre et le compte de leads restent lisibles au-dessus. */}
+      {/* Le voile épouse la boîte du kanban : la barre latérale, la barre du
+          haut, le titre « Pipeline Leads · X leads » et les onglets restent
+          clairs ET cliquables. Il ne dit que ce qui est vrai — ce qui est
+          assombri est ce qui cesse de répondre. */}
       <div onClick={onFermer} aria-hidden
         style={{
-          position: 'fixed', top: voile.top, left: voile.left, right: 0, bottom: 0,
+          position: 'fixed', top: voile.top, left: voile.left, right: 0, bottom: voile.bottom,
           background: 'rgba(12,16,28,.34)', zIndex: 90,
         }} />
       <div
@@ -1064,10 +1065,10 @@ function PanneauIssue({
         aria-modal="true"
         aria-label={`Leads en « ${issue.label} »`}
         style={{
-          // Fixe et partant de 0 : le panneau passe PAR-DESSUS la barre du haut.
-          // En absolu dans le board il ne pouvait pas déborder de son parent, et
-          // s'ancrait sur un conteneur qui défile — d'où l'écrasement.
-          position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(440px, 92vw)',
+          // Le panneau commence sous la barre du logo : elle reste le seul repère
+          // au-dessus de tout. Il descend en revanche jusqu'en bas, par-dessus le
+          // board et les onglets.
+          position: 'fixed', top: voile.panneauTop, right: 0, bottom: 0, width: 'min(440px, 92vw)',
           zIndex: 91, display: 'flex', flexDirection: 'column',
           background: 'var(--surface)', borderLeft: '1px solid var(--border)',
           boxShadow: '-14px 0 40px rgba(0,0,0,.13)',
@@ -1181,17 +1182,24 @@ function TuilesIssues({
   const total = issues.reduce((n, i) => n + (cardsParIssue[i.key]?.length ?? 0), 0);
 
   return (
-    <div style={{ display: 'flex', gap: 8, alignSelf: 'stretch', flexShrink: 0 }}>
-      {/* Séparateur : les issues ne sont pas la suite de l'entonnoir, et un
-          simple espace ne suffit pas à le dire. */}
-      <div style={{ width: 1, background: 'var(--border)', flexShrink: 0, margin: '0 4px' }} />
+    <div style={{ display: 'flex', gap: 0, alignSelf: 'stretch', flexShrink: 0 }}>
+      {/* Séparateur épais : les issues ne sont pas la suite de l'entonnoir. Le
+          trait de 1 px qui sépare deux étapes ne suffisait pas à le dire, un
+          espace non plus. */}
+      <div style={{ width: 3, background: 'var(--border)', flexShrink: 0 }} />
 
       {/* Toute la hauteur, comme une colonne : le bloc Issues est le pendant de
-          l'entonnoir, pas une annexe posée en haut à droite. */}
-      <div style={{ width: 188, flexShrink: 0, alignSelf: 'stretch', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          l'entonnoir, pas une annexe posée en haut à droite. Même matière que les
+          étapes — corps beige mat, en-tête blanc. */}
+      <div style={{
+        width: 200, flexShrink: 0, alignSelf: 'stretch',
+        display: 'flex', flexDirection: 'column',
+        background: 'var(--surface-2)', borderRight: '1px solid var(--border)',
+      }}>
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '7px 10px', flexShrink: 0,
+          padding: '10px 11px', flexShrink: 0,
+          background: 'var(--surface)', borderBottom: '1px solid var(--border)',
         }}>
           <span style={{
             fontSize: 10, fontWeight: 700, letterSpacing: '.07em',
@@ -1205,7 +1213,7 @@ function TuilesIssues({
         {/* `flex: 1` sur CHAQUE tuile, pas seulement sur la pile : sans ça les
             tuiles gardaient leur hauteur naturelle et se serraient en haut, avec
             un grand vide dessous. */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: 1, minHeight: 0 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: 1, minHeight: 0, padding: 7 }}>
           {issues.map(issue => {
             const liste = cardsParIssue[issue.key] ?? [];
             const estOuverte = ouverte === issue.key;
@@ -1271,6 +1279,16 @@ function TuilesIssues({
 
 // ── KanbanColumn ──────────────────────────────────────────────────────────────
 
+/**
+ * La largeur d'une colonne dépliée, en pixels. FIGÉE, jamais partagée.
+ *
+ * Avec des colonnes élastiques, déplier « Commentaire LM » resserrait les cinq
+ * autres d'un coup : on visait une fiche, tout glissait de côté. À largeur figée,
+ * déplier ne fait que rallonger le board vers la droite — le défilement
+ * horizontal absorbe la place manquante et rien de déjà visible ne bouge.
+ */
+const LARGEUR_COLONNE = 252;
+
 function KanbanColumn({
   stage, cards, stages, draggingKey, onDragStart, onDrop, onDragOver, onDragLeave,
   isDropTarget, platform, onConfirmLead, onDeleteLead, onRapportClick, onCardClick, onNotALead,
@@ -1296,10 +1314,10 @@ function KanbanColumn({
   replie?: boolean;
   onToggleRepli?: () => void;
 }) {
-  // ── LARGEUR FIXE, JAMAIS ÉLASTIQUE ──────────────────────────────────────────
-  // 172 px quoi qu'il arrive. Des colonnes élastiques se resserrent quand une
-  // autre s'ouvre : tout le board bouge sous les yeux au moment précis où on
-  // vise une carte. Le défilement horizontal est direct, sans compression.
+  // ── LARGEUR FIGÉE, JAMAIS ÉLASTIQUE ─────────────────────────────────────────
+  // `LARGEUR_COLONNE` quoi qu'il arrive. Des colonnes élastiques se resserrent
+  // quand une autre s'ouvre : tout le board bouge sous les yeux au moment précis
+  // où on vise une carte. Déplier passe directement en défilement horizontal.
   if (replie) {
     return (
       <button
@@ -1316,9 +1334,12 @@ function KanbanColumn({
           width: 34, flexShrink: 0, alignSelf: 'stretch', cursor: 'pointer',
           display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 9,
           padding: '11px 0', font: 'inherit', color: 'inherit',
-          background: isDropTarget ? stage.lightBg : 'var(--surface)',
-          border: `1px ${isDropTarget ? 'dashed' : 'solid'} ${isDropTarget ? stage.color + '66' : 'var(--border)'}`,
-          borderRadius: 10,
+          // Même matière que les colonnes dépliées : beige mat, séparée par un
+          // simple trait. Une bande blanche encadrée aurait fait d'une colonne
+          // pliée un objet d'une autre nature que celle qu'elle redevient au clic.
+          background: isDropTarget ? stage.lightBg : 'var(--surface-2)',
+          border: 'none', borderRight: '1px solid var(--border)',
+          borderRadius: 0,
         }}
       >
         <span style={{
@@ -1342,23 +1363,20 @@ function KanbanColumn({
     );
   }
 
-  // 172 px de PLANCHER, puis les colonnes s'étirent pour remplir l'écran. Replier
-  // les trois premières libère beaucoup de place : la laisser vide à droite
-  // gâcherait l'espace, et des colonnes larges rendent les fiches lisibles.
   return (
-    // La colonne est un CADRE : l'en-tête est dedans, pas posé au-dessus. Un
-    // trait de séparation seul ne suffisait pas — les fiches de deux colonnes
-    // voisines se lisaient comme une seule grille et on ne voyait plus où une
-    // étape finissait.
+    // Corps beige mat, en-tête blanc, colonnes jointives séparées par un seul
+    // trait. Trois surfaces empilées (page → cadre blanc → fiche blanche) ne
+    // disaient plus laquelle portait l'information ; ici le blanc ne sert qu'à
+    // deux choses, l'en-tête et la fiche, et le trait suffit à borner l'étape.
     <div style={{
-      flex: '1 1 172px', minWidth: 172, maxWidth: 320, alignSelf: 'stretch',
+      flex: `0 0 ${LARGEUR_COLONNE}px`, alignSelf: 'stretch',
       display: 'flex', flexDirection: 'column',
-      background: 'var(--surface)', border: '1px solid var(--border)',
-      borderRadius: 10, overflow: 'hidden',
+      background: 'var(--surface-2)',
+      borderRight: '1px solid var(--border)',
     }}>
-      {/* En-tête de colonne — le dessin d'origine, gardé sur demande : fond
-          `surface-2`, bordure, compteur en pastille colorée. Le chevron de repli
-          s'y ajoute à gauche, sans rien changer d'autre. */}
+      {/* Le seul blanc de la colonne : l'en-tête. C'est ce qui donne à la rangée
+          d'en-têtes sa ligne continue en haut du board, et ce qui distingue au
+          premier coup d'œil le nom d'une étape des fiches qu'elle contient. */}
       <div
         role="button"
         tabIndex={0}
@@ -1366,12 +1384,10 @@ function KanbanColumn({
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggleRepli?.(); } }}
         title={`Plier « ${stage.label} »`}
         style={{
-          // Pas de bandeau gris : l'en-tête vit sur le fond de la colonne. Un
-          // bandeau ajoutait une troisième surface (page → colonne → en-tête)
-          // au-dessus des fiches, qui en sont une quatrième.
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '10px 11px 8px', cursor: 'pointer', userSelect: 'none',
-          background: isDropTarget ? stage.lightBg : 'transparent',
+          padding: '10px 11px', cursor: 'pointer', userSelect: 'none',
+          background: isDropTarget ? stage.lightBg : 'var(--surface)',
+          borderBottom: '1px solid var(--border)',
           transition: 'background .12s', flexShrink: 0,
         }}
       >
@@ -2025,26 +2041,33 @@ export default function PagePipeline() {
 
   // ── LA GÉOMÉTRIE DU VOILE ──────────────────────────────────────────────────
   //
-  // Le voile doit assombrir EXACTEMENT ce qui devient inactif : le board et la
-  // barre d'onglets, pas le titre ni la barre latérale. Et le panneau passe
-  // par-dessus la barre du haut.
+  // Le voile assombrit EXACTEMENT le kanban, rien d'autre : le titre, le compte
+  // de leads, les onglets et la barre latérale restent clairs. Il épouse donc la
+  // boîte du board, mesurée sur la page.
   //
-  // Un `position: absolute` dans le conteneur du board ne peut faire ni l'un ni
-  // l'autre : il s'ancre sur un conteneur qui défile horizontalement, donc il
+  // Le panneau, lui, monte jusqu'au BAS de la barre du haut — pas jusqu'au bord
+  // de l'écran. La barre du logo est la seule chose qui reste au-dessus de tout ;
+  // la recouvrir faisait disparaître le repère de niveau le plus haut de l'app.
+  //
+  // Un `position: absolute` dans le conteneur du board ne pouvait faire ni l'un
+  // ni l'autre : il s'ancre sur un conteneur qui défile horizontalement, donc il
   // part hors champ, et il ne peut pas déborder au-dessus de son parent. D'où
-  // une position FIXE, calculée sur la position réelle de la zone à couvrir.
+  // une position FIXE, calculée sur les positions réelles.
   const zoneBoardRef = useRef<HTMLDivElement>(null);
-  const [voile, setVoile] = useState<{ top: number; left: number } | null>(null);
+  const [voile, setVoile] = useState<Geometrie | null>(null);
   useEffect(() => {
     if (!panneauIssue && !detailModal) { setVoile(null); return; }
     const mesurer = () => {
       const z = zoneBoardRef.current;
       if (!z) return;
       const r = z.getBoundingClientRect();
-      // On remonte au-dessus des onglets : ils cessent d'être cliquables aussi.
-      const onglets = document.querySelector('.pipeline-actions');
-      const haut = onglets ? onglets.getBoundingClientRect().top - 8 : r.top;
-      setVoile({ top: Math.max(0, haut), left: r.left });
+      const barre = document.querySelector('.topbar');
+      setVoile({
+        top: Math.max(0, r.top),
+        left: r.left,
+        bottom: Math.max(0, window.innerHeight - r.bottom),
+        panneauTop: barre ? barre.getBoundingClientRect().bottom : 0,
+      });
     };
     mesurer();
     window.addEventListener('resize', mesurer);
@@ -3374,12 +3397,14 @@ export default function PagePipeline() {
               retrouvait plus haut que le contenu. En minimum, elles remplissent
               l'écran quand il y a peu de fiches ET s'étirent quand il y en a
               beaucoup. */}
-          {/* `minWidth: 100%` et non `max-content` : à `max-content`, la rangée se
-              calait sur la somme des largeurs des colonnes et celles-ci ne se
-              partageaient jamais la place restante. À 100 %, elles s'étirent pour
-              remplir l'écran, et débordent en défilement seulement quand leur
-              largeur minimale l'exige. */}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', minWidth: '100%', minHeight: '100%' }}>
+          {/* `gap: 0` : les colonnes sont jointives et séparées par leur seul
+              trait de droite. Un écart de 8 px laissait passer le fond de la page
+              entre elles et cassait la rangée d'en-têtes en huit bandeaux isolés. */}
+          <div style={{
+            display: 'flex', gap: 0, alignItems: 'stretch',
+            minWidth: '100%', minHeight: '100%',
+            borderLeft: '1px solid var(--border)',
+          }}>
             {stages.map(stage => {
               const estIssue = false;
               // On range par `stageKey`, qui vaut l'ISSUE quand le lead est classé
@@ -3453,7 +3478,7 @@ export default function PagePipeline() {
           return (
             <PanneauIssue
               issue={issue}
-              voile={voile ?? { top: 0, left: 0 }}
+              voile={voile ?? GEOMETRIE_VIDE}
               cards={cards.filter(c => c.stageKey === panneauIssue)}
               onFermer={() => setPanneauIssue(null)}
               onOuvrirFiche={key => { setPanneauIssue(null); setDetailModal({ cardKey: key, platform: tab }); }}
