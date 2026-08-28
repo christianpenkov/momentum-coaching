@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
+// Meme regle de categorie que le cron et le bouton Rafraichir (source unique).
+import { createLinkCategoryResolver } from '@/lib/shortio-link-category';
 
 const supa = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -145,7 +147,24 @@ export async function POST(request: Request) {
         .maybeSingle();
 
       if (existingSnapshot?.link_id) {
-        // RPC avec GREATEST pour ne jamais écraser un human_clicks plus élevé
+        // La catégorie manquait à cet appel : la ligne était écrite sans
+        // `link_category`, donc le clic posé à la main n'entrait dans AUCUN chiffre de
+        // l'écran Business micro (« Clics totaux » et les filtres du graphique
+        // sélectionnent sur cette colonne). Le clic existait en base et nulle part
+        // ailleurs. Aucun cas en base à ce jour — corrigé avant d'avoir eu lieu.
+        const [{ data: contentLinksRows }, { data: prospectLinksRows }] = await Promise.all([
+          supa.from('content_links').select('platform, desc_calendly_short_url, desc_lm_short_url, lm_short_url').eq('profile_id', user.id),
+          supa.from('prospect_links').select('short_url').eq('profile_id', user.id),
+        ]);
+        const categorie = createLinkCategoryResolver({
+          contentLinks: contentLinksRows ?? [],
+          prospectShortUrls: (prospectLinksRows ?? []).map((r: { short_url: string | null }) => r.short_url),
+        })(existingSnapshot.path ?? '', pl.short_url, existingSnapshot.original_url ?? '');
+
+        // `backfill_source: 'manual'` protège cette ligne de la fenêtre
+        // d'auto-réparation du cron (cf. migration
+        // 20260828150000_upsert_shortio_protege_les_lignes_manuelles) : une affirmation
+        // du coach ne se fait pas écraser par une re-dérivation depuis le flux de clics.
         ops.push(
           supa.rpc('upsert_shortio_link_snapshot', {
             p_profile_id:     user.id,
@@ -166,6 +185,7 @@ export async function POST(request: Request) {
             p_top_cities:     null,
             p_utm_sources:    null,
             p_utm_mediums:    null,
+            p_link_category:  categorie,
           }).then()
         );
       }
