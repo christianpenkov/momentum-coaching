@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireCallAccess, serviceSupabase } from '@/lib/callAccess';
+import { calculerCash, type LignePaiement } from '@/lib/dealCash';
+import { desactiverLiensDuDeal } from '@/lib/stripe-payment-links';
 
 // PATCH /api/calls/[id]/rapport
 //
@@ -67,6 +69,47 @@ export async function PATCH(
 
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: 'Aucune donnée à mettre à jour' }, { status: 400 });
+  }
+
+  // ── La vente cesse d'en être une ────────────────────────────────────────────
+  // Corriger un rapport de « vente conclue » vers autre chose laissait le deal
+  // intact dans la page Paiements : le pipeline disait « pas de vente » pendant
+  // que le cash contracté continuait de la compter. Deux écrans qui se
+  // contredisent, sans que rien ne l'explique.
+  //
+  // Ce qui décide, c'est l'argent réellement encaissé — donc `deals`, qui porte
+  // le cash depuis le 2026-08-20, et pas le drapeau `deal_closed` du call.
+  if (patch.deal_closed === false) {
+    const { data: deals } = await serviceSupabase
+      .from('deals')
+      .select('id, profile_id, amount_total, deal_payments(amount, status)')
+      .eq('call_id', id)
+      .neq('status', 'canceled');
+
+    for (const deal of deals ?? []) {
+      const cash = calculerCash((deal as { deal_payments?: LignePaiement[] }).deal_payments);
+
+      // De l'argent est entré : on refuse plutôt que de le faire disparaître des
+      // statistiques. « Pas de vente » et « ce client m'a payé » sont
+      // contradictoires — si les deux sont vrais, il y a une erreur de saisie,
+      // et elle se corrige en remboursant, pas en effaçant.
+      if (cash.net > 0.01) {
+        return NextResponse.json({
+          error: `Cette vente a déjà encaissé ${Math.round(cash.net)} €. Pour la repasser en « pas de vente », il faut d'abord rembourser ton client.`,
+          code: 'deal_encaisse',
+          dealId: deal.id,
+          encaisse: cash.net,
+        }, { status: 409 });
+      }
+    }
+
+    // Rien d'encaissé : la vente est annulée, et ses liens cessent d'être
+    // payables. Sans cette désactivation, un client qui retrouve un lien dans sa
+    // conversation paierait une vente qui n'existe plus.
+    for (const deal of deals ?? []) {
+      await serviceSupabase.from('deals').update({ status: 'canceled' }).eq('id', deal.id);
+      await desactiverLiensDuDeal(serviceSupabase, deal.id, String(deal.profile_id));
+    }
   }
 
   const { error } = await serviceSupabase

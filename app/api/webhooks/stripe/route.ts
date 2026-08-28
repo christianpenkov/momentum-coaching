@@ -184,7 +184,7 @@ async function recordPayment(supabase: Supa, params: {
 async function refreshDealStatus(supabase: Supa, dealId: string) {
   const { data: deal } = await supabase
     .from('deals')
-    .select('amount_total, status')
+    .select('amount_total, status, call_id')
     .eq('id', dealId)
     .maybeSingle();
   if (!deal) return;
@@ -195,9 +195,22 @@ async function refreshDealStatus(supabase: Supa, dealId: string) {
     .eq('deal_id', dealId);
 
   const status = statutDeal(calculerCash(payments), deal.amount_total, deal.status);
+  if (!status || status === deal.status) return;
 
-  if (status && status !== deal.status) {
-    await supabase.from('deals').update({ status }).eq('id', dealId);
+  await supabase.from('deals').update({ status }).eq('id', dealId);
+
+  // Une vente intégralement remboursée n'est plus une vente conclue : elle doit
+  // sortir du taux de closing, sinon celui-ci se gonfle de ventes qui n'ont pas
+  // tenu. `deal_closed` est ce que lisent les statistiques (story-sequences-stats,
+  // poll-leads, payments/chain).
+  //
+  // ⚠️ `outcome` n'est PAS touché : c'est lui qui décide de la colonne du kanban
+  // (lib/pipelineStage.ts), et le déplacer d'ici ferait bouger une carte sans que
+  // personne ne l'ait demandé. Le lead reste donc affiché en « Closé » alors qu'il
+  // ne compte plus dans le taux — décalage assumé, à trancher avec le chantier
+  // pipeline.
+  if (status === 'canceled' && deal.call_id) {
+    await supabase.from('calls').update({ deal_closed: false }).eq('id', deal.call_id);
   }
 }
 

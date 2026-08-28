@@ -1,4 +1,5 @@
 import Stripe from 'stripe';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { getStripeAccess, type StripeAccess } from '@/lib/stripe-account';
 import { shortenUrl } from '@/lib/shortio-create';
 
@@ -100,6 +101,16 @@ export async function createDealPaymentLink(
         ...(recurring ? { recurring } : {}),
       },
     }],
+    // Un lien Stripe est réutilisable à l'infini par défaut, et n'est lié à
+    // personne. Sur un paiement en 3 fois, l'élève envoie trois liens dans la
+    // même conversation : un mois plus tard, le client remonte dans ses
+    // messages, retrouve le plus facile à trouver — le premier — et paie une
+    // deuxième fois la même échéance. L'écran dit alors « pas payé », le client
+    // dit « j'ai payé », et l'élève relance quelqu'un qui est à jour.
+    //
+    // Un lien ne sert jamais qu'à un seul encaissement ici : il se désactive
+    // donc de lui-même après le premier paiement.
+    restrictions: { completed_sessions: { limit: 1 } },
     metadata,
     // Sans 'always', Stripe ne crée un Customer que s'il en a besoin — or on en a
     // besoin pour rattacher les paiements suivants et pour l'écran de réconciliation.
@@ -145,6 +156,75 @@ export async function createDealPaymentLink(
     stripeUrl: link.url,
     shortioId: short?.id ?? null,
   };
+}
+
+/**
+ * Le message que verra un client qui ouvre un lien devenu caduc.
+ *
+ * Stripe n'autorise pas de redirection : la page reste chez lui, on ne peut que
+ * choisir ce qu'elle raconte. Autant que ce soit une consigne plutôt qu'une
+ * erreur — le client n'a rien fait de mal, il a juste un ancien lien.
+ */
+const LIEN_INACTIF =
+  "Ce lien de paiement n'est plus valable. Recontacte ton accompagnateur pour recevoir le bon lien.";
+
+/**
+ * Désactive tous les liens de paiement d'un deal.
+ *
+ * Appelée dès qu'un deal cesse d'être payable — vente annulée, rapport repassé
+ * en « pas de vente », montant corrigé. Sans elle, un client qui remonte dans
+ * ses messages retrouve un lien mort-vivant et paie une vente qui n'existe plus :
+ * de l'argent à rendre, pour une situation qu'on pouvait empêcher.
+ *
+ * C'est la seule action que Momentum se permet sur Stripe de sa propre
+ * initiative, et elle est **réversible** (`active: true` remet le lien en
+ * service) — contrairement à l'annulation d'un prélèvement, qui est définitive
+ * et reste donc toujours entre les mains de l'élève.
+ *
+ * Ne lève jamais : un lien déjà inactif, supprimé chez Stripe ou injoignable ne
+ * doit pas faire échouer l'action qui l'a déclenchée. Le compte des liens
+ * réellement désactivés est renvoyé pour que l'écran annonce ce qui a eu lieu,
+ * et rien de plus.
+ */
+export async function desactiverLiensDuDeal(
+  supa: SupabaseClient,
+  dealId: string,
+  profileId: string,
+): Promise<{ desactives: number }> {
+  const access = await getStripeAccess(profileId);
+  if (!access) return { desactives: 0 };
+
+  const ids = new Set<string>();
+
+  const { data: deal } = await supa.from('deals')
+    .select('stripe_payment_link_id').eq('id', dealId).maybeSingle();
+  if (deal?.stripe_payment_link_id) ids.add(String(deal.stripe_payment_link_id));
+
+  // En mode manuel, chaque échéance porte son propre lien — et celui de la
+  // première est recopié sur le deal (links/route.ts). Le Set absorbe le doublon.
+  const { data: echeances } = await supa.from('deal_installments')
+    .select('stripe_payment_link_id').eq('deal_id', dealId);
+  for (const e of echeances ?? []) {
+    if (e.stripe_payment_link_id) ids.add(String(e.stripe_payment_link_id));
+  }
+
+  let desactives = 0;
+  for (const id of ids) {
+    try {
+      await access.stripe.paymentLinks.update(
+        id,
+        { active: false, inactive_message: LIEN_INACTIF },
+        access.opts,
+      );
+      desactives++;
+    } catch (err) {
+      // Déjà inactif, supprimé chez Stripe, réseau coupé : on note et on continue.
+      // Bloquer ici empêcherait d'annuler une vente pour un lien secondaire.
+      console.error(`[stripe] désactivation du lien ${id} impossible (deal ${dealId})`, err);
+    }
+  }
+
+  return { desactives };
 }
 
 /**

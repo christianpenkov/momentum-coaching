@@ -182,6 +182,11 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
   // État transitoire d'interface — jamais sérialisé.
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Deal déjà créé pour cette vente — voir createDeal. Un `ref` et non un state :
+  // il ne doit surtout pas déclencher de rendu, et il doit survivre au rendu
+  // suivant un rapport en erreur pour que le second clic ne crée pas un doublon.
+  const dealCree = useRef<{ url: string | null } | null>(null);
   const [confirmRestart, setConfirmRestart] = useState(false);
   const [restartChecked, setRestartChecked] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -540,53 +545,74 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
   async function createDeal(skipLink: boolean) {
     const amount = parseFloat(revenue.replace(',', '.')) || 0;
 
-    // Le rapport part MAINTENANT, pas à l'étape commentaire : les modalités de
-    // paiement sont la dernière question, et tant qu'elles ne sont pas choisies le
-    // rapport n'est pas terminé. Avant lui pour que le deal créé juste après
-    // trouve un call déjà rapporté (outcome + montant), comme quand le rapport
-    // était soumis plus tôt.
-    //
-    // En correction le rapport est déjà en base : `submitRapport` le réécrit à
-    // l'identique, sans effet de bord.
-    if (!(await submitRapport(answers))) return; // erreur affichée, on reste ici
-
     setSaving(true);
     setError(null);
     try {
-      const r = await fetch('/api/payments/links', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          buyerName: inviteeName || 'Client',
-          amount,
-          callId,
-          // `offline` : hors Stripe. Le plan reste transmis tel quel — un
-          // encaissement en 3 virements est bien un échéancier, il a juste
-          // besoin d'être coché à la main plutôt que payé par lien.
-          offline: skipLink,
-          // Hors Stripe seulement : l'argent est-il déjà arrivé, et sinon pour
-          // quelle date l'attendre. Sans ça un virement convenu comptait comme
-          // encaissé, et le cash affichait de l'argent pas encore reçu.
-          ...(skipLink ? { alreadyReceived: offlineReceived === true, dueOn: offlineDue } : {}),
-          paymentPlan: plan === 1
-            ? 'one_shot'
-            : (skipLink || !autoDebit) ? 'installments_manual' : 'installments_auto',
-          installmentsCount: plan === 1 ? null : plan,
-          installmentInterval: 'month',
-        }),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || 'Création impossible');
+      // ── Le deal D'ABORD, le rapport ensuite ─────────────────────────────────
+      // L'ordre inverse laissait l'appel marqué « vente conclue » avec un montant
+      // alors qu'aucun deal n'existait, dès que Stripe refusait ou que le réseau
+      // lâchait : l'argent comptait dans les statistiques du call mais restait
+      // introuvable dans la page Paiements, sans que rien ne le signale.
+      //
+      // Le commentaire précédent justifiait l'ordre par « le deal doit trouver un
+      // call déjà rapporté » — ce n'est pas vrai : /api/payments/links ne lit du
+      // call que ig_lead_id, prospect_id, utm_content et source, qu'aucun rapport
+      // n'écrit. Vérifié dans links/route.ts et lib/rapportPatch.ts.
+      //
+      // L'échec restant — deal créé puis rapport en erreur — est le moins grave
+      // des deux : le cash reste juste (c'est `deals` qui le porte depuis le
+      // 2026-08-20), seul le drapeau manque, et l'écran reste ouvert pour
+      // réessayer.
+      if (!dealCree.current) {
+        const r = await fetch('/api/payments/links', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            buyerName: inviteeName || 'Client',
+            amount,
+            callId,
+            // `offline` : hors Stripe. Le plan reste transmis tel quel — un
+            // encaissement en 3 virements est bien un échéancier, il a juste
+            // besoin d'être coché à la main plutôt que payé par lien.
+            offline: skipLink,
+            // Hors Stripe seulement : l'argent est-il déjà arrivé, et sinon pour
+            // quelle date l'attendre. Sans ça un virement convenu comptait comme
+            // encaissé, et le cash affichait de l'argent pas encore reçu.
+            ...(skipLink ? { alreadyReceived: offlineReceived === true, dueOn: offlineDue } : {}),
+            paymentPlan: plan === 1
+              ? 'one_shot'
+              : (skipLink || !autoDebit) ? 'installments_manual' : 'installments_auto',
+            installmentsCount: plan === 1 ? null : plan,
+            installmentInterval: 'month',
+          }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || 'Création impossible');
+
+        // ⚠️ Mémorisé AVANT toute autre écriture. Sans ce garde, un rapport en
+        // erreur suivi d'un second clic créerait un deuxième deal pour la même
+        // vente — le prix à payer de l'inversion, et sa seule contrepartie.
+        dealCree.current = { url: d.url ?? null };
+      }
+
+      const { url } = dealCree.current;
+
+      // Le rapport part MAINTENANT : les modalités de paiement sont sa dernière
+      // question, et tant qu'elles ne sont pas choisies il n'est pas terminé.
+      //
+      // En correction le rapport est déjà en base : `submitRapport` le réécrit à
+      // l'identique, sans effet de bord.
+      if (!(await submitRapport(answers))) return; // erreur affichée, on reste ici
 
       // La dernière question du rapport vient d'être répondue.
       setAnswers(prev => ({ ...prev, paymentDone: true }));
 
       // ⚠️ Ne jamais revenir à `comment` ici : cette étape mène à `payment`, ce qui
       // bouclait à l'infini et empêchait d'enregistrer.
-      if (skipLink || !d.url) {
+      if (skipLink || !url) {
         setStep('celebration');
       } else {
-        setPaymentUrl(d.url);
+        setPaymentUrl(url);
       }
     } catch (e: any) {
       setError(e.message || 'Erreur lors de la création du lien');
