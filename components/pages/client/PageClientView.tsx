@@ -13,7 +13,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNotifications } from '@/lib/useNotifications';
 import { useUser } from '@/lib/UserContext';
 import RapportModal from '@/components/ui/RapportModalLoader';
-import PendingRapportCard from '@/components/ui/PendingRapportCard';
+import PendingRapportCard, { type PendingRapportItem } from '@/components/ui/PendingRapportCard';
 import { getDeadlineStatus } from '@/lib/clientSignals';
 import DeadlineBadge from '@/components/ui/DeadlineBadge';
 import TrendBadge from '@/components/ui/TrendBadge';
@@ -200,6 +200,41 @@ export default function PageClientView() {
     );
   }
 
+  // File d'attente unique de l'accueil. L'ordre est délibéré :
+  //   1. les demandes de call — le coach attend une réponse, et la date approche ;
+  //   2. les rapports, du PLUS ANCIEN au plus récent — un rapport vieillit mal,
+  //      passé quelques jours on ne se souvient plus du call.
+  const fileAttente: PendingRapportItem[] = [
+    ...callRequestNotifs.map(notif => ({
+      id: notif.id,
+      callId: notif.callId ?? '',
+      kicker: `DEMANDE DE CALL${client.coachName ? ` AVEC ${client.coachName.toUpperCase()}` : ''}`,
+      title: notif.body,
+      scheduledAt: notif.scheduledAt,
+      duration: notif.duration,
+      // Une invitation n'a pas de brouillon : l'exclure du listing évite une
+      // recherche vouée à ne rien trouver.
+      trackDraft: false,
+      actions: (
+        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+          <CallRequestInlineButtons callId={notif.callId!} onRefresh={refresh} />
+        </div>
+      ),
+    })),
+    ...[...rapportNotifs]
+      .sort((a, b) =>
+        new Date(a.scheduledAt ?? 0).getTime() - new Date(b.scheduledAt ?? 0).getTime())
+      .map(notif => ({
+        id: notif.id,
+        // `notif.id` vaut `rapport_<uuid>` : le callId est distinct, et c'est lui
+        // qui permet de retrouver le brouillon.
+        callId: notif.callId ?? '',
+        title: notif.inviteeName ? `Appel avec ${notif.inviteeName}` : 'Appel découverte',
+        scheduledAt: notif.scheduledAt,
+        duration: notif.duration,
+      })),
+  ];
+
   const tasks = client.tasks.map(t => ({ ...t, done: taskOverrides[t.id] ?? t.done }));
   const coachTasks = tasks.filter(t => t.added_by === 'coach');
   const doneCount = coachTasks.filter(t => t.done).length;
@@ -232,7 +267,7 @@ export default function PageClientView() {
 
       {/* Prochain call */}
       {nextCall?.scheduled_at && (
-        <div className="next-call-banner card" style={{ marginBottom: 20, borderLeft: '3px solid var(--accent-brand)', padding: '20px' }}>
+        <div className="next-call-banner card" style={{ marginBottom: 20, padding: '20px' }}>
           <div className="next-call-banner-top">
             <Avatar
               initials={getCallCounterpart(nextCall).initials || getInitials(getCallCounterpart(nextCall).name)}
@@ -290,55 +325,24 @@ export default function PageClientView() {
         </div>
       )}
 
-      {/* Demandes de call coaching en attente */}
-      {callRequestNotifs.length > 0 && (
-        <div style={{ marginBottom: 20 }}>
-          <div className="eyebrow-lg" style={{ color: 'var(--accent)', marginBottom: 10 }}>
-            {callRequestNotifs.length} demande{callRequestNotifs.length > 1 ? 's' : ''} de call en attente
-          </div>
-          {callRequestNotifs.map(notif => (
-            <div key={notif.id} className="card" style={{ borderLeft: '3px solid var(--accent-brand)', padding: '18px 20px', marginBottom: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                <div>
-                  {/* Le prénom du coach nomme l'expéditeur de la demande : sans lui,
-                      l'élève voyait "DEMANDE DE CALL COACHING" sans savoir de qui. */}
-                  <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 4 }}>
-                    DEMANDE DE CALL COACHING{client?.coachName ? ` AVEC ${client.coachName.toUpperCase()}` : ''}
-                  </div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>{notif.body}</div>
-                  {notif.scheduledAt && (
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                      {formatDateIn(new Date(notif.scheduledAt), viewerTz)}
-                      {' · '}
-                      {formatTimeIn(new Date(notif.scheduledAt), viewerTz)}
-                      {notif.duration && <span style={{ marginLeft: 8 }}>· {notif.duration}</span>}
-                    </div>
-                  )}
-                </div>
-                <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                  <CallRequestInlineButtons callId={notif.callId!} onRefresh={refresh} />
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Rapports de call en attente — carrousel partagé avec l'accueil coach et la
-          page Calls. Pas de badge de type ici : l'élève n'a que des rapports de
-          vente, un badge y afficherait toujours le même mot. */}
+      {/* Un seul fil pour tout ce qui attend une action : demandes de call
+          d'abord, rapports ensuite du plus ancien au plus récent.
+          Les deux blocs étaient séparés et empilés — deux titres, deux
+          rythmes, et sur mobile une hauteur qui repoussait les KPI hors de
+          l'écran. Les regrouper donne une seule question à l'élève :
+          « qu'est-ce que j'ai à traiter ? » */}
       <PendingRapportCard
-        items={rapportNotifs.map(notif => ({
-          id: notif.id,
-          // `notif.id` vaut `rapport_<uuid>` : le callId est distinct, et c'est lui
-          // qui permet de retrouver le brouillon.
-          callId: notif.callId ?? '',
-          title: notif.inviteeName ? `Appel avec ${notif.inviteeName}` : 'Appel découverte',
-          scheduledAt: notif.scheduledAt,
-          duration: notif.duration,
-        }))}
-        onOpen={(_item, index) => {
-          const notif = rapportNotifs[index];
+        label={
+          fileAttente.length === 1
+            ? '1 chose à traiter'
+            : `${fileAttente.length} choses à traiter`
+        }
+        items={fileAttente}
+        onOpen={(item) => {
+          // L'index du fil ne correspond plus à celui de `rapportNotifs` depuis
+          // que les demandes de call ouvrent la marche : on retrouve la
+          // notification par son id plutôt que par sa position.
+          const notif = rapportNotifs.find(n => n.id === item.id);
           if (notif) setOpenRapport(notif);
         }}
       />

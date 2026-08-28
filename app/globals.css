@@ -2647,6 +2647,9 @@ a { color: inherit; text-decoration: none; }
   }
 
   /* Carrousel de rapports — fleches de navigation a 32px. */
+  /* .carousel-arrow : plus aucune fleche laterale dans le fil des rapports
+     (voir .rapport-fil). Regle conservee pour tout autre carrousel qui
+     reutiliserait la classe. */
   .carousel-arrow { min-width: 44px !important; min-height: 44px !important; }
 
   /* Ressources — le bouton "Mes dossiers" (icone seule, 35x33px) etait la
@@ -2741,6 +2744,83 @@ a { color: inherit; text-decoration: none; }
     padding: 8px 14px !important;
     font-size: 13px !important;
   }
+}
+
+/* ── Fil des rapports et invitations en attente ─────────────────────────────
+   Remplace deux fleches laterales par un defilement natif avec accroche.
+   Sur mobile les fleches faisaient 44 px chacune et prelevaient 104 px avec
+   leurs gouttieres, sur 358 px disponibles : la carte tombait a 211 px de
+   contenu utile, soit 54 % de l'ecran, et les fleches restaient affichees
+   (a opacity 0.2) meme quand il n'y avait qu'un seul element.
+
+   `scroll-snap` plutot qu'une bibliotheque : inertie native, fonctionne au
+   doigt comme au pave tactile, rien a maintenir.                            */
+.rapport-fil {
+  display: flex;
+  gap: 12px;              /* doit rester egal a SLIDE_GAP dans PendingRapportCard */
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  /* Le debord de la carte suivante EST l'indice de defilement : un element
+     visiblement coupe se lit comme « ca continue ». Il remplace la mention
+     « glisser pour voir le suivant », qu'aucune interface n'a besoin d'ecrire.
+     Les pastilles, elles, disent la position, jamais le geste. */
+  scroll-padding-inline: 0;
+  /* Ascenseur masque : le fil se manipule au doigt ou par les pastilles, une
+     barre de defilement y ajouterait un element de chrome sans usage. */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  /* Laisse respirer l'ombre et le contour des cartes, que `overflow` couperait. */
+  padding: 2px 2px 4px;
+  margin: -2px -2px -4px;
+}
+.rapport-fil::-webkit-scrollbar { display: none; }
+
+.rapport-slide {
+  scroll-snap-align: start;
+  flex: 0 0 calc(100% - 28px);
+  min-width: 0;
+}
+/* Un seul element : rien a faire defiler, la carte prend toute la largeur et
+   aucun debord ne suggere une suite qui n'existe pas. */
+.rapport-fil-seul .rapport-slide { flex-basis: 100%; }
+
+.rapport-points {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  margin-top: 11px;
+}
+.rapport-point {
+  position: relative;
+  width: 6px;
+  height: 6px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--border);
+  cursor: pointer;
+  transition: width .18s ease-out, background .18s ease-out;
+}
+/* Cible tactile portee a 44 px sans grossir le point : sinon trois pastilles
+   de 6 px cote a cote sont impossibles a viser au pouce. */
+.rapport-point::before {
+  content: '';
+  position: absolute;
+  inset: -19px -6px;
+}
+.rapport-point.actif {
+  width: 16px;
+  border-radius: 3px;
+  background: var(--accent-brand);
+}
+.rapport-point:focus-visible {
+  outline: 2px solid var(--accent-brand);
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rapport-point { transition: none; }
+  .rapport-fil { scroll-behavior: auto; }
 }
 
 /* ── Bottom Navigation Bar (mobile uniquement) ──────────────────────────────── */

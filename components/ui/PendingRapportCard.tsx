@@ -1,10 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useViewerTimeZone } from '@/lib/UserContext';
 import { formatDateIn, formatTimeIn } from '@/lib/timezone';
 import { formatDraftAge } from '@/lib/draftAge';
 import { usePendingDrafts } from '@/lib/usePendingDrafts';
+
+/**
+ * Gouttiere entre deux cartes du fil. Doit rester identique a la valeur `gap`
+ * de `.rapport-fil` dans globals.css : le calcul de la position courante en
+ * depend, et un ecart y decalerait la pastille active d'une carte.
+ */
+const SLIDE_GAP = 12;
 
 /**
  * Carrousel « N rapports en attente », partagé par les trois écrans qui l'affichent :
@@ -53,18 +60,39 @@ export interface PendingRapportItem {
    * repère de progression et bascule le bouton sur « Reprendre ».
    */
   draft?: { stepIndex: number; stepTotal: number; updatedAt: string } | null;
+  /**
+   * Libellé de l'étiquette bleue en haut de carte. Par défaut « RAPPORT DE CALL ».
+   * Une demande de call coaching y met son propre intitulé : depuis que les
+   * invitations et les rapports partagent le même fil, une carte doit pouvoir
+   * dire ce qu'elle est.
+   */
+  kicker?: string;
+  /**
+   * Actions de la carte. Par défaut le bouton « Remplir / Reprendre le rapport ».
+   * Une invitation y passe ses deux boutons Accepter / Refuser — c'est ce qui
+   * permet au carrousel d'héberger des cartes qui ne se traitent pas pareil.
+   */
+  actions?: React.ReactNode;
+  /**
+   * `false` pour une carte qui n'a pas de brouillon possible (invitation) : elle
+   * est alors exclue de la requête de listing au lieu d'y envoyer un id pour rien.
+   */
+  trackDraft?: boolean;
 }
 
 interface Props {
   items: PendingRapportItem[];
   onOpen: (item: PendingRapportItem, index: number) => void;
+  /** Titre au-dessus du fil. Par défaut « N rapport(s) en attente ». */
+  label?: string;
   arrowSize?: number;
   marginBottom?: number;
 }
 
-export default function PendingRapportCard({ items, onOpen, arrowSize = 32, marginBottom = 20 }: Props) {
+export default function PendingRapportCard({ items, onOpen, label, marginBottom = 20 }: Props) {
   const [idx, setIdx] = useState(0);
   const viewerTz = useViewerTimeZone();
+  const scrollerRef = useRef<HTMLDivElement>(null);
 
   // Les brouillons sont chargés ICI et non par les trois appelants : une seule
   // requête, un seul endroit à maintenir. Les appelants n'ont rien à savoir des
@@ -72,7 +100,32 @@ export default function PendingRapportCard({ items, onOpen, arrowSize = 32, marg
   //
   // Le hook est appelé avant tout `return` conditionnel : la règle des hooks
   // interdit d'en sauter un selon la longueur de la liste.
-  const drafts = usePendingDrafts(items.map(i => i.callId));
+  const drafts = usePendingDrafts(
+    items.filter(i => i.trackDraft !== false).map(i => i.callId)
+  );
+
+  // Position courante deduite du defilement reel, jamais d'un etat qu'on
+  // essaierait de garder synchronise a la main : le doigt peut s'arreter
+  // n'importe ou, c'est l'accroche CSS qui tranche.
+  const onScroll = () => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const first = el.firstElementChild as HTMLElement | null;
+    if (!first) return;
+    const step = first.offsetWidth + SLIDE_GAP;
+    const next = Math.round(el.scrollLeft / step);
+    setIdx(prev => (prev === next ? prev : next));
+  };
+
+  const goTo = (i: number) => {
+    const el = scrollerRef.current;
+    const first = el?.firstElementChild as HTMLElement | null;
+    if (!el || !first) return;
+    // `smooth` seulement si l'utilisateur n'a pas demande a reduire les
+    // animations — un defilement anime est exactement ce que ce reglage vise.
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    el.scrollTo({ left: i * (first.offsetWidth + SLIDE_GAP), behavior: reduced ? 'auto' : 'smooth' });
+  };
 
   if (items.length === 0) return null;
 
@@ -80,82 +133,67 @@ export default function PendingRapportCard({ items, onOpen, arrowSize = 32, marg
   // que l'index bouge). On borne au rendu plutôt que de synchroniser dans un effet :
   // pas de rendu intermédiaire sur une carte vide.
   const safeIdx = Math.min(idx, items.length - 1);
-  // Le brouillon vient du listing, jamais de l'appelant : `item.draft` reste
-  // disponible comme échappatoire si un écran devait un jour le fournir lui-même.
-  const item = { ...items[safeIdx], draft: items[safeIdx].draft ?? drafts[items[safeIdx].callId] ?? null };
-  const atStart = safeIdx === 0;
-  const atEnd = safeIdx === items.length - 1;
   const single = items.length <= 1;
-
-  const arrowStyle = (disabled: boolean) => ({
-    flexShrink: 0,
-    background: 'var(--surface-2)',
-    border: '1px solid var(--border)',
-    borderRadius: 8,
-    width: arrowSize,
-    height: arrowSize,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: 18,
-    cursor: disabled ? 'default' : 'pointer',
-    opacity: disabled || single ? 0.2 : 1,
-  });
 
   return (
     <div style={{ marginBottom }}>
       <div className="eyebrow-lg" style={{ color: 'var(--accent-brand)', marginBottom: 10 }}>
-        {items.length} rapport{items.length > 1 ? 's' : ''} en attente
+        {label ?? `${items.length} rapport${items.length > 1 ? 's' : ''} en attente`}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <button
-          type="button"
-          onClick={() => setIdx(i => Math.max(0, i - 1))}
-          disabled={atStart || single}
-          style={arrowStyle(atStart)}
-          aria-label="Rapport précédent"
-          className="carousel-arrow"
-        >‹</button>
 
-        <div className="card" style={{ flex: 1, borderLeft: '3px solid var(--accent-brand)', padding: '18px 20px' }}>
+      {/* Defilement natif avec accroche, plutot que deux fleches laterales.
+          Les fleches faisaient 44 px chacune sur mobile et prelevaient 104 px
+          avec leurs gouttieres, sur 358 px disponibles : la carte tombait a
+          211 px de contenu utile, et elles restaient affichees (a opacity 0.2)
+          meme pour un seul element.
+          Le debord de la carte suivante remplace le mot « glisser » : un
+          element visiblement coupe se lit comme « ca continue ». */}
+      <div
+        ref={scrollerRef}
+        onScroll={onScroll}
+        className={`rapport-fil${single ? ' rapport-fil-seul' : ''}`}
+      >
+        {items.map((raw, i) => {
+        const it = { ...raw, draft: raw.draft ?? drafts[raw.callId] ?? null };
+        return (
+        <div className="rapport-slide" key={it.id}>
+        {/* Plus de `border-left: 3px` colore : un liseré decoratif qui decalait
+            le texte de 3 px par rapport aux autres cartes de la page, et
+            repetait ce que l'etiquette bleue dit deja en toutes lettres. */}
+        <div className="card" style={{ padding: '18px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
             <div style={{ minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent-brand)' }}>
-                  RAPPORT DE CALL
-                  {items.length > 1 && (
-                    <span style={{ fontWeight: 400, color: 'var(--muted)', marginLeft: 8 }}>
-                      {safeIdx + 1} / {items.length}
-                    </span>
-                  )}
+                  {it.kicker ?? 'RAPPORT DE CALL'}
                 </span>
-                {item.badge && (
+                {it.badge && (
                   <span style={{
                     fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, flexShrink: 0,
-                    background: item.badge.tone === 'coaching' ? 'var(--surface-2)' : 'var(--accent-brand-soft)',
-                    color: item.badge.tone === 'coaching' ? 'var(--accent)' : 'var(--accent-brand)',
+                    background: it.badge.tone === 'coaching' ? 'var(--surface-2)' : 'var(--accent-brand-soft)',
+                    color: it.badge.tone === 'coaching' ? 'var(--accent)' : 'var(--accent-brand)',
                   }}>
-                    {item.badge.label}
+                    {it.badge.label}
                   </span>
                 )}
               </div>
 
-              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>{item.title}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>{it.title}</div>
 
-              {item.subtitle && (
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{item.subtitle}</div>
+              {it.subtitle && (
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{it.subtitle}</div>
               )}
 
-              {item.scheduledAt && (
+              {it.scheduledAt && (
                 // Formaté dans le fuseau du lecteur. L'accueil coach utilisait
                 // `toLocaleDateString` sans fuseau, donc l'heure de l'appareil : un
                 // coach hors de France y voyait une heure fausse, alors que les deux
                 // écrans élève étaient déjà corrects. L'extraction aligne les trois.
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                  {formatDateIn(new Date(item.scheduledAt), viewerTz)}
+                  {formatDateIn(new Date(it.scheduledAt), viewerTz)}
                   {' · '}
-                  {formatTimeIn(new Date(item.scheduledAt), viewerTz)}
-                  {item.duration && <span style={{ marginLeft: 8 }}>· {item.duration}</span>}
+                  {formatTimeIn(new Date(it.scheduledAt), viewerTz)}
+                  {it.duration && <span style={{ marginLeft: 8 }}>· {it.duration}</span>}
                 </div>
               )}
 
@@ -164,46 +202,61 @@ export default function PendingRapportCard({ items, onOpen, arrowSize = 32, marg
                   reprendre le brouillon ou repartir de zéro — passé quelques jours on
                   ne reconnaît plus ses propres réponses, et ce rapport-là compte dans
                   les statistiques. L'étape suit, en retrait. */}
-              {item.draft && (
+              {it.draft && (
                 <div style={{
                   display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 6,
                   fontSize: 10.5, fontWeight: 700, padding: '3px 8px', borderRadius: 20,
                   background: 'var(--accent-brand-soft)', color: 'var(--accent-brand)',
                 }}>
                   {(() => {
-                    const age = formatDraftAge(item.draft.updatedAt);
+                    const age = formatDraftAge(it.draft.updatedAt);
                     // `age` ne vaut null que sur une date absente, invalide ou future :
                     // la pastille reste alors lisible sans repère de temps.
                     return age ? `Commencé ${age}` : 'Commencé';
                   })()}
                   <span style={{ opacity: 0.45, fontWeight: 400 }}>·</span>
                   <span style={{ fontWeight: 600, opacity: 0.8 }}>
-                    étape {item.draft.stepIndex}/{item.draft.stepTotal}
+                    étape {it.draft.stepIndex}/{it.draft.stepTotal}
                   </span>
                 </div>
               )}
             </div>
 
-            <button
-              className="btn-primary-brand"
-              type="button"
-              style={{ fontSize: 13, background: 'var(--accent-brand)', flexShrink: 0 }}
-              onClick={() => onOpen(item, safeIdx)}
-            >
-              {item.draft ? 'Reprendre le rapport' : 'Remplir le rapport'}
-            </button>
+            {it.actions ?? (
+              <button
+                className="btn-primary-brand"
+                type="button"
+                style={{ fontSize: 13, background: 'var(--accent-brand)', flexShrink: 0 }}
+                onClick={() => onOpen(it, i)}
+              >
+                {it.draft ? 'Reprendre le rapport' : 'Remplir le rapport'}
+              </button>
+            )}
           </div>
         </div>
-
-        <button
-          type="button"
-          onClick={() => setIdx(i => Math.min(items.length - 1, i + 1))}
-          disabled={atEnd || single}
-          style={arrowStyle(atEnd)}
-          aria-label="Rapport suivant"
-          className="carousel-arrow"
-        >›</button>
+        </div>
+        );
+        })}
       </div>
+
+      {/* Pastilles : reperes de position ET seul controle au clic (desktop, ou
+          le glissement au doigt n'existe pas). La cible tactile est portee a
+          44 px par un pseudo-element, sans grossir le point lui-meme. */}
+      {!single && (
+        <div className="rapport-points" role="tablist" aria-label="Navigation entre les cartes">
+          {items.map((it, i) => (
+            <button
+              key={it.id}
+              type="button"
+              role="tab"
+              aria-selected={i === safeIdx}
+              aria-label={`Carte ${i + 1} sur ${items.length}`}
+              className={`rapport-point${i === safeIdx ? ' actif' : ''}`}
+              onClick={() => goTo(i)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

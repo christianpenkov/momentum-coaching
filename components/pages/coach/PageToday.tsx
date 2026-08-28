@@ -11,7 +11,7 @@ import CreateCallModal from '@/components/ui/CreateCallModal';
 import CallStack from '@/components/ui/CallStack';
 import SessionRapportModal from '@/components/ui/SessionRapportModalLoader';
 import RapportModal from '@/components/ui/RapportModalLoader';
-import PendingRapportCard from '@/components/ui/PendingRapportCard';
+import PendingRapportCard, { type PendingRapportItem } from '@/components/ui/PendingRapportCard';
 import { StaggerGrid, StaggerItem } from '@/components/ui/StaggerGrid';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { useUser } from '@/lib/UserContext';
@@ -186,7 +186,7 @@ export default function PageToday() {
       </div>
 
       {shape.hasNextCall && (
-        <div className="card" style={{ marginTop: 20, marginBottom: 20, borderLeft: '3px solid var(--border)', padding: '24px 24px' }}>
+        <div className="card" style={{ marginTop: 20, marginBottom: 20, padding: '24px 24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
             <div style={{ flex: 1 }}>
               <Skeleton width={104} height={11} />
@@ -252,7 +252,7 @@ export default function PageToday() {
         const displayName = cl?.name || nextCall.invitee_name || '—';
         const isGoogle = nextCall.call_type === 'google';
         return (
-          <div className="card" style={{ marginBottom: 20, borderLeft: '3px solid var(--accent-brand)', padding: '24px 24px' }}>
+          <div className="card" style={{ marginBottom: 20, padding: '24px 24px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
               <div style={{ flex: 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>

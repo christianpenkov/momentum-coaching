@@ -678,11 +678,10 @@ export default function PageClientCalls() {
         </div>
       </div>
 
-      {/* Rapports en attente — carrousel partagé avec les deux accueils. Flèches à
-          44 px ici (et 32 ailleurs) : cet écran est le plus utilisé au doigt, la
-          cible tactile y était volontairement plus grande. */}
+      {/* Rapports en attente — fil partagé avec les deux accueils. Plus de prop
+          `arrowSize` : les flèches latérales ont disparu au profit d'un
+          défilement avec accroche, dont la cible tactile est le fil lui-même. */}
       <PendingRapportCard
-        arrowSize={44}
         marginBottom={24}
         items={pendingRapports.map(call => ({
           id: call.id,
@@ -772,7 +771,7 @@ export default function PageClientCalls() {
 
       {/* Prochain call */}
       {nextCall ? (
-        <div className="next-call-banner card" style={{ marginBottom: 24, borderLeft: '3px solid var(--accent-brand)', padding: '24px 28px' }}>
+        <div className="next-call-banner card" style={{ marginBottom: 24, padding: '24px 28px' }}>
           <div className="next-call-banner-top">
             <Avatar
               initials={getCallCounterpart(nextCall).initials || getInitials(getCallCounterpart(nextCall).name)}

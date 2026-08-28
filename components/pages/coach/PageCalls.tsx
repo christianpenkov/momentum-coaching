@@ -407,7 +407,7 @@ export default function PageCalls() {
       {nextCall?.scheduled_at && (() => {
         const cp = getCounterpart(nextCall);
         return (
-          <div className="next-call-banner card" style={{ marginBottom: 20, borderLeft: '3px solid var(--accent-brand)', padding: '24px 24px' }}>
+          <div className="next-call-banner card" style={{ marginBottom: 20, padding: '24px 24px' }}>
             <div className="next-call-banner-top">
               <Avatar initials={cp.initials} avatarUrl={cp.avatarUrl} size={52} seed={cp.seed} className="next-call-banner-avatar" />
               <div className="next-call-banner-info">
