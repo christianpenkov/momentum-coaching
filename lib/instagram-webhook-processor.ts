@@ -58,6 +58,7 @@ function debugLog(message: string, data?: any) {
  */
 function tracerEchecEnvoi(etape: string, profileId: string | null, erreur: any, contexte: Record<string, unknown> = {}) {
   console.error(`[IG Webhook] ${etape} refuse par Meta :`, JSON.stringify(erreur));
+  const sousCode = erreur?.error_subcode ?? null;
   serviceSupabase.from('cron_runs').insert({
     fonction: 'ig_envoi_dm',
     profils_en_erreur: 1,
@@ -68,13 +69,93 @@ function tracerEchecEnvoi(etape: string, profileId: string | null, erreur: any, 
       // refuse, notamment sur un commentaire qui en a deja recu un (Meta n'en
       // autorise qu'UN par commentaire, cf. app/api/webhooks/instagram/route.ts).
       code: erreur?.code ?? null,
-      error_subcode: erreur?.error_subcode ?? null,
+      error_subcode: sousCode,
       message: erreur?.message ?? null,
       ...contexte,
     },
   }).then(({ error }) => {
     if (error) console.error('[IG Webhook] trace cron_runs impossible:', error.message);
+    else alerterExploitant(etape, sousCode, erreur?.message ?? null);
   });
+}
+
+/**
+ * Sous-codes Meta connus comme benins.
+ *
+ * 2534014 (« l'utilisateur demande est introuvable ») tombe surtout quand une
+ * reponse privee a deja ete envoyee sur ce commentaire : Meta n'en autorise
+ * qu'UNE. Le webhook et le cron de rattrapage peuvent traiter le meme
+ * commentaire, donc ce refus survient normalement, sans qu'aucun prospect ne
+ * soit perdu — le premier envoi, lui, est bien parti.
+ *
+ * Il ne devient interessant que s'il se REPETE beaucoup : ce serait alors le
+ * signe que les deux chemins se marchent systematiquement dessus.
+ */
+const SOUS_CODES_BENINS = new Set([2534014]);
+
+/**
+ * Previent l'exploitant, avec de quoi trancher immediatement entre « incident
+ * isole » et « a corriger maintenant ».
+ *
+ * Une trace que personne ne lit ne vaut guere mieux qu'une panne silencieuse :
+ * `cron_runs` n'est consulte que si on pense a le faire. Mais notifier a chaque
+ * echec produirait du bruit, et du bruit finit ignore — donc pas de notification
+ * sans element de jugement. C'est le COMPTE sur 24 h qui porte l'information :
+ * une premiere occurrence n'a pas le meme sens que la trentieme.
+ *
+ * D'ou deux seuils seulement, pour ne prevenir qu'aux moments ou la reponse
+ * change : la premiere fois (« c'est arrive »), et le franchissement du seuil de
+ * repetition (« ce n'est plus un hasard »). Entre les deux, on se tait.
+ *
+ * Sans ALERT_PROFILE_ID la fonction ne fait rien : la trace en base reste, seule
+ * la notification est desactivee.
+ */
+function alerterExploitant(etape: string, sousCode: number | null, message: string | null) {
+  const destinataire = process.env.ALERT_PROFILE_ID;
+  const base = process.env.NEXT_PUBLIC_PLATFORM_URL;
+  if (!destinataire || !base || !process.env.CRON_SECRET) return;
+
+  const benin = sousCode !== null && SOUS_CODES_BENINS.has(sousCode);
+  const seuilRepetition = benin ? 20 : 5;
+
+  (async () => {
+    const depuis = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    let requete = serviceSupabase
+      .from('cron_runs')
+      .select('*', { count: 'exact', head: true })
+      .eq('fonction', 'ig_envoi_dm')
+      .gte('ran_at', depuis);
+    // Un sous-code absent ne doit pas etre compte avec les autres : on compare
+    // alors sur l'etape, faute de mieux.
+    requete = sousCode === null
+      ? requete.eq('erreurs->>etape', etape)
+      : requete.eq('erreurs->>error_subcode', String(sousCode));
+
+    const { count, error } = await requete;
+    if (error || count === null) return;
+
+    // On ne parle qu'aux deux moments ou la conclusion change.
+    if (count !== 1 && count !== seuilRepetition) return;
+
+    const verdict = count === 1
+      ? (benin
+          ? 'isolé — probablement un même commentaire traité deux fois, rien à faire'
+          : 'première occurrence — à surveiller')
+      : (benin
+          ? `${count} fois en 24 h — les deux chemins se marchent dessus, à regarder`
+          : `${count} fois en 24 h — récurrent, à corriger maintenant`);
+
+    await fetch(`${base}/api/push/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', authorization: `Bearer ${process.env.CRON_SECRET}` },
+      body: JSON.stringify({
+        profileId: destinataire,
+        title: 'Momentum — envoi Instagram refusé',
+        body: `${etape}${sousCode ? ` · code ${sousCode}` : ''} — ${verdict}${message ? `\n${message}` : ''}`,
+        url: '/client/pipeline',
+      }),
+    });
+  })().catch(e => console.error('[IG Webhook] alerte exploitant impossible:', e?.message || e));
 }
 
 // Insensible à la casse ET aux accents pour le matching mot-clé lead magnet — "Méta"
