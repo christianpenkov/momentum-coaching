@@ -875,11 +875,11 @@ function IgRecu({ children, avatar, avatarUrl, hint, sc }: {
  * C'est ce rectangle qui masque l'URL — d'où son rayon plus faible que la bulle,
  * et sa marge intérieure : il ne touche pas les bords.
  */
-function IgTemplate({ texte, bouton, avatar, avatarUrl, sc }: {
-  texte: string; bouton: string; avatar: boolean; avatarUrl: string | null; sc: number;
+function IgTemplate({ texte, bouton, avatar, avatarUrl, sc, hint }: {
+  texte: string; bouton: string; avatar: boolean; avatarUrl: string | null; sc: number; hint?: boolean;
 }) {
   return (
-    <IgRecu avatar={avatar} avatarUrl={avatarUrl} sc={sc}>
+    <IgRecu avatar={avatar} avatarUrl={avatarUrl} sc={sc} hint={hint}>
       <div style={{ fontWeight: 700, marginBottom: Math.round(7 * sc) }}>{texte}</div>
       <div style={{
         background: '#fff', borderRadius: Math.round(14 * sc),
@@ -921,6 +921,10 @@ function IgFil({ seq, pseudo, avatarUrl, nom, sc, sansCadre }: {
   seq: { accroche: string; accrocheBtn: string; lien: string; lienBtn: string; relance: string };
   pseudo: string; avatarUrl: string | null; nom: string; sc: number; sansCadre?: boolean;
 }) {
+  // Un champ de relance vide n'est pas un message vide : c'est un message qui
+  // n'existe pas. L'aperçu doit donc s'arrêter avant, sans horodatage ni bulle.
+  const aRelance = !!seq.relance.trim();
+
   // On arrive sur le DERNIER message, comme dans une vraie messagerie — et on y
   // revient à chaque modification d'un champ, sinon écrire une longue relance la
   // ferait sortir du champ de vision au moment précis où on veut la relire.
@@ -984,14 +988,26 @@ function IgFil({ seq, pseudo, avatarUrl, nom, sc, sansCadre }: {
 
         <IgTemplate texte={seq.accroche} bouton={seq.accrocheBtn} avatar avatarUrl={avatarUrl} sc={sc} />
         <IgEnvoye texte={seq.accrocheBtn} sc={sc} />
-        <IgTemplate texte={seq.lien} bouton={seq.lienBtn} avatar avatarUrl={avatarUrl} sc={sc} />
+        {/* Sans relance, c'est ce message qui termine la conversation : c'est donc
+            lui qui porte « Appuyez deux fois pour ❤️ », qu'Instagram place sous le
+            dernier message reçu. */}
+        <IgTemplate texte={seq.lien} bouton={seq.lienBtn} avatar avatarUrl={avatarUrl} sc={sc} hint={!aRelance} />
 
-        {/* Horodatage : c'est ici que se lit le délai de 2 minutes */}
-        <div style={{ alignSelf: 'center', flexShrink: 0, fontSize: +(12.5 * sc).toFixed(1), color: IG.gris, padding: `${Math.round(5 * sc)}px 0` }}>
-          {new Date(Date.now() + 2 * 60_000).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-        </div>
+        {/* Relance — et son horodatage — seulement si elle existe. Un champ vide
+            dessinait un trait gris et une bulle sans texte sous une heure : le
+            coach voyait un message fantôme qui ne partira jamais. Sans relance,
+            la conversation s'arrête après le message du lien, exactement comme
+            elle s'arrêtera pour le prospect. */}
+        {aRelance && (
+          <>
+            {/* Horodatage : c'est ici que se lit le délai de 2 minutes */}
+            <div style={{ alignSelf: 'center', flexShrink: 0, fontSize: +(12.5 * sc).toFixed(1), color: IG.gris, padding: `${Math.round(5 * sc)}px 0` }}>
+              {new Date(Date.now() + 2 * 60_000).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+            </div>
 
-        <IgRecu avatar avatarUrl={avatarUrl} hint sc={sc}>{seq.relance}</IgRecu>
+            <IgRecu avatar avatarUrl={avatarUrl} hint sc={sc}>{seq.relance}</IgRecu>
+          </>
+        )}
       </div>
 
       {/* Barre de saisie : le rond est le bouton appareil photo, pas un simple dégradé */}
@@ -2989,7 +3005,12 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
         </div>
       )}
 
-      <div style={{ display: isMobileApercu && vueMobileStory === 'apercu' ? 'none' : 'block' }}>
+      {/* Deux colonnes en desktop, comme la sequence d'un post : les champs a
+          gauche, le telephone a droite. Empiler l'apercu sous le formulaire
+          obligeait a faire defiler pour voir l'effet de ce qu'on venait de
+          taper — or c'est precisement en tapant qu'on veut le voir. */}
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+      <div style={{ flex: 1, minWidth: 0, display: isMobileApercu && vueMobileStory === 'apercu' ? 'none' : 'block' }}>
       <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Mot-clé (reply à la story)</label>
       <input value={lmKeyword} onChange={e => setLmKeyword(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box' }} />
 
@@ -3020,7 +3041,11 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
           relit désormais comme une conversation, pas comme un formulaire.
           Sur mobile il occupe tout l'écran quand la bascule est sur Aperçu, et
           disparaît le reste du temps. */}
-      <div style={{ marginBottom: 14, display: isMobileApercu && vueMobileStory !== 'apercu' ? 'none' : 'block' }}>
+      <div style={{
+        marginBottom: 14,
+        flex: isMobileApercu ? undefined : 'none', width: isMobileApercu ? undefined : 314,
+        display: isMobileApercu && vueMobileStory !== 'apercu' ? 'none' : 'block',
+      }}>
         <span style={{ display: 'block', font: "600 10px 'IBM Plex Mono', monospace", letterSpacing: '.07em', textTransform: 'uppercase', color: MUTED, marginBottom: 8 }}>
           Ce que le prospect verra
         </span>
@@ -3032,6 +3057,7 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
             sansCadre={isMobileApercu}
           />
         </div>
+      </div>
       </div>
 
       {error && <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 10 }}>{error}</div>}
