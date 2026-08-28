@@ -266,17 +266,19 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
       border: '1px solid var(--border)', borderRadius: 12, marginBottom: 12,
       background: 'var(--surface)', overflow: 'hidden',
     }}>
-      {/* Étiquette + pastille */}
+      {/* ── Le bandeau de la vente ─────────────────────────────────────────
+          Beige mat sur toute la largeur, et non un simple titre coloré : c'est
+          la bande qui dit qu'un nouveau bloc de vente commence. Sur une fiche
+          qui en empile trois, une étiquette seule se perd — la bande, non. */}
       <div style={{
-        padding: '12px 14px 0', display: 'flex', gap: 10,
+        padding: '9px 14px', display: 'flex', gap: 10,
+        background: 'var(--taupe-soft)',
+        borderBottom: '1px solid var(--border-soft)',
         // Sur téléphone la pastille passe SOUS le titre : côte à côte, un état
         // long comme « Paiement inattendu » écrasait la date à deux caractères.
         flexDirection: isMobile ? 'column' : 'row',
         alignItems: isMobile ? 'flex-start' : 'baseline',
       }}>
-        {/* Beige mat, et non le gris des autres titres de section : cette
-            étiquette n'est pas un intertitre parmi d'autres, c'est ce qui dit
-            qu'un nouveau bloc de vente commence. */}
         <span className="mono" style={{ flex: 1, color: 'var(--taupe)' }}>
           Vente du {fmtDateLong(deal.signedAt)}
         </span>
@@ -290,7 +292,7 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
         </span>
       </div>
 
-      <div style={{ padding: '8px 14px 12px' }}>
+      <div style={{ padding: '12px 14px' }}>
         <div className="tabular" style={{ fontSize: 21, fontWeight: 700, letterSpacing: '-0.4px' }}>
           {fmtEurExact(deal.amountTotal)}
         </div>

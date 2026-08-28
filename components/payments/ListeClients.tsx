@@ -55,57 +55,69 @@ function LigneClient({ person, deals, isMobile, isCoach, onOuvrir }: {
     ? Math.min(100, Math.round((person.collected / person.contracted) * 100))
     : 0;
 
-  // « 2 ventes · 1 en cours, 1 soldée » — le détail que le total masque.
+  // « @marc · 2 ventes · 1 en cours, 1 soldée » — d'où vient la personne, puis
+  // le détail que le total masque. Le coach distingue ses élèves Momentum de ses
+  // clients directs ; l'élève n'a que des clients directs, le libellé n'y aurait
+  // aucun sens.
   const siennes = deals.filter(d => person.dealIds.includes(d.id));
-  const soustitre = resume(siennes, person);
+  const origine = isCoach ? person.subtitleCoach : person.subtitle;
+  const soustitre = [origine, resume(siennes, person)].filter(Boolean).join(' · ');
 
   return (
     <button onClick={onOuvrir} style={{
-      display: 'flex', alignItems: 'center', gap: 13, width: '100%', textAlign: 'left',
+      display: 'flex', flexDirection: 'column', width: '100%', textAlign: 'left',
       fontFamily: 'inherit', cursor: 'pointer', background: 'var(--surface)',
       border: isMobile ? '1px solid var(--border)' : 'none',
       borderBottom: isMobile ? '1px solid var(--border)' : '1px solid var(--border-soft)',
       borderRadius: isMobile ? 10 : 0,
       padding: isMobile ? '13px 14px' : '13px 4px',
     }}>
-      <Avatar initials={getInitials(person.name)} avatarUrl={person.avatarUrl} size={34} seed={person.key} />
+      {/* Le nom à gauche, l'argent à droite. */}
+      <span style={{ display: 'flex', alignItems: 'center', gap: 13, width: '100%' }}>
+        <Avatar initials={getInitials(person.name)} avatarUrl={person.avatarUrl} size={34} seed={person.key} />
 
-      <span style={{ flex: 1, minWidth: 0 }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-          <span style={{ fontSize: 13.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {person.name}
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+            <span style={{ fontSize: 13.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {person.name}
+            </span>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: e.color, flexShrink: 0 }} />
           </span>
-          <span style={{ width: 7, height: 7, borderRadius: '50%', background: e.color, flexShrink: 0 }} />
-        </span>
-        <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {soustitre}
+          <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {soustitre}
+          </span>
         </span>
 
-        {/* Le pourcentage SOUS la barre et centré, comme partout ailleurs : une
-            barre seule ne se compare pas d'une ligne à l'autre. */}
-        <span style={{ display: 'block', marginTop: 7, maxWidth: isMobile ? '100%' : 260 }}>
-          <Barre pct={pct} etat={person.status} legende={`${pct} %`} />
+        <span style={{ flexShrink: 0, textAlign: 'right' }}>
+          <span className="tabular" style={{ display: 'block', fontSize: 13.5, fontWeight: 700, letterSpacing: '-0.2px' }}>
+            {fmtEurExact(person.collected)}
+          </span>
+          <span className="tabular" style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+            sur {fmtEurExact(person.contracted)}
+          </span>
+          {/* La date limite d'un litige n'a de sens que si elle se voit sans
+              ouvrir la fiche : passée, l'argent est perdu automatiquement. */}
+          {person.status === 'disputed' && (
+            <span style={{ display: 'block', fontSize: 10.5, color: 'var(--red)', marginTop: 3 }}>
+              {dateLitige(siennes)}
+            </span>
+          )}
         </span>
+
+        {!isMobile && <Icon name="chevR" size={15} color="var(--faint)" />}
       </span>
 
-      <span style={{ flexShrink: 0, textAlign: 'right' }}>
-        <span className="tabular" style={{ display: 'block', fontSize: 13.5, fontWeight: 700, letterSpacing: '-0.2px' }}>
-          {fmtEurExact(person.collected)}
-        </span>
-        <span className="tabular" style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-          sur {fmtEurExact(person.contracted)}
-        </span>
-        {/* La date limite d'un litige n'a de sens que si elle se voit sans
-            ouvrir la fiche : passée, l'argent est perdu automatiquement. */}
-        {person.status === 'disputed' && (
-          <span style={{ display: 'block', fontSize: 10.5, color: 'var(--red)', marginTop: 3 }}>
-            {dateLitige(siennes)}
-          </span>
-        )}
+      {/* ── La barre, sous la ligne entière et centrée ────────────────────────
+          Sous le seul nom, elle démarrait à gauche et mesurait autre chose que
+          les deux montants qu'elle relie — collé à un bord, un indicateur se lit
+          comme appartenant à ce qu'il touche. Au milieu, il appartient à la
+          ligne. */}
+      <span style={{
+        display: 'block', width: '100%', maxWidth: 320,
+        margin: '9px auto 0',
+      }}>
+        <Barre pct={pct} etat={person.status} legende={`${pct} % encaissé`} />
       </span>
-
-      {!isMobile && <Icon name="chevR" size={15} color="var(--faint)" />}
-      {isCoach && null}
     </button>
   );
 }
@@ -116,7 +128,7 @@ function resume(siennes: DealRow[], person: PersonRow): string {
   if (n === 0) return '';
   if (n === 1) {
     const d = siennes[0];
-    return d ? `Une vente · ${fmtDateLong(d.signedAt)}` : 'Une vente';
+    return d ? `une vente du ${fmtDateLong(d.signedAt)}` : 'une vente';
   }
   const compte = new Map<string, number>();
   for (const d of siennes) {
