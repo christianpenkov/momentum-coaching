@@ -5432,11 +5432,27 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           const tauxActColor = couleurTaux(tauxCalendlyClic);
           const tauxLmColor = couleurTaux(tauxLmClic);
 
+          // Hauteur réservée à DEUX lignes de libellé.
+          //
+          // Sans elle, « Clics totaux » (1 ligne) et « Liens Calendly envoyés DM »
+          // (2 lignes) ne réservent pas la même place, et les six grands chiffres de la
+          // rangée s'alignent sur deux hauteurs différentes — 15 px d'écart mesurés au
+          // navigateur. La rangée se lit alors comme une ligne brisée.
+          const libelleCarte: React.CSSProperties = {
+            color: 'var(--muted)', marginBottom: 6,
+            minHeight: 29, display: 'flex', alignItems: 'flex-start',
+          };
           const cardStyle = (metric: NonNullable<typeof selectedMetric>) => ({
             background: selectedMetric === metric ? '#3a6a8610' : 'var(--surface-2)',
             border: selectedMetric === metric ? '1px solid var(--accent-brand)' : '1px solid transparent',
             borderRadius: 10, padding: '12px 14px', flex: 1, cursor: 'pointer', transition: 'all .12s',
-          });
+            // Colonne flex : la légende de bas de carte est poussée en bas (marginTop
+            // auto ci-dessous), donc les six légendes s'alignent même quand le bloc
+            // central a une hauteur différente — la carte « Taux d'activation DM »
+            // mesure 35 px là où les autres en font 24.
+            display: 'flex', flexDirection: 'column',
+          } as React.CSSProperties);
+          const legendeCarte: React.CSSProperties = { fontSize: 10, color: 'var(--faint)', marginTop: 'auto', paddingTop: 4 };
           const toggleMetric = (metric: typeof selectedMetric) => setSelectedMetric(metric);
 
           return (
@@ -5444,9 +5460,9 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 
               {/* 1 — Clics totaux */}
               <div onClick={() => toggleMetric('clics')} style={cardStyle('clics')}>
-                <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Clics totaux</div>
+                <div className="eyebrow-sm" style={libelleCarte}>Clics totaux</div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmt(totalClics)}</div>
-                <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>volume global, tous liens</div>
+                <div style={legendeCarte}>volume global, tous liens</div>
                 {/* totalClicsChangePct (pas shortio.clicksChange) : celui-ci venait de
                     l'API Short.io elle-même (period=last30, TOUS les liens du domaine),
                     jamais aligné sur la période calendaire sélectionnée ici — affichait
@@ -5464,37 +5480,37 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 
               {/* 2 — Leads commentaires/DM (compte aussi les réponses story avec mot-clé LM, cf. lmHistory) */}
               <div onClick={() => toggleMetric('leads')} style={cardStyle('leads')}>
-                <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Leads commentaires/DM</div>
+                <div className="eyebrow-sm" style={libelleCarte}>Leads commentaires/DM</div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: lmEnvoyes > 0 ? 'var(--ink)' : 'var(--faint)', lineHeight: 1 }}>{fmt(lmEnvoyes)}</div>
-                <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>mots-clés détectés</div>
+                <div style={legendeCarte}>mots-clés détectés</div>
               </div>
 
               <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
 
               {/* 3 — Réponses message d'accroche */}
               <div onClick={() => toggleMetric('hookReply')} style={cardStyle('hookReply')}>
-                <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Réponses accroche LM DM</div>
+                <div className="eyebrow-sm" style={libelleCarte}>Réponses accroche LM DM</div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, lineHeight: 1 }}>
                   <div style={{ fontSize: 24, fontWeight: 800, color: hookReplies > 0 ? GREEN : 'var(--faint)' }}>{fmt(hookReplies)}</div>
                   {lmEnvoyes > 0 && <div style={{ fontSize: 13, fontWeight: 700, color: tauxHookReply >= 30 ? GREEN : tauxHookReply >= 15 ? AMBER : RED }}>{tauxHookReply}%</div>}
                 </div>
-                <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>réponses au message d'accroche</div>
+                <div style={legendeCarte}>réponses au message d'accroche</div>
               </div>
 
               <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
 
               {/* 4 — Liens Calendly envoyés DM */}
               <div onClick={() => toggleMetric('calendlyLinks')} style={cardStyle('calendlyLinks')}>
-                <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Liens Calendly envoyés DM</div>
+                <div className="eyebrow-sm" style={libelleCarte}>Liens Calendly envoyés DM</div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmt(lmCalendlyLinks)}</div>
-                <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>activité commerciale brute</div>
+                <div style={legendeCarte}>activité commerciale brute</div>
               </div>
 
               <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
 
               {/* 5 — Taux d'activation DM */}
               <div onClick={() => toggleMetric('activation')} style={cardStyle('activation')}>
-                <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Taux d'activation DM</div>
+                <div className="eyebrow-sm" style={libelleCarte}>Taux d'activation DM</div>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
                   <div>
                     <div style={{ fontSize: 10, color: 'var(--faint)', marginBottom: 2 }}>LM</div>
@@ -5506,16 +5522,16 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     <div style={{ fontSize: 18, fontWeight: 800, color: tauxActColor, lineHeight: 1 }}>{tauxCalendlyClic === null ? '—' : `${tauxCalendlyClic}%`}</div>
                   </div>
                 </div>
-                <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>clics / liens envoyés</div>
+                <div style={legendeCarte}>clics / liens envoyés</div>
               </div>
 
               <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
 
               {/* 5 — Calls bookés depuis liens */}
               <div onClick={() => toggleMetric('calls')} style={cardStyle('calls')}>
-                <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Calls bookés</div>
+                <div className="eyebrow-sm" style={libelleCarte}>Calls bookés</div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: callsTotal > 0 ? GREEN : 'var(--faint)', lineHeight: 1 }}>{callsTotal}</div>
-                <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>résultat final du tracking</div>
+                <div style={legendeCarte}>résultat final du tracking</div>
               </div>
 
             </div>
