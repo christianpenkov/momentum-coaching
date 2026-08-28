@@ -7845,6 +7845,17 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
 
   // Map ig_lead_id → {callBooked, dealClosed, revenue} pour la table Performance LM
   const now = new Date();
+  // Le montant vient de `deals`, source du cash depuis le 2026-08-20, et non de
+  // `calls.revenue` qui n'est plus qu'une trace du rapport de call. Les deux ONT
+  // divergé en base : le deal 4a8dde35 vaut 1 200 € après modification des modalités
+  // de vente, alors que calls.revenue en dit toujours 3 000. Sans ce recalcul, la
+  // table Performance LM affichait 3 000 € pendant que le reste de la page affichait
+  // 1 200 €. Somme et non premier deal : un call peut en porter plusieurs (upsell).
+  const montantParCall = new Map<string, number>();
+  for (const d of dealsRows) {
+    if (!d.call_id || d.status === 'canceled') continue;
+    montantParCall.set(d.call_id, (montantParCall.get(d.call_id) ?? 0) + Number(d.amount_total || 0));
+  }
   const callByLeadId = new Map<string, { callBooked: boolean; callHonored: boolean; dealClosed: boolean; revenue: number; qualified: boolean | null }>();
   for (const c of callsData) {
     if (c.ig_lead_id) {
@@ -7852,7 +7863,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
         callBooked:  c.status === 'active',
         callHonored: isCallHonored(c, now),
         dealClosed:  !!c.deal_closed,
-        revenue:     c.revenue || 0,
+        revenue:     montantParCall.get(c.id) ?? 0,
         qualified:   c.qualified ?? null,
       });
     }
@@ -8423,6 +8434,19 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
       byCall.has(c.id) ? { ...c, revenue: byCall.get(c.id)! } : c
     );
   }, [callsRaw, dealsEff]);
+  // Même correction que callsEff, mais sur l'historique COMPLET : `callsAllTime`
+  // alimente Cash/Vue (revenu cumulé depuis publication), qui lisait donc encore
+  // calls.revenue — 3 000 € au lieu des 1 200 € du deal, sur le profil de test.
+  const callsAllTimeEff = useMemo(() => {
+    const byCall = new Map<string, number>();
+    for (const d of deals) {
+      if (!d.call_id || d.status === 'canceled') continue;
+      byCall.set(d.call_id, (byCall.get(d.call_id) ?? 0) + Number(d.amount_total || 0));
+    }
+    if (byCall.size === 0) return calls;
+    return calls.map((c: CallRecord) => byCall.has(c.id) ? { ...c, revenue: byCall.get(c.id)! } : c);
+  }, [calls, deals]);
+
   // Alias pour compat. TabFunnel (déjà existant)
   const funnelIg      = igEff;
   const funnelYt      = ytEff;
@@ -8546,11 +8570,11 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
 
       {loading ? <InlineLoader /> : (
         <>
-          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} stripe={stripeEff} msgs={msgsEff} calls={callsEff} callsAllTime={calls} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} />}
+          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} stripe={stripeEff} msgs={msgsEff} calls={callsEff} callsAllTime={callsAllTimeEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} />}
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.yt?.snapshotError} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} />}
-          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={calls} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} shortioChartHistoryStory={shortioChartHistoryStory} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
+          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={callsAllTimeEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} shortioChartHistoryStory={shortioChartHistoryStory} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
           {tab === 5 && <TabRevenues stripe={stripeEff} calls={callsEff} deals={dealsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} />}
         </>
       )}
