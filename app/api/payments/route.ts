@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { resolveTargetProfile } from '@/lib/stripe-account';
+import { calculerCash } from '@/lib/dealCash';
 
 /**
  * Données de la page Paiements — les trois onglets en une requête.
@@ -119,8 +120,16 @@ export async function GET(request: NextRequest) {
 
   const rows: DealRow[] = (deals ?? []).map((d: any) => {
     const payments = d.deal_payments ?? [];
+    // Le collecté déduit les remboursements — même règle que le webhook et que
+    // l'Edge Function, tenue par lib/dealCash.ts. Avant ce module, les trois
+    // ignoraient les remboursements : un deal remboursé restait « payé » et son
+    // montant restait dans le cash collecté du ruban.
+    const cash = calculerCash(payments);
+    const collected = cash.net;
+    // Compte les paiements ENTRÉS, remboursements non déduits : c'est ce que
+    // l'écran affiche (« 2 échéances payées »), et une échéance remboursée a
+    // bien été payée.
     const succeeded = payments.filter((p: any) => p.status === 'succeeded');
-    const collected = succeeded.reduce((s: number, p: any) => s + Number(p.amount), 0);
 
     const username = d.ig_lead_id ? leadNames.get(d.ig_lead_id) : null;
     // « élève plateforme » / « hors plateforme » ne parlent qu'au coach, qui
@@ -171,7 +180,7 @@ export async function GET(request: NextRequest) {
       stripeSubscriptionId: d.stripe_subscription_id,
       paidCount: succeeded.length,
       expectedCount: d.installments_count ?? 1,
-      hasFailure: payments.some((p: any) => p.status === 'failed'),
+      hasFailure: cash.aEchoue,
       // Un deal encaissé hors Stripe n'a aucun lien : le statut ne peut pas
       // dire « À envoyer », il n'y a rien à envoyer. Se calcule ici parce que
       // seule la route voit les échéances et leurs liens.

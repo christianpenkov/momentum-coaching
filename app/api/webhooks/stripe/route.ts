@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import Stripe from 'stripe';
 import { getStripeAccess } from '@/lib/stripe-account';
 import { ensureInstallmentSchedule, METADATA_KEYS } from '@/lib/stripe-payment-links';
+import { calculerCash, statutDeal } from '@/lib/dealCash';
 
 const WEBHOOK_SECRET = process.env.STRIPE_CONNECT_WEBHOOK_SECRET!;
 
@@ -169,7 +170,17 @@ async function recordPayment(supabase: Supa, params: {
   return { attached: true, dealId: resolvedDealId };
 }
 
-/** Recalcule le statut d'un deal à partir de ses paiements réellement encaissés. */
+/**
+ * Recalcule le statut d'un deal à partir de ses paiements réellement encaissés.
+ *
+ * La règle vit dans lib/dealCash.ts — elle était recopiée ici, dans
+ * app/api/payments/route.ts et dans l'Edge Function sync-stripe-payments, et
+ * les trois ignoraient les remboursements.
+ *
+ * `statutDeal` renvoie `null` quand il ne faut RIEN changer : c'est le cas
+ * d'un deal annulé, que ni un paiement retardataire ni un remboursement ne
+ * doivent ressusciter.
+ */
 async function refreshDealStatus(supabase: Supa, dealId: string) {
   const { data: deal } = await supabase
     .from('deals')
@@ -183,18 +194,9 @@ async function refreshDealStatus(supabase: Supa, dealId: string) {
     .select('amount, status')
     .eq('deal_id', dealId);
 
-  const collected = (payments ?? [])
-    .filter(p => p.status === 'succeeded')
-    .reduce((sum, p) => sum + Number(p.amount), 0);
-  const hasFailure = (payments ?? []).some(p => p.status === 'failed');
+  const status = statutDeal(calculerCash(payments), deal.amount_total, deal.status);
 
-  // Tolérance d'un centime : les arrondis de conversion peuvent laisser un écart
-  // infime sur un montant divisé en 3.
-  const status = collected >= Number(deal.amount_total) - 0.01
-    ? 'paid'
-    : hasFailure ? 'past_due' : 'open';
-
-  if (status !== deal.status) {
+  if (status && status !== deal.status) {
     await supabase.from('deals').update({ status }).eq('id', dealId);
   }
 }

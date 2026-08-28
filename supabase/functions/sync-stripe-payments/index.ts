@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { RateLimiter, mapWithConcurrency } from '../_shared/rate-limit.ts';
+import { calculerCash, statutDeal } from '../_shared/dealCash.ts';
 
 /**
  * Lecture des paiements Stripe pour les comptes connectés par CLÉ RESTREINTE.
@@ -94,6 +95,16 @@ async function stripeList(apiKey: string, path: string, since: number, extra: Re
   return out;
 }
 
+/**
+ * Recalcule le statut d'un deal à partir de ses paiements réellement encaissés.
+ *
+ * La règle vit dans _shared/dealCash.ts, copie exacte de lib/dealCash.ts — elle
+ * était recopiée ici, dans le webhook et dans la route de la page Paiements, et
+ * les trois ignoraient les remboursements.
+ *
+ * `statutDeal` renvoie `null` quand il ne faut RIEN changer : c'est le cas d'un
+ * deal annulé, qu'aucun paiement retardataire ne doit ressusciter.
+ */
 async function refreshDealStatus(dealId: string) {
   const { data: deal } = await supabase
     .from('deals').select('amount_total, status').eq('id', dealId).maybeSingle();
@@ -102,16 +113,9 @@ async function refreshDealStatus(dealId: string) {
   const { data: payments } = await supabase
     .from('deal_payments').select('amount, status').eq('deal_id', dealId);
 
-  const collected = (payments ?? [])
-    .filter((p: any) => p.status === 'succeeded')
-    .reduce((s: number, p: any) => s + Number(p.amount), 0);
-  const hasFailure = (payments ?? []).some((p: any) => p.status === 'failed');
+  const status = statutDeal(calculerCash(payments), deal.amount_total, deal.status);
 
-  // Tolérance d'un centime : un montant divisé en 3 laisse un écart d'arrondi.
-  const status = collected >= Number(deal.amount_total) - 0.01
-    ? 'paid' : hasFailure ? 'past_due' : 'open';
-
-  if (status !== deal.status) {
+  if (status && status !== deal.status) {
     await supabase.from('deals').update({ status }).eq('id', dealId);
   }
 }
@@ -196,6 +200,63 @@ async function upsertPayment(profileId: string, p: {
   return true;
 }
 
+/**
+ * Enregistre le remboursement d'une charge, en ligne SÉPARÉE du paiement.
+ *
+ * ⚠️ L'IDENTIFIANT NE DOIT JAMAIS ÊTRE CELUI DU PAIEMENT ⚠️
+ *
+ * Ici les paiements sont enregistrés sous l'id de la charge (`ch_…`). Réutiliser
+ * ce même id pour le remboursement remplacerait la ligne du paiement au lieu
+ * d'en ajouter une — et le net (encaissé − remboursé) partirait EN NÉGATIF, sans
+ * qu'aucune erreur ne le signale. D'où le préfixe `refund_`, qui ne peut entrer
+ * en collision avec aucun identifiant Stripe.
+ *
+ * Le webhook obtient le même résultat autrement : il enregistre le paiement sous
+ * `pi_…` et le remboursement sous `ch_…`. Deux chemins, une seule règle — les
+ * deux lignes coexistent, et lib/dealCash.ts les soustrait.
+ */
+async function upsertRefund(
+  profileId: string,
+  charge: { id: string; amount_refunded: number; currency: string; metadata?: Record<string, string> | null },
+  touchedDeals: Set<string>,
+): Promise<void> {
+  const refundId = `refund_${charge.id}`;
+  const montant = Number(charge.amount_refunded ?? 0) / 100;
+  const quand = new Date().toISOString();
+
+  await supabase.from('stripe_payments').upsert({
+    profile_id: profileId,
+    payment_id: refundId,
+    amount: montant,
+    currency: charge.currency,
+    date: quand,
+    status: 'refunded',
+  }, { onConflict: 'profile_id,payment_id' });
+
+  const dealId = charge.metadata?.[MD_DEAL] ?? null;
+  if (!dealId) return;
+
+  // Le montant remboursé grandit à chaque remboursement partiel : on remplace la
+  // ligne plutôt que de sortir si elle existe déjà, contrairement aux paiements.
+  // delete+insert et non upsert : index partiel + onConflict Supabase JS =
+  // échec silencieux (cf. bug pipeline advance/reset).
+  await supabase.from('deal_payments')
+    .delete().eq('deal_id', dealId).eq('stripe_payment_id', refundId);
+
+  const { error } = await supabase.from('deal_payments').insert({
+    deal_id: dealId,
+    stripe_payment_id: refundId,
+    amount: montant,
+    currency: charge.currency,
+    paid_at: null,
+    status: 'refunded',
+    match_method: 'metadata',
+  });
+  if (error && (error as { code?: string }).code !== '23505') throw error;
+
+  touchedDeals.add(dealId);
+}
+
 async function syncProfile(profileId: string, apiKey: string, lastSyncedAt: string | null): Promise<SyncResult> {
   const errors: string[] = [];
   let seen = 0;
@@ -215,24 +276,39 @@ async function syncProfile(profileId: string, apiKey: string, lastSyncedAt: stri
 
   // Charges : les paiements comptant. Factures : les échéances d'abonnement.
   // Un paiement d'abonnement produit les deux — le dédoublonnage se fait en base.
+  //
+  // ⚠️ Les charges REMBOURSÉES étaient écartées ici (`&& !c.refunded`). Deux
+  // conséquences, toutes deux fausses : un remboursement partiel faisait
+  // disparaître le paiement entier au lieu d'en retrancher une part, et un
+  // compte en clé restreinte n'avait jamais aucune ligne `refunded` en base —
+  // donc le cash encaissé ne bougeait pas d'un remboursement.
+  // On les garde, et le remboursement est enregistré à part (upsertRefund).
   const charges = (await stripeList(apiKey, 'charges', since))
-    .filter((c: any) => c.status === 'succeeded' && !c.refunded);
+    .filter((c: any) => c.status === 'succeeded');
   seen += charges.length;
 
   // Concurrence bornée (4) au lieu d'un `for await` strictement séquentiel :
   // chaque upsertPayment enchaîne 2 à 4 requêtes Supabase, donc 100 paiements
   // faisaient jusqu'à 400 allers-retours en file d'attente. Borné, et non
   // `Promise.all`, pour ne pas ouvrir 100 connexions Postgres d'un coup.
-  const chargeResults = await mapWithConcurrency(charges, 4, (charge: any) =>
-    upsertPayment(profileId, {
+  const chargeResults = await mapWithConcurrency(charges, 4, async (charge: any) => {
+    const attache = await upsertPayment(profileId, {
       paymentId: charge.id,
       amountMinor: charge.amount,
       currency: charge.currency,
       paidAt: new Date(charge.created * 1000).toISOString(),
       metadata: charge.metadata ?? null,
       subscriptionId: null,
-    }, touchedDeals)
-  );
+    }, touchedDeals);
+
+    // `amount_refunded` est CUMULATIF : deux remboursements partiels de 200 puis
+    // 100 donnent 200 puis 300. On réécrit donc la ligne à chaque passage plutôt
+    // que de l'additionner.
+    if (Number(charge.amount_refunded ?? 0) > 0) {
+      await upsertRefund(profileId, charge, touchedDeals);
+    }
+    return attache;
+  });
   chargeResults.forEach((r, i) => {
     if (r.status === 'fulfilled') { if (r.value) attached++; }
     else errors.push(`charge ${charges[i].id}: ${r.reason?.message || 'unknown'}`);
