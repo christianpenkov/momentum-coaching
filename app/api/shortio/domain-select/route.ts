@@ -40,8 +40,38 @@ async function listAffectedLm(profileId: string): Promise<AffectedLm[]> {
   return affected;
 }
 
+/**
+ * Autres élèves qui ont déjà ce domaine Short.io comme domaine actif.
+ *
+ * Le cron ramène TOUS les liens du domaine interrogé, sans distinguer à qui ils
+ * appartiennent : deux élèves sur le même compte Short.io comptent donc chacun les
+ * clics de l'autre. Mesuré le 2026-08-28 sur les profils de test — 65 à 76 liens
+ * « empruntés » par profil.
+ *
+ * On avertit plutôt qu'on ne refuse : le partage est une configuration légitime en
+ * test (le même compte sert à plusieurs profils fictifs), et un refus dur casserait
+ * cette mise en place. En production chaque élève apporte son propre compte, donc ce
+ * signal ne devrait jamais s'allumer — et s'il s'allume, c'est précisément qu'il faut
+ * regarder.
+ */
+async function autresProfilsSurCeDomaine(profileId: string): Promise<{ domaine: string; nbAutresProfils: number } | null> {
+  const { data: moi } = await serviceSupabase
+    .from('integrations').select('metadata')
+    .eq('profile_id', profileId).eq('provider', 'shortio').maybeSingle();
+  const monDomaine = (moi?.metadata as any)?.domain_id;
+  if (monDomaine == null) return null;
+
+  const { data: autres } = await serviceSupabase
+    .from('integrations').select('profile_id, metadata')
+    .eq('provider', 'shortio').neq('profile_id', profileId);
+  const nb = (autres ?? []).filter(a => String((a.metadata as any)?.domain_id ?? '') === String(monDomaine)).length;
+  if (nb === 0) return null;
+  return { domaine: String((moi?.metadata as any)?.domain ?? ''), nbAutresProfils: nb };
+}
+
 // GET — liste les liens bio LM qui seraient affectés par un changement de domaine, pour
-// peupler le modal de confirmation AVANT d'écrire quoi que ce soit.
+// peupler le modal de confirmation AVANT d'écrire quoi que ce soit. Signale aussi si
+// d'autres élèves utilisent déjà ce domaine.
 export async function GET(request: Request) {
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -53,7 +83,7 @@ export async function GET(request: Request) {
   if (!targetProfileId) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
 
   const affected = await listAffectedLm(targetProfileId);
-  return NextResponse.json({ affected });
+  return NextResponse.json({ affected, partage: await autresProfilsSurCeDomaine(targetProfileId) });
 }
 
 // PATCH — enregistre le domaine Short.io choisi par l'utilisateur parmi les domaines
