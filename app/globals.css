@@ -2106,7 +2106,9 @@ a { color: inherit; text-decoration: none; }
 .pipeline-filter { padding: 4px 10px; font-size: 11px; }
 .pipeline-filters-toggle { display: none; }
 /* Reprend la valeur qui etait en style inline : desktop inchange. */
-.pipeline-page { gap: 16px; }
+/* 10px et non 16 : entre le titre, les étapes, les filtres et le tri, quatre
+   interlignes de 16px mangeaient près de 70px que la liste n'avait plus. */
+.pipeline-page { gap: 10px; }
 
 /* Le pipeline occupe toute la hauteur, jusqu'au bas de l'écran.
    `.main-content` réserve 60px de padding en bas — utile sur une page qui

@@ -175,7 +175,11 @@ export default function PipelineListView({
         <div style={{
           display: 'grid',
           gridTemplateColumns: '30px 26px minmax(0,1.35fr) minmax(0,.95fr) minmax(0,.85fr) minmax(0,1fr) 92px',
-          gap: 10, alignItems: 'center', padding: '7px 14px',
+          gap: 10, alignItems: 'center', padding: '0 14px',
+          // Hauteur FIXE : le collage des sections se cale dessus au pixel près.
+          // Sans elle, `top` était une estimation et les lignes défilaient dans
+          // les quelques pixels d'écart — la bande blanche visible en haut.
+          height: 30, boxSizing: 'border-box',
           borderBottom: '1px solid var(--border)', background: 'var(--surface-2, #f7f4ec)',
           fontSize: 9.5, fontWeight: 700, letterSpacing: '.06em',
           textTransform: 'uppercase', color: 'var(--muted)',
@@ -207,10 +211,11 @@ export default function PipelineListView({
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(col.key); } }}
                 className="pipeline-list-header"
                 style={{
-                  // 32 px et non 0 : l'en-tête de colonnes colle déjà en haut.
-                  // À zéro, les deux se superposaient et le nom des colonnes
-                  // disparaissait sous le titre de section au défilement.
-                  position: 'sticky', top: 32, zIndex: 2,
+                  // 30 px exactement : la hauteur de l'en-tête de colonnes, qui
+                  // colle déjà en haut. À zéro les deux se superposaient ; à une
+                  // valeur approchée, une bande blanche laissait voir les lignes
+                  // défiler entre les deux.
+                  position: 'sticky', top: 30, zIndex: 2,
                   display: 'flex', alignItems: 'center', gap: 10,
                   padding: '8px 14px', background: 'var(--surface-2, #f7f4ec)',
                   borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)',

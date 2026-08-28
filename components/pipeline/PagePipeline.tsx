@@ -934,8 +934,8 @@ function BoutonCase({
         // Compact : plus d'étapes tiennent sur une ligne, donc moins de retours
         // à la ligne et un bloc de filtres qui ne mange pas la moitié de l'écran.
         display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap',
-        fontSize: 11, fontWeight: 600, padding: '5px 9px', borderRadius: 7,
-        cursor: 'pointer', font: 'inherit', minHeight: 27,
+        fontSize: 10.5, fontWeight: 600, padding: '4px 8px', borderRadius: 6,
+        cursor: 'pointer', font: 'inherit', minHeight: 24,
         background: actif ? 'var(--accent-brand, #3a6a86)' : 'var(--surface)',
         border: `1px solid ${actif ? 'var(--accent-brand, #3a6a86)' : 'var(--border)'}`,
         color: actif ? '#fff' : 'var(--ink)',
@@ -954,6 +954,114 @@ function BoutonCase({
         color: actif ? 'rgba(255,255,255,.78)' : 'var(--muted)',
       }}>{n}</span>
     </button>
+  );
+}
+
+// ── PanneauIssue ──────────────────────────────────────────────────────────────
+//
+// Cliquer une tuile ouvre ce panneau, à la place du dépliage sous la tuile. La
+// colonne des issues ne fait que 188 px : y empiler les fiches les serrait, et
+// une issue à 200 fiches écrasait les quatre autres tuiles.
+//
+// Même dessin que la fiche prospect — 500 px, à droite, voile qui s'arrête au
+// board — parce que c'est le même geste : regarder quelque chose sans quitter le
+// board.
+
+function PanneauIssue({
+  issue, cards, onFermer, onOuvrirFiche, avatarColor, avatarInitials,
+}: {
+  issue: ColumnDef;
+  cards: CardData[];
+  onFermer: () => void;
+  onOuvrirFiche: (key: string) => void;
+  avatarColor: (n: string) => string;
+  avatarInitials: (n: string) => string;
+}) {
+  useEffect(() => {
+    const echap = (e: KeyboardEvent) => { if (e.key === 'Escape') onFermer(); };
+    document.addEventListener('keydown', echap);
+    return () => document.removeEventListener('keydown', echap);
+  }, [onFermer]);
+
+  return (
+    <>
+      <div onClick={onFermer} aria-hidden
+        style={{ position: 'absolute', inset: 0, background: 'rgba(12,16,28,.34)', zIndex: 20 }} />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Leads en « ${issue.label} »`}
+        style={{
+          position: 'absolute', top: 0, right: 0, bottom: 0, width: 'min(500px, 92%)',
+          zIndex: 21, display: 'flex', flexDirection: 'column',
+          background: 'var(--surface)', borderLeft: '1px solid var(--border)',
+          boxShadow: '-12px 0 32px rgba(0,0,0,.10)',
+        }}
+      >
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10, padding: '16px 20px',
+          borderBottom: '1px solid var(--border)', flexShrink: 0,
+        }}>
+          <span style={{ width: 10, height: 10, borderRadius: 2.5, background: issue.color, flexShrink: 0 }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>{issue.label}</span>
+          <span style={{
+            fontSize: 11, fontWeight: 700, color: issue.color, background: issue.lightBg,
+            border: `1px solid ${issue.color}33`, borderRadius: 5, padding: '2px 8px',
+          }}>{cards.length}</span>
+          <button
+            type="button" onClick={onFermer} aria-label="Fermer"
+            style={{
+              marginLeft: 'auto', width: 30, height: 30, borderRadius: 8, cursor: 'pointer',
+              border: '1px solid var(--border)', background: 'var(--surface)',
+              color: 'var(--muted)', fontSize: 14, lineHeight: 1,
+            }}
+          >×</button>
+        </div>
+
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+          {cards.length === 0 ? (
+            <div style={{ padding: '28px 20px', textAlign: 'center', fontSize: 12, color: 'var(--faint)' }}>
+              Aucun lead dans cette issue.
+            </div>
+          ) : cards.map(c => (
+            <button
+              key={c.key}
+              type="button"
+              onClick={() => onOuvrirFiche(c.key)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                padding: '11px 20px', textAlign: 'left', cursor: 'pointer',
+                background: 'transparent', border: 'none',
+                borderBottom: '1px solid var(--border-soft, #f5f1e7)',
+                font: 'inherit', color: 'inherit',
+              }}
+            >
+              {c.avatarUrl ? (
+                <Image src={c.avatarUrl} alt="" width={30} height={30} unoptimized
+                  style={{ borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
+              ) : (
+                <span style={{
+                  width: 30, height: 30, borderRadius: 8, flexShrink: 0,
+                  background: avatarColor(c.name), color: '#fff',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 10, fontWeight: 700,
+                }}>{avatarInitials(c.name)}</span>
+              )}
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: 'block', fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {c.isIgLink ? c.name : `@${c.name}`}
+                </span>
+                <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
+                  {c.sub}
+                  {c.issueReason && c.issueReason !== 'manual' ? ` · ${c.issueReason}` : ''}
+                </span>
+              </span>
+              <span style={{ fontSize: 11, color: 'var(--faint)', flexShrink: 0 }}>{c.date}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -1011,13 +1119,16 @@ function TuilesIssues({
           </span>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: 1 }}>
+        {/* `flex: 1` sur CHAQUE tuile, pas seulement sur la pile : sans ça les
+            tuiles gardaient leur hauteur naturelle et se serraient en haut, avec
+            un grand vide dessous. */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: 1, minHeight: 0 }}>
           {issues.map(issue => {
             const liste = cardsParIssue[issue.key] ?? [];
             const estOuverte = ouverte === issue.key;
             const cible = dropTarget === issue.key;
             return (
-              <div key={issue.key}>
+              <div key={issue.key} style={{ flex: estOuverte ? '2 1 0' : '1 1 0', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                 <div
                   role="button"
                   tabIndex={0}
@@ -1028,7 +1139,7 @@ function TuilesIssues({
                   onDragLeave={() => onDragLeave(issue.key)}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
-                    padding: '9px 10px', borderRadius: 8, userSelect: 'none',
+                    padding: '9px 10px', borderRadius: 8, userSelect: 'none', flexShrink: 0,
                     background: cible ? issue.lightBg : (estOuverte ? issue.lightBg : 'var(--surface)'),
                     border: `1px ${cible ? 'dashed' : 'solid'} ${cible || estOuverte ? issue.color + '55' : 'var(--border)'}`,
                     transition: 'all .12s',
@@ -1050,7 +1161,7 @@ function TuilesIssues({
                 </div>
 
                 {estOuverte && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5, paddingTop: 6 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5, paddingTop: 6, overflowY: 'auto', minHeight: 0 }}>
                     {liste.length === 0 ? (
                       <div style={{
                         border: '1px dashed var(--border)', borderRadius: 7,
@@ -1109,9 +1220,10 @@ function KanbanColumn({
         onDragLeave={onDragLeave}
         title={`Déplier « ${stage.label} »`}
         style={{
-          width: 44, flexShrink: 0, alignSelf: 'stretch', cursor: 'pointer',
+          width: 52, flexShrink: 0, alignSelf: 'stretch', cursor: 'pointer',
           display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
           padding: '9px 0', font: 'inherit', color: 'inherit',
+          paddingLeft: 8, borderLeft: '1px solid var(--border)',
           background: isDropTarget ? stage.lightBg : 'transparent',
           border: `1px dashed ${isDropTarget ? stage.color + '66' : 'transparent'}`,
           borderRadius: 10,
@@ -1141,7 +1253,14 @@ function KanbanColumn({
   // les trois premières libère beaucoup de place : la laisser vide à droite
   // gâcherait l'espace, et des colonnes larges rendent les fiches lisibles.
   return (
-    <div style={{ flex: '1 1 172px', minWidth: 172, maxWidth: 320, display: 'flex', flexDirection: 'column', gap: 6, alignSelf: 'stretch' }}>
+    // Trait de séparation à gauche de chaque colonne : sans lui, les fiches de
+    // deux colonnes voisines se lisaient comme une seule grille, et on ne voyait
+    // plus où une étape finissait.
+    <div style={{
+      flex: '1 1 172px', minWidth: 172, maxWidth: 320, alignSelf: 'stretch',
+      display: 'flex', flexDirection: 'column', gap: 6,
+      paddingLeft: 8, borderLeft: '1px solid var(--border)',
+    }}>
       {/* En-tête de colonne — le dessin d'origine, gardé sur demande : fond
           `surface-2`, bordure, compteur en pastille colorée. Le chevron de repli
           s'y ajoute à gauche, sans rien changer d'autre. */}
@@ -1739,7 +1858,10 @@ export default function PagePipeline() {
 
   // La tuile d'issue dépliée dans le board. Une seule à la fois : les issues
   // accumulent tout l'historique, les ouvrir toutes noierait l'entonnoir.
-  const [issueOuverte, setIssueOuverte] = useState<string | null>(null);
+  // L'issue dont le panneau latéral est ouvert. Les issues accumulent tout
+  // l'historique — « Closé » finira à des centaines de fiches — et un panneau qui
+  // défile les tient sans déformer le board.
+  const [panneauIssue, setPanneauIssue] = useState<string | null>(null);
 
   const [tri, setTri] = useState<TriKey>('immobile');
   const [triOuvert, setTriOuvert] = useState(false);
@@ -2389,8 +2511,12 @@ export default function PagePipeline() {
   const filtresActifs: ((c: CardData) => boolean)[] = [];
   if (filterCanceled)    filtresActifs.push(isCanceled);
   if (filterRescheduled) filtresActifs.push(c => c.badge === 'rescheduled');
-  for (const key of Object.keys(filtresReglables) as FiltreKey[]) {
-    if (filtresReglables[key].actif) filtresActifs.push(testeFiltre(key, filtresReglables[key]));
+  // Les quatre filtres réglables n'existent qu'en vue liste : les appliquer au
+  // board fausserait ses compteurs de colonne sans que rien ne l'indique.
+  if (vue === 'liste') {
+    for (const key of Object.keys(filtresReglables) as FiltreKey[]) {
+      if (filtresReglables[key].actif) filtresActifs.push(testeFiltre(key, filtresReglables[key]));
+    }
   }
 
   const filteredIgCards = filtresActifs.length === 0
@@ -2812,21 +2938,8 @@ export default function PagePipeline() {
             droite puis le saut à gauche, au moment où les polices chargées
             changent les largeurs et déclenchent le retour à la ligne. La marge
             automatique le garde à droite dans les deux cas. */}
-        <div className="pipeline-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
-          <button
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className="pipeline-refresh"
-            style={{
-              padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8,
-              border: '1px solid var(--border)', background: 'var(--surface)',
-              color: refreshing ? 'var(--muted)' : 'var(--ink)', cursor: refreshing ? 'not-allowed' : 'pointer',
-              display: 'flex', alignItems: 'center', gap: 6, transition: 'all .12s',
-            }}
-          >
-            <span style={{ display: 'inline-block', animation: refreshing ? 'spin 1s linear infinite' : 'none' }}>↻</span>
-            {refreshing ? 'Maj…' : 'Rafraîchir'}
-          </button>
+        <div className="pipeline-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+
           {/* pipeline-tabs : sur mobile ce groupe passe en grille 3 colonnes
               egales. En flex simple, les trois libelles cumulaient plus de
               375px et "Autres" sortait de l'ecran (constate au navigateur). */}
@@ -2859,6 +2972,24 @@ export default function PagePipeline() {
               </button>
             ))}
           </div>
+          {/* Rafraîchir et Board/Liste restent à DROITE ; les onglets de
+              plateforme, eux, sont à gauche : ce sont eux qu'on change le plus
+              souvent, et l'œil part du titre. */}
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="pipeline-refresh"
+            style={{
+              padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8,
+              border: '1px solid var(--border)', background: 'var(--surface)',
+              color: refreshing ? 'var(--muted)' : 'var(--ink)', cursor: refreshing ? 'not-allowed' : 'pointer',
+              display: 'flex', alignItems: 'center', gap: 6, transition: 'all .12s',
+            }}
+          >
+            <span style={{ display: 'inline-block', animation: refreshing ? 'spin 1s linear infinite' : 'none' }}>↻</span>
+            {refreshing ? 'Maj…' : 'Rafraîchir'}
+          </button>
           {/* Board ou Liste — desktop seulement : sur mobile l'entonnoir tient
               déjà ce rôle, et un kanban ne se manipule pas au doigt (le
               glisser-déposer HTML5 ne se déclenche pas au tactile). */}
@@ -2883,6 +3014,7 @@ export default function PagePipeline() {
                 {label}
               </button>
             ))}
+          </div>
           </div>
         </div>
       </div>
@@ -2912,7 +3044,7 @@ export default function PagePipeline() {
           disent OÙ on regarde, les filtres QUOI on garde dedans — l'inverse
           obligeait à filtrer avant de savoir sur quoi. */}
       {tab === 'ig' && vue === 'liste' && (
-        <div className="pipeline-desktop" style={{ flexShrink: 0, marginBottom: 8 }}>
+        <div className="pipeline-desktop" style={{ flexShrink: 0, marginBottom: 4 }}>
           {/* Les boutons d'étapes et d'issues PASSENT À LA LIGNE : tout est
               visible d'un coup, sans défilement horizontal. Une barre qui
               défile cache la moitié des étapes, et il faut alors se souvenir
@@ -2921,7 +3053,7 @@ export default function PagePipeline() {
               Les étapes portent une pastille ronde, les issues un carré plein :
               deux natures, deux formes. Cliquer isole une case ; recliquer
               revient à tout. */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 9, flexShrink: 0 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 0, flexShrink: 0 }}>
             <BoutonCase
               label="Tous" n={cards.length} actif={caseIsolee === null}
               onClick={() => setCaseIsolee(null)}
@@ -2954,30 +3086,43 @@ export default function PagePipeline() {
           className={`pipeline-filters${filtersOpen ? ' is-open' : ''}`}
           style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}
         >
-          <PipelineFilters
-            etats={filtresReglables}
-            onChange={changerFiltre}
-            comptes={comptesFiltres}
-            tactile={tactile}
-          />
+          {/* Vue LISTE seulement. Dans le board, un filtre CACHE des fiches sans
+              dire lesquelles : les colonnes gardent leur nom mais leur compteur
+              change, et « RDV pris 2 » ne dit plus si c'est deux leads ou deux
+              leads qui passent le filtre. Le board répond à « où en est tout le
+              monde » — il doit tout montrer. */}
+          {vue === 'liste' && (
+            <PipelineFilters
+              etats={filtresReglables}
+              onChange={changerFiltre}
+              comptes={comptesFiltres}
+              tactile={tactile}
+            />
+          )}
           {[
             // No-shows / Pas qualifiés / À recontacter sont devenus des colonnes,
             // et Archivés reposait sur un mécanisme jamais utilisé (0 ligne en
             // base). Restent les deux états du RENDEZ-VOUS, qui n'ont pas de
             // colonne parce qu'ils ne disent rien du résultat du lead : la carte
             // reste en « RDV pris » et seul ce bouton permet de la retrouver.
-            { key: 'canceled', label: 'Annulés', value: filterCanceled, set: setFilterCanceled, color: '#7C3AED', bg: '#F5F3FF' },
-            { key: 'rescheduled', label: 'Reportés', value: filterRescheduled, set: setFilterRescheduled, color: '#d97706', bg: '#fffbeb' },
+            // « Annulés » et « Reportés » ne disaient pas de QUOI : ce sont des
+            // états du RENDEZ-VOUS, pas du lead. Et en gris sur fond transparent,
+            // ils ne ressemblaient pas à des boutons — d'où le même dessin que
+            // les autres filtres, avec leur couleur.
+            { key: 'canceled', label: 'Appels annulés', value: filterCanceled, set: setFilterCanceled, color: '#7C3AED', bg: '#F5F3FF' },
+            { key: 'rescheduled', label: 'Appels reportés', value: filterRescheduled, set: setFilterRescheduled, color: '#d97706', bg: '#fffbeb' },
           ].map(f => (
             <button
               key={f.key}
               onClick={() => f.set(!f.value)}
               className="pipeline-filter"
               style={{
-                fontWeight: 600, borderRadius: 6, cursor: 'pointer',
+                minHeight: 32, padding: '0 11px', fontSize: 11.5,
+                display: 'inline-flex', alignItems: 'center',
+                fontWeight: 600, borderRadius: 8, cursor: 'pointer',
                 border: `1px solid ${f.value ? f.color : 'var(--border)'}`,
-                background: f.value ? f.bg : 'transparent',
-                color: f.value ? f.color : 'var(--muted)',
+                background: f.value ? f.bg : 'var(--surface)',
+                color: f.value ? f.color : 'var(--ink-2)',
                 transition: 'all .12s',
               }}
             >
@@ -3151,8 +3296,8 @@ export default function PagePipeline() {
               cardsParIssue={Object.fromEntries(
                 ISSUES.map(i => [i.key, cards.filter(c => c.stageKey === i.key)]),
               )}
-              ouverte={issueOuverte}
-              onOuvrir={setIssueOuverte}
+              ouverte={null}
+              onOuvrir={key => setPanneauIssue(key)}
               onDrop={handleDrop}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
@@ -3176,6 +3321,21 @@ export default function PagePipeline() {
           </div>
         </div>
         )}
+        {panneauIssue && (() => {
+          const issue = ISSUES.find(i => i.key === panneauIssue);
+          if (!issue) return null;
+          return (
+            <PanneauIssue
+              issue={issue}
+              cards={cards.filter(c => c.stageKey === panneauIssue)}
+              onFermer={() => setPanneauIssue(null)}
+              onOuvrirFiche={key => { setPanneauIssue(null); setDetailModal({ cardKey: key, platform: tab }); }}
+              avatarColor={avatarColor}
+              avatarInitials={avatarInitials}
+            />
+          );
+        })()}
+
         {detailModal && data && (() => {
           const ctx = resolveProspectContext(detailModal.cardKey, detailModal.platform, data);
           if (!ctx) return null;

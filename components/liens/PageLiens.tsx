@@ -4447,13 +4447,12 @@ function metaContenu(post: Post, court = false): string {
  * qu'un mot-clé est configuré — un badge « Active » n'y dirait rien.
  */
 function PastilleEtatStory({ post }: { post: Post }) {
-  // Une story périme en 24 h, d'où le cas « Expirée » qui n'existe que pour
-  // elles. Pour un post ou une vidéo, la séquence tourne tant qu'un mot-clé est
-  // posé — c'est ce que dit « Active », et le hi-fi la met sur tout contenu
-  // configuré, pas seulement sur les stories.
   const isStory = post.platform === 'STORY';
   const expiree = isStory && !!post.expiredAt;
-  if (!isStory && !post.lmKeyword) return null;
+  // Reservee aux stories. Sur un post, « Active » doublait la pastille du lead
+  // magnet — un mot-cle pose suffit a dire que la sequence tourne, et un post ne
+  // perime pas. Une story, si : c'est la seule ou l'etat apprend quelque chose.
+  if (!isStory) return null;
   return (
     <span style={{
       fontSize: 10, fontWeight: 600, borderRadius: 4, padding: '1px 5px',
@@ -4559,7 +4558,15 @@ function LigneContenu({ post, selected, checked, selectionMode, groupedElsewhere
                 le mot séquence désigne aussi une suite de stories, et l'ambiguïté
                 faisait lire ce badge comme un défaut de groupement de stories. */}
             {post.lmKeyword
-              ? <span style={{ fontSize: 10, fontWeight: 700, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '2px 6px', letterSpacing: '.02em', whiteSpace: 'nowrap' }}>{post.lmKeyword.toUpperCase()}</span>
+              ? (
+                // Une seule pastille au lieu de deux. Le mot-cle en gris et le
+                // « Active » en vert disaient la meme chose sous deux formes :
+                // un mot-cle pose EST une sequence qui tourne. Meme libelle que
+                // l'en-tete du contenu ouvert, pour qu'on retrouve le meme objet.
+                <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--green)', background: 'var(--green-soft)', borderRadius: 999, padding: '2px 8px', letterSpacing: '.02em', whiteSpace: 'nowrap' }}>
+                  Lead magnet · {post.lmKeyword.toUpperCase()}
+                </span>
+              )
               : post.platform === 'YT'
                 ? null
                 : <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, color: AMBER, background: AMBER_SOFT, borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>
