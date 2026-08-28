@@ -3,14 +3,14 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Icon from '@/components/ui/Icon';
-import Avatar, { getInitials } from '@/components/ui/Avatar';
-import DealPanel from './DealPanel';
+import FicheClient from './FicheClient';
+import ListeClients from './ListeClients';
 import ReconcileTab from './ReconcileTab';
 import RelancesTab from './RelancesTab';
 import CreateLinkModal from './CreateLinkModal';
 import { useIsMobile } from '@/lib/useIsMobile';
 import type { PaymentsData, DealRow } from './types';
-import { fmtEur } from './types';
+import { fmtEur, fmtDateLong } from './types';
 
 /**
  * Page Paiements — « où est mon argent ».
@@ -22,7 +22,7 @@ import { fmtEur } from './types';
  */
 
 type Tab = 'deals' | 'reconcile' | 'relances';
-type Filter = 'all' | 'open' | 'unpaid' | 'paid';
+type Filter = 'all' | 'open' | 'unpaid' | 'paid' | 'ended' | 'canceled';
 
 export default function PagePaiements({ title = 'Paiements', isCoach = false }: { title?: string; isCoach?: boolean }) {
   const [tab, setTab] = useState<Tab>('deals');
@@ -30,6 +30,8 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
   const [search, setSearch] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
   const [openDeal, setOpenDeal] = useState<string | null>(null);
+  /** Personne ouverte dans la fiche — la fiche porte un client, pas une vente. */
+  const [openPerson, setOpenPerson] = useState<string | null>(null);
 
   // ?deal=<id> ouvre directement le panneau de détail : une notification de
   // rappel doit mener à la personne concernée, pas à une liste où il faut la
@@ -52,19 +54,46 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
   });
 
   const deals = data?.deals ?? [];
+  const people = data?.people ?? [];
 
+  // ── Le filtre porte sur les VENTES, la liste affiche des PERSONNES ────────
+  // Une personne ressort dès qu'une seule de ses ventes correspond : filtrer sur
+  // son état de ligne — qui n'est que le plus urgent — ferait disparaître un
+  // client dont une vente sur trois est impayée, précisément celui qu'on cherche.
   const filtered = useMemo(() => {
-    let rows = deals;
-    if (filter === 'open') rows = rows.filter(d => d.status === 'open');
-    else if (filter === 'unpaid') rows = rows.filter(d => d.status === 'past_due' || d.hasFailure);
-    else if (filter === 'paid') rows = rows.filter(d => d.status === 'paid');
+    const correspond = (d: DealRow) =>
+      filter === 'all' ? true
+      : filter === 'open' ? d.status === 'open' && !d.hasFailure
+      : filter === 'unpaid' ? d.status === 'past_due' || d.hasFailure
+      : filter === 'paid' ? d.status === 'paid'
+      : filter === 'ended' ? d.status === 'ended'
+      : d.status === 'canceled';
+
+    const gardees = new Set(deals.filter(correspond).map(d => d.id));
+    let rows = people.filter(p => p.dealIds.some(id => gardees.has(id)));
 
     const q = search.trim().toLowerCase();
-    if (q) rows = rows.filter(d =>
-      d.buyerName.toLowerCase().includes(q) || (d.buyerSubtitle ?? '').toLowerCase().includes(q)
+    if (q) rows = rows.filter(p =>
+      p.name.toLowerCase().includes(q) || (p.subtitle ?? '').toLowerCase().includes(q)
     );
     return rows;
-  }, [deals, filter, search]);
+  }, [deals, people, filter, search]);
+
+  // ── Les litiges ouverts ───────────────────────────────────────────────────
+  // Le bandeau n'occupe AUCUNE place quand il n'y a rien à signaler : il pousse
+  // le reste vers le bas le jour où il apparaît, plutôt que de réserver un vide
+  // permanent qui deviendrait invisible à force d'être là.
+  const litiges = useMemo(() => deals.filter(d => d.status === 'disputed'), [deals]);
+
+  // La fiche s'ouvre sur une personne. Un lien ?deal=<id> désigne une vente : on
+  // remonte à son propriétaire, sans quoi la notification n'ouvrirait rien.
+  const personneOuverte = useMemo(() => {
+    if (openPerson) return people.find(p => p.key === openPerson) ?? null;
+    if (openDeal) return people.find(p => p.dealIds.includes(openDeal)) ?? null;
+    return null;
+  }, [openPerson, openDeal, people]);
+
+  function fermerFiche() { setOpenPerson(null); setOpenDeal(null); }
 
   const k = data?.kpis;
   const orphanCount = data?.orphans.length ?? 0;
@@ -79,7 +108,7 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
           <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
             {isLoading
               ? <span className="skeleton-shimmer" style={{ display: 'block', width: 96, height: 10, borderRadius: 4, marginTop: 3 }} />
-              : subtitleFor(tab, deals.length, orphanCount, relanceCount, isCoach)}
+              : subtitleFor(tab, people.length, deals.length, orphanCount, relanceCount, isCoach)}
           </div>
         </div>
         {/* Masqué tant que Stripe n'est pas connecté : proposer une action
@@ -100,6 +129,34 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
       {isLoading && <PaymentsSkeleton isMobile={isMobile} />}
 
       {!isLoading && <>
+
+      {/* ── Litiges en cours ────────────────────────────────────────────── */}
+      {litiges.length > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'flex-start', gap: 11, marginBottom: 18,
+          background: 'var(--red-soft)', border: '1px solid rgba(205,91,63,.3)',
+          borderRadius: 10, padding: '12px 14px',
+        }}>
+          <Icon name="alert-triangle" size={16} color="var(--red)" />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--red)' }}>
+              {litiges.length === 1
+                ? `${litiges[0].buyerName} conteste un paiement`
+                : `${litiges.length} paiements contestés`}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 3, lineHeight: 1.55 }}>
+              {litiges.length === 1 && litiges[0].disputeDueBy
+                ? <>Réponse à donner dans Stripe avant le {fmtDateLong(litiges[0].disputeDueBy)}. Passé ce délai, l’argent est perdu automatiquement.</>
+                : <>Une réponse doit être donnée dans Stripe pour chacun. Passé le délai, l’argent est perdu automatiquement.</>}
+            </div>
+          </div>
+          <a href="https://dashboard.stripe.com/disputes" target="_blank" rel="noopener noreferrer"
+            className="btn-primary-brand"
+            style={{ fontSize: 12, flexShrink: 0, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--red)', borderColor: 'var(--red)' }}>
+            <Icon name="external" size={13} /> Répondre dans Stripe
+          </a>
+        </div>
+      )}
 
       {/* ── Ruban de KPI ────────────────────────────────────────────────── */}
       {/* Mobile : un KPI héros (le collecté, la seule question qui compte sur un
@@ -137,7 +194,9 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
       {/* Mobile : les trois onglets se partagent la largeur au lieu d'être
           serrés à gauche — ça agrandit aussi les cibles tactiles. */}
       <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border)', marginBottom: 18 }}>
-        <TabButton active={tab === 'deals'} onClick={() => setTab('deals')} label="Deals" grow={isMobile} />
+        {/* « Clients » et non « Deals » : la liste montre des personnes depuis
+            qu'un même client peut avoir plusieurs ventes. */}
+        <TabButton active={tab === 'deals'} onClick={() => setTab('deals')} label="Clients" grow={isMobile} />
         <TabButton active={tab === 'reconcile'} onClick={() => setTab('reconcile')} label="À rattacher" count={orphanCount} alert grow={isMobile} />
         <TabButton active={tab === 'relances'} onClick={() => setTab('relances')} label="Relances" count={relanceCount} grow={isMobile} />
       </div>
@@ -147,7 +206,7 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
           {/* Filtres masqués sans deal à filtrer : ils n'auraient aucun effet et
               encombreraient l'écran d'accueil d'un nouvel utilisateur. */}
           <div style={{ display: deals.length === 0 ? 'none' : 'flex', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-            {([['all', 'Tous'], ['open', 'En cours'], ['unpaid', 'Impayés'], ['paid', 'Soldés']] as const).map(([key, label]) => (
+            {([['all', 'Tous'], ['open', 'En cours'], ['unpaid', 'Impayés'], ['paid', 'Soldés'], ['ended', 'Terminés'], ['canceled', 'Annulés']] as const).map(([key, label]) => (
               <button key={key} onClick={() => setFilter(key)}
                 className="paiements-filter"
                 style={{
@@ -188,9 +247,7 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
             ? <StripeDisconnected isCoach={isCoach} />
             : deals.length === 0
               ? <EmptyDeals onCreate={() => setCreating(true)} />
-              : isMobile
-                ? <DealCards rows={filtered} onOpen={setOpenDeal} isCoach={isCoach} />
-                : <DealsTable rows={filtered} isCoach={isCoach} onOpen={setOpenDeal} />}
+              : <ListeClients people={filtered} deals={deals} onOuvrir={setOpenPerson} isCoach={isCoach} />}
         </>
       ) : tab === 'reconcile' ? (
         <ReconcileTab orphans={data?.orphans ?? []} onDone={refetch} />
@@ -200,15 +257,16 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
 
       </>}
 
-      {/* Le deal doit exister : depuis qu'un ?deal=<id> peut venir d'une
-          notification, l'id peut désigner un deal supprimé ou d'un autre
-          profil — sans cette garde, DealPanel recevrait undefined et
-          planterait à l'ouverture de la page. */}
-      {openDeal && data && deals.some(d => d.id === openDeal) && (
-        <DealPanel
-          deal={deals.find(d => d.id === openDeal)!}
-          detail={data.details[openDeal]}
-          onClose={() => setOpenDeal(null)}
+      {/* La personne doit exister : depuis qu'un ?deal=<id> peut venir d'une
+          notification, l'id peut désigner une vente supprimée ou d'un autre
+          profil — sans cette garde, la fiche recevrait undefined et planterait
+          à l'ouverture de la page. */}
+      {personneOuverte && data && (
+        <FicheClient
+          person={personneOuverte}
+          deals={deals.filter(d => personneOuverte.dealIds.includes(d.id))}
+          details={data.details}
+          onClose={fermerFiche}
           onChange={refetch}
           isCoach={isCoach}
         />
@@ -335,78 +393,6 @@ function TabButton({ active, onClick, label, count, alert, grow }: {
   );
 }
 
-function DealsTable({ rows, isCoach, onOpen }: { rows: DealRow[]; isCoach: boolean; onOpen: (id: string) => void }) {
-  if (rows.length === 0) {
-    return <div style={{ padding: 40, textAlign: 'center', fontSize: 13, color: 'var(--muted)' }}>Aucun deal ne correspond.</div>;
-  }
-  return (
-    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-      <div style={{ overflowX: 'auto' }}>
-        <table className="data-table" style={{ minWidth: isCoach ? 860 : 780 }}>
-          <thead>
-            <tr>
-              <th>Personne</th>
-              <th>Plan</th>
-              <th style={{ textAlign: 'right' }}>Contracté</th>
-              <th style={{ textAlign: 'right' }}>Collecté</th>
-              <th>Avancement</th>
-              <th>Statut</th>
-              {isCoach && <th>Type</th>}
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(d => <DealRowView key={d.id} d={d} isCoach={isCoach} onOpen={onOpen} />)}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-function DealRowView({ d, isCoach, onOpen }: { d: DealRow; isCoach: boolean; onOpen: (id: string) => void }) {
-  const pct = d.amountTotal > 0 ? Math.min(100, Math.round((d.collected / d.amountTotal) * 100)) : 0;
-  const st = statusOf(d);
-
-  return (
-    <tr>
-      <td>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 11, minWidth: 0 }}>
-          <Avatar initials={getInitials(d.buyerName)} avatarUrl={d.avatarUrl} size={26} seed={d.id} />
-          <span style={{ minWidth: 0 }}>
-            <span style={{ display: 'block', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.buyerName}</span>
-            <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {[isCoach ? d.buyerSubtitleCoach : d.buyerSubtitle, fmtDate(d.signedAt)].filter(Boolean).join(' · ')}
-            </span>
-          </span>
-        </span>
-      </td>
-      <td style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>{planLabel(d)}</td>
-      <td className="tabular" style={{ textAlign: 'right', fontWeight: 600 }}>{fmtEur(d.amountTotal)}</td>
-      {/* « — » et non « 0 € » : rien d'encaissé n'est pas un encaissement de zéro. */}
-      <td className="tabular" style={{ textAlign: 'right', fontWeight: 600, color: d.collected > 0 ? 'var(--ink)' : 'var(--muted)' }}>
-        {d.collected > 0 ? fmtEur(d.collected) : '—'}
-      </td>
-      <td>
-        <span style={{ display: 'block', height: 4, borderRadius: 2, background: 'var(--surface-2)', overflow: 'hidden', minWidth: 90 }}>
-          {pct > 0 && (
-            <span style={{ display: 'block', height: '100%', width: `${pct}%`, borderRadius: 2, background: st.barColor }} />
-          )}
-        </span>
-        <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 5 }}>{progressLabel(d)}</span>
-      </td>
-      <td><Pill label={st.label} tone={st.tone} /></td>
-      {/* « Externe » se lisait « paie hors Stripe » — on nomme ce qu'est la
-          personne : un client du coach sans compte élève sur Momentum. */}
-      {isCoach && <td><Pill label={d.buyerKind === 'student' ? 'Élève' : 'Client direct'} tone="neutral" /></td>}
-      <td style={{ textAlign: 'right' }}>
-        <button className="btn-ghost" style={{ fontSize: 12, padding: '5px 11px', border: '1px solid var(--ink)', color: 'var(--ink)', borderRadius: 7 }}
-          onClick={() => onOpen(d.id)}>Détails</button>
-      </td>
-    </tr>
-  );
-}
-
 /**
  * Carte « Cash collecté » — le seul chiffre que l'élève lit en ouvrant la page
  * sur son téléphone. Il répond à « combien j'ai vraiment encaissé », pas à
@@ -520,69 +506,6 @@ function MiniKpi({ label, value, color }: { label: string; value: string; color?
   );
 }
 
-/**
- * Version mobile du tableau : une carte par deal.
- *
- * Pas de scroll horizontal — sept colonnes sur 390px sont illisibles, et faire
- * glisser un tableau latéralement pour lire un montant est une solution de repli
- * qu'on refuse ici (mobile et desktop sont deux usages réels, pas l'un dégradé
- * de l'autre). La carte entière est cliquable : la cible tactile fait toute la
- * ligne plutôt qu'un bouton de 30px.
- */
-function DealCards({ rows, onOpen, isCoach }: { rows: DealRow[]; onOpen: (id: string) => void; isCoach?: boolean }) {
-  if (rows.length === 0) {
-    return <div style={{ padding: 40, textAlign: 'center', fontSize: 13, color: 'var(--muted)' }}>Aucun deal ne correspond.</div>;
-  }
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {rows.map(d => {
-        const pct = d.amountTotal > 0 ? Math.min(100, Math.round((d.collected / d.amountTotal) * 100)) : 0;
-        const st = statusOf(d);
-        return (
-          <button key={d.id} onClick={() => onOpen(d.id)} className="card"
-            style={{
-              padding: '14px 16px', textAlign: 'left', border: '1px solid var(--border)',
-              cursor: 'pointer', fontFamily: 'inherit', width: '100%', display: 'block',
-              // Sans couleur explicite, Safari iOS applique le bleu `buttontext`
-              // par défaut à tout le contenu de la carte (nom, montants, barre).
-              color: 'var(--ink)',
-            }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 10 }}>
-              <Avatar initials={getInitials(d.buyerName)} avatarUrl={d.avatarUrl} size={32} seed={d.id} />
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ display: 'block', fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.buyerName}</span>
-                <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {[planLabel(d), fmtDate(d.signedAt)].filter(Boolean).join(' · ')}
-                </span>
-              </span>
-              <Pill label={st.label} tone={st.tone} />
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 9 }}>
-              {/* Toujours un montant chiffré, jamais un tiret : « 0 € / 2 100 € »
-                  se lit d'un coup d'œil comme « rien encaissé sur 2 100 »,
-                  alors qu'un « — » oblige à interpréter. */}
-              <span className="tabular" style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.4px', color: d.collected > 0 ? 'var(--ink)' : 'var(--muted)' }}>
-                {fmtEur(d.collected)}
-              </span>
-              <span className="tabular" style={{ fontSize: 13, color: 'var(--muted)' }}>/ {fmtEur(d.amountTotal)}</span>
-              <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--muted)' }}>{progressLabel(d)}</span>
-            </div>
-
-            <span style={{ display: 'block', height: 4, borderRadius: 2, background: 'var(--surface-2)', overflow: 'hidden' }}>
-              {/* Rien de peint à 0 % : un `width: 0` laissait un reliquat visible
-                  de la largeur du border-radius, collé à gauche. */}
-              {pct > 0 && (
-                <span style={{ display: 'block', height: '100%', width: `${pct}%`, borderRadius: 2, background: st.barColor }} />
-              )}
-            </span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 export function Pill({ label, tone }: { label: string; tone: 'green' | 'amber' | 'red' | 'neutral' }) {
   const map = {
     green: { bg: 'var(--green-soft)', fg: 'var(--green)' },
@@ -657,47 +580,13 @@ function EmptyDeals({ onCreate }: { onCreate: () => void }) {
   );
 }
 
-/* ── Helpers d'affichage ──────────────────────────────────────────────────── */
-
-function statusOf(d: DealRow): { label: string; tone: 'green' | 'amber' | 'red'; barColor: string } {
-  if (d.status === 'paid') return { label: 'Payé', tone: 'green', barColor: 'var(--green)' };
-  // « Carte refusée » n'a de sens qu'avec un moyen de paiement Stripe : hors
-  // Stripe (virement, espèces), aucune carte n'est en jeu.
-  if (d.hasFailure || d.status === 'past_due') {
-    return { label: d.hasLinks ? 'Carte refusée' : 'Paiement en échec', tone: 'red', barColor: 'var(--red)' };
-  }
-  // « À envoyer » suppose un lien à transmettre. Hors Stripe il n'y en a
-  // aucun : le versement suivant est à constater, pas à envoyer.
-  if (d.paymentPlan === 'installments_manual' && d.paidCount > 0) {
-    return d.hasLinks
-      ? { label: 'À envoyer', tone: 'amber', barColor: 'var(--amber)' }
-      : { label: 'À encaisser', tone: 'amber', barColor: 'var(--amber)' };
-  }
-  if (d.collected > 0) return { label: 'En cours', tone: 'amber', barColor: 'var(--amber)' };
-  return { label: 'En attente', tone: 'amber', barColor: 'var(--amber)' };
-}
-
-function planLabel(d: DealRow): string {
-  if (d.paymentPlan === 'one_shot') return 'Comptant';
-  const every = d.installmentInterval === 'week' ? 'hebdo' : 'mensuel';
-  const mode = d.paymentPlan === 'installments_auto' ? 'auto' : 'manuel';
-  return `${d.installmentsCount}× ${every} · ${mode}`;
-}
-
-function progressLabel(d: DealRow): string {
-  if (d.status === 'paid') return 'soldé';
-  if (d.paymentPlan === 'one_shot') return d.collected > 0 ? 'partiel' : 'en attente de paiement';
-  return `${d.paidCount} / ${d.expectedCount} versements`;
-}
-
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
-}
-
-function subtitleFor(tab: Tab, deals: number, orphans: number, relances: number, isCoach: boolean): string {
+function subtitleFor(tab: Tab, clients: number, deals: number, orphans: number, relances: number, isCoach: boolean): string {
   if (tab === 'reconcile') return `${orphans} paiement${orphans > 1 ? 's' : ''} sans identifiant Momentum`;
   if (tab === 'relances') return `${relances} relance${relances > 1 ? 's' : ''} en attente`;
-  return `${isCoach ? 'Mon business' : ''}${isCoach ? ' · ' : ''}${deals} deal${deals > 1 ? 's' : ''} signé${deals > 1 ? 's' : ''}`;
+  // Les deux chiffres, parce qu'ils diffèrent dès qu'un client rachète — et que
+  // « 4 ventes » sur une liste de 3 lignes se lirait comme une erreur.
+  const ventes = deals === clients ? '' : ` · ${deals} vente${deals > 1 ? 's' : ''}`;
+  return `${isCoach ? 'Mon business · ' : ''}${clients} client${clients > 1 ? 's' : ''}${ventes}`;
 }
 
 /** Un deal appelle une relance dès qu'il reste de l'argent à aller chercher. */

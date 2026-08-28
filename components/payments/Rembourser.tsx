@@ -44,7 +44,7 @@ export default function Rembourser({
   onClose: () => void;
   onDone: () => void;
   /** Relit les données — sert à constater que le remboursement est arrivé. */
-  onRafraichir: () => Promise<void> | void;
+  onRafraichir: () => Promise<unknown> | void;
 }) {
   const mode = modeDe(deal);
   const horsStripe = mode === 'offline';
@@ -76,7 +76,7 @@ function AttendreStripe({
   prenom: string;
   onClose: () => void;
   onDone: () => void;
-  onRafraichir: () => Promise<void> | void;
+  onRafraichir: () => Promise<unknown> | void;
 }) {
   const [verifie, setVerifie] = useState(false);
   // La sortie de secours n'apparaît qu'au bout de deux minutes : la proposer
