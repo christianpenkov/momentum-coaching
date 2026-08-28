@@ -33,6 +33,10 @@ const CATS_DM_CALENDLY = new Set<string>(CATEGORY_GROUPS.dmCalendly);
 const CATS_DM_LM = new Set<string>(CATEGORY_GROUPS.dmLm);
 const CATS_STORY = new Set<string>(CATEGORY_GROUPS.story);
 import { isCallHonored } from '@/lib/callHonored';
+// Icones des en-tetes de colonne — source unique pour les trois tableaux de Business
+// micro. Quatorze colonnes portent le meme nom d'un tableau a l'autre et doivent donc
+// porter le meme symbole.
+import { EnteteColonne, type NomIcone } from './IconesColonnes';
 import { dureeDepuisSecondes, dureeDepuisMinutes, positionLecteur, formaterDureeVideo } from '@/lib/duree';
 
 // ─── Portal Modal ─────────────────────────────────────────────────────────────
@@ -6089,12 +6093,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                 <thead>
                   <tr style={{ background: 'var(--surface-2)' }}>
                     <TH>Source</TH>
-                    <TH right>Clics / Liens</TH>
-                    <TH right>Calls bookés</TH>
-                    <TH right>Calls honorés</TH>
-                    <TH right>Closés</TH>
-                    <TH right>Revenue</TH>
-                    <TH right>Rev / call</TH>
+                    <TH right><EnteteColonne nom="clicLien">Clics / Liens</EnteteColonne></TH>
+                    <TH right><EnteteColonne nom="callBooke">Calls bookés</EnteteColonne></TH>
+                    <TH right><EnteteColonne nom="callHonore">Calls honorés</EnteteColonne></TH>
+                    <TH right><EnteteColonne nom="close">Closés</EnteteColonne></TH>
+                    <TH right><EnteteColonne nom="revenue">Revenue</EnteteColonne></TH>
+                    {/* « Rev / call » porte le meme billet que « Revenue » : le libelle
+                        porte la division, pas l'icone. */}
+                    <TH right><EnteteColonne nom="revenue">Rev / call</EnteteColonne></TH>
                   </tr>
                 </thead>
                 <tbody>
@@ -6264,24 +6270,24 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                 {/* Contenu — pas de tri, fixe au scroll horizontal */}
                 <th className="eyebrow-sm" style={{ position: 'sticky', left: 44, zIndex: 2, background: 'var(--surface)', textAlign: 'left', color: 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>Contenu</th>
                 {([
-                  ['clicsDesc',    'Clics desc.'],
-                  ['lmDetectes',   'Commentaires LM'],
-                  ['lmClics',      'Clics LM'],
-                  ['lmReponses',   'Conversations DM'],
-                  ['dmCount',      'Calendly envoyés DM'],
-                  ['callsBooked',  'Calls bookés'],
-                  ['callsHonored', 'Calls honorés'],
-                  ['qualifiedPct', '% Calls Qualifiés'],
-                  ['closed',       'Closés'],
-                  ['revenue',      'Revenue'],
-                  ['vuesParCall',  'Vues / Call'],
-                  ['cashParVue',   'Cash / Vue (all-time)'],
-                ] as [SortKey, string][]).map(([key, label]) => {
+                  ['clicsDesc',    'Clics desc.',            'clicLien'],
+                  ['lmDetectes',   'Commentaires LM',        'commentaireLm'],
+                  ['lmClics',      'Clics LM',               'clicLeadMagnet'],
+                  ['lmReponses',   'Conversations DM',       'conversationDm'],
+                  ['dmCount',      'Calendly envoyés DM',    'calendlyEnvoye'],
+                  ['callsBooked',  'Calls bookés',           'callBooke'],
+                  ['callsHonored', 'Calls honorés',          'callHonore'],
+                  ['qualifiedPct', '% Calls Qualifiés',      'callQualifie'],
+                  ['closed',       'Closés',                 'close'],
+                  ['revenue',      'Revenue',                'revenue'],
+                  ['vuesParCall',  'Vues / Call',            'vuesParCall'],
+                  ['cashParVue',   'Cash / Vue (all-time)',  'cashParVue'],
+                ] as [SortKey, string, NomIcone][]).map(([key, label, icone]) => {
                   const active = sortKey === key;
                   return (
                     <th key={key} onClick={() => { if (active) setSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setSortKey(key); setSortDir('desc'); } }}
                       className="eyebrow-sm" style={{ textAlign: 'right', color: active ? BLUE : 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>
-                      {label} {active ? (sortDir === 'desc' ? '↓' : '↑') : ''}
+                      <EnteteColonne nom={icone}>{label} {active ? (sortDir === 'desc' ? '↓' : '↑') : ''}</EnteteColonne>
                     </th>
                   );
                 })}
@@ -6784,17 +6790,17 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                 <thead>
                   <tr>
                     <th style={{ ...thS, textAlign: 'left', width: 140 }}>Lead magnet</th>
-                    <th style={thS}>Clics desc.</th>
-                    <th style={thS}>Leads générés</th>
-                    <th style={thS}>Clics LM DM</th>
-                    <th style={thS}>Conversations DM</th>
-                    <th style={thS}>Calendly envoyés DM</th>
-                    <th style={thS}>Clics Calendly DM</th>
-                    <th style={thS}>Calls bookés</th>
-                    <th style={thS}>Calls honorés</th>
-                    <th style={thS}>% Calls Qualifiés</th>
-                    <th style={thS}>Closés</th>
-                    <th style={thS}>Revenue</th>
+                    <th style={thS}><EnteteColonne nom="clicLien">Clics desc.</EnteteColonne></th>
+                    <th style={thS}><EnteteColonne nom="leadsGeneres">Leads générés</EnteteColonne></th>
+                    <th style={thS}><EnteteColonne nom="clicLeadMagnet">Clics LM DM</EnteteColonne></th>
+                    <th style={thS}><EnteteColonne nom="conversationDm">Conversations DM</EnteteColonne></th>
+                    <th style={thS}><EnteteColonne nom="calendlyEnvoye">Calendly envoyés DM</EnteteColonne></th>
+                    <th style={thS}><EnteteColonne nom="clicLien">Clics Calendly DM</EnteteColonne></th>
+                    <th style={thS}><EnteteColonne nom="callBooke">Calls bookés</EnteteColonne></th>
+                    <th style={thS}><EnteteColonne nom="callHonore">Calls honorés</EnteteColonne></th>
+                    <th style={thS}><EnteteColonne nom="callQualifie">% Calls Qualifiés</EnteteColonne></th>
+                    <th style={thS}><EnteteColonne nom="close">Closés</EnteteColonne></th>
+                    <th style={thS}><EnteteColonne nom="revenue">Revenue</EnteteColonne></th>
                   </tr>
                 </thead>
                 <tbody>
