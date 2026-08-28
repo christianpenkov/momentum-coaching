@@ -33,7 +33,7 @@ export const ETATS: Record<EtatVente, Etat> = {
   past_due:   { label: 'Impayée',            color: 'var(--red)',          bg: 'var(--red-soft)' },
   // Ocre : ni un succès, ni un incident. La vente a eu lieu, elle s'est
   // simplement arrêtée avant la fin — le vert mentirait, le rouge alarmerait.
-  ended:      { label: 'Terminée',           color: 'var(--taupe)',        bg: 'var(--taupe-soft)' },
+  ended:      { label: 'Arrêtée',            color: 'var(--taupe)',        bg: 'var(--taupe-soft)' },
   // `--amber-ink` et non `--amber` : en 11 px, l'ambre vif tombe à 3,4:1 de
   // contraste. Bon pour une pastille ronde, illisible pour un libellé.
   unexpected: { label: 'Paiement inattendu', color: 'var(--amber-ink)',    bg: 'var(--amber-soft)' },

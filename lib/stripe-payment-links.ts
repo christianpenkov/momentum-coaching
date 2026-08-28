@@ -284,6 +284,71 @@ export async function ajusterPrelevements(
 }
 
 /**
+ * Change le NOMBRE de prélèvements d'un plan déjà en cours.
+ *
+ * ── Pourquoi ce n'est pas `ensureInstallmentSchedule` ──────────────────────
+ * Celle-ci s'arrête net si un bornage existe déjà (« pas de doublon »), ce qui
+ * est exactement le bon réflexe pour un filet de sécurité rappelé à chaque
+ * facture — et exactement le mauvais quand l'élève veut passer de 3 fois à 4.
+ * Sans cette fonction, la base annonçait 4 échéances pendant que Stripe s'arrêtait
+ * toujours après la 3ᵉ.
+ *
+ * ⚠️ `subscriptionSchedules.update` est un REMPLACEMENT COMPLET : tout paramètre
+ * non retransmis est effacé. On repasse donc les items, la date de début et les
+ * metadata de chaque phase, et `end_behavior: 'cancel'` — l'oublier ferait
+ * repartir la subscription indéfiniment à la fin du plan.
+ *
+ * ⚠️ Le rythme n'est JAMAIS dérivé d'une saisie : il est relu sur la phase
+ * existante. Le changer réinitialiserait l'ancre de facturation et déclencherait
+ * un prélèvement immédiat.
+ */
+export async function ajusterNombreEcheances(
+  access: StripeAccess,
+  subscriptionId: string,
+  nombreTotal: number,
+  interval: 'month' | 'week',
+): Promise<{ ajuste: boolean; raison: string }> {
+  const { stripe, opts } = access;
+
+  const sub = await stripe.subscriptions.retrieve(subscriptionId, undefined, opts);
+  if (sub.status === 'canceled') return { ajuste: false, raison: 'canceled' };
+
+  // Pas encore borné : le cas nominal de la création s'en charge mieux que nous.
+  if (!sub.schedule) {
+    return ensureInstallmentSchedule(access, subscriptionId, nombreTotal, interval)
+      .then(r => ({ ajuste: r.scheduled, raison: r.reason }));
+  }
+
+  const scheduleId = typeof sub.schedule === 'string' ? sub.schedule : sub.schedule.id;
+  const schedule = await stripe.subscriptionSchedules.retrieve(scheduleId, undefined, opts);
+  if (schedule.status === 'canceled' || schedule.status === 'released') {
+    return { ajuste: false, raison: `schedule_${schedule.status}` };
+  }
+
+  const phase = schedule.phases[schedule.phases.length - 1];
+  if (!phase) return { ajuste: false, raison: 'no_phase' };
+
+  await stripe.subscriptionSchedules.update(scheduleId, {
+    end_behavior: 'cancel',
+    phases: schedule.phases.map((p, i) => ({
+      items: p.items.map(it => ({
+        price: typeof it.price === 'string' ? it.price : it.price.id,
+        quantity: it.quantity ?? 1,
+      })),
+      start_date: p.start_date,
+      metadata: (p.metadata ?? undefined) as Stripe.MetadataParam | undefined,
+      // Seule la dernière phase porte la durée du plan : c'est elle qui décide
+      // quand les prélèvements s'arrêtent.
+      ...(i === schedule.phases.length - 1
+        ? { duration: { interval, interval_count: nombreTotal } }
+        : { end_date: p.end_date }),
+    })),
+  }, opts);
+
+  return { ajuste: true, raison: 'updated' };
+}
+
+/**
  * Borne une subscription à N prélèvements. Idempotent et sûr à rappeler.
  *
  * Quatre garde-fous superposés, parce qu'une subscription non bornée prélèverait

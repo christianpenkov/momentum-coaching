@@ -2,9 +2,11 @@
 
 import { useMemo, useState } from 'react';
 import ModaleAction, {
-  CaseResponsabilite, Encart, Ligne, Section, LienACopier, Chip,
+  CaseResponsabilite, Encart, Section, LienACopier, Chip,
+  ChampMontant, ApercuEcheances,
 } from './ModaleAction';
 import { modeDe, libelleRythme } from './etats';
+import { useEcheancesAVenir } from './useEcheances';
 import { fmtEurExact, fmtDateLong, type DealRow, type DealDetail } from './types';
 
 /**
@@ -55,6 +57,10 @@ export default function ModifierMontant({ deal, detail, onClose, onDone, onRembo
   const aVenir = echeances.filter(e => e.status !== 'paid');
   const payees = echeances.filter(e => e.status === 'paid');
 
+  // L'échéancier réel, y compris en prélèvement automatique où il vit chez
+  // Stripe et non en base.
+  const { lignes: echeancierAvant, dejaPayees, chargement } = useEcheancesAVenir(deal, detail);
+
   const nouveau = Number(String(saisie).replace(',', '.'));
   const valide = Number.isFinite(nouveau) && nouveau > 0;
   const encaisse = deal.collected;
@@ -79,12 +85,34 @@ export default function ModifierMontant({ deal, detail, onClose, onDone, onRembo
   // sur une seule échéance, qui passe de 334 € à 3 334 €. Un montant multiplié
   // par dix dépasse souvent le plafond de la carte — le prélèvement échoue un
   // mois plus tard, et personne ne fait le lien avec la correction d'aujourd'hui.
-  const nbRestantes = mode === 'installments_auto'
-    ? Math.max(1, (deal.installmentsCount ?? 1) - deal.paidCount)
-    : Math.max(1, aVenir.length);
-  const avantParEcheance = nbRestantes > 0 ? arrondi((deal.amountTotal - encaisse) / nbRestantes) : 0;
-  const apresParEcheance = nbRestantes > 0 ? arrondi(reste / nbRestantes) : 0;
+  const nbRestantes = Math.max(1, echeancierAvant.length);
+  const avantParEcheance = arrondi((deal.amountTotal - encaisse) / nbRestantes);
+
+  // ── Le découpage d'après ──────────────────────────────────────────────────
+  // `nbEcheances` peut avoir été relevé par l'avertissement de saut : dans ce
+  // cas il y a plus de lignes après qu'avant, et les nouvelles portent les dates
+  // suivantes au même rythme.
+  const nbApres = Math.max(1, nbEcheances - dejaPayees);
+  const apresParEcheance = arrondi(reste / nbApres);
   const saut = avantParEcheance > 0 && apresParEcheance / avantParEcheance >= 3;
+
+  const echeancierApres = useMemo(() => {
+    if (reste <= 0.005) return [];
+    const pas = deal.installmentInterval === 'week' ? 7 : 30;
+    const dernier = echeancierAvant[echeancierAvant.length - 1];
+    const base = dernier?.date ? new Date(dernier.date).getTime() : Date.now();
+    // Le reliquat d'arrondi va sur la première : la somme doit faire exactement
+    // le total, sinon la vente ne se solderait jamais.
+    const premiere = arrondi(reste - apresParEcheance * (nbApres - 1));
+    return Array.from({ length: nbApres }, (_, i) => ({
+      rang: dejaPayees + i + 1,
+      // Les échéances existantes gardent leur date — c'est la promesse faite au
+      // client. Seules celles qu'on ajoute en reçoivent une nouvelle.
+      date: echeancierAvant[i]?.date
+        ?? new Date(base + (i - echeancierAvant.length + 1) * pas * 86400_000).toISOString(),
+      montant: i === 0 ? premiere : apresParEcheance,
+    }));
+  }, [reste, nbApres, apresParEcheance, echeancierAvant, dejaPayees, deal.installmentInterval]);
 
   const complement = reste > 0.005 && encaisse > 0.005 && mode === 'one_shot';
   const enBaisse = trop > 0.005;
@@ -225,12 +253,7 @@ export default function ModifierMontant({ deal, detail, onClose, onDone, onRembo
 
       {/* Le champ */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 14px', width: 200, background: 'var(--surface)' }}>
-          <input value={saisie} onChange={e => setSaisie(e.target.value.replace(/[^\d.,]/g, ''))}
-            inputMode="decimal" autoFocus className="tabular"
-            style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 21, fontWeight: 700, letterSpacing: '-0.4px', width: '100%', fontFamily: 'inherit', color: 'var(--ink)' }} />
-          <span style={{ fontSize: 15, color: 'var(--faint)', flexShrink: 0 }}>€</span>
-        </div>
+        <ChampMontant valeur={saisie} onChange={setSaisie} autoFocus />
         <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>
           au lieu de <span className="tabular" style={{ textDecoration: 'line-through' }}>{fmtEurExact(deal.amountTotal)}</span>
         </span>
@@ -253,9 +276,38 @@ export default function ModifierMontant({ deal, detail, onClose, onDone, onRembo
           ) : (
             <PreviewHausse
               deal={deal} mode={mode} reste={reste} encaisse={encaisse}
-              aVenir={aVenir} payees={payees.length} nbRestantes={nbRestantes}
+              aVenir={aVenir} payees={payees.length} nbRestantes={nbApres}
               apresParEcheance={apresParEcheance} avantParEcheance={avantParEcheance}
               complement={complement} />
+          )}
+
+          {/* ── L'échéancier, ligne par ligne ────────────────────────────────
+              Ce que « les échéances seront recalculées » ne disait pas :
+              lesquelles, pour combien, et à quelles dates. C'est le seul endroit
+              où une faute de frappe se repère avant de valider. */}
+          {(echeancierAvant.length > 1 || echeancierApres.length > 1) && (
+            <div style={{ marginTop: 12 }}>
+              <Section marge={0}>
+                {enBaisse ? 'Ce qu’il advient des échéances' : 'Le nouvel échéancier'}
+              </Section>
+              {chargement ? (
+                <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '8px 0' }}>
+                  Lecture de l’échéancier chez Stripe…
+                </div>
+              ) : (
+                <>
+                  <ApercuEcheances
+                    avant={echeancierAvant}
+                    apres={enBaisse ? [] : echeancierApres}
+                    total={enBaisse ? (deal.installmentsCount ?? 1) : dejaPayees + nbApres} />
+                  {!enBaisse && mode === 'installments_auto' && (
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7, lineHeight: 1.6 }}>
+                      Les dates ne bougent pas, et rien n’est prélevé aujourd’hui.
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           )}
 
           {/* Le saut de montant sur la dernière échéance */}
@@ -392,9 +444,9 @@ function PreviewHausse({
     );
   }
 
-  if (aVenir.length > 1) {
+  if (nbRestantes > 1) {
     return (
-      <Encart titre={`${aVenir.length} nouveaux liens de ${fmtEurExact(apresParEcheance)}`}>
+      <Encart titre={`${nbRestantes} nouveaux liens de ${fmtEurExact(apresParEcheance)}`}>
         {payees > 0 && <>Les {payees} échéance{payees > 1 ? 's' : ''} déjà payée{payees > 1 ? 's' : ''} ne {payees > 1 ? 'sont' : 'est'} pas touchée{payees > 1 ? 's' : ''}. </>}
         Les échéances à venir gardent leurs dates, {rythme}, et passent au nouveau montant.
         <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>

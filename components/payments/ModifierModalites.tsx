@@ -1,11 +1,25 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import ModaleAction, {
-  CaseResponsabilite, Encart, Section, LienACopier, Chip,
+  CaseResponsabilite, Encart, Section, LienACopier, Chip, ApercuEcheances,
 } from './ModaleAction';
 import { modeDe, libelleMode, libelleRythme, type Mode } from './etats';
+import { useEcheancesAVenir } from './useEcheances';
 import { fmtEurExact, fmtDateLong, type DealRow, type DealDetail } from './types';
+
+/**
+ * Le texte de la case, adapté à ce qu'on engage réellement.
+ *
+ * « J'ai vérifié ce montant » sur un écran où aucun montant ne se saisit fait
+ * cocher une phrase qui ne correspond à rien — et une case qu'on coche sans
+ * qu'elle décrive le geste ne protège plus personne.
+ */
+const CASE_MODALITES =
+  'J’ai vérifié ces modalités et mon client en est informé. Je reste responsable du rythme et du nombre de prélèvements qui en découlent, et j’en assume les conséquences en cas d’erreur de ma part.';
+
+const CASE_REFAIRE =
+  'Je comprends qu’il faudra rembourser mon client, puis recréer la vente aux nouvelles conditions. Je reste responsable de ces mouvements d’argent, et j’en assume les conséquences en cas d’erreur de ma part.';
 
 /**
  * Modifier les modalités : le mode, le nombre de fois, le rythme.
@@ -49,8 +63,6 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
   const prenom = deal.buyerName.split(' ')[0];
   const encaisse = deal.collected;
   const reste = Math.max(0, arrondi(deal.amountTotal - encaisse));
-  const echeances = detail?.installments ?? [];
-  const payees = echeances.filter(e => e.status === 'paid').length;
 
   const nbEffectif = mode === 'one_shot' ? 1 : nb;
   const changeMode = mode !== modeActuel;
@@ -63,9 +75,32 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
   const refaireRequis = encaisse > 0.005 && (changeMode || changeRythme);
   const raison: 'rythme' | 'mode' = changeRythme ? 'rythme' : 'mode';
 
-  const aCreer = Math.max(0, nbEffectif - payees);
+  // L'échéancier réel — lu chez Stripe en prélèvement automatique, où la base
+  // est vide.
+  const { lignes: echeancierAvant, dejaPayees, chargement } = useEcheancesAVenir(deal, detail);
+
+  const aCreer = Math.max(0, nbEffectif - dejaPayees);
   const parEcheance = aCreer > 0 ? arrondi(reste / aCreer) : 0;
-  const parEcheanceAvant = nbActuel - payees > 0 ? arrondi(reste / (nbActuel - payees)) : 0;
+  const parEcheanceAvant = echeancierAvant.length > 0 ? arrondi(reste / echeancierAvant.length) : 0;
+
+  // ── Le nouvel échéancier, ligne par ligne ────────────────────────────────
+  // Les échéances qui existaient gardent leur date : c'est la promesse faite au
+  // client, et la déplacer sans le dire serait le pire des recalculs silencieux.
+  // Seules celles qu'on ajoute reçoivent une date, déroulée au nouveau rythme.
+  const echeancierApres = useMemo(() => {
+    if (reste <= 0.005 || aCreer === 0) return [];
+    const pas = rythme === 'week' ? 7 : 30;
+    const dernier = echeancierAvant[echeancierAvant.length - 1];
+    const base = dernier?.date ? new Date(dernier.date).getTime() : Date.now();
+    const premiere = arrondi(reste - parEcheance * (aCreer - 1));
+    return Array.from({ length: aCreer }, (_, i) => ({
+      rang: dejaPayees + i + 1,
+      date: (!changeRythme && echeancierAvant[i]?.date)
+        ? echeancierAvant[i].date
+        : new Date(base + (i - echeancierAvant.length + 1) * pas * 86400_000).toISOString(),
+      montant: i === 0 ? premiere : parEcheance,
+    }));
+  }, [reste, aCreer, parEcheance, echeancierAvant, dejaPayees, rythme, changeRythme]);
 
   async function valider() {
     if (!changed || envoi) return;
@@ -141,11 +176,13 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
 
         <Encart ton="bien" titre="C’est fait">
           {reste > 0.005
-            ? <>Il reste {fmtEurExact(reste)} à encaisser, désormais {resultat.echeances > 1 ? `en ${aCreer} fois de ${fmtEurExact(parEcheance)}` : 'en une fois'}.</>
+            ? mode === 'installments_auto'
+              ? <>Stripe prélèvera {aCreer} fois {fmtEurExact(parEcheance)}, aux mêmes dates. Rien n’a été prélevé aujourd’hui, et aucun lien n’est à envoyer — c’est Stripe qui encaisse.</>
+              : <>Il reste {fmtEurExact(reste)} à encaisser, désormais {resultat.echeances > 1 ? `en ${aCreer} fois de ${fmtEurExact(parEcheance)}` : 'en une fois'}.</>
             : <>Cette vente est soldée : le découpage a été mis à jour, mais il n’y a plus rien à encaisser.</>}
-          {payees > 0 && (
+          {dejaPayees > 0 && (
             <div style={{ marginTop: 6 }}>
-              {payees === 1 ? 'L’échéance déjà payée n’a pas été touchée.' : `Les ${payees} échéances déjà payées n’ont pas été touchées.`}
+              {dejaPayees === 1 ? 'L’échéance déjà payée n’a pas été touchée.' : `Les ${dejaPayees} échéances déjà payées n’ont pas été touchées.`}
             </div>
           )}
         </Encart>
@@ -181,8 +218,8 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
       pied={
         <>
           <button className="btn-primary-brand"
-            style={{ fontSize: 12.5, opacity: changed && (coche || refaireRequis) && !envoi ? 1 : .5 }}
-            disabled={!changed || (!coche && !refaireRequis) || envoi} onClick={valider}>
+            style={{ fontSize: 12.5, opacity: changed && coche && !envoi ? 1 : .5 }}
+            disabled={!changed || !coche || envoi} onClick={valider}>
             {envoi ? 'Modification…' : refaireRequis ? 'Refaire la vente' : 'Modifier les modalités'}
           </button>
           <button className="btn-ghost" style={{ fontSize: 12.5 }} onClick={tenterFermeture} disabled={envoi}>Annuler</button>
@@ -262,11 +299,11 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
               : `${fmtEurExact(reste)} en une fois`
             : 'Rien de plus à encaisser'}>
             {reste > 0.005 && aCreer > 1 && parEcheanceAvant > 0 && nbActuel > 1 && (
-              <div>Au lieu de {fmtEurExact(parEcheanceAvant)} pendant {nbActuel - payees} fois, puis plus rien.</div>
+              <div>Au lieu de {fmtEurExact(parEcheanceAvant)} pendant {echeancierAvant.length} fois, puis plus rien.</div>
             )}
-            {payees > 0 && (
+            {dejaPayees > 0 && (
               <div style={{ marginTop: 6 }}>
-                {payees === 1 ? 'L’échéance déjà payée n’est pas touchée.' : `Les ${payees} échéances déjà payées ne sont pas touchées.`}
+                {dejaPayees === 1 ? 'L’échéance déjà payée n’est pas touchée.' : `Les ${dejaPayees} échéances déjà payées ne sont pas touchées.`}
               </div>
             )}
             <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
@@ -276,14 +313,43 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
               )}
             </div>
           </Encart>
+
+          {/* ── Le détail, ligne par ligne ──────────────────────────────────
+              Annoncer « 3 fois 400 € » sans montrer les dates ni ce que chaque
+              échéance valait avant oblige à croire sur parole au moment précis
+              où on veut vérifier. */}
+          {(echeancierAvant.length > 0 || echeancierApres.length > 0) && (
+            <div style={{ marginTop: 12 }}>
+              <Section marge={0}>
+                {mode === 'installments_auto' ? 'Les prélèvements à venir' : 'Les échéances à venir'}
+              </Section>
+              {chargement ? (
+                <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '8px 0' }}>
+                  Lecture de l’échéancier chez Stripe…
+                </div>
+              ) : (
+                <ApercuEcheances
+                  avant={echeancierAvant}
+                  apres={echeancierApres}
+                  total={nbEffectif > 1 ? nbEffectif : 1}
+                  rythmeChange={changeRythme} />
+              )}
+            </div>
+          )}
         </div>
       )}
 
-      {!refaireRequis && (
-        <div style={{ marginTop: 18 }}>
-          <CaseResponsabilite niveau="orange" coche={coche} onChange={setCoche} />
-        </div>
-      )}
+      {/* ── La case, toujours ────────────────────────────────────────────────
+          Elle disparaissait dès que l'avertissement « refaire la vente »
+          s'affichait — c'est-à-dire au moment le plus engageant de tout l'écran.
+          Son texte suit ce qu'on engage vraiment : des modalités, ou un
+          remboursement suivi d'une recréation. */}
+      <div style={{ marginTop: 18 }}>
+        <CaseResponsabilite
+          niveau={refaireRequis ? 'rouge' : 'orange'}
+          coche={coche} onChange={setCoche}
+          texte={refaireRequis ? CASE_REFAIRE : CASE_MODALITES} />
+      </div>
     </ModaleAction>
   );
 }

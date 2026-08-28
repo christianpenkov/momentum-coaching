@@ -105,19 +105,22 @@ export default function FicheClient({
         )}
       </div>
 
-      {/* ── Les totaux du client, tous ventes confondues ────────────────── */}
+      {/* ── Les totaux du client, toutes ventes confondues ──────────────────
+          L'ENCAISSÉ À GAUCHE, le contracté à droite : la barre en dessous se
+          remplit de gauche à droite, du premier vers le second. Dans l'autre
+          sens, elle progressait visuellement à rebours de ses propres chiffres. */}
       <div style={{ padding: isMobile ? '16px 20px' : '18px 24px', flexShrink: 0 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
-          <div>
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 5 }}>Cash contracté</div>
-            <div className="tabular" style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.3px' }}>{fmtEurExact(contracte)}</div>
-          </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, marginBottom: 11 }}>
           <div>
             <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 5 }}>Cash encaissé</div>
             <div className="tabular" style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.3px', color: 'var(--green)' }}>{fmtEurExact(encaisse)}</div>
           </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 5 }}>Cash contracté</div>
+            <div className="tabular" style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.3px' }}>{fmtEurExact(contracte)}</div>
+          </div>
         </div>
-        <Barre pct={pct} etat={person.status} />
+        <Barre pct={pct} etat={person.status} legende={`${pct} % encaissé`} />
       </div>
 
       {/* ── LE SÉPARATEUR FORT ──────────────────────────────────────────────
@@ -271,7 +274,12 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
         flexDirection: isMobile ? 'column' : 'row',
         alignItems: isMobile ? 'flex-start' : 'baseline',
       }}>
-        <span className="mono" style={{ flex: 1 }}>Vente du {fmtDateLong(deal.signedAt)}</span>
+        {/* Beige mat, et non le gris des autres titres de section : cette
+            étiquette n'est pas un intertitre parmi d'autres, c'est ce qui dit
+            qu'un nouveau bloc de vente commence. */}
+        <span className="mono" style={{ flex: 1, color: 'var(--taupe)' }}>
+          Vente du {fmtDateLong(deal.signedAt)}
+        </span>
         <span style={{
           display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0,
           fontSize: 10.5, fontWeight: 600, padding: '3px 9px', borderRadius: 999,
@@ -292,14 +300,8 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
         )}
 
         <div style={{ marginTop: 11 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, marginBottom: 5 }}>
-            <span style={{ color: 'var(--muted)' }}>
-              Encaissé <span className="tabular" style={{ color: 'var(--ink)' }}>{fmtEurExact(deal.collected)}</span>
-              {' '}sur <span className="tabular">{fmtEurExact(deal.amountTotal)}</span>
-            </span>
-            <span className="tabular" style={{ color: 'var(--muted)' }}>{pct}%</span>
-          </div>
-          <Barre pct={pct} etat={etat} />
+          <Barre pct={pct} etat={etat}
+            legende={`${fmtEurExact(deal.collected)} encaissés sur ${fmtEurExact(deal.amountTotal)} · ${pct} %`} />
         </div>
 
         {/* Ce que les totaux ne montrent pas : l'argent rendu ou repris. */}
@@ -701,8 +703,15 @@ function Origine({ dealId, deal }: { dealId: string; deal: DealRow }) {
   );
 }
 
-/** La barre de progression, dont la couleur dit l'état. */
-export function Barre({ pct, etat }: { pct: number; etat: string }) {
+/**
+ * La barre de progression, dont la couleur dit l'état.
+ *
+ * La légende vit SOUS la barre et CENTRÉE : au-dessus et alignée à gauche, elle
+ * se lisait comme un titre de la section suivante plutôt que comme la mesure de
+ * la barre. Sous elle et centrée, elle appartient visiblement à ce qu'elle
+ * mesure.
+ */
+export function Barre({ pct, etat, legende }: { pct: number; etat: string; legende?: string }) {
   const couleur = etat === 'paid' ? 'var(--green)'
     : etat === 'ended' || etat === 'canceled' ? 'var(--taupe)'
     : etat === 'disputed' || etat === 'past_due' ? 'var(--red)'
@@ -710,8 +719,15 @@ export function Barre({ pct, etat }: { pct: number; etat: string }) {
     : 'var(--accent-brand)';
 
   return (
-    <div style={{ height: 5, borderRadius: 3, background: 'var(--surface-2)', overflow: 'hidden' }}>
-      <div style={{ height: '100%', width: `${Math.max(pct, pct > 0 ? 2 : 0)}%`, background: couleur, borderRadius: 3 }} />
+    <div>
+      <div style={{ height: 5, borderRadius: 3, background: 'var(--surface-2)', overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${Math.max(pct, pct > 0 ? 2 : 0)}%`, background: couleur, borderRadius: 3 }} />
+      </div>
+      {legende && (
+        <div className="tabular" style={{
+          fontSize: 11, color: 'var(--muted)', textAlign: 'center', marginTop: 6,
+        }}>{legende}</div>
+      )}
     </div>
   );
 }

@@ -81,13 +81,10 @@ function LigneClient({ person, deals, isMobile, isCoach, onOuvrir }: {
           {soustitre}
         </span>
 
-        {/* Le pourcentage AU-DESSUS de la barre, en chiffres tabulaires : une
+        {/* Le pourcentage SOUS la barre et centré, comme partout ailleurs : une
             barre seule ne se compare pas d'une ligne à l'autre. */}
         <span style={{ display: 'block', marginTop: 7, maxWidth: isMobile ? '100%' : 260 }}>
-          <span className="tabular" style={{ display: 'block', fontSize: 10.5, color: 'var(--faint)', marginBottom: 3 }}>
-            {pct}%
-          </span>
-          <Barre pct={pct} etat={person.status} />
+          <Barre pct={pct} etat={person.status} legende={`${pct} %`} />
         </span>
       </span>
 

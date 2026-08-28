@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Icon from '@/components/ui/Icon';
 import ModaleAction, {
-  CaseResponsabilite, Encart, Ligne, Section, VersStripe, champStyle,
+  CaseResponsabilite, Encart, Ligne, Section, VersStripe, champStyle, ChampMontant,
 } from './ModaleAction';
 import { modeDe } from './etats';
 import { fmtEurExact, fmtDateLong, type DealRow, type DealDetail } from './types';
@@ -314,12 +314,7 @@ function DeclarerRemboursement({ deal, motif, aRembourser, onClose, onDone }: {
 
       <Section>Combien lui as-tu rendu ?</Section>
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 14px', width: 180, background: 'var(--surface)' }}>
-          <input value={montant} onChange={e => setMontant(e.target.value.replace(/[^\d.,]/g, ''))}
-            inputMode="decimal" autoFocus className="tabular"
-            style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 19, fontWeight: 700, letterSpacing: '-0.4px', width: '100%', fontFamily: 'inherit', color: 'var(--ink)' }} />
-          <span style={{ fontSize: 15, color: 'var(--faint)', flexShrink: 0 }}>€</span>
-        </div>
+        <ChampMontant valeur={montant} onChange={setMontant} autoFocus largeur={180} />
         <input type="date" value={date} onChange={e => setDate(e.target.value)}
           style={{ ...champStyle, width: 165 }} />
       </div>

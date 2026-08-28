@@ -206,7 +206,7 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
           {/* Filtres masqués sans deal à filtrer : ils n'auraient aucun effet et
               encombreraient l'écran d'accueil d'un nouvel utilisateur. */}
           <div style={{ display: deals.length === 0 ? 'none' : 'flex', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-            {([['all', 'Tous'], ['open', 'En cours'], ['unpaid', 'Impayés'], ['paid', 'Soldés'], ['ended', 'Terminés'], ['canceled', 'Annulés']] as const).map(([key, label]) => (
+            {([['all', 'Tous'], ['open', 'En cours'], ['unpaid', 'Impayés'], ['paid', 'Soldés'], ['ended', 'Arrêtés'], ['canceled', 'Annulés']] as const).map(([key, label]) => (
               <button key={key} onClick={() => setFilter(key)}
                 className="paiements-filter"
                 style={{

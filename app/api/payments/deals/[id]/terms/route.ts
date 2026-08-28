@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { getStripeAccess, resolveTargetProfile } from '@/lib/stripe-account';
-import { createDealPaymentLink, desactiverLiensDuDeal } from '@/lib/stripe-payment-links';
+import {
+  createDealPaymentLink, desactiverLiensDuDeal,
+  ajusterPrelevements, ajusterNombreEcheances,
+} from '@/lib/stripe-payment-links';
 import { calculerCash, resteAEncaisser, type LignePaiement } from '@/lib/dealCash';
 
 /**
@@ -61,7 +64,7 @@ export async function PATCH(
   const { data: deal } = await supa
     .from('deals')
     .select(`id, profile_id, status, amount_total, buyer_name, payment_plan, installments_count,
-             installment_interval, stripe_subscription_id, stripe_payment_link_id,
+             installment_interval, currency, stripe_subscription_id, stripe_payment_link_id,
              ig_lead_id, first_touch_content_id,
              deal_payments(amount, status),
              deal_installments(id, rank, amount, status, due_on, stripe_payment_link_id)`)
@@ -80,7 +83,8 @@ export async function PATCH(
     }, { status: 409 });
   }
 
-  const cash = calculerCash(deal.deal_payments as LignePaiement[]);
+  const paiements = (deal.deal_payments ?? []) as LignePaiement[];
+  const cash = calculerCash(paiements);
   const montant = Number(deal.amount_total);
   const reste = resteAEncaisser(cash, montant);
 
@@ -111,18 +115,86 @@ export async function PATCH(
   const access = await getStripeAccess(deal.profile_id);
   const nbEcheances = plan === 'one_shot' ? 1 : count!;
 
+  const echeances = ((deal.deal_installments ?? []) as Array<{ id: string; rank: number; status: string }>);
+
+  // ── Combien d'échéances sont DÉJÀ derrière nous ? ─────────────────────────
+  // En prélèvement automatique, `deal_installments` est VIDE : l'échéancier vit
+  // chez Stripe. Compter les lignes payées y renvoyait donc toujours zéro, et
+  // « passer en 4 fois » découpait le reste en 4 au lieu de 3 — une échéance de
+  // trop, à un montant faux.
+  //
+  // Les lignes de paiement encaissées, elles, existent dans les quatre modes.
+  const dejaPayees = echeances.length > 0
+    ? echeances.filter(e => e.status === 'paid').length
+    : paiements.filter(p => p.status === 'succeeded').length;
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // PRÉLÈVEMENT AUTOMATIQUE : rien à créer, tout à ajuster chez Stripe
+  // ══════════════════════════════════════════════════════════════════════════
+  // Ce mode n'a ni échéance en base ni lien par échéance : c'est Stripe qui
+  // prélève. Lui fabriquer des liens produisait un « échéance 1 sur 4 » payable
+  // en double, sur une vente que Stripe continuait de prélever à l'ancien
+  // montant — la base et Stripe racontaient deux histoires différentes.
+  if (plan === 'installments_auto' && deal.stripe_subscription_id && !changeMode && !changeRythme) {
+    if (!access) {
+      return NextResponse.json({
+        error: 'Stripe n’est pas connecté : les prélèvements ne peuvent pas être ajustés.',
+        code: 'stripe_absent',
+      }, { status: 502 });
+    }
+
+    const restantes = Math.max(1, nbEcheances - dejaPayees);
+    const parEcheance = arrondi(reste / restantes);
+
+    // Stripe d'abord, la base ensuite. Si l'ajustement échoue, la fiche ne doit
+    // surtout pas annoncer un découpage que Stripe ne prélève pas.
+    const montantOk = await ajusterPrelevements(
+      access, deal.stripe_subscription_id, parEcheance, deal.currency ?? 'eur');
+    if (!montantOk.ajuste) {
+      return NextResponse.json({
+        error: "Les prélèvements n'ont pas pu être ajustés chez Stripe. Rien n'a été modifié.",
+        code: 'stripe_ajustement_impossible', raison: montantOk.raison,
+      }, { status: 502 });
+    }
+
+    const bornageOk = await ajusterNombreEcheances(
+      access, deal.stripe_subscription_id, nbEcheances, interval);
+    if (!bornageOk.ajuste) {
+      return NextResponse.json({
+        error: "Le nombre de prélèvements n'a pas pu être modifié chez Stripe. Le montant, lui, a été ajusté — reprends l'opération.",
+        code: 'stripe_bornage_impossible', raison: bornageOk.raison,
+      }, { status: 502 });
+    }
+
+    await supa.from('deals').update({
+      payment_plan: 'installments_auto',
+      installments_count: nbEcheances > 1 ? nbEcheances : null,
+      installment_interval: nbEcheances > 1 ? interval : null,
+    }).eq('id', dealId);
+
+    await supa.from('deal_events').insert({
+      deal_id: dealId,
+      kind: 'terms_changed',
+      label: `Modalités modifiées · ${libelle(modeAvant, deal.installments_count, rythmeAvant)} → ${libelle(modeApres, nbEcheances > 1 ? nbEcheances : null, interval)}`,
+      actor_id: user.id,
+      meta: { avant: modeAvant, apres: modeApres, count: nbEcheances, interval, parEcheance, restantes },
+    });
+
+    return NextResponse.json({
+      ok: true, liens: [], echeances: nbEcheances,
+      prelevements: { restantes, parEcheance },
+    });
+  }
+
   // ── Refonte des échéances ─────────────────────────────────────────────────
   // Les échéances déjà payées ne sont jamais touchées. Seules les autres sont
   // supprimées puis recréées au nouveau découpage, avec leurs liens.
-  const echeances = ((deal.deal_installments ?? []) as Array<{ id: string; rank: number; status: string }>);
-  const payees = echeances.filter(e => e.status === 'paid');
-
   if (access) await desactiverLiensDuDeal(supa, dealId, deal.profile_id);
   for (const e of echeances.filter(e => e.status !== 'paid')) {
     await supa.from('deal_installments').delete().eq('id', e.id);
   }
 
-  const aCreer = Math.max(0, nbEcheances - payees.length);
+  const aCreer = Math.max(0, nbEcheances - dejaPayees);
   const liens: Array<{ rank: number; url: string; amount: number }> = [];
 
   if (aCreer > 0 && reste > CENTIME) {
@@ -131,7 +203,7 @@ export async function PATCH(
     const depart = Date.now();
 
     for (let i = 0; i < aCreer; i++) {
-      const rank = payees.length + i + 1;
+      const rank = dejaPayees + i + 1;
       const somme = i === 0 ? premiere : part;
       const echeance = new Date(depart + i * JOURS[interval] * 86400_000);
 

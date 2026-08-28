@@ -283,6 +283,134 @@ export function LienACopier({ url, libelle }: { url: string; libelle: string }) 
   );
 }
 
+/**
+ * Le champ de saisie d'un montant.
+ *
+ * ── Pourquoi c'est un composant et pas trois lignes de style ───────────────
+ * Le `€` vit à l'intérieur de l'encadré mais en dehors de l'`<input>`. Le focus
+ * du navigateur, lui, ne connaît que l'input : le liseré s'arrêtait donc avant
+ * le symbole, et l'encadré paraissait coupé en deux au moment précis où on tape
+ * de l'argent. `:focus-within` sur l'enveloppe règle ça — mais il n'existe pas
+ * en style en ligne, d'où l'état local.
+ */
+export function ChampMontant({ valeur, onChange, autoFocus, largeur = 200 }: {
+  valeur: string;
+  onChange: (v: string) => void;
+  autoFocus?: boolean;
+  largeur?: number;
+}) {
+  const [actif, setActif] = useState(false);
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', width: largeur, background: 'var(--surface)',
+      border: `1px solid ${actif ? 'var(--accent-brand)' : 'var(--border)'}`,
+      boxShadow: actif ? '0 0 0 3px color-mix(in srgb, var(--accent-brand) 22%, transparent)' : undefined,
+      borderRadius: 8, padding: '9px 14px',
+      transition: 'border-color .12s, box-shadow .12s',
+    }}>
+      <input
+        value={valeur}
+        onChange={e => onChange(e.target.value.replace(/[^\d.,]/g, ''))}
+        onFocus={() => setActif(true)}
+        onBlur={() => setActif(false)}
+        inputMode="decimal"
+        autoFocus={autoFocus}
+        className="tabular"
+        aria-label="Montant en euros"
+        style={{
+          border: 'none', outline: 'none', background: 'transparent',
+          fontSize: 21, fontWeight: 700, letterSpacing: '-0.4px',
+          width: '100%', minWidth: 0, fontFamily: 'inherit', color: 'var(--ink)',
+        }} />
+      <span style={{ fontSize: 15, color: 'var(--faint)', flexShrink: 0 }}>€</span>
+    </div>
+  );
+}
+
+/**
+ * L'échéancier avant / après, ligne par ligne.
+ *
+ * ── Ce que « les échéances seront recalculées » ne disait pas ──────────────
+ * Lesquelles, pour combien, et à quelles dates. Un écran qui annonce un
+ * recalcul sans le montrer demande de faire confiance sur le seul point où
+ * personne ne veut faire confiance — et rend impossible de repérer une faute de
+ * frappe avant de valider.
+ *
+ * Trois cas de ligne, et ils se distinguent à l'œil :
+ *  · une échéance qui change      → ancien montant barré, nouveau à droite
+ *  · une échéance qui apparaît    → « nouvelle », sans montant barré
+ *  · une échéance qui disparaît   → tout en gris barré, « supprimée »
+ */
+export function ApercuEcheances({ avant, apres, total, rythmeChange }: {
+  avant: Array<{ rang: number; date: string | null; montant: number }>;
+  apres: Array<{ rang: number; date: string | null; montant: number }>;
+  /** Nombre total d'échéances de la vente après modification, pour le « x/N ». */
+  total: number;
+  /** Le rythme change : les dates d'après ne sont pas encore connues. */
+  rythmeChange?: boolean;
+}) {
+  const rangs = [...new Set([...avant.map(e => e.rang), ...apres.map(e => e.rang)])].sort((a, b) => a - b);
+  if (rangs.length === 0) return null;
+
+  return (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+      {rangs.map((rang, i) => {
+        const a = avant.find(e => e.rang === rang);
+        const b = apres.find(e => e.rang === rang);
+        const supprimee = !b;
+        const nouvelle = !a;
+        const identique = a && b && Math.abs(a.montant - b.montant) < 0.005;
+
+        return (
+          <div key={rang} style={{
+            display: 'flex', alignItems: 'baseline', gap: 10, padding: '9px 13px',
+            borderTop: i === 0 ? 'none' : '1px solid var(--border-soft)',
+            background: nouvelle ? 'var(--green-soft)' : supprimee ? 'var(--surface-2)' : undefined,
+          }}>
+            <span className="tabular" style={{
+              fontSize: 11.5, color: 'var(--muted)', flexShrink: 0, width: 34,
+            }}>{rang}/{total}</span>
+
+            <span style={{
+              flex: 1, minWidth: 0, fontSize: 12.5,
+              color: supprimee ? 'var(--faint)' : 'var(--ink-2)',
+            }}>
+              {supprimee
+                ? <span style={{ textDecoration: 'line-through' }}>{jourDe(a!.date)}</span>
+                : rythmeChange && !nouvelle
+                  ? <>{jourDe(a!.date)} <span style={{ color: 'var(--faint)' }}>→ date recalculée</span></>
+                  : jourDe(b!.date)}
+              {nouvelle && <span style={{ color: 'var(--green)', marginLeft: 7, fontSize: 11.5 }}>nouvelle</span>}
+              {supprimee && <span style={{ marginLeft: 7, fontSize: 11.5 }}>supprimée</span>}
+            </span>
+
+            <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexShrink: 0 }}>
+              {a && !identique && (
+                <span className="tabular" style={{ fontSize: 12, color: 'var(--faint)', textDecoration: 'line-through' }}>
+                  {eur(a.montant)}
+                </span>
+              )}
+              {b && (
+                <span className="tabular" style={{
+                  fontSize: 13.5, fontWeight: identique ? 500 : 700,
+                  color: identique ? 'var(--muted)' : 'var(--ink)',
+                }}>{eur(b.montant)}</span>
+              )}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const eur = (n: number) =>
+  new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 }).format(n);
+
+const jourDe = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }) : 'date à définir';
+
 export const champStyle: React.CSSProperties = {
   width: '100%', padding: '9px 12px', border: '1px solid var(--border)', borderRadius: 8,
   fontSize: 13, background: 'var(--surface)', color: 'var(--ink)', fontFamily: 'inherit', outline: 'none',
