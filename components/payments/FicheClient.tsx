@@ -6,6 +6,7 @@ import Avatar, { getInitials } from '@/components/ui/Avatar';
 import Portal from './Portal';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { ETATS, etatDe, precisionEtat, modeDe, libelleModalites, compteDansLesTotaux } from './etats';
+import { useEcheancesAVenir } from './useEcheances';
 import { fmtEur, fmtEurExact, fmtDateLong, type DealRow, type DealDetail, type PersonRow } from './types';
 import ModifierMontant from './ModifierMontant';
 import ModifierModalites from './ModifierModalites';
@@ -258,6 +259,10 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
   const echeances = detail?.installments ?? [];
   const paiements = detail?.payments ?? [];
   const journal = detail?.events ?? [];
+
+  // En prélèvement automatique, l'échéancier vit chez Stripe : on va l'y lire
+  // plutôt que d'afficher la seule ligne que la base connaît.
+  const { lignes: prelevements } = useEcheancesAVenir(deal, detail);
   const pct = deal.amountTotal > 0 ? Math.min(100, Math.round((deal.collected / deal.amountTotal) * 100)) : 0;
   const terminee = estTerminee(deal);
 
@@ -320,9 +325,10 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
       </div>
 
       {/* ── Les échéances ──────────────────────────────────────────────── */}
-      {(echeances.length > 0 || paiements.length > 0) && (
+      {(echeances.length > 0 || paiements.length > 0 || prelevements.length > 0) && (
         <Repliable titre={echeances.length > 0
           ? `Les ${echeances.length} échéances`
+          : prelevements.length > 0 ? `Les ${deal.installmentsCount ?? 1} échéances`
           : paiements.length > 1 ? `Les ${paiements.length} paiements` : 'Le paiement'}
           ouvert={ouvertes.echeances}
           onToggle={() => setOuvertes(o => ({ ...o, echeances: !o.echeances }))}>
@@ -331,6 +337,42 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
                 <LigneEcheance key={i.id} inst={i} total={echeances.length} mode={mode}
                   onChange={onChange} />
               ))
+            /* ── Prélèvement automatique ──────────────────────────────────
+               L'échéancier vit chez Stripe : la base ne connaît que les
+               paiements déjà encaissés. Sans les prélèvements à venir, la
+               fiche n'affichait qu'une ligne « encaissé le 20 août » et
+               laissait deviner ce que le client paierait ensuite — soit
+               exactement ce qu'on vient consulter. */
+            : prelevements.length > 0
+            ? (
+              <>
+                {paiements.filter(p => p.status === 'succeeded').map((p, i) => (
+                  <LignePrelevement key={p.id} rang={i + 1} total={deal.installmentsCount ?? 1}
+                    date={p.paid_at} montant={Number(p.amount)} passe />
+                ))}
+                {prelevements.map(l => (
+                  <LignePrelevement key={l.rang} rang={l.rang} total={deal.installmentsCount ?? 1}
+                    date={l.date} montant={l.montant} />
+                ))}
+                {/* Les remboursements et litiges gardent leur ligne à part :
+                    ils ne sont pas des échéances. */}
+                {paiements.filter(p => p.status !== 'succeeded').map(p => (
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '6px 0' }}>
+                    <span style={{
+                      width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+                      background: p.status === 'refunded' ? 'var(--taupe)' : 'var(--red)',
+                    }} />
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 12.5 }}>
+                      {p.status === 'refunded' ? 'Remboursé' : p.status === 'disputed' ? 'Contesté' : (p.failure_reason ?? 'Échec')}
+                      {' '}<span style={{ color: 'var(--muted)' }}>{p.paid_at ? `le ${fmtDateLong(p.paid_at)}` : ''}</span>
+                    </span>
+                    <span className="tabular" style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)' }}>
+                      − {fmtEurExact(Number(p.amount))}
+                    </span>
+                  </div>
+                ))}
+              </>
+            )
             : paiements.map(p => (
                 <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '6px 0' }}>
                   <span style={{
@@ -348,16 +390,20 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
                 </div>
               ))}
 
-          {/* Le lien du comptant vit ici, faute d'échéance qui le porte. */}
-          {echeances.length === 0 && deal.shortUrl && !terminee && deal.collected < deal.amountTotal - 0.005 && (
+          {/* ── Le lien du comptant, faute d'échéance qui le porte ─────────
+              JAMAIS en prélèvement automatique : le lien de mise en place y a
+              déjà été payé, et l'afficher « ouvert, pas payé » racontait
+              l'inverse de ce qui s'est produit — sur le seul mode où plus aucun
+              lien n'est à envoyer. */}
+          {echeances.length === 0 && mode !== 'installments_auto'
+            && deal.shortUrl && !terminee && deal.collected < deal.amountTotal - 0.005 && (
             <LigneLien url={deal.shortUrl} clics={detail?.clicks ?? 0} envoye={false} />
           )}
 
-          {/* En prélèvement automatique, `deal_installments` est VIDE :
-              l'échéancier vit chez Stripe, et le recopier créerait deux sources
-              de vérité. On le lit donc chez lui, ici, seul endroit où la
-              question se pose. */}
-          {mode === 'installments_auto' && !terminee && <EcheancierStripe dealId={deal.id} />}
+          {/* Le garde-fou du bornage : une date de fin absente signifie que
+              Stripe prélèverait indéfiniment. Les dates, elles, sont désormais
+              dans l'échéancier ci-dessus. */}
+          {mode === 'installments_auto' && !terminee && <BornageStripe dealId={deal.id} />}
         </Repliable>
       )}
 
@@ -598,19 +644,49 @@ function LigneLien({ url, clics, envoye, installmentId, onChange }: {
 }
 
 /**
- * Ce que Stripe prélève réellement, lu chez lui.
+ * Un prélèvement, passé ou à venir.
  *
  * Le mot « abonnement » n'apparaît jamais : ce que vend l'élève est un
  * accompagnement payé en plusieurs fois, pas une souscription reconductible.
  * L'employer laisserait croire à un renouvellement sans fin — l'inverse exact de
  * ce que garantit le bornage.
  */
-function EcheancierStripe({ dealId }: { dealId: string }) {
-  const [sched, setSched] = useState<{
-    status: string; perPayment: number | null; interval: string | null;
-    nextPaymentAt: string | null; endsAt: string | null; bounded: boolean;
-    totalCount: number | null;
-  } | null>(null);
+function LignePrelevement({ rang, total, date, montant, passe }: {
+  rang: number; total: number; date: string | null; montant: number; passe?: boolean;
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '6px 0' }}>
+      <span style={{
+        width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+        background: passe ? 'var(--green)' : '#d8d2c5',
+      }} />
+      <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: passe ? 'var(--ink)' : 'var(--ink-2)' }}>
+        {rang}/{total}
+        {'  '}
+        <span style={{ color: 'var(--muted)' }}>
+          {passe
+            ? `prélevée le ${fmtDateLong(date)}`
+            : date ? `sera prélevée le ${fmtDateLong(date)}` : 'date à confirmer'}
+        </span>
+      </span>
+      <span className="tabular" style={{
+        fontSize: 12.5, fontWeight: 600, color: passe ? 'var(--ink)' : 'var(--muted)',
+      }}>{fmtEurExact(montant)}</span>
+    </div>
+  );
+}
+
+/**
+ * Le garde-fou du bornage.
+ *
+ * Les dates vivent désormais dans l'échéancier au-dessus ; ce bloc ne sert plus
+ * qu'à une chose, mais elle est vitale : sans date de fin, Stripe prélèverait
+ * indéfiniment. Le webhook coupe en secours au dernier versement, mais l'élève
+ * doit pouvoir le constater lui-même avant d'y arriver — d'où un avertissement
+ * qui n'apparaît QUE dans ce cas, et rien du tout quand tout va bien.
+ */
+function BornageStripe({ dealId }: { dealId: string }) {
+  const [sched, setSched] = useState<{ status: string; endsAt: string | null; bounded: boolean } | null>(null);
 
   useEffect(() => {
     let vivant = true;
@@ -622,37 +698,16 @@ function EcheancierStripe({ dealId }: { dealId: string }) {
   }, [dealId]);
 
   if (!sched || sched.status === 'canceled') return null;
+  if (sched.bounded && sched.endsAt) return null;
 
   return (
-    <div style={{ marginTop: 10, padding: '9px 12px', background: 'var(--surface-2)', borderRadius: 8 }}>
-      <div className="mono" style={{ marginBottom: 6 }}>Ce que Stripe prélève</div>
-      {sched.nextPaymentAt && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12, padding: '2px 0' }}>
-          <span style={{ color: 'var(--muted)' }}>Prochain prélèvement</span>
-          <span style={{ fontWeight: 500 }}>{fmtDateLong(sched.nextPaymentAt)}</span>
-        </div>
-      )}
-      {sched.perPayment != null && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12, padding: '2px 0' }}>
-          <span style={{ color: 'var(--muted)' }}>Montant</span>
-          <span className="tabular" style={{ fontWeight: 500 }}>
-            {fmtEurExact(sched.perPayment)} {sched.interval === 'week' ? 'par semaine' : 'par mois'}
-          </span>
-        </div>
-      )}
-      {/* Sans date de fin, Stripe prélèverait indéfiniment. L'anomalie doit se
-          VOIR : le webhook coupe en secours au dernier versement, mais un élève
-          doit pouvoir le constater lui-même avant d'y arriver. */}
-      {sched.bounded && sched.endsAt ? (
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12, padding: '2px 0' }}>
-          <span style={{ color: 'var(--muted)' }}>Dernier prélèvement</span>
-          <span style={{ fontWeight: 500 }}>{fmtDateLong(sched.endsAt)}</span>
-        </div>
-      ) : (
-        <div style={{ fontSize: 11.5, color: 'var(--red)', marginTop: 5, lineHeight: 1.5 }}>
-          Aucune date de fin enregistrée — préviens le support avant la dernière échéance.
-        </div>
-      )}
+    <div style={{
+      marginTop: 10, padding: '9px 12px', borderRadius: 8,
+      background: 'var(--red-soft)', border: '1px solid rgba(205,91,63,.28)',
+      fontSize: 11.5, color: 'var(--red)', lineHeight: 1.5,
+    }}>
+      Aucune date de fin enregistrée chez Stripe — préviens le support avant la
+      dernière échéance.
     </div>
   );
 }
