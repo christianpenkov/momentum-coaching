@@ -129,7 +129,14 @@ function LigneClient({ person, deals, isMobile, isCoach, onOuvrir }: {
             </span>
           )}
         </span>
-        {!isMobile && <Icon name="chevR" size={15} color="var(--faint)" />}
+        {/* La flèche est décorative : elle dit « ça s'ouvre », elle n'est pas la
+            cible. Son SVG n'est peint que sur le trait — le reste de sa boîte ne
+            reçoit rien, et le trait lui-même devenait une cible à part au bord
+            de la ligne. `pointerEvents: none` renvoie tous ces clics à la ligne,
+            qui est le vrai bouton. */}
+        {!isMobile && (
+          <Icon name="chevR" size={15} color="var(--faint)" style={{ pointerEvents: 'none', flexShrink: 0 }} />
+        )}
       </span>
     </button>
   );
