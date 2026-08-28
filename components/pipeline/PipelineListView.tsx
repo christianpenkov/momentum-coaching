@@ -120,9 +120,8 @@ export default function PipelineListView({
       arr.sort((a, b) => {
         if (!!b.rapportEnRetard !== !!a.rapportEnRetard) return b.rapportEnRetard ? 1 : -1;
         if (tri === 'recent') return bouge(b) - bouge(a);
-        if (tri === 'ancien') return bouge(a) - bouge(b);
         if (tri === 'nom')    return a.name.localeCompare(b.name, 'fr');
-        return bouge(a) - bouge(b);   // immobile : le plus vieux mouvement d'abord
+        return bouge(a) - bouge(b);   // immobile (défaut) : le plus vieux mouvement d'abord
       });
     }
     return m;

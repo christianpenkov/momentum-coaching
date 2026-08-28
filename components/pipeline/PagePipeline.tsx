@@ -13,7 +13,7 @@ import Image from 'next/image';
 import { useQuery } from '@tanstack/react-query';
 import InlineLoader from '@/components/ui/InlineLoader';
 import RapportModal from '@/components/ui/RapportModalLoader';
-import ProspectDetailModal, { GEOMETRIE_VIDE, type Geometrie } from './ProspectDetailModal';
+import ProspectDetailModal from './ProspectDetailModal';
 import { isYtVideoId } from '@/lib/ytId';
 import { isCallHonored } from '@/lib/callHonored';
 import { objectionsPour, type OutcomeChoice } from '@/lib/rapportPatch';
@@ -208,16 +208,64 @@ type YtStageKey = typeof YT_STAGES[number]['key'];
 /** Une colonne du kanban : une étape ou une issue. Même forme, deux natures. */
 type ColumnDef = { key: string; label: string; color: string; lightBg: string; dot: string };
 
+// ── Le symbole d'une issue ────────────────────────────────────────────────────
+//
+// Un carré de couleur ne dit rien : il faut avoir appris la légende pour lire
+// « gris = pas qualifié ». Et pour deux daltoniens sur trente, « Perdu » (brun)
+// et « Pas qualifié » (gris) sont le même carré.
+//
+// Chaque issue porte donc un dessin qui redit la même chose que la couleur. Un
+// seul jeu de traits : contour, 1,7 px, bouts arrondis, boîte de 24 — le même
+// vocabulaire graphique partout, sinon on lit cinq icônes venues de cinq
+// endroits différents.
+const CHEMINS_ISSUE: Record<string, string> = {
+  // Flèche qui revient en arrière : reprendre contact.
+  to_recontact:  'M9 14 4 9l5-5 M4 9h9a7 7 0 0 1 0 14h-3',
+  // Un rendez-vous barré : la case était réservée, personne n'est venu.
+  no_show:       'M3 8h18 M8 3v4 M16 3v4 M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z M9 13l6 6 M15 13l-6 6',
+  // Cercle barré : la personne existe, la cible non.
+  not_qualified: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M6 6l12 12',
+  // Croix dans un cercle : l'affaire est close, sans vente.
+  lost:          'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M9 9l6 6 M15 9l-6 6',
+  // Coche dans un cercle : la seule issue qui rapporte.
+  closed:        'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M8.5 12.2l2.4 2.4 4.6-4.9',
+};
+
+function IconeIssue({ issueKey, taille = 14 }: { issueKey: string; taille?: number }) {
+  const d = CHEMINS_ISSUE[issueKey];
+  // Pas de dessin connu : on ne remplace pas par un carré au hasard, on ne met
+  // rien. Une forme inventée mentirait sur la nature de l'issue.
+  if (!d) return null;
+  return (
+    <svg width={taille} height={taille} viewBox="0 0 24 24" fill="none" aria-hidden focusable="false"
+      stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round"
+      style={{ flexShrink: 0, display: 'block' }}>
+      {d.split(' M').map((part, i) => <path key={i} d={i === 0 ? part : `M${part}`} />)}
+    </svg>
+  );
+}
+
 const ISSUE_LABELS: Record<string, string> = Object.fromEntries(ISSUES.map(i => [i.key, i.label]));
 
 // Les tris de la vue liste. Par défaut « le plus immobile » : la liste sert à
 // rattraper ce qui dort, pas à relire ce qu'on vient de traiter.
-export type TriKey = 'immobile' | 'recent' | 'ancien' | 'nom';
+/**
+ * Les trois ordres possibles dans la vue liste.
+ *
+ * Il y en avait quatre, dont deux STRICTEMENT identiques : « le plus immobile »
+ * et « le plus ancien » exécutaient le même tri. Un menu qui propose deux fois
+ * la même chose sous deux noms fait douter des deux autres.
+ *
+ * Les trois trient sur le dernier signe de vie (`lastMoveAt`) — commentaire,
+ * réponse en DM, clic, rendez-vous ou relance, indifféremment. Le défaut est
+ * `immobile` : cette liste sert à rattraper les leads oubliés, ils doivent être
+ * en haut.
+ */
+export type TriKey = 'immobile' | 'recent' | 'nom';
 const TRIS: readonly { key: TriKey; label: string }[] = [
-  { key: 'immobile', label: 'le plus immobile' },
-  { key: 'recent',   label: 'le plus récent' },
-  { key: 'ancien',   label: 'le plus ancien' },
-  { key: 'nom',      label: 'par nom' },
+  { key: 'immobile', label: 'Sans nouvelles depuis le plus longtemps' },
+  { key: 'recent',   label: 'Bougé le plus récemment' },
+  { key: 'nom',      label: 'Par nom (A→Z)' },
 ] as const;
 
 // Ensembles pour la règle pré-call / post-call. `showed_up` et `closed` n'en
@@ -946,25 +994,32 @@ function contexteCarte(card: CardData): string {
   }
   if (card.lastMoveAt) {
     const j = Math.floor((Date.now() - new Date(card.lastMoveAt).getTime()) / 86400000);
+    // « vu il y a 1 sem » se lisait comme « je l'ai vu » ou « il a vu mon
+    // message ». Ce que la ligne dit vraiment, c'est la date du dernier SIGNE
+    // DE VIE, quelle qu'en soit la nature — et c'est aussi ce que trie la vue
+    // liste, d'où le même verbe des deux côtés.
     if (j >= 21) return `sans mouvement depuis ${j} j`;
-    if (j <= 0)  return "vu aujourd'hui";
-    if (j === 1) return 'vu hier';
-    if (j < 7)   return `vu il y a ${j} j`;
-    return `vu il y a ${Math.floor(j / 7)} sem`;
+    if (j <= 0)  return 'a bougé aujourd’hui';
+    if (j === 1) return 'a bougé hier';
+    if (j < 7)   return `a bougé il y a ${j} j`;
+    return `a bougé il y a ${Math.floor(j / 7)} sem`;
   }
   return 'aucun signal';
 }
 
 // ── BoutonCase ────────────────────────────────────────────────────────────────
 // Un bouton par étape et par issue, au-dessus de la vue liste. La forme dit la
-// nature : pastille ronde pour une étape (une position dans un parcours), carré
-// plein pour une issue (un résultat, sans position).
+// nature : pastille ronde pour une étape (une position dans un parcours),
+// symbole pour une issue (un résultat, sans position).
 
 function BoutonCase({
-  label, n, actif, couleur, forme, onClick,
+  label, n, actif, couleur, forme, issueKey, onClick,
 }: {
   label: string; n: number; actif: boolean;
-  couleur?: string; forme?: 'rond' | 'carre'; onClick: () => void;
+  couleur?: string; forme?: 'rond' | 'carre';
+  /** La clé de l'issue, quand c'en est une : elle choisit le symbole. */
+  issueKey?: string;
+  onClick: () => void;
 }) {
   return (
     <button
@@ -982,13 +1037,16 @@ function BoutonCase({
         color: actif ? '#fff' : 'var(--ink)',
       }}
     >
-      {couleur && (
+      {forme === 'carre' && issueKey ? (
+        <span style={{ color: actif ? '#fff' : couleur, display: 'flex', flexShrink: 0 }}>
+          <IconeIssue issueKey={issueKey} taille={12} />
+        </span>
+      ) : couleur ? (
         <span style={{
-          width: forme === 'carre' ? 8 : 5.5, height: forme === 'carre' ? 8 : 5.5,
-          borderRadius: forme === 'carre' ? 2.5 : '50%', flexShrink: 0,
+          width: 5.5, height: 5.5, borderRadius: '50%', flexShrink: 0,
           background: actif ? '#fff' : couleur,
         }} />
-      )}
+      ) : null}
       {label}
       <span style={{
         fontSize: 10.5, fontWeight: 700, fontVariantNumeric: 'tabular-nums',
@@ -1123,12 +1181,10 @@ function motifLisible(reason: string | null | undefined): string | null {
 // board.
 
 function PanneauIssue({
-  issue, cards, voile, onFermer, onOuvrirFiche, onRelancer, avatarColor, avatarInitials,
+  issue, cards, onFermer, onOuvrirFiche, onRelancer, avatarColor, avatarInitials,
 }: {
   issue: ColumnDef;
   cards: CardData[];
-  /** Où commence la zone à assombrir, mesurée sur la page. */
-  voile: Geometrie;
   onFermer: () => void;
   onOuvrirFiche: (key: string) => void;
   /** Marque une relance faite. Absent = le bouton d'action ne s'affiche pas. */
@@ -1151,43 +1207,43 @@ function PanneauIssue({
   // Les relances ne concernent qu'« À recontacter » : une colonne vide sur les
   // quatre autres issues aurait dit qu'il s'y passe quelque chose.
   const avecRelances = issue.key === 'to_recontact';
-  const grille = avecRelances ? '1fr auto auto auto' : '1fr auto auto';
+  // ── POURQUOI DES LARGEURS EN DUR ET NON `auto` ──────────────────────────────
+  // L'en-tête et chaque ligne sont des grilles CSS SÉPARÉES. Deux grilles
+  // distinctes calculent leurs colonnes `auto` chacune de leur côté, à partir de
+  // leur propre contenu : « CLASSÉ LE » (58 px de texte) ne pouvait pas tomber
+  // en face de « 15 août » (44 px). Les en-têtes se serraient donc à droite,
+  // décalés de tout ce qu'ils étaient censés nommer.
+  //
+  // Des largeurs fixes sont la seule façon d'aligner deux grilles frères. Une
+  // grille unique avec `display: contents` sur les lignes marcherait aussi, mais
+  // une ligne cesse alors d'être une boîte : plus de fond au survol, plus de
+  // bordure basse, plus de zone cliquable d'un bloc.
+  const grille = avecRelances ? '1fr 66px 74px 116px' : '1fr 66px 116px';
 
   return (
     <>
-      {/* Le voile épouse la boîte du kanban : la barre latérale, la barre du
-          haut, le titre « Pipeline Leads · X leads » et les onglets restent
-          clairs ET cliquables. Il ne dit que ce qui est vrai — ce qui est
-          assombri est ce qui cesse de répondre. */}
-      <div onClick={onFermer} aria-hidden
-        style={{
-          position: 'fixed', top: voile.top, left: voile.left, right: 0, bottom: voile.bottom,
-          background: 'rgba(12,16,28,.34)', zIndex: 90,
-        }} />
+      {/* Le voile épouse la boîte du kanban, et rien d'autre : la barre
+          latérale, la barre du haut, le titre et les onglets restent clairs ET
+          cliquables. Il ne dit que ce qui est vrai — ce qui est assombri est ce
+          qui cesse de répondre. */}
+      <div className="pipeline-voile" onClick={onFermer} aria-hidden />
       <div
+        className="pipeline-panneau"
         role="dialog"
         aria-modal="true"
         aria-label={`Leads en « ${issue.label} »`}
-        style={{
-          // Le panneau commence sous la barre du logo : elle reste le seul repère
-          // au-dessus de tout. Il descend en revanche jusqu'en bas, par-dessus le
-          // board et les onglets.
-          position: 'fixed', top: voile.panneauTop, right: 0, bottom: 0, width: 'min(520px, 94vw)',
-          zIndex: 91, display: 'flex', flexDirection: 'column',
-          background: 'var(--surface)', borderLeft: '1px solid var(--border)',
-          boxShadow: '-14px 0 40px rgba(0,0,0,.13)',
-        }}
       >
         <div style={{
           display: 'flex', alignItems: 'center', gap: 12, padding: '18px 20px',
           borderBottom: '1px solid var(--border)', flexShrink: 0,
         }}>
           <span style={{
-            width: 30, height: 30, borderRadius: 9, flexShrink: 0,
+            width: 32, height: 32, borderRadius: 9, flexShrink: 0,
             background: issue.lightBg, border: `1px solid ${issue.color}33`,
+            color: issue.color,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2.5, background: issue.color }} />
+            <IconeIssue issueKey={issue.key} taille={17} />
           </span>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-.2px' }}>{issue.label}</div>
@@ -1235,7 +1291,7 @@ function PanneauIssue({
                 return (
                   <div key={c.key} style={{
                     display: 'grid', gridTemplateColumns: grille, gap: 10,
-                    alignItems: 'center', padding: '10px 20px',
+                    alignItems: 'center', padding: '9px 20px', minHeight: 56,
                     borderBottom: '1px solid var(--border-soft, #f5f1e7)',
                   }}>
                     {/* Le lead : cliquer ouvre sa fiche. Le bouton du bout est une
@@ -1301,8 +1357,11 @@ function PanneauIssue({
                       </span>
                     )}
 
-                    {/* Le geste attendu, à sa place, sur la ligne qui l'attend.
-                        Ailleurs, le bouton neutre : l'historique. */}
+                    {/* Le geste attendu, sur la ligne qui l'attend — mais EN
+                        CONTOUR. Rempli, il donnait une colonne de rectangles
+                        bleus saturés qui criait plus fort que les noms des
+                        leads : le panneau ne se lisait plus, il se subissait.
+                        Le contour se remplit au survol, au moment où il sert. */}
                     {c.relanceDue && onRelancer ? (
                       <button
                         type="button"
@@ -1310,8 +1369,16 @@ function PanneauIssue({
                         style={{
                           fontSize: 11, fontWeight: 600, padding: '6px 10px',
                           borderRadius: 7, cursor: 'pointer', whiteSpace: 'nowrap',
-                          background: 'var(--accent-brand)', color: '#fff',
-                          border: '1px solid var(--accent-brand)',
+                          background: 'var(--surface)', color: 'var(--accent-brand)',
+                          border: '1px solid var(--accent-brand)', transition: 'all .12s',
+                        }}
+                        onMouseEnter={e => {
+                          e.currentTarget.style.background = 'var(--accent-brand)';
+                          e.currentTarget.style.color = '#fff';
+                        }}
+                        onMouseLeave={e => {
+                          e.currentTarget.style.background = 'var(--surface)';
+                          e.currentTarget.style.color = 'var(--accent-brand)';
                         }}
                       >Je l&rsquo;ai relancé</button>
                     ) : (
@@ -1321,8 +1388,16 @@ function PanneauIssue({
                         style={{
                           fontSize: 11, fontWeight: 600, padding: '6px 10px',
                           borderRadius: 7, cursor: 'pointer', whiteSpace: 'nowrap',
-                          background: 'var(--surface)', color: 'var(--ink-2)',
-                          border: '1px solid var(--border)',
+                          background: 'transparent', color: 'var(--muted)',
+                          border: '1px solid transparent', transition: 'all .12s',
+                        }}
+                        onMouseEnter={e => {
+                          e.currentTarget.style.background = 'var(--surface-2)';
+                          e.currentTarget.style.color = 'var(--ink)';
+                        }}
+                        onMouseLeave={e => {
+                          e.currentTarget.style.background = 'transparent';
+                          e.currentTarget.style.color = 'var(--muted)';
                         }}
                       >Historique</button>
                     )}
@@ -1420,9 +1495,13 @@ function TuilesIssues({
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    {/* Carré plein : la forme dit « résultat », la pastille ronde
-                        des colonnes dit « étape ». */}
-                    <span style={{ width: 9, height: 9, borderRadius: 2, background: issue.color, flexShrink: 0 }} />
+                    {/* Un symbole, pas un carré : la couleur seule demandait
+                        d'avoir appris la légende, et « Perdu » (brun) et « Pas
+                        qualifié » (gris) étaient le même carré pour qui
+                        distingue mal les couleurs. */}
+                    <span style={{ color: issue.color, display: 'flex', flexShrink: 0 }}>
+                      <IconeIssue issueKey={issue.key} taille={15} />
+                    </span>
                     <span style={{
                       fontSize: 12, fontWeight: 600, flex: 1, minWidth: 0,
                       color: liste.length > 0 ? 'var(--ink)' : 'var(--muted)',
@@ -1521,10 +1600,13 @@ function KanbanColumn({
           borderRadius: 10,
         }}
       >
-        <span style={{
-          width: estIssue ? 8 : 6, height: estIssue ? 8 : 6,
-          borderRadius: estIssue ? 2 : '50%', background: stage.color, flexShrink: 0,
-        }} />
+        {estIssue ? (
+          <span style={{ color: stage.color, display: 'flex', flexShrink: 0 }}>
+            <IconeIssue issueKey={stage.key} taille={13} />
+          </span>
+        ) : (
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: stage.color, flexShrink: 0 }} />
+        )}
         {/* Le nombre EST l'information d'une colonne pliée. En petit, il fallait
             s'approcher pour lire « 412 ». */}
         <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>
@@ -1572,10 +1654,13 @@ function KanbanColumn({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
-          <div style={{
-            width: estIssue ? 8 : 6, height: estIssue ? 8 : 6,
-            borderRadius: estIssue ? 2 : '50%', background: stage.color, flexShrink: 0,
-          }} />
+          {estIssue ? (
+            <span style={{ color: stage.color, display: 'flex', flexShrink: 0 }}>
+              <IconeIssue issueKey={stage.key} taille={13} />
+            </span>
+          ) : (
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: stage.color, flexShrink: 0 }} />
+          )}
           <span style={{
             fontSize: 11.5, fontWeight: 600, color: isDropTarget ? stage.color : 'var(--ink)',
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -2223,44 +2308,29 @@ export default function PagePipeline() {
   // Modal détail prospect (timeline) ouvert au clic sur une card
   const [detailModal, setDetailModal] = useState<{ cardKey: string; platform: 'ig' | 'yt' | 'other' } | null>(null);
 
-  // ── LA GÉOMÉTRIE DU VOILE ──────────────────────────────────────────────────
+  // ── LE VOILE ET LE PANNEAU, SANS UNE LIGNE DE MESURE ───────────────────────
   //
-  // Le voile assombrit EXACTEMENT le kanban, rien d'autre : le titre, le compte
-  // de leads, les onglets et la barre latérale restent clairs. Il épouse donc la
-  // boîte du board, mesurée sur la page.
+  // La version d'avant mesurait la page à l'ouverture (`getBoundingClientRect`)
+  // et repositionnait un voile en `position: fixed`, en réécoutant `resize` et
+  // `scroll`. Trois défauts, tous visibles :
   //
-  // Le panneau, lui, monte jusqu'au BAS de la barre du haut — pas jusqu'au bord
-  // de l'écran. La barre du logo est la seule chose qui reste au-dessus de tout ;
-  // la recouvrir faisait disparaître le repère de niveau le plus haut de l'app.
+  //   1. À la première image, rien n'est encore mesuré : le voile couvrait
+  //      TOUT L'ÉCRAN puis sautait à sa place. C'est le flash.
+  //   2. Entre deux mesures, il flottait à côté de la zone qu'il prétendait
+  //      couvrir — pendant un défilement, une ouverture de menu, un changement
+  //      de largeur de barre latérale.
+  //   3. Il fallait le maintenir : toute modification de la mise en page
+  //      pouvait le décaler sans qu'aucun test ne s'en aperçoive.
   //
-  // Un `position: absolute` dans le conteneur du board ne pouvait faire ni l'un
-  // ni l'autre : il s'ancre sur un conteneur qui défile horizontalement, donc il
-  // part hors champ, et il ne peut pas déborder au-dessus de son parent. D'où
-  // une position FIXE, calculée sur les positions réelles.
+  // Le voile est désormais un `position: absolute; inset: 0` DANS le conteneur
+  // du board (`zoneBoardRef`, qui est `position: relative; overflow: hidden` et
+  // ne défile pas lui-même — c'est son enfant qui défile). Il épouse donc la
+  // zone exacte, à toutes les images, sans code.
+  //
+  // Le panneau reste en `position: fixed` — il doit passer PAR-DESSUS les
+  // onglets et les filtres — mais son décalage vient d'une classe CSS calée sur
+  // la hauteur de la barre du haut, pas d'une mesure. Voir `.pipeline-panneau`.
   const zoneBoardRef = useRef<HTMLDivElement>(null);
-  const [voile, setVoile] = useState<Geometrie | null>(null);
-  useEffect(() => {
-    if (!panneauIssue && !detailModal) { setVoile(null); return; }
-    const mesurer = () => {
-      const z = zoneBoardRef.current;
-      if (!z) return;
-      const r = z.getBoundingClientRect();
-      const barre = document.querySelector('.topbar');
-      setVoile({
-        top: Math.max(0, r.top),
-        left: r.left,
-        bottom: Math.max(0, window.innerHeight - r.bottom),
-        panneauTop: barre ? barre.getBoundingClientRect().bottom : 0,
-      });
-    };
-    mesurer();
-    window.addEventListener('resize', mesurer);
-    window.addEventListener('scroll', mesurer, true);
-    return () => {
-      window.removeEventListener('resize', mesurer);
-      window.removeEventListener('scroll', mesurer, true);
-    };
-  }, [panneauIssue, detailModal]);
 
   const { data, isLoading: loading, refetch } = useQuery<PipelineData | null>({
     queryKey: ['pipeline'],
@@ -3291,44 +3361,18 @@ export default function PagePipeline() {
             droite puis le saut à gauche, au moment où les polices chargées
             changent les largeurs et déclenchent le retour à la ligne. La marge
             automatique le garde à droite dans les deux cas. */}
-        <div className="pipeline-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+        <div className="pipeline-actions" style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'flex-end',
+          gap: 8, flex: 1, minWidth: 0,
+        }}>
 
-          {/* pipeline-tabs : sur mobile ce groupe passe en grille 3 colonnes
-              egales. En flex simple, les trois libelles cumulaient plus de
-              375px et "Autres" sortait de l'ecran (constate au navigateur). */}
-          <div className="pipeline-tabs" style={{ display: 'flex', borderRadius: 8, padding: 3, gap: 2 }}>
-            {([
-              { key: 'ig', label: 'Instagram', count: igCards.length },
-              { key: 'yt', label: 'YouTube', count: filteredYtCards.length },
-              { key: 'other', label: 'Autres', count: filteredOtherCards.length },
-            ] as const).map(t => (
-              <button
-                key={t.key}
-                onClick={() => setTab(t.key)}
-                // is-active plutot qu'un style inline conditionnel : sur mobile
-                // l'onglet actif devient une pilule pleine en accent, ce qu'une
-                // media query ne pourrait pas surcharger depuis l'inline.
-                className={`pipeline-tab${tab === t.key ? ' is-active' : ''}`}
-                style={{
-                  fontSize: 12, fontWeight: 600, borderRadius: 6,
-                  cursor: 'pointer', border: 'none', transition: 'all .12s',
-                  display: 'flex', alignItems: 'center', gap: 6,
-                }}
-              >
-                {/* Enveloppe pour que la troncature mobile puisse s'y appliquer :
-                    un noeud texte nu n'est pas atteignable en CSS. */}
-                <span className="pipeline-tab-label">{t.label}</span>
-                <span className="pipeline-tab-count" style={{
-                  fontSize: 10, fontWeight: 700, minWidth: 16, height: 16,
-                  borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px',
-                }}>{t.count}</span>
-              </button>
-            ))}
-          </div>
-          {/* Rafraîchir et Board/Liste restent à DROITE ; les onglets de
-              plateforme, eux, sont à gauche : ce sont eux qu'on change le plus
-              souvent, et l'œil part du titre. */}
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* RANGÉE 1 — ce qui pilote l'AFFICHAGE : rafraîchir, et board ou liste.
+              Les onglets de plateforme passent dessous : ils changent le
+              PÉRIMÈTRE, pas la vue. Les mettre sur la même ligne mettait deux
+              natures différentes au même niveau, et l'œil ne savait plus lequel
+              des deux groupes il venait de manipuler. */}
+          <div className="pipeline-actions-top" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+
           <button
             onClick={handleRefresh}
             disabled={refreshing}
@@ -3368,6 +3412,40 @@ export default function PagePipeline() {
               </button>
             ))}
           </div>
+          </div>
+
+          {/* RANGÉE 2 — le périmètre : quelle plateforme la page raconte. */}
+          {/* pipeline-tabs : sur mobile ce groupe passe en grille 3 colonnes
+              egales. En flex simple, les trois libelles cumulaient plus de
+              375px et "Autres" sortait de l'ecran (constate au navigateur). */}
+          <div className="pipeline-tabs" style={{ display: 'flex', borderRadius: 8, padding: 3, gap: 2 }}>
+            {([
+              { key: 'ig', label: 'Instagram', count: igCards.length },
+              { key: 'yt', label: 'YouTube', count: filteredYtCards.length },
+              { key: 'other', label: 'Autres', count: filteredOtherCards.length },
+            ] as const).map(t => (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                // is-active plutot qu'un style inline conditionnel : sur mobile
+                // l'onglet actif devient une pilule pleine en accent, ce qu'une
+                // media query ne pourrait pas surcharger depuis l'inline.
+                className={`pipeline-tab${tab === t.key ? ' is-active' : ''}`}
+                style={{
+                  fontSize: 12, fontWeight: 600, borderRadius: 6,
+                  cursor: 'pointer', border: 'none', transition: 'all .12s',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                {/* Enveloppe pour que la troncature mobile puisse s'y appliquer :
+                    un noeud texte nu n'est pas atteignable en CSS. */}
+                <span className="pipeline-tab-label">{t.label}</span>
+                <span className="pipeline-tab-count" style={{
+                  fontSize: 10, fontWeight: 700, minWidth: 16, height: 16,
+                  borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px',
+                }}>{t.count}</span>
+              </button>
+            ))}
           </div>
         </div>
       </div>
@@ -3425,7 +3503,7 @@ export default function PagePipeline() {
             <div style={{ flexBasis: '100%', height: 0 }} />
             {ISSUES.map(i => (
               <BoutonCase
-                key={i.key} label={i.label} couleur={i.color} forme="carre"
+                key={i.key} label={i.label} couleur={i.color} forme="carre" issueKey={i.key}
                 n={cards.filter(c => c.stageKey === i.key).length}
                 actif={caseIsolee === i.key}
                 onClick={() => setCaseIsolee(k => k === i.key ? null : i.key)}
@@ -3661,7 +3739,6 @@ export default function PagePipeline() {
           return (
             <PanneauIssue
               issue={issue}
-              voile={voile ?? GEOMETRIE_VIDE}
               cards={cards.filter(c => c.stageKey === panneauIssue)}
               onFermer={() => setPanneauIssue(null)}
               onOuvrirFiche={key => { setPanneauIssue(null); setDetailModal({ cardKey: key, platform: tab }); }}
@@ -3696,7 +3773,6 @@ export default function PagePipeline() {
               stageColor={stage.color}
               onClose={() => setDetailModal(null)}
               commePanneau={!tactile}
-              voile={voile}
             />
           );
         })()}

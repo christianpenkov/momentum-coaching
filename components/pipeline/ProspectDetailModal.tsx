@@ -515,17 +515,6 @@ interface Props {
   onClose: () => void;
 }
 
-/**
- * Les quatre nombres qui placent le voile et le panneau, mesurés sur la page au
- * moment de l'ouverture. `top`/`left`/`bottom` bornent la zone assombrie — le
- * kanban, et lui seul. `panneauTop` est le bas de la barre du haut : le panneau
- * commence dessous, la barre du logo n'est jamais recouverte.
- */
-export type Geometrie = { top: number; left: number; bottom: number; panneauTop: number };
-
-/** Repli quand rien n'a pu être mesuré : plein écran, comportement d'avant. */
-export const GEOMETRIE_VIDE: Geometrie = { top: 0, left: 0, bottom: 0, panneauTop: 0 };
-
 // ── Enveloppe : panneau latéral dans le board, ou modale centrée ──────────────
 //
 // Sur ordinateur, la fiche s'ouvre en PANNEAU, sous la barre du haut — celle du
@@ -543,11 +532,9 @@ export const GEOMETRIE_VIDE: Geometrie = { top: 0, left: 0, bottom: 0, panneauTo
 //
 // Sur téléphone il n'y a pas de board : on retombe sur la modale centrée.
 function Enveloppe({
-  onClose, commePanneau, voile, children,
+  onClose, commePanneau, children,
 }: {
   onClose: () => void; commePanneau: boolean;
-  /** Où commence la zone à assombrir, mesurée sur la page. */
-  voile: Geometrie;
   children: React.ReactNode;
 }) {
   useEffect(() => {
@@ -561,23 +548,12 @@ function Enveloppe({
 
   return (
     <>
+      <div className="pipeline-voile" onClick={onClose} aria-hidden />
       <div
-        onClick={onClose}
-        aria-hidden
-        style={{
-          position: 'fixed', top: voile.top, left: voile.left, right: 0, bottom: voile.bottom,
-          background: 'rgba(12,16,28,.34)', zIndex: 90,
-        }}
-      />
-      <div
+        className="pipeline-panneau"
         role="dialog"
         aria-modal="true"
-        style={{
-          position: 'fixed', top: voile.panneauTop, right: 0, bottom: 0, width: 'min(440px, 92vw)',
-          zIndex: 91, display: 'flex', flexDirection: 'column', overflowY: 'auto',
-          background: 'var(--surface)', borderLeft: '1px solid var(--border)',
-          boxShadow: '-14px 0 40px rgba(0,0,0,.13)',
-        }}
+        style={{ overflowY: 'auto' }}
       >
         <button
           type="button"
@@ -596,7 +572,7 @@ function Enveloppe({
   );
 }
 
-export default function ProspectDetailModal({ context, displayName, stageLabel, stageColor, onClose, commePanneau = false, voile }: Props & { commePanneau?: boolean; voile?: Geometrie | null }) {
+export default function ProspectDetailModal({ context, displayName, stageLabel, stageColor, onClose, commePanneau = false }: Props & { commePanneau?: boolean }) {
   const [error, setError] = useState(false);
   const timelineRef = useRef<HTMLDivElement>(null);
 
@@ -622,7 +598,7 @@ export default function ProspectDetailModal({ context, displayName, stageLabel, 
   const latestCall = context.calls[0];
 
   return (
-    <Enveloppe onClose={onClose} commePanneau={commePanneau} voile={voile ?? GEOMETRIE_VIDE}>
+    <Enveloppe onClose={onClose} commePanneau={commePanneau}>
         {/* Header — badge d'étape dominant */}
         <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--border)' }}>
           <div style={{
