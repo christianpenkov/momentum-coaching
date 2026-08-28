@@ -2150,15 +2150,20 @@ a { color: inherit; text-decoration: none; }
 .funnel-list { gap: 7px; }
 
 /* ── Panneau lateral du pipeline ─────────────────────────────────────────────
-   Le voile est un enfant ABSOLU du conteneur du board (position: relative,
-   overflow: hidden, et qui ne defile pas lui-meme). Il epouse donc exactement
-   la zone qui devient inactive, a toutes les images, sans une ligne de calcul.
+   Le voile couvre TOUT L'ECRAN, barre laterale et barre du haut comprises.
+   C'est un scrim de modale ordinaire : pendant qu'on lit le panneau, rien
+   d'autre ne repond, et le voile le dit sans exception.
 
-   La version d'avant mesurait la page a l'ouverture puis se placait en fixed :
-   a la premiere image rien n'etait mesure, le voile couvrait tout l'ecran, puis
-   sautait a sa place. C'etait le flash. */
+   `inset: 0` en fixed, donc aucune mesure : il ne peut ni flasher a la premiere
+   image, ni se decaler pendant un defilement. La version qui s'arretait au
+   kanban demandait, elle, de mesurer la page a l'ouverture — c'est ce calcul
+   qui produisait le flash plein ecran avant que le voile trouve sa place.
+
+   34 % d'opacite, teinte bleu sombre, pas de flou : le flou coute a chaque
+   image sur un ecran qui se met a jour, pour un gain nul ici. (References :
+   Material 3 a 32 %, Fluent 40 %, Atlassian 46 %, Carbon 60 %, Polaris 71 %.) */
 .pipeline-voile {
-  position: absolute;
+  position: fixed;
   inset: 0;
   background: rgba(12, 16, 28, 0.34);
   z-index: 90;

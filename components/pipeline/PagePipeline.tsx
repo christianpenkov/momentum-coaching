@@ -1222,10 +1222,9 @@ function PanneauIssue({
 
   return (
     <>
-      {/* Le voile épouse la boîte du kanban, et rien d'autre : la barre
-          latérale, la barre du haut, le titre et les onglets restent clairs ET
-          cliquables. Il ne dit que ce qui est vrai — ce qui est assombri est ce
-          qui cesse de répondre. */}
+      {/* Le voile couvre tout l'écran, barre latérale comprise : pendant qu'on
+          lit le panneau, rien d'autre ne répond, et il le dit sans exception.
+          Cliquer dessus ferme. */}
       <div className="pipeline-voile" onClick={onFermer} aria-hidden />
       <div
         className="pipeline-panneau"
@@ -2310,28 +2309,23 @@ export default function PagePipeline() {
 
   // ── LE VOILE ET LE PANNEAU, SANS UNE LIGNE DE MESURE ───────────────────────
   //
-  // La version d'avant mesurait la page à l'ouverture (`getBoundingClientRect`)
-  // et repositionnait un voile en `position: fixed`, en réécoutant `resize` et
-  // `scroll`. Trois défauts, tous visibles :
+  // Les deux sont placés en CSS pur, par `.pipeline-voile` et `.pipeline-panneau`
+  // dans globals.css. Le voile couvre tout l'écran (`fixed; inset: 0`), barre
+  // latérale et barre du haut comprises ; le panneau commence sous la barre du
+  // logo, dont le décalage est écrit une fois dans la feuille de style.
   //
-  //   1. À la première image, rien n'est encore mesuré : le voile couvrait
-  //      TOUT L'ÉCRAN puis sautait à sa place. C'est le flash.
+  // Une version intermédiaire mesurait la page à l'ouverture
+  // (`getBoundingClientRect`) pour n'assombrir que le kanban, en réécoutant
+  // `resize` et `scroll`. Trois défauts, tous visibles :
+  //
+  //   1. À la première image, rien n'est encore mesuré : le voile couvrait tout
+  //      l'écran puis sautait à sa place. C'était le flash.
   //   2. Entre deux mesures, il flottait à côté de la zone qu'il prétendait
-  //      couvrir — pendant un défilement, une ouverture de menu, un changement
-  //      de largeur de barre latérale.
-  //   3. Il fallait le maintenir : toute modification de la mise en page
-  //      pouvait le décaler sans qu'aucun test ne s'en aperçoive.
+  //      couvrir — pendant un défilement, un changement de largeur.
+  //   3. Il fallait le maintenir : toute modification de la mise en page pouvait
+  //      le décaler sans qu'aucun test ne s'en aperçoive.
   //
-  // Le voile est désormais un `position: absolute; inset: 0` DANS le conteneur
-  // du board (`zoneBoardRef`, qui est `position: relative; overflow: hidden` et
-  // ne défile pas lui-même — c'est son enfant qui défile). Il épouse donc la
-  // zone exacte, à toutes les images, sans code.
-  //
-  // Le panneau reste en `position: fixed` — il doit passer PAR-DESSUS les
-  // onglets et les filtres — mais son décalage vient d'une classe CSS calée sur
-  // la hauteur de la barre du haut, pas d'une mesure. Voir `.pipeline-panneau`.
-  const zoneBoardRef = useRef<HTMLDivElement>(null);
-
+  // Rien à mesurer, donc rien à décaler et rien à entretenir.
   const { data, isLoading: loading, refetch } = useQuery<PipelineData | null>({
     queryKey: ['pipeline'],
     queryFn: () => fetch('/api/client/pipeline').then(r => r.ok ? r.json() : null),
@@ -3608,11 +3602,7 @@ export default function PagePipeline() {
           <InlineLoader />
         </div>
       ) : (
-        // Conteneur positionné : c'est LUI qui borne le voile du panneau
-        // latéral. Le voile est en `position: absolute; inset: 0` ici, donc il
-        // s'arrête exactement au board — la barre latérale, le titre, les
-        // onglets et les filtres restent clairs et cliquables.
-        <div ref={zoneBoardRef} style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {/* Vue mobile : entonnoir en consultation. Le kanban ci-dessous n'est pas
             utilisable au doigt (le glisser-deposer HTML5 ne se declenche pas au
             tactile) et ses 8 colonnes demandent de defiler lateralement.
