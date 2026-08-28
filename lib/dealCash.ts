@@ -39,7 +39,7 @@
  */
 
 /** Les statuts que la contrainte `deals_status_check` accepte aujourd'hui. */
-export type StatutDeal = 'open' | 'paid' | 'past_due' | 'canceled';
+export type StatutDeal = 'open' | 'paid' | 'past_due' | 'canceled' | 'ended' | 'disputed';
 
 /**
  * Une ligne de `deal_payments`, telle que Supabase la renvoie.
@@ -55,7 +55,14 @@ export interface Cash {
   encaisse: number;
   /** Somme des remboursements. */
   rembourse: number;
-  /** Ce qui reste réellement dans la caisse : encaissé − remboursé. */
+  /**
+   * Somme des montants contestés auprès d'une banque. Repris par Stripe le temps
+   * de l'instruction — donc absents de la caisse, exactement comme un
+   * remboursement. La différence n'est pas dans l'argent mais dans la suite :
+   * un litige peut se gagner et les fonds revenir, un remboursement non.
+   */
+  conteste: number;
+  /** Ce qui reste réellement dans la caisse : encaissé − remboursé − contesté. */
   net: number;
   /** Au moins un paiement en échec — sert à distinguer `past_due` de `open`. */
   aEchoue: boolean;
@@ -93,35 +100,44 @@ const nombre = (v: number | string | null): number => {
 export function calculerCash(paiements: LignePaiement[] | null | undefined): Cash {
   let encaisse = 0;
   let rembourse = 0;
+  let conteste = 0;
   let aEchoue = false;
 
   for (const p of paiements ?? []) {
     if (p.status === 'succeeded') encaisse += nombre(p.amount);
     else if (p.status === 'refunded') rembourse += nombre(p.amount);
+    else if (p.status === 'disputed') conteste += nombre(p.amount);
     else if (p.status === 'failed') aEchoue = true;
   }
 
-  return { encaisse, rembourse, net: encaisse - rembourse, aEchoue };
+  return { encaisse, rembourse, conteste, net: encaisse - rembourse - conteste, aEchoue };
 }
 
 /**
  * Le statut qu'une vente devrait porter, ou `null` s'il ne faut rien changer.
  *
- * Quatre règles, dans cet ordre — chacune corrige un cas réel :
+ * Cinq règles, dans cet ordre — chacune corrige un cas réel :
  *
- * 1. Une vente ANNULÉE ne se recalcule jamais. C'est une décision humaine, et
- *    un paiement qui arrive après coup (lien retrouvé dans une conversation,
- *    dernier prélèvement en vol) ne doit pas la ressusciter en « payé ».
+ * 1. Une vente ANNULÉE ou TERMINÉE ne se recalcule jamais. Ce sont des décisions
+ *    humaines, et un paiement qui arrive après coup (lien retrouvé dans une
+ *    conversation, dernier prélèvement en vol) ne doit pas les défaire. C'est
+ *    le drapeau `unexpected_payment_at` qui signale cet argent, sans toucher à
+ *    la façon dont la vente s'était terminée.
  *
- * 2. Tout remboursé après avoir encaissé → `canceled`. Sans cette règle la
+ * 2. Un LITIGE prime sur tout le reste. La banque a repris l'argent, mais la
+ *    vente n'est pas annulée : l'élève peut gagner et récupérer les fonds. La
+ *    passer en « annulée » l'aurait figée là, puisque l'annulation ne se
+ *    recalcule jamais.
+ *
+ * 3. Tout remboursé après avoir encaissé → `canceled`. Sans cette règle la
  *    vente retomberait en `open`, donc « en attente de paiement », et
  *    relancerait un client qu'on vient de rembourser.
  *
- * 3. Une vente déjà SOLDÉE reste soldée sur un remboursement PARTIEL. Un geste
+ * 4. Une vente déjà SOLDÉE reste soldée sur un remboursement PARTIEL. Un geste
  *    commercial — rendre 300 € sur 1 500 € — ne remet pas la vente en attente :
  *    ce serait relancer sur l'argent qu'on vient volontairement de rendre.
  *
- * 4. Sinon, le net décide : atteint le montant → `paid`, un échec en
+ * 5. Sinon, le net décide : atteint le montant → `paid`, un échec en
  *    route → `past_due`, rien de particulier → `open`.
  */
 export function statutDeal(
@@ -129,10 +145,11 @@ export function statutDeal(
   montantTotal: number | string | null,
   statutActuel: string | null,
 ): StatutDeal | null {
-  if (statutActuel === 'canceled') return null;
+  if (statutActuel === 'canceled' || statutActuel === 'ended') return null;
 
   const total = nombre(montantTotal);
 
+  if (cash.conteste > CENTIME) return 'disputed';
   if (cash.encaisse > 0 && cash.net <= CENTIME) return 'canceled';
   if (cash.net >= total - CENTIME) return 'paid';
   if (statutActuel === 'paid' && cash.net > 0) return 'paid';

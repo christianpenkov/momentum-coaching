@@ -17,7 +17,7 @@ const p = (amount: number, status: string) => ({ amount, status });
 
 test('aucun paiement — tout est à zéro', () => {
   const c = calculerCash([]);
-  assert.deepEqual(c, { encaisse: 0, rembourse: 0, net: 0, aEchoue: false });
+  assert.deepEqual(c, { encaisse: 0, rembourse: 0, conteste: 0, net: 0, aEchoue: false });
   assert.deepEqual(calculerCash(null), c);
   assert.deepEqual(calculerCash(undefined), c);
 });
@@ -105,6 +105,50 @@ test('une vente vide et jamais payée ne bascule pas en annulée', () => {
   assert.equal(statutDeal(calculerCash([]), 1500, 'open'), 'open');
 });
 
+// ── Le litige ───────────────────────────────────────────────────────────────
+
+test('un litige retire l’argent de la caisse comme un remboursement', () => {
+  const c = calculerCash([p(1500, 'succeeded'), p(1500, 'disputed')]);
+  assert.equal(c.encaisse, 1500);
+  assert.equal(c.conteste, 1500);
+  assert.equal(c.net, 0);
+});
+
+test('un litige passe la vente en contestée, jamais en annulée', () => {
+  // La distinction est vitale : une vente annulée ne se recalcule plus jamais.
+  // Y faire tomber un litige la figerait là, et gagner le litige ne la
+  // ramènerait pas.
+  const c = calculerCash([p(1500, 'succeeded'), p(1500, 'disputed')]);
+  assert.equal(statutDeal(c, 1500, 'paid'), 'disputed');
+});
+
+test('litige gagné : la ligne disparaît et la vente redevient soldée', () => {
+  // `charge.dispute.funds_reinstated` retire la ligne contestée.
+  const c = calculerCash([p(1500, 'succeeded')]);
+  assert.equal(statutDeal(c, 1500, 'disputed'), 'paid');
+});
+
+test('un litige prime sur un remboursement partiel', () => {
+  const c = calculerCash([p(1500, 'succeeded'), p(200, 'refunded'), p(1300, 'disputed')]);
+  assert.equal(c.net, 0);
+  assert.equal(statutDeal(c, 1500, 'paid'), 'disputed');
+});
+
+// ── Les ventes terminées avant leur terme ───────────────────────────────────
+
+test('une vente terminée ne se recalcule JAMAIS, même si de l’argent arrive', () => {
+  // Arrêtée ou clôturée : c'est une décision humaine. Un paiement retardataire
+  // est signalé par `unexpected_payment_at`, sans défaire la façon dont elle
+  // s'était terminée.
+  const c = calculerCash([p(1500, 'succeeded')]);
+  assert.equal(statutDeal(c, 1500, 'ended'), null);
+});
+
+test('une vente terminée puis intégralement remboursée reste terminée', () => {
+  const c = calculerCash([p(600, 'succeeded'), p(600, 'refunded')]);
+  assert.equal(statutDeal(c, 900, 'ended'), null);
+});
+
 // ── Ce qui reste dû, ce qui est en trop ─────────────────────────────────────
 
 test('reste à encaisser sur une vente entamée', () => {
@@ -159,6 +203,9 @@ test('les deux copies du module donnent exactement le même résultat', () => {
     { paiements: [p(500, 'succeeded'), p(500, 'failed')], total: 1500, statut: 'open' },
     { paiements: [p(1500, 'succeeded')], total: 1500, statut: 'canceled' },
     { paiements: [p(333.33, 'succeeded'), p(333.33, 'succeeded'), p(333.33, 'succeeded')], total: 1000, statut: 'open' },
+    { paiements: [p(1500, 'succeeded'), p(1500, 'disputed')], total: 1500, statut: 'paid' },
+    { paiements: [p(1500, 'succeeded'), p(200, 'refunded'), p(1300, 'disputed')], total: 1500, statut: 'paid' },
+    { paiements: [p(600, 'succeeded')], total: 900, statut: 'ended' },
   ];
 
   for (const j of jeux) {

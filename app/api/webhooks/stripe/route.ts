@@ -171,6 +171,85 @@ async function recordPayment(supabase: Supa, params: {
 }
 
 /**
+ * Retrouve la vente concernée par un événement qui porte sur une charge.
+ *
+ * ── Pourquoi ce n'est pas immédiat ─────────────────────────────────────────
+ * Un litige est ouvert par la banque du client, pas par Momentum : il n'arrive
+ * avec aucune de nos metadata. Et il désigne une CHARGE (`ch_…`), alors qu'un
+ * paiement comptant est enregistré chez nous sous l'identifiant de son
+ * PaymentIntent (`pi_…`). Chercher `ch_…` dans nos lignes ne trouve donc rien.
+ *
+ * Trois pistes, de la plus sûre à la moins :
+ *   1. les metadata de l'événement, quand il en porte ;
+ *   2. la charge elle-même, relue chez Stripe — le paiement comptant y pose ses
+ *      metadata (payment_intent_data), et elle donne le `pi_…` correspondant ;
+ *   3. une ligne déjà enregistrée sous cet identifiant, cas d'un remboursement
+ *      antérieur qui aurait créé la ligne `ch_…`.
+ *
+ * Renvoie `null` plutôt que de deviner : rattacher un litige au mauvais deal
+ * retirerait de l'argent de la mauvaise vente.
+ */
+async function dealDuPaiement(
+  supabase: Supa,
+  profileId: string,
+  chargeId: string,
+  metadata: Stripe.Metadata | null | undefined,
+): Promise<string | null> {
+  const viaMeta = metadata?.[METADATA_KEYS.deal];
+  if (viaMeta) return viaMeta;
+
+  const identifiants = [chargeId];
+
+  const access = await getStripeAccess(profileId);
+  if (access) {
+    try {
+      const charge = await access.stripe.charges.retrieve(chargeId, undefined, access.opts);
+      const viaCharge = charge.metadata?.[METADATA_KEYS.deal];
+      if (viaCharge) return viaCharge;
+
+      const pi = typeof charge.payment_intent === 'string'
+        ? charge.payment_intent
+        : charge.payment_intent?.id;
+      if (pi) identifiants.push(pi);
+    } catch (err) {
+      // Stripe injoignable : on tente quand même par les identifiants connus.
+      console.error(`[stripe] lecture de la charge ${chargeId} impossible`, err);
+    }
+  }
+
+  const { data } = await supabase
+    .from('deal_payments')
+    .select('deal_id, deals!inner(profile_id)')
+    .eq('deals.profile_id', profileId)
+    .in('stripe_payment_id', identifiants)
+    .limit(1)
+    .maybeSingle();
+
+  return (data as { deal_id?: string } | null)?.deal_id ?? null;
+}
+
+/**
+ * Écrit une ligne dans le journal d'une vente.
+ *
+ * Ne lève jamais : le journal raconte ce qui s'est passé, il ne doit pas
+ * empêcher que ça se passe. Une écriture ratée coûte une ligne d'historique,
+ * pas un paiement.
+ */
+async function journaliser(
+  supabase: Supa,
+  dealId: string,
+  kind: string,
+  label: string,
+  meta?: Record<string, unknown>,
+): Promise<void> {
+  try {
+    await supabase.from('deal_events').insert({ deal_id: dealId, kind, label, meta: meta ?? null });
+  } catch (err) {
+    console.error(`[stripe] journal impossible (deal ${dealId})`, err);
+  }
+}
+
+/**
  * Recalcule le statut d'un deal à partir de ses paiements réellement encaissés.
  *
  * La règle vit dans lib/dealCash.ts — elle était recopiée ici, dans
@@ -396,6 +475,151 @@ async function handleEvent(event: Stripe.Event) {
         status: 'refunded',
         metadata: charge.metadata as Record<string, string> | null,
       });
+      break;
+    }
+
+    // ── Le client conteste un paiement auprès de sa banque ───────────────────
+    // Stripe reprend l'argent immédiatement, avant même l'instruction. Le cash
+    // doit donc baisser tout de suite — mais la vente n'est pas annulée pour
+    // autant : l'élève peut gagner et récupérer les fonds. D'où un statut
+    // `disputed` et non `canceled`, qui l'aurait figée (une annulation ne se
+    // recalcule jamais).
+    //
+    // C'est le seul endroit de la plateforme où ne pas être prévenu coûte
+    // directement de l'argent : un litige sans réponse sous 7 à 21 jours est
+    // perdu automatiquement. La date limite est stockée pour être affichée.
+    case 'charge.dispute.created': {
+      const dispute = event.data.object as Stripe.Dispute;
+      const chargeId = typeof dispute.charge === 'string' ? dispute.charge : dispute.charge?.id;
+      if (!chargeId) break;
+
+      const dealId = await dealDuPaiement(supabase, profileId, chargeId, dispute.metadata);
+      if (!dealId) break;
+
+      // Identifiant préfixé : la ligne du litige doit coexister avec celle du
+      // paiement, jamais la remplacer. Même règle que pour les remboursements.
+      await supabase.from('deal_payments')
+        .delete().eq('deal_id', dealId).eq('stripe_payment_id', `dispute_${chargeId}`);
+      await supabase.from('deal_payments').insert({
+        deal_id: dealId,
+        stripe_payment_id: `dispute_${chargeId}`,
+        amount: (dispute.amount ?? 0) / 100,
+        currency: dispute.currency ?? 'eur',
+        paid_at: null,
+        status: 'disputed',
+        match_method: 'metadata',
+      });
+
+      const echeance = dispute.evidence_details?.due_by
+        ? new Date(dispute.evidence_details.due_by * 1000).toISOString()
+        : null;
+      await supabase.from('deals').update({ dispute_due_by: echeance }).eq('id', dealId);
+
+      await journaliser(supabase, dealId, 'dispute',
+        `Paiement contesté auprès de la banque — ${Math.round((dispute.amount ?? 0) / 100)} €`,
+        { due_by: echeance, reason: dispute.reason });
+
+      await refreshDealStatus(supabase, dealId);
+      break;
+    }
+
+    // ── Litige gagné : Stripe rend les fonds ─────────────────────────────────
+    // Écouter la reprise sans écouter la restitution laisserait un chiffre faux
+    // à vie. La ligne du litige disparaît, et le statut se recalcule tout seul.
+    case 'charge.dispute.funds_reinstated': {
+      const dispute = event.data.object as Stripe.Dispute;
+      const chargeId = typeof dispute.charge === 'string' ? dispute.charge : dispute.charge?.id;
+      if (!chargeId) break;
+
+      const dealId = await dealDuPaiement(supabase, profileId, chargeId, dispute.metadata);
+      if (!dealId) break;
+
+      await supabase.from('deal_payments')
+        .delete().eq('deal_id', dealId).eq('stripe_payment_id', `dispute_${chargeId}`);
+      await supabase.from('deals').update({ dispute_due_by: null }).eq('id', dealId);
+
+      await journaliser(supabase, dealId, 'dispute',
+        `Litige gagné — les fonds sont revenus`, { charge: chargeId });
+
+      await refreshDealStatus(supabase, dealId);
+      break;
+    }
+
+    // ── Un remboursement a échoué ────────────────────────────────────────────
+    // Carte fermée, compte clos : Stripe renvoie les fonds sur le compte de
+    // l'élève. L'argent n'est donc PAS parti — la ligne de remboursement doit
+    // disparaître, sinon le cash resterait amputé d'une somme qui est toujours là.
+    case 'refund.failed': {
+      const refund = event.data.object as Stripe.Refund;
+      const chargeId = typeof refund.charge === 'string' ? refund.charge : refund.charge?.id;
+      if (!chargeId) break;
+
+      const dealId = await dealDuPaiement(supabase, profileId, chargeId, refund.metadata);
+      if (!dealId) break;
+
+      await supabase.from('deal_payments')
+        .delete().eq('deal_id', dealId).eq('stripe_payment_id', chargeId).eq('status', 'refunded');
+
+      await journaliser(supabase, dealId, 'refund',
+        `Remboursement de ${Math.round((refund.amount ?? 0) / 100)} € refusé — les fonds sont revenus sur ton compte`,
+        { reason: refund.failure_reason, charge: chargeId });
+
+      await refreshDealStatus(supabase, dealId);
+      break;
+    }
+
+    // ── Les prélèvements changent ou s'arrêtent ──────────────────────────────
+    // `.deleted` seul ne suffit pas : une annulation « à la fin de la période »
+    // n'émet que `.updated` tout de suite, et le `.deleted` n'arrive que des
+    // semaines plus tard. Entre les deux, l'écran afficherait une vente qui a
+    // l'air active — l'élève croirait que son annulation n'a pas fonctionné et
+    // recommencerait.
+    case 'customer.subscription.updated': {
+      const sub = event.data.object as Stripe.Subscription;
+      const { data: deal } = await supabase
+        .from('deals').select('id, status').eq('stripe_subscription_id', sub.id).maybeSingle();
+      if (!deal) break;
+
+      const finPrevue = sub.cancel_at_period_end
+        ? (sub as unknown as { current_period_end?: number }).current_period_end ?? sub.cancel_at
+        : sub.cancel_at;
+
+      await supabase.from('deals').update({
+        stops_at: finPrevue ? new Date(finPrevue * 1000).toISOString() : null,
+      }).eq('id', deal.id);
+
+      if (finPrevue && !['ended', 'canceled'].includes(deal.status)) {
+        await journaliser(supabase, deal.id, 'terms_changed',
+          `Arrêt des prélèvements programmé pour le ${new Date(finPrevue * 1000).toLocaleDateString('fr-FR')}`,
+          { stops_at: finPrevue });
+      }
+      break;
+    }
+
+    // Les prélèvements se sont réellement arrêtés. La vente se termine sans être
+    // annulée : l'argent déjà versé reste acquis, elle sort simplement des
+    // relances. `ended_by: 'stripe'` distingue cet arrêt constaté d'une clôture
+    // déclarée par l'élève — l'écran dit « Arrêté » dans un cas, « Clôturé » dans
+    // l'autre.
+    case 'customer.subscription.deleted': {
+      const sub = event.data.object as Stripe.Subscription;
+      const { data: deal } = await supabase
+        .from('deals').select('id, status').eq('stripe_subscription_id', sub.id).maybeSingle();
+      if (!deal) break;
+
+      // Une vente déjà soldée ou annulée ne devient pas « arrêtée » : la fin
+      // normale d'un plan en 3 fois émet aussi cet événement.
+      if (['paid', 'canceled', 'ended'].includes(deal.status)) break;
+
+      await supabase.from('deals').update({
+        status: 'ended',
+        ended_by: 'stripe',
+        ended_at: new Date().toISOString(),
+        stops_at: null,
+      }).eq('id', deal.id);
+
+      await journaliser(supabase, deal.id, 'ended',
+        'Prélèvements arrêtés chez Stripe', { subscription: sub.id });
       break;
     }
 
