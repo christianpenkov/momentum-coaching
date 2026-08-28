@@ -228,6 +228,62 @@ export async function desactiverLiensDuDeal(
 }
 
 /**
+ * Change le montant des prélèvements à venir, sans rien prélever aujourd'hui.
+ *
+ * ── Les deux conditions qui rendent ça sûr ──────────────────────────────────
+ * 1. `proration_behavior: 'none'` — sans lui, Stripe répercute la différence sur
+ *    les jours restants de la période en cours et facture immédiatement.
+ * 2. Le RYTHME ne change pas. Passer de mensuel à hebdomadaire réinitialise
+ *    l'ancre du cycle de facturation, et « Stripe tente immédiatement le
+ *    paiement lorsque l'ancre est réinitialisée ». C'est pour cette seule raison
+ *    qu'un changement de rythme oblige à refaire la vente au lieu de la modifier.
+ *
+ * ⚠️ `items[0].id` est OBLIGATOIRE. Sans lui, Stripe n'écrase pas le tarif : il
+ * en AJOUTE un second, et le client se retrouve prélevé des deux. La doc le dit
+ * explicitement, et l'erreur ne se voit qu'au prélèvement suivant.
+ *
+ * Un prix Stripe étant immuable, on en crée un nouveau sur le MÊME produit :
+ * le libellé que le client voit sur son relevé ne change pas.
+ */
+export async function ajusterPrelevements(
+  access: StripeAccess,
+  subscriptionId: string,
+  montantParEcheance: number,
+  currency = 'eur',
+): Promise<{ ajuste: boolean; raison: string }> {
+  const { stripe, opts } = access;
+
+  const sub = await stripe.subscriptions.retrieve(subscriptionId, undefined, opts);
+  if (sub.status === 'canceled') return { ajuste: false, raison: 'canceled' };
+
+  const item = sub.items?.data?.[0];
+  if (!item) return { ajuste: false, raison: 'no_item' };
+
+  const ancien = item.price;
+  const recurring = ancien.recurring;
+  if (!recurring) return { ajuste: false, raison: 'not_recurring' };
+
+  const produit = typeof ancien.product === 'string' ? ancien.product : ancien.product?.id;
+  if (!produit) return { ajuste: false, raison: 'no_product' };
+
+  const prix = await stripe.prices.create({
+    currency: currency.toLowerCase(),
+    unit_amount: toMinor(montantParEcheance),
+    product: produit,
+    // Rythme repris à l'identique, jamais dérivé d'une saisie : c'est lui qui
+    // déclencherait un prélèvement immédiat s'il changeait.
+    recurring: { interval: recurring.interval, interval_count: recurring.interval_count },
+  }, opts);
+
+  await stripe.subscriptions.update(subscriptionId, {
+    items: [{ id: item.id, price: prix.id }],
+    proration_behavior: 'none',
+  }, opts);
+
+  return { ajuste: true, raison: 'updated' };
+}
+
+/**
  * Borne une subscription à N prélèvements. Idempotent et sûr à rappeler.
  *
  * Quatre garde-fous superposés, parce qu'une subscription non bornée prélèverait
