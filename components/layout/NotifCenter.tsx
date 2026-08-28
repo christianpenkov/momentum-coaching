@@ -58,6 +58,48 @@ export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh 
   const [sessionRapportNotif, setSessionRapportNotif] = useState<AppNotif | null>(null);
   const [vidageEnCours, setVidageEnCours] = useState(false);
 
+  // ── Glissement vers le bas pour refermer (mobile) ────────────────────────
+  //
+  // La prise est volontairement limitée à la zone du haut (poignée + en-tête)
+  // plutôt qu'à toute la feuille : le corps est une zone qui défile, et deux
+  // gestes verticaux sur la même surface se disputent inévitablement. En posant
+  // `touch-action: none` sur la seule prise, le navigateur n'essaie jamais d'y
+  // faire défiler quoi que ce soit, et le doigt n'a rien à négocier.
+  const [glisseY, setGlisseY] = useState(0);
+  const [enGlisse, setEnGlisse] = useState(false);
+  const priseRef = useRef<{ y0: number; t0: number } | null>(null);
+
+  function surPrise(e: React.PointerEvent<HTMLDivElement>) {
+    // Desktop : le panneau est un menu ancré, pas une feuille — aucun geste.
+    if (window.matchMedia('(min-width: 768px)').matches) return;
+    priseRef.current = { y0: e.clientY, t0: performance.now() };
+    setEnGlisse(true);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function surDeplacement(e: React.PointerEvent<HTMLDivElement>) {
+    const p = priseRef.current;
+    if (!p) return;
+    const dy = e.clientY - p.y0;
+    // Vers le haut : résistance forte plutôt que blocage net. La feuille suit
+    // un peu le doigt, ce qui dit « ça ne monte pas plus » sans paraître cassé.
+    setGlisseY(dy > 0 ? dy : dy * 0.2);
+  }
+
+  function surRelache(e: React.PointerEvent<HTMLDivElement>) {
+    const p = priseRef.current;
+    if (!p) return;
+    const dy = e.clientY - p.y0;
+    const vitesse = dy / Math.max(1, performance.now() - p.t0); // px/ms
+    priseRef.current = null;
+    setEnGlisse(false);
+    // Deux façons de fermer : descendre assez loin, ou descendre vite. Sans le
+    // critère de vitesse, un geste bref et franc — le plus naturel — ne
+    // referme rien et la feuille remonte, ce qui se lit comme un raté.
+    if (dy > 90 || vitesse > 0.55) { onClose(); return; }
+    setGlisseY(0);
+  }
+
   async function marquerLu(ids: string[]) {
     if (ids.length === 0) return;
     const supabase = createClient();
@@ -92,22 +134,32 @@ export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh 
 
       <div
         ref={ref}
-        className="notif-panneau"
+        className={`notif-panneau${enGlisse ? ' notif-panneau-glisse' : ''}`}
+        style={glisseY ? { transform: `translateY(${glisseY}px)` } : undefined}
         role="dialog"
         aria-modal="true"
         aria-labelledby="notif-titre"
         tabIndex={-1}
       >
-        {/* Poignée : indice de feuille glissante sur mobile. Masquée sur desktop,
-            où le panneau est un menu ancré à la cloche. */}
-        <div className="notif-poignee" aria-hidden="true" />
+        {/* Prise du geste de fermeture, et en-tête. La poignée n'est visible
+            qu'en feuille : sur desktop le panneau est un menu ancré à la cloche,
+            rien ne s'y glisse. */}
+        <div
+          className="notif-prise"
+          onPointerDown={surPrise}
+          onPointerMove={surDeplacement}
+          onPointerUp={surRelache}
+          onPointerCancel={surRelache}
+        >
+          <div className="notif-poignee" aria-hidden="true" />
 
-        <div className="notif-entete">
-          <h2 className="notif-titre" id="notif-titre">Notifications</h2>
-          {notifs.length > 0 && <span className="notif-total">{notifs.length}</span>}
-          <button type="button" className="notif-fermer" onClick={onClose} aria-label="Fermer">
-            <Icon name="x" size={16} />
-          </button>
+          <div className="notif-entete">
+            <h2 className="notif-titre" id="notif-titre">Notifications</h2>
+            {notifs.length > 0 && <span className="notif-total">{notifs.length}</span>}
+            <button type="button" className="notif-fermer" onClick={onClose} aria-label="Fermer">
+              <Icon name="x" size={16} />
+            </button>
+          </div>
         </div>
 
         {notifs.length === 0 ? (

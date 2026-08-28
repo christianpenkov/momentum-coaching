@@ -2759,11 +2759,18 @@ a { color: inherit; text-decoration: none; }
    query ne pouvait donc l'adapter (le piege documente de ce projet). Sur un
    telephone le panneau atterrissait en haut a droite, la ou le pouce n'atteint
    pas, et debordait sous 356 px de viewport.                                 */
+/* Courbe de sortie exponentielle : depart franc, arrivee posee, aucun rebond.
+   Un rebond sur un panneau qu'on consulte ferait spectacle la ou on attend un
+   simple acces. */
+:root { --notif-courbe: cubic-bezier(.22, 1, .36, 1); }
+
 .notif-voile {
   position: fixed;
   inset: 0;
   z-index: 1999;
+  animation: notif-voile-entre 220ms ease-out;
 }
+@keyframes notif-voile-entre { from { opacity: 0; } to { opacity: 1; } }
 .notif-panneau {
   position: fixed;
   top: 56px;
@@ -2780,11 +2787,20 @@ a { color: inherit; text-decoration: none; }
   box-shadow: var(--shadow-menu);
   z-index: 2000;
   padding: 14px 0 8px;
+  /* Descente sur desktop : le menu tombe de la cloche, discretement. */
+  animation: notif-menu-entre 170ms var(--notif-courbe);
 }
 .notif-panneau:focus { outline: none; }
 
+@keyframes notif-menu-entre {
+  from { opacity: 0; transform: translateY(-6px) scale(.985); }
+  to   { opacity: 1; transform: none; }
+}
+
 /* Poignee : visible uniquement en feuille, donc sur mobile. */
 .notif-poignee { display: none; }
+/* Sur desktop la prise n'est qu'un conteneur : aucun geste ne s'y attache. */
+.notif-prise { touch-action: auto; }
 
 .notif-entete {
   display: flex;
@@ -2954,23 +2970,51 @@ a { color: inherit; text-decoration: none; }
     bottom: 0;
     width: 100%;
     max-height: 82dvh;
-    border-radius: 18px 18px 0 0;
+    /* Coins nettement plus francs qu'un menu : c'est ce qui fait lire la forme
+       comme une feuille posee par-dessus l'ecran, et non comme une carte. */
+    border-radius: 26px 26px 0 0;
     border-left: none;
     border-right: none;
     border-bottom: none;
     padding: 8px 0 max(12px, env(safe-area-inset-bottom));
+    animation: notif-feuille-monte 300ms var(--notif-courbe);
+    /* Retour en place quand le geste n'a pas suffi a fermer. Neutralise
+       pendant le glissement pour que la feuille colle au doigt. */
+    transition: transform 260ms var(--notif-courbe);
   }
+  .notif-panneau-glisse { transition: none; }
+
+  @keyframes notif-feuille-monte {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
+  }
+
   .notif-poignee {
     display: block;
-    width: 34px; height: 4px; border-radius: 2px;
+    width: 38px; height: 4px; border-radius: 2px;
     background: var(--border);
     margin: 0 auto 10px;
   }
+  /* La prise capte le geste vertical : sans `touch-action: none`, le navigateur
+     tenterait de faire defiler le panneau en meme temps et le suivi du doigt
+     deviendrait erratique. */
+  .notif-prise { touch-action: none; cursor: grab; }
+  .notif-prise:active { cursor: grabbing; }
+  /* La croix reste cliquable : elle ne doit pas etre avalee par la prise. */
+  .notif-fermer { touch-action: manipulation; }
   /* Cibles a 44 px : les boutons faisaient 28 px de haut, seules actions de
      l'ecran. */
   .notif-btn { min-height: 44px; padding: 10px 16px; }
   .notif-fermer { width: 44px; height: 44px; }
   .notif-tout-lu { min-height: 44px; }
+}
+
+/* Le glissement reste disponible — c'est un geste, pas une decoration — mais
+   plus rien ne s'anime tout seul. */
+@media (prefers-reduced-motion: reduce) {
+  .notif-voile,
+  .notif-panneau { animation: none; }
+  .notif-panneau { transition: none; }
 }
 
 /* ── Fil des rapports et invitations en attente ─────────────────────────────
