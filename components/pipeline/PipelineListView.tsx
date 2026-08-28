@@ -73,6 +73,10 @@ interface Props {
   stageKeys: readonly string[];
   /** Ordre des lignes dans chaque section. */
   tri?: 'immobile' | 'recent' | 'ancien' | 'nom';
+  /** Les ordres proposés. Le bouton vit dans l'en-tête de la liste, à droite —
+   *  la place y est libre, et une rangée entière de la page est rendue. */
+  tris?: readonly { key: string; label: string }[];
+  onTri?: (k: never) => void;
   avatarColor: (name: string) => string;
   avatarInitials: (name: string) => string;
   onCardClick: (key: string) => void;
@@ -99,10 +103,11 @@ function libelleAnciennete(j: number | null): string {
 }
 
 export default function PipelineListView({
-  cards, columns, stageKeys, tri = 'immobile', avatarColor, avatarInitials,
+  cards, columns, stageKeys, tri = 'immobile', tris = [], onTri, avatarColor, avatarInitials,
   onCardClick, onRapportClick, onBulkDelete, onBulkNotALead, onBulkRelance,
 }: Props) {
   const now = Date.now();
+  const [triOuvert, setTriOuvert] = useState(false);
 
   const parColonne = useMemo(() => {
     const m = new Map<string, ListCard[]>();
@@ -204,7 +209,62 @@ export default function PipelineListView({
           <span>Étape actuelle</span>
           <span>Sans mouvement</span>
           <span>Prochaine échéance</span>
-          <span />
+          {/* Le tri, dans la dernière colonne de l'en-tête. Il occupait une rangée
+              entière de la page pour un bouton ; ici la place est déjà là. */}
+          <span style={{ display: 'flex', justifyContent: 'flex-end', position: 'relative' }}>
+            {tris.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={e => { e.stopPropagation(); setTriOuvert(o => !o); }}
+                  aria-expanded={triOuvert}
+                  title={`Trier : ${tris.find(t => t.key === tri)?.label ?? ''}`}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                    padding: '3px 8px', borderRadius: 6, cursor: 'pointer', font: 'inherit',
+                    fontSize: 9.5, fontWeight: 700, letterSpacing: '.04em',
+                    textTransform: 'uppercase', whiteSpace: 'nowrap',
+                    border: '1px solid var(--border)', background: 'var(--surface)',
+                    color: 'var(--ink-2)',
+                  }}
+                >
+                  Trier
+                  <span style={{ fontSize: 8, opacity: .6 }}>▾</span>
+                </button>
+                {triOuvert && (
+                  <>
+                    <span
+                      onClick={() => setTriOuvert(false)}
+                      style={{ position: 'fixed', inset: 0, zIndex: 40 }}
+                    />
+                    <span style={{
+                      position: 'absolute', top: 'calc(100% + 5px)', right: 0, zIndex: 41,
+                      minWidth: 190, padding: 6, borderRadius: 10, display: 'block',
+                      background: 'var(--surface)', border: '1px solid var(--border)',
+                      boxShadow: '0 8px 28px rgba(0,0,0,.16)', textTransform: 'none',
+                      letterSpacing: 0,
+                    }}>
+                      {tris.map(t => (
+                        <button
+                          key={t.key}
+                          type="button"
+                          onClick={() => { onTri?.(t.key as never); setTriOuvert(false); }}
+                          style={{
+                            display: 'block', width: '100%', textAlign: 'left',
+                            padding: '8px 10px', borderRadius: 7, cursor: 'pointer',
+                            fontSize: 12, fontWeight: tri === t.key ? 700 : 500,
+                            font: 'inherit', border: 'none', textTransform: 'none',
+                            background: tri === t.key ? 'var(--surface-2)' : 'transparent',
+                            color: 'var(--ink)',
+                          }}
+                        >{t.label}</button>
+                      ))}
+                    </span>
+                  </>
+                )}
+              </>
+            )}
+          </span>
         </div>
         {columns.map(col => {
           const liste = parColonne.get(col.key) ?? [];

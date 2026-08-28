@@ -531,8 +531,13 @@ interface Props {
 //
 // Sur téléphone il n'y a pas de board : on retombe sur la modale centrée.
 function Enveloppe({
-  onClose, commePanneau, children,
-}: { onClose: () => void; commePanneau: boolean; children: React.ReactNode }) {
+  onClose, commePanneau, voile, children,
+}: {
+  onClose: () => void; commePanneau: boolean;
+  /** Où commence la zone à assombrir, mesurée sur la page. */
+  voile: { top: number; left: number };
+  children: React.ReactNode;
+}) {
   useEffect(() => {
     if (!commePanneau) return;
     const echap = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -547,16 +552,19 @@ function Enveloppe({
       <div
         onClick={onClose}
         aria-hidden
-        style={{ position: 'absolute', inset: 0, background: 'rgba(12,16,28,.34)', zIndex: 20 }}
+        style={{
+          position: 'fixed', top: voile.top, left: voile.left, right: 0, bottom: 0,
+          background: 'rgba(12,16,28,.34)', zIndex: 90,
+        }}
       />
       <div
         role="dialog"
         aria-modal="true"
         style={{
-          position: 'absolute', top: 0, right: 0, bottom: 0, width: 'min(500px, 92%)',
-          zIndex: 21, display: 'flex', flexDirection: 'column', overflowY: 'auto',
+          position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(440px, 92vw)',
+          zIndex: 91, display: 'flex', flexDirection: 'column', overflowY: 'auto',
           background: 'var(--surface)', borderLeft: '1px solid var(--border)',
-          boxShadow: '-12px 0 32px rgba(0,0,0,.10)',
+          boxShadow: '-14px 0 40px rgba(0,0,0,.13)',
         }}
       >
         <button
@@ -576,7 +584,7 @@ function Enveloppe({
   );
 }
 
-export default function ProspectDetailModal({ context, displayName, stageLabel, stageColor, onClose, commePanneau = false }: Props & { commePanneau?: boolean }) {
+export default function ProspectDetailModal({ context, displayName, stageLabel, stageColor, onClose, commePanneau = false, voile }: Props & { commePanneau?: boolean; voile?: { top: number; left: number } | null }) {
   const [error, setError] = useState(false);
   const timelineRef = useRef<HTMLDivElement>(null);
 
@@ -602,7 +610,7 @@ export default function ProspectDetailModal({ context, displayName, stageLabel, 
   const latestCall = context.calls[0];
 
   return (
-    <Enveloppe onClose={onClose} commePanneau={commePanneau}>
+    <Enveloppe onClose={onClose} commePanneau={commePanneau} voile={voile ?? { top: 0, left: 0 }}>
         {/* Header — badge d'étape dominant */}
         <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--border)' }}>
           <div style={{

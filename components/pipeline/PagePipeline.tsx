@@ -625,8 +625,11 @@ function PipelineCard({
         onCardClick?.(card.key);
       }}
       style={{
-        background: 'var(--surface)',
-        border: `1px solid ${isDragging ? stage.color : 'var(--border)'}`,
+        // La fiche qui attend un rapport porte un fond ambré : c'est la seule du
+        // board dont l'inaction bloque une statistique. Toutes les autres peuvent
+        // attendre, celle-ci non — et un point de couleur ne se voit pas de loin.
+        background: card.rapportEnRetard ? 'var(--amber-soft, #b5802514)' : 'var(--surface)',
+        border: `1px solid ${isDragging ? stage.color : card.rapportEnRetard ? '#e8cf9a' : 'var(--border)'}`,
         borderRadius: 8,
         padding: '9px 11px',
         cursor: 'grab',
@@ -1029,10 +1032,12 @@ function contexteIssue(key: string, liste: CardData[]): string {
 // board.
 
 function PanneauIssue({
-  issue, cards, onFermer, onOuvrirFiche, avatarColor, avatarInitials,
+  issue, cards, voile, onFermer, onOuvrirFiche, avatarColor, avatarInitials,
 }: {
   issue: ColumnDef;
   cards: CardData[];
+  /** Où commence la zone à assombrir, mesurée sur la page. */
+  voile: { top: number; left: number };
   onFermer: () => void;
   onOuvrirFiche: (key: string) => void;
   avatarColor: (n: string) => string;
@@ -1046,35 +1051,52 @@ function PanneauIssue({
 
   return (
     <>
+      {/* Le voile part de `voile.left` : la barre latérale reste claire ET
+          cliquable. Il commence au-dessus des onglets, qui cessent eux aussi de
+          répondre. Le titre et le compte de leads restent lisibles au-dessus. */}
       <div onClick={onFermer} aria-hidden
-        style={{ position: 'absolute', inset: 0, background: 'rgba(12,16,28,.34)', zIndex: 20 }} />
+        style={{
+          position: 'fixed', top: voile.top, left: voile.left, right: 0, bottom: 0,
+          background: 'rgba(12,16,28,.34)', zIndex: 90,
+        }} />
       <div
         role="dialog"
         aria-modal="true"
         aria-label={`Leads en « ${issue.label} »`}
         style={{
-          position: 'absolute', top: 0, right: 0, bottom: 0, width: 'min(500px, 92%)',
-          zIndex: 21, display: 'flex', flexDirection: 'column',
+          // Fixe et partant de 0 : le panneau passe PAR-DESSUS la barre du haut.
+          // En absolu dans le board il ne pouvait pas déborder de son parent, et
+          // s'ancrait sur un conteneur qui défile — d'où l'écrasement.
+          position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(440px, 92vw)',
+          zIndex: 91, display: 'flex', flexDirection: 'column',
           background: 'var(--surface)', borderLeft: '1px solid var(--border)',
-          boxShadow: '-12px 0 32px rgba(0,0,0,.10)',
+          boxShadow: '-14px 0 40px rgba(0,0,0,.13)',
         }}
       >
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 10, padding: '16px 20px',
+          display: 'flex', alignItems: 'center', gap: 12, padding: '18px 20px',
           borderBottom: '1px solid var(--border)', flexShrink: 0,
         }}>
-          <span style={{ width: 10, height: 10, borderRadius: 2.5, background: issue.color, flexShrink: 0 }} />
-          <span style={{ fontSize: 15, fontWeight: 700 }}>{issue.label}</span>
           <span style={{
-            fontSize: 11, fontWeight: 700, color: issue.color, background: issue.lightBg,
-            border: `1px solid ${issue.color}33`, borderRadius: 5, padding: '2px 8px',
-          }}>{cards.length}</span>
+            width: 30, height: 30, borderRadius: 9, flexShrink: 0,
+            background: issue.lightBg, border: `1px solid ${issue.color}33`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <span style={{ width: 10, height: 10, borderRadius: 2.5, background: issue.color }} />
+          </span>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-.2px' }}>{issue.label}</div>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>
+              {cards.length} lead{cards.length > 1 ? 's' : ''}
+              {issue.key === 'to_recontact' && ` · ${cards.filter(c => c.relanceDue).length} à relancer`}
+            </div>
+          </div>
           <button
             type="button" onClick={onFermer} aria-label="Fermer"
             style={{
               marginLeft: 'auto', width: 30, height: 30, borderRadius: 8, cursor: 'pointer',
               border: '1px solid var(--border)', background: 'var(--surface)',
-              color: 'var(--muted)', fontSize: 14, lineHeight: 1,
+              color: 'var(--muted)', fontSize: 14, lineHeight: 1, flexShrink: 0,
             }}
           >×</button>
         </div>
@@ -1175,7 +1197,7 @@ function TuilesIssues({
             fontSize: 10, fontWeight: 700, letterSpacing: '.07em',
             textTransform: 'uppercase', color: 'var(--muted)',
           }}>Issues</span>
-          <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--faint)', fontVariantNumeric: 'tabular-nums' }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>
             {total}
           </span>
         </div>
@@ -1288,34 +1310,33 @@ function KanbanColumn({
         onDragLeave={onDragLeave}
         title={`Déplier « ${stage.label} »`}
         style={{
-          width: 52, flexShrink: 0, alignSelf: 'stretch', cursor: 'pointer',
-          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
-          padding: '9px 0', font: 'inherit', color: 'inherit',
-          // Même cadre que les colonnes dépliées : repliée, une colonne reste une
-          // colonne. Sans cadre, elle se lisait comme une décoration entre deux
-          // étapes plutôt que comme une étape à part entière.
+          // 34 px : une colonne pliée n'a que trois choses à montrer — sa couleur,
+          // son compte, son nom. Le chevron était la quatrième, et c'est celle
+          // dont on se passe : toute la bande est cliquable.
+          width: 34, flexShrink: 0, alignSelf: 'stretch', cursor: 'pointer',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 9,
+          padding: '11px 0', font: 'inherit', color: 'inherit',
           background: isDropTarget ? stage.lightBg : 'var(--surface)',
           border: `1px ${isDropTarget ? 'dashed' : 'solid'} ${isDropTarget ? stage.color + '66' : 'var(--border)'}`,
           borderRadius: 10,
         }}
       >
-        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-2)' }}>▸</span>
         <span style={{
-          width: estIssue ? 9 : 7, height: estIssue ? 9 : 7,
-          borderRadius: estIssue ? 2.5 : '50%', background: stage.color, flexShrink: 0,
+          width: estIssue ? 8 : 6, height: estIssue ? 8 : 6,
+          borderRadius: estIssue ? 2 : '50%', background: stage.color, flexShrink: 0,
         }} />
-        {/* Gros : sur une colonne repliée, le nombre EST l'information. En
-            petit, il fallait s'approcher pour lire « 412 ». */}
-        <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>
+        {/* Le nombre EST l'information d'une colonne pliée. En petit, il fallait
+            s'approcher pour lire « 412 ». */}
+        <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>
           {cards.length}
         </span>
         {/* Le libellé à la verticale : sans lui, une colonne repliée n'est plus
             qu'un chiffre, et retrouver la bonne demande de toutes les rouvrir. */}
         <span style={{
           writingMode: 'vertical-rl', transform: 'rotate(180deg)',
-          fontSize: 10, fontWeight: 600, color: 'var(--muted)',
-          letterSpacing: '.04em', whiteSpace: 'nowrap', overflow: 'hidden',
-          textOverflow: 'ellipsis', maxHeight: 130,
+          fontSize: 10, fontWeight: 500, color: 'var(--muted)',
+          letterSpacing: '.02em', whiteSpace: 'nowrap', overflow: 'hidden',
+          textOverflow: 'ellipsis', maxHeight: 150, marginTop: 2,
         }}>{stage.label}</span>
       </button>
     );
@@ -1345,32 +1366,33 @@ function KanbanColumn({
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggleRepli?.(); } }}
         title={`Plier « ${stage.label} »`}
         style={{
+          // Pas de bandeau gris : l'en-tête vit sur le fond de la colonne. Un
+          // bandeau ajoutait une troisième surface (page → colonne → en-tête)
+          // au-dessus des fiches, qui en sont une quatrième.
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '8px 10px', cursor: 'pointer', userSelect: 'none',
-          background: isDropTarget ? stage.lightBg : 'var(--surface-2)',
-          borderBottom: '1px solid var(--border)',
-          transition: 'all .12s', flexShrink: 0,
+          padding: '10px 11px 8px', cursor: 'pointer', userSelect: 'none',
+          background: isDropTarget ? stage.lightBg : 'transparent',
+          transition: 'background .12s', flexShrink: 0,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-          <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--faint)', flexShrink: 0 }}>▾</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
           <div style={{
-            width: estIssue ? 8 : 7, height: estIssue ? 8 : 7,
+            width: estIssue ? 8 : 6, height: estIssue ? 8 : 6,
             borderRadius: estIssue ? 2 : '50%', background: stage.color, flexShrink: 0,
           }} />
           <span style={{
-            fontSize: 11, fontWeight: 600, color: isDropTarget ? stage.color : 'var(--ink)',
+            fontSize: 11.5, fontWeight: 600, color: isDropTarget ? stage.color : 'var(--ink)',
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>
             {stage.label}
           </span>
         </div>
+        {/* Compteur nu : la pastille colorée répétait la couleur déjà portée par
+            la pastille de gauche, et transformait un nombre en badge. */}
         <span style={{
-          fontSize: 10, fontWeight: 700, flexShrink: 0,
-          color: cards.length > 0 ? stage.color : 'var(--faint)',
-          background: cards.length > 0 ? stage.lightBg : 'transparent',
-          border: cards.length > 0 ? `1px solid ${stage.color}33` : '1px solid transparent',
-          borderRadius: 5, padding: '1px 6px', minWidth: 18, textAlign: 'center',
+          fontSize: 12, fontWeight: 700, flexShrink: 0,
+          fontVariantNumeric: 'tabular-nums',
+          color: cards.length > 0 ? 'var(--ink)' : 'var(--faint)',
         }}>
           {cards.length}
         </span>
@@ -1936,7 +1958,6 @@ export default function PagePipeline() {
   const [panneauIssue, setPanneauIssue] = useState<string | null>(null);
 
   const [tri, setTri] = useState<TriKey>('immobile');
-  const [triOuvert, setTriOuvert] = useState(false);
   const [filtreRapport, setFiltreRapport] = useState(false);
 
   useEffect(() => {
@@ -2001,6 +2022,38 @@ export default function PagePipeline() {
 
   // Modal détail prospect (timeline) ouvert au clic sur une card
   const [detailModal, setDetailModal] = useState<{ cardKey: string; platform: 'ig' | 'yt' | 'other' } | null>(null);
+
+  // ── LA GÉOMÉTRIE DU VOILE ──────────────────────────────────────────────────
+  //
+  // Le voile doit assombrir EXACTEMENT ce qui devient inactif : le board et la
+  // barre d'onglets, pas le titre ni la barre latérale. Et le panneau passe
+  // par-dessus la barre du haut.
+  //
+  // Un `position: absolute` dans le conteneur du board ne peut faire ni l'un ni
+  // l'autre : il s'ancre sur un conteneur qui défile horizontalement, donc il
+  // part hors champ, et il ne peut pas déborder au-dessus de son parent. D'où
+  // une position FIXE, calculée sur la position réelle de la zone à couvrir.
+  const zoneBoardRef = useRef<HTMLDivElement>(null);
+  const [voile, setVoile] = useState<{ top: number; left: number } | null>(null);
+  useEffect(() => {
+    if (!panneauIssue && !detailModal) { setVoile(null); return; }
+    const mesurer = () => {
+      const z = zoneBoardRef.current;
+      if (!z) return;
+      const r = z.getBoundingClientRect();
+      // On remonte au-dessus des onglets : ils cessent d'être cliquables aussi.
+      const onglets = document.querySelector('.pipeline-actions');
+      const haut = onglets ? onglets.getBoundingClientRect().top - 8 : r.top;
+      setVoile({ top: Math.max(0, haut), left: r.left });
+    };
+    mesurer();
+    window.addEventListener('resize', mesurer);
+    window.addEventListener('scroll', mesurer, true);
+    return () => {
+      window.removeEventListener('resize', mesurer);
+      window.removeEventListener('scroll', mesurer, true);
+    };
+  }, [panneauIssue, detailModal]);
 
   const { data, isLoading: loading, refetch } = useQuery<PipelineData | null>({
     queryKey: ['pipeline'],
@@ -3250,51 +3303,6 @@ export default function PagePipeline() {
             </button>
           )}
 
-          {/* Le tri, tout à droite de la barre. En vue liste seulement : dans le
-              board, l'ordre des fiches se lit dans les colonnes, pas dans un
-              menu. */}
-          {vue === 'liste' && (
-            <div className="pipeline-desktop" style={{ marginLeft: 'auto', position: 'relative' }}>
-              <button
-                type="button"
-                onClick={() => setTriOuvert(o => !o)}
-                aria-expanded={triOuvert}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6, minHeight: 32,
-                  padding: '0 11px', borderRadius: 8, cursor: 'pointer', font: 'inherit',
-                  fontSize: 11.5, fontWeight: 500, color: 'var(--muted)',
-                  background: 'var(--surface)', border: '1px solid var(--border)',
-                }}
-              >
-                Trier : {TRIS.find(t => t.key === tri)?.label ?? '—'}
-                <span style={{ fontSize: 9, opacity: .6 }}>▾</span>
-              </button>
-              {triOuvert && (
-                <div style={{
-                  position: 'absolute', top: 'calc(100% + 5px)', right: 0, zIndex: 30,
-                  minWidth: 210, padding: 6, borderRadius: 10,
-                  background: 'var(--surface)', border: '1px solid var(--border)',
-                  boxShadow: '0 8px 28px rgba(0,0,0,.16)',
-                }}>
-                  {TRIS.map(t => (
-                    <button
-                      key={t.key}
-                      type="button"
-                      onClick={() => { setTri(t.key); setTriOuvert(false); }}
-                      style={{
-                        display: 'block', width: '100%', textAlign: 'left',
-                        padding: '8px 10px', borderRadius: 7, cursor: 'pointer',
-                        fontSize: 12, fontWeight: tri === t.key ? 700 : 500, font: 'inherit',
-                        border: 'none',
-                        background: tri === t.key ? 'var(--surface-2)' : 'transparent',
-                        color: 'var(--ink)',
-                      }}
-                    >{t.label}</button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
         </div>
       )}
 
@@ -3313,7 +3321,7 @@ export default function PagePipeline() {
         // latéral. Le voile est en `position: absolute; inset: 0` ici, donc il
         // s'arrête exactement au board — la barre latérale, le titre, les
         // onglets et les filtres restent clairs et cliquables.
-        <div style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div ref={zoneBoardRef} style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {/* Vue mobile : entonnoir en consultation. Le kanban ci-dessous n'est pas
             utilisable au doigt (le glisser-deposer HTML5 ne se declenche pas au
             tactile) et ses 8 colonnes demandent de defiler lateralement.
@@ -3352,6 +3360,8 @@ export default function PagePipeline() {
               onBulkDelete={handleBulkDelete}
               onBulkNotALead={handleBulkNotALead}
               onBulkRelance={handleBulkRelance}
+              tris={TRIS}
+              onTri={setTri}
             />
           </div>
         ) : (
@@ -3443,6 +3453,7 @@ export default function PagePipeline() {
           return (
             <PanneauIssue
               issue={issue}
+              voile={voile ?? { top: 0, left: 0 }}
               cards={cards.filter(c => c.stageKey === panneauIssue)}
               onFermer={() => setPanneauIssue(null)}
               onOuvrirFiche={key => { setPanneauIssue(null); setDetailModal({ cardKey: key, platform: tab }); }}
@@ -3476,6 +3487,7 @@ export default function PagePipeline() {
               stageColor={stage.color}
               onClose={() => setDetailModal(null)}
               commePanneau={!tactile}
+              voile={voile}
             />
           );
         })()}
