@@ -166,7 +166,9 @@ async function recordPayment(supabase: Supa, params: {
     await supabase.from('deal_installments').update({ status: 'paid' }).eq('id', installmentId);
   }
 
-  await refreshDealStatus(supabase, resolvedDealId);
+  await refreshDealStatus(supabase, resolvedDealId, {
+    argentEntrant: params.status === 'succeeded',
+  });
   return { attached: true, dealId: resolvedDealId };
 }
 
@@ -260,10 +262,14 @@ async function journaliser(
  * d'un deal annulé, que ni un paiement retardataire ni un remboursement ne
  * doivent ressusciter.
  */
-async function refreshDealStatus(supabase: Supa, dealId: string) {
+async function refreshDealStatus(
+  supabase: Supa,
+  dealId: string,
+  opts?: { argentEntrant?: boolean },
+) {
   const { data: deal } = await supabase
     .from('deals')
-    .select('amount_total, status')
+    .select('amount_total, status, unexpected_payment_at')
     .eq('id', dealId)
     .maybeSingle();
   if (!deal) return;
@@ -277,6 +283,27 @@ async function refreshDealStatus(supabase: Supa, dealId: string) {
 
   if (status && status !== deal.status) {
     await supabase.from('deals').update({ status }).eq('id', dealId);
+  }
+
+  // ── De l'argent sur une vente terminée ─────────────────────────────────────
+  // Une vente clôturée, arrêtée ou annulée n'attend plus rien. Un paiement qui
+  // arrive quand même a deux explications opposées — le client a repris ses
+  // paiements, ou il s'est trompé — et Momentum ne peut pas trancher.
+  //
+  // Il pose donc un drapeau et pose la question, sans JAMAIS rouvrir la vente
+  // tout seul : rouvrir à tort remettrait la vente dans les relances et
+  // réclamerait au client un argent qu'il ne doit pas.
+  //
+  // Le drapeau seul est posé, le statut n'est pas touché : `statutDeal` renvoie
+  // déjà `null` sur ces états, et l'argent reste compté dans l'encaissé — il est
+  // bien sur le compte tant qu'il n'a pas été rendu.
+  const terminee = deal.status === 'ended' || deal.status === 'canceled';
+  if (opts?.argentEntrant && terminee && !deal.unexpected_payment_at) {
+    await supabase.from('deals')
+      .update({ unexpected_payment_at: new Date().toISOString() })
+      .eq('id', dealId);
+    await journaliser(supabase, dealId, 'unexpected_payment',
+      'Paiement reçu sur une vente terminée');
   }
 
   // ⚠️ ON NE TOUCHE PAS À L'APPEL ICI — ni `deal_closed`, ni `outcome`.
