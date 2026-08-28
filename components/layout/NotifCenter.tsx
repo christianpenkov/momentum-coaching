@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
@@ -8,6 +8,8 @@ import { AppNotif } from '@/lib/useNotifications';
 import RapportModal from '@/components/ui/RapportModalLoader';
 import SessionRapportModal from '@/components/ui/SessionRapportModalLoader';
 import { createClient } from '@/lib/supabase/client';
+import { useViewerTimeZone } from '@/lib/UserContext';
+import { formatDateIn, formatTimeIn } from '@/lib/timezone';
 
 interface Props {
   notifs: AppNotif[];
@@ -18,15 +20,51 @@ interface Props {
 
 type RespondState = 'idle' | 'accepting' | 'declining' | 'done' | 'stale';
 
+/**
+ * Une notification demande-t-elle un TRAVAIL, ou signale-t-elle seulement ?
+ *
+ * Les deux vivaient dans une liste plate, avec la même carte et le même bouton
+ * coloré : « Remplir le rapport » avait exactement l'apparence de « OK,
+ * compris ». Rien ne disait ce qui restait dû.
+ *
+ * Le regroupement encode donc une distinction réelle — il ne décore pas.
+ */
+function demandeUneAction(t: AppNotif['type']) {
+  return t === 'rapport_call' || t === 'session_rapport' || t === 'call_request';
+}
+
+/**
+ * Couleur SÉMANTIQUE : l'issue de l'événement, jamais une décoration. Elle ne
+ * teinte que le point de tête de ligne.
+ *
+ * Sept couleurs vivaient ici en dur (#ef4444, #f59e0b, #22c55e, #f97316 et
+ * leurs variantes) hors du système, et quatre servaient de FOND de bouton avec
+ * du texte blanc — entre 2,16:1 et 3,76:1, très en dessous du seuil de 4,5:1.
+ * Les boutons n'utilisent plus que l'accent de marque pour l'action principale
+ * et du neutre pour le reste ; la couleur reste sur le point, où elle n'a pas
+ * de texte à porter.
+ */
+function tonDe(t: AppNotif['type']): 'marque' | 'positif' | 'negatif' | 'attention' {
+  if (t === 'call_accepted') return 'positif';
+  if (t === 'call_canceled' || t === 'call_declined') return 'negatif';
+  if (t === 'call_rescheduled') return 'attention';
+  return 'marque';
+}
+
 export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh }: Props) {
   useEscapeKey(onClose);
   const ref = useRef<HTMLDivElement>(null);
   const [rapportNotif, setRapportNotif] = useState<AppNotif | null>(null);
   const [sessionRapportNotif, setSessionRapportNotif] = useState<AppNotif | null>(null);
+  const [vidageEnCours, setVidageEnCours] = useState(false);
 
-  async function dismissCanceled(dbId: string) {
+  async function marquerLu(ids: string[]) {
+    if (ids.length === 0) return;
     const supabase = createClient();
-    await supabase.from('client_notifications').update({ read_at: new Date().toISOString() }).eq('id', dbId);
+    await supabase
+      .from('client_notifications')
+      .update({ read_at: new Date().toISOString() })
+      .in('id', ids);
     onRefresh();
   }
 
@@ -40,77 +78,112 @@ export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh 
     return () => document.removeEventListener('mousedown', handler);
   }, [onClose, rapportNotif, sessionRapportNotif]);
 
-  function handleRapportDone() {
-    setRapportNotif(null);
-    onRapportDone();
-  }
+  // Le panneau prend le focus à l'ouverture. Sans ça la tabulation restait dans
+  // la page derrière, et aucun lecteur d'écran n'annonçait l'arrivée du panneau.
+  useEffect(() => { ref.current?.focus(); }, []);
 
-  function handleSessionRapportDone() {
-    setSessionRapportNotif(null);
-    onRapportDone();
-  }
+  const aTraiter = notifs.filter(n => demandeUneAction(n.type));
+  const pourInfo = notifs.filter(n => !demandeUneAction(n.type));
+  const idsPourInfo = pourInfo.map(n => n.dbId).filter((id): id is string => !!id);
 
   return createPortal(
     <>
-      {/* Overlay léger */}
-      <div style={{ position: 'fixed', inset: 0, zIndex: 1999 }} onClick={onClose} />
+      <div className="notif-voile" onClick={onClose} />
 
-      {/* Panel top-right */}
       <div
         ref={ref}
-        style={{
-          position: 'fixed',
-          top: 56,
-          right: 16,
-          width: 340,
-          maxHeight: 'calc(100vh - 80px)',
-          overflowY: 'auto',
-          background: 'var(--surface)',
-          border: '1px solid var(--border)',
-          borderRadius: 16,
-          boxShadow: '0 8px 40px rgba(0,0,0,0.18)',
-          zIndex: 2000,
-          padding: '16px 0',
-        }}
+        className="notif-panneau"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="notif-titre"
+        tabIndex={-1}
       >
-        {/* En-tête */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px 12px', borderBottom: '1px solid var(--border)' }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>Notifications</div>
-          {notifs.length > 0 && (
-            <span style={{ fontSize: 11, color: 'var(--muted)' }}>{notifs.length} en attente</span>
-          )}
+        {/* Poignée : indice de feuille glissante sur mobile. Masquée sur desktop,
+            où le panneau est un menu ancré à la cloche. */}
+        <div className="notif-poignee" aria-hidden="true" />
+
+        <div className="notif-entete">
+          <h2 className="notif-titre" id="notif-titre">Notifications</h2>
+          {notifs.length > 0 && <span className="notif-total">{notifs.length}</span>}
+          <button type="button" className="notif-fermer" onClick={onClose} aria-label="Fermer">
+            <Icon name="x" size={16} />
+          </button>
         </div>
 
-        {/* Liste */}
         {notifs.length === 0 ? (
-          <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
-            Aucune notification
+          /* Un état vide qui apprend l'écran. « Aucune notification » constatait
+             le vide sans jamais dire ce qui atterrit ici. */
+          <div className="notif-vide">
+            <div className="notif-vide-icone" aria-hidden="true"><Icon name="bell" size={19} /></div>
+            <p className="notif-vide-titre">Rien en attente</p>
+            <p className="notif-vide-texte">
+              Les rapports à remplir et les changements sur tes calls apparaîtront ici.
+            </p>
           </div>
         ) : (
-          <div style={{ padding: '8px 0' }}>
-            {notifs.map(notif => (
-              <NotifItem
-                key={notif.id}
-                notif={notif}
-                onAction={() => {
-                  if (notif.type === 'rapport_call') setRapportNotif(notif);
-                  if (notif.type === 'session_rapport') setSessionRapportNotif(notif);
-                }}
-                onDismiss={notif.dbId ? () => dismissCanceled(notif.dbId!) : undefined}
-                onRefresh={onRefresh}
-              />
-            ))}
+          <div className="notif-corps">
+            {aTraiter.length > 0 && (
+              <section>
+                <h3 className="notif-groupe">
+                  À traiter <span className="notif-groupe-n">{aTraiter.length}</span>
+                </h3>
+                {aTraiter.map(notif => (
+                  <NotifLigne
+                    key={notif.id}
+                    notif={notif}
+                    onAction={() => {
+                      if (notif.type === 'rapport_call') setRapportNotif(notif);
+                      if (notif.type === 'session_rapport') setSessionRapportNotif(notif);
+                    }}
+                    onRefresh={onRefresh}
+                  />
+                ))}
+              </section>
+            )}
+
+            {pourInfo.length > 0 && (
+              <section>
+                <h3 className="notif-groupe">
+                  Pour info <span className="notif-groupe-n">{pourInfo.length}</span>
+                  {/* Ne vide QUE ce groupe. Un rapport à remplir ne se « lit » pas,
+                      il se fait : l'effacer de la cloche le laisserait dû sur
+                      l'accueil et la page Calls, et la cloche mentirait. */}
+                  {idsPourInfo.length > 1 && (
+                    <button
+                      type="button"
+                      className="notif-tout-lu"
+                      disabled={vidageEnCours}
+                      onClick={async () => {
+                        setVidageEnCours(true);
+                        await marquerLu(idsPourInfo);
+                        setVidageEnCours(false);
+                      }}
+                    >
+                      {vidageEnCours ? '…' : 'Tout marquer comme lu'}
+                    </button>
+                  )}
+                </h3>
+                {pourInfo.map(notif => (
+                  <NotifLigne
+                    key={notif.id}
+                    notif={notif}
+                    onAction={() => {}}
+                    onDismiss={notif.dbId ? () => marquerLu([notif.dbId!]) : undefined}
+                    onRefresh={onRefresh}
+                  />
+                ))}
+              </section>
+            )}
           </div>
         )}
       </div>
 
-      {/* Bottom-sheet rapport ouvert depuis le centre de notifs */}
       {rapportNotif?.type === 'rapport_call' && rapportNotif.callId && (
         <RapportModal
           callId={rapportNotif.callId}
           inviteeName={rapportNotif.inviteeName ?? null}
           scheduledAt={rapportNotif.scheduledAt ?? null}
-          onClose={handleRapportDone}
+          onClose={() => { setRapportNotif(null); onRapportDone(); }}
         />
       )}
 
@@ -120,7 +193,7 @@ export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh 
           studentName={sessionRapportNotif.inviteeName ?? null}
           scheduledAt={sessionRapportNotif.scheduledAt ?? null}
           topic={sessionRapportNotif.topic ?? null}
-          onClose={handleSessionRapportDone}
+          onClose={() => { setSessionRapportNotif(null); onRapportDone(); }}
         />
       )}
     </>,
@@ -128,104 +201,101 @@ export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh 
   );
 }
 
-function NotifItem({ notif, onAction, onDismiss, onRefresh }: { notif: AppNotif; onAction: () => void; onDismiss?: () => void; onRefresh: () => void }) {
+function NotifLigne({ notif, onAction, onDismiss, onRefresh }: {
+  notif: AppNotif; onAction: () => void; onDismiss?: () => void; onRefresh: () => void;
+}) {
   const [respondState, setRespondState] = useState<RespondState>('idle');
+  const viewerTz = useViewerTimeZone();
   const isRapport = notif.type === 'rapport_call';
   const isSessionRapport = notif.type === 'session_rapport';
   const isCallRequest = notif.type === 'call_request';
-  const isCanceled = notif.type === 'call_canceled';
-  const isRescheduled = notif.type === 'call_rescheduled';
-  const isAccepted = notif.type === 'call_accepted';
-  const isDeclined = notif.type === 'call_declined';
-  const isRapportReady = notif.type === 'rapport_ready';
-  const isCoachResponse = isAccepted || isDeclined;
-  const accentColor = (isRapport || isSessionRapport || isRapportReady) ? 'var(--accent-brand)' : isCanceled ? '#ef4444' : isRescheduled ? '#f59e0b' : isAccepted ? '#22c55e' : isDeclined ? '#f97316' : 'var(--accent)';
 
-  async function handleAccept() {
+  async function respond(response: 'accepted' | 'declined') {
     if (!notif.callId) return;
-    setRespondState('accepting');
+    setRespondState(response === 'accepted' ? 'accepting' : 'declining');
     const res = await fetch(`/api/calls/${notif.callId}/respond`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ response: 'accepted' }),
+      body: JSON.stringify({ response }),
     });
     setRespondState(res.ok ? 'done' : 'stale');
     onRefresh();
   }
 
-  async function handleDecline() {
-    if (!notif.callId) return;
-    setRespondState('declining');
-    const res = await fetch(`/api/calls/${notif.callId}/respond`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ response: 'declined' }),
-    });
-    setRespondState(res.ok ? 'done' : 'stale');
-    onRefresh();
-  }
+  const quand = notif.scheduledAt ? new Date(notif.scheduledAt) : null;
 
   return (
-    <div style={{
-      padding: '12px 16px',
-      display: 'flex',
-      gap: 12,
-      alignItems: 'flex-start',
-      borderBottom: '1px solid var(--border)',
-    }}>
-      {/* Icône */}
-      <div style={{
-        width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-        background: (isRapport || isSessionRapport || isRapportReady) ? 'var(--accent-brand-soft)' : isCallRequest ? 'var(--surface-2)' : isCanceled ? '#ef444420' : isAccepted ? '#22c55e20' : isDeclined ? '#f9731620' : 'var(--surface-2)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
-        <Icon name={isCanceled || isDeclined ? 'x' : isCallRequest ? 'calendar' : (isRapport || isSessionRapport || isRapportReady) ? 'video' : isAccepted ? 'check' : 'bell'} size={16} />
-      </div>
+    <div className="notif-ligne">
+      <span className={`notif-point ton-${tonDe(notif.type)}`} aria-hidden="true" />
 
-      {/* Contenu */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        {/* Pas de badge Coaching/Prospect ici, contrairement à la carte de l'accueil
-            coach : depuis que les titres sont explicites ("Rapport de session de
-            coaching" / "Rapport de call de vente"), le badge répétait le titre mot
-            pour mot, et sa longueur le poussait sur une seconde ligne. */}
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)', marginBottom: 2 }}>{notif.title}</div>
-        <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>{notif.body}</div>
-        {notif.scheduledAt && (
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-            {new Date(notif.scheduledAt).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
-            {' · '}
-            {new Date(notif.scheduledAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+      <div className="notif-texte">
+        <div className="notif-ligne-tete">
+          {/* Pas de badge Coaching/Prospect ici, contrairement à la carte de l'accueil
+              coach : depuis que les titres sont explicites ("Rapport de session de
+              coaching" / "Rapport de call de vente"), le badge répétait le titre mot
+              pour mot, et sa longueur le poussait sur une seconde ligne. */}
+          <p className="notif-ligne-titre">{notif.title}</p>
+          {quand && (
+            /* Passe par les helpers partagés plutôt que par `toLocaleDateString`
+               sans fuseau.
+               À l'exécution le résultat est le MÊME : `useViewerTimeZone()` renvoie
+               `detectBrowserTimeZone()`, soit la source qu'utilise déjà
+               `toLocale*`. Ce n'est donc pas une correction d'heure fausse.
+               Ce que ça achète : un seul endroit à changer. La règle produit a
+               déjà basculé deux fois (« tout en heure de Paris » puis « chacun
+               dans le sien », le 2026-08-19) ; un appel brut à `toLocale*`
+               garderait silencieusement l'ancien comportement au prochain
+               changement. Voir docs/fuseaux-horaires.md. */
+            <time className="notif-ligne-date" dateTime={notif.scheduledAt ?? undefined}>
+              {formatDateIn(quand, viewerTz)}
+            </time>
+          )}
+        </div>
+
+        <p className="notif-ligne-corps">{notif.body}</p>
+
+        {quand && (
+          <p className="notif-ligne-heure">{formatTimeIn(quand, viewerTz)}</p>
+        )}
+
+
+        {(isRapport || isSessionRapport) && (
+          <div className="notif-actions">
+            <button type="button" className="notif-btn notif-btn-primaire" onClick={onAction}>
+              Remplir le rapport
+            </button>
           </div>
         )}
-        {(isRapport || isSessionRapport) && (
-          <button type="button" onClick={onAction}
-            style={{ marginTop: 10, fontSize: 12, fontWeight: 700, background: accentColor, color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', cursor: 'pointer' }}>
-            Remplir le rapport
-          </button>
-        )}
+
         {isCallRequest && respondState !== 'done' && respondState !== 'stale' && (
-          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button type="button" onClick={handleAccept} disabled={respondState !== 'idle'}
-              style={{ fontSize: 12, fontWeight: 700, background: 'var(--accent-brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', cursor: 'pointer' }}>
+          <div className="notif-actions">
+            <button type="button" className="notif-btn notif-btn-primaire"
+              onClick={() => respond('accepted')} disabled={respondState !== 'idle'}>
               {respondState === 'accepting' ? '…' : 'Accepter'}
             </button>
-            <button type="button" onClick={handleDecline} disabled={respondState !== 'idle'}
-              style={{ fontSize: 12, fontWeight: 700, background: 'none', color: '#ef4444', border: '1px solid #ef4444', borderRadius: 8, padding: '6px 14px', cursor: 'pointer' }}>
+            {/* Refus en neutre, pas en rouge : décliner un créneau est un choix
+                ordinaire, pas une destruction. Le rouge codé en dur y échouait de
+                toute façon au contraste (3,76:1 pour du 12 px). */}
+            <button type="button" className="notif-btn notif-btn-neutre"
+              onClick={() => respond('declined')} disabled={respondState !== 'idle'}>
               {respondState === 'declining' ? '…' : 'Refuser'}
             </button>
           </div>
         )}
+
         {isCallRequest && respondState === 'done' && (
-          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--green)', fontWeight: 600 }}>✓ Réponse envoyée</div>
+          <p className="notif-etat notif-etat-ok">Réponse envoyée</p>
         )}
         {isCallRequest && respondState === 'stale' && (
-          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>Déjà traité ailleurs</div>
+          <p className="notif-etat">Déjà traité ailleurs</p>
         )}
-        {(isCanceled || isCoachResponse || isRapportReady) && onDismiss && (
-          <button type="button" onClick={onDismiss}
-            style={{ marginTop: 10, fontSize: 12, fontWeight: 700, background: accentColor, color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', cursor: 'pointer' }}>
-            OK, compris
-          </button>
+
+        {onDismiss && (
+          <div className="notif-actions">
+            <button type="button" className="notif-btn notif-btn-neutre" onClick={onDismiss}>
+              OK, compris
+            </button>
+          </div>
         )}
       </div>
     </div>

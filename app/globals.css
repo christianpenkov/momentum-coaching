@@ -2752,6 +2752,227 @@ a { color: inherit; text-decoration: none; }
   }
 }
 
+/* ── Centre de notifications ────────────────────────────────────────────────
+   Menu ancre a la cloche sur desktop, feuille montante sur mobile.
+
+   Tout etait en style inline, largeur figee a 340 px comprise : aucune media
+   query ne pouvait donc l'adapter (le piege documente de ce projet). Sur un
+   telephone le panneau atterrissait en haut a droite, la ou le pouce n'atteint
+   pas, et debordait sous 356 px de viewport.                                 */
+.notif-voile {
+  position: fixed;
+  inset: 0;
+  z-index: 1999;
+}
+.notif-panneau {
+  position: fixed;
+  top: 56px;
+  right: 16px;
+  width: 340px;
+  /* `dvh` et non `vh` : en PWA iOS, `100vh` inclut des zones hors ecran et le
+     bas du panneau devenait inatteignable. */
+  max-height: calc(100dvh - 80px);
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  /* Token du systeme, au lieu d'une ombre en dur legerement differente. */
+  box-shadow: var(--shadow-menu);
+  z-index: 2000;
+  padding: 14px 0 8px;
+}
+.notif-panneau:focus { outline: none; }
+
+/* Poignee : visible uniquement en feuille, donc sur mobile. */
+.notif-poignee { display: none; }
+
+.notif-entete {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.notif-titre {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--accent);
+}
+.notif-total {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-brand);
+  background: var(--accent-brand-soft);
+  border-radius: 20px;
+  padding: 1px 8px;
+}
+.notif-fermer {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.notif-fermer:hover { background: var(--surface-2); color: var(--accent); }
+
+.notif-groupe {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 14px 16px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.notif-groupe-n { color: var(--accent); }
+.notif-tout-lu {
+  margin-left: auto;
+  border: none;
+  background: none;
+  padding: 4px 2px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--accent-brand);
+  cursor: pointer;
+}
+.notif-tout-lu:disabled { color: var(--muted); cursor: default; }
+
+/* Ligne dense : un point de couleur au lieu d'une pastille de 34 px. Choisi sur
+   mesure et non par gout — 16 notifications etaient en attente en base, la
+   version a pastille n'en montrait que quatre sans faire defiler. */
+.notif-ligne {
+  display: flex;
+  gap: 10px;
+  padding: 11px 16px;
+  align-items: flex-start;
+}
+.notif-ligne + .notif-ligne { border-top: 1px solid var(--border); }
+
+.notif-point {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 6px;
+}
+/* Couleur SEMANTIQUE, sur le point seulement : il ne porte aucun texte, donc
+   aucune contrainte de contraste de lecture. Les boutons, eux, n'utilisent plus
+   que l'accent de marque ou du neutre. */
+.notif-point.ton-marque    { background: var(--accent-brand); }
+.notif-point.ton-positif   { background: var(--green); }
+.notif-point.ton-negatif   { background: var(--red); }
+.notif-point.ton-attention { background: var(--amber); }
+
+.notif-texte { flex: 1; min-width: 0; }
+.notif-ligne-tete { display: flex; align-items: baseline; gap: 8px; }
+.notif-ligne-titre {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  min-width: 0;
+}
+.notif-ligne-date {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 10.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.notif-ligne-corps {
+  margin: 1px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.notif-ligne-heure {
+  margin: 3px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.notif-actions { display: flex; gap: 8px; margin-top: 9px; flex-wrap: wrap; }
+.notif-btn {
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.notif-btn:disabled { opacity: .55; cursor: default; }
+.notif-btn-primaire { background: var(--accent-brand); color: #fff; }
+.notif-btn-neutre {
+  background: transparent;
+  color: var(--accent);
+  border-color: var(--border);
+}
+.notif-btn-neutre:hover { background: var(--surface-2); }
+.notif-btn:focus-visible,
+.notif-fermer:focus-visible,
+.notif-tout-lu:focus-visible {
+  outline: 2px solid var(--accent-brand);
+  outline-offset: 2px;
+}
+
+.notif-etat { margin: 8px 0 0; font-size: 12px; font-weight: 600; color: var(--muted); }
+.notif-etat-ok { color: var(--green); }
+
+.notif-vide { padding: 30px 22px; text-align: center; }
+.notif-vide-icone {
+  width: 40px; height: 40px; border-radius: 12px; margin: 0 auto 12px;
+  background: var(--surface-2); color: var(--muted);
+  display: flex; align-items: center; justify-content: center;
+}
+.notif-vide-titre { margin: 0 0 5px; font-size: 13.5px; font-weight: 700; color: var(--accent); }
+.notif-vide-texte {
+  margin: 0 auto; font-size: 12px; color: var(--muted);
+  max-width: 30ch; line-height: 1.55;
+}
+
+@media (max-width: 767px) {
+  /* Feuille montante : pleine largeur, ancree en bas, donc sous le pouce. */
+  .notif-voile { background: rgba(26, 24, 21, .28); }
+  .notif-panneau {
+    top: auto;
+    right: 0;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    max-height: 82dvh;
+    border-radius: 18px 18px 0 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    padding: 8px 0 max(12px, env(safe-area-inset-bottom));
+  }
+  .notif-poignee {
+    display: block;
+    width: 34px; height: 4px; border-radius: 2px;
+    background: var(--border);
+    margin: 0 auto 10px;
+  }
+  /* Cibles a 44 px : les boutons faisaient 28 px de haut, seules actions de
+     l'ecran. */
+  .notif-btn { min-height: 44px; padding: 10px 16px; }
+  .notif-fermer { width: 44px; height: 44px; }
+  .notif-tout-lu { min-height: 44px; }
+}
+
 /* ── Fil des rapports et invitations en attente ─────────────────────────────
    Remplace deux fleches laterales par un defilement natif avec accroche.
    Sur mobile les fleches faisaient 44 px chacune et prelevaient 104 px avec

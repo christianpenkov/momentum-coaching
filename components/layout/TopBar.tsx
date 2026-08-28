@@ -59,7 +59,11 @@ export default function TopBar() {
         <NotifCenter
           notifs={notifs}
           onClose={() => setNotifOpen(false)}
-          onRapportDone={() => { refresh(); setNotifOpen(false); }}
+          // Le panneau RESTE ouvert : la ligne traitée disparaît de la liste et
+          // on enchaîne sur la suivante. Il se fermait auparavant, ce qui
+          // obligeait à rouvrir la cloche entre chaque rapport — pénible dès
+          // qu'il y en a plusieurs, et c'est le cas courant.
+          onRapportDone={() => { refresh(); }}
           onRefresh={refresh}
         />
       )}
