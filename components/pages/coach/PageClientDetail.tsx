@@ -1392,7 +1392,7 @@ export default function PageClientDetail({ id }: Props) {
                   {file.comments.length > 0 && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
                       {file.comments.map(c => (
-                        <div key={c.id} style={{ padding: '8px 10px', background: 'var(--accent-brand-soft)', borderRadius: 8, borderLeft: '3px solid var(--accent-brand)', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                        <div key={c.id} style={{ padding: '8px 10px', background: 'var(--accent-brand-soft)', borderRadius: 8, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                           <div style={{ flex: 1 }}>
                             <div style={{ fontSize: 10, color: 'var(--accent-brand)', fontWeight: 700, marginBottom: 3 }}>
                               {c.author?.role === 'coach' ? 'Coach' : (c.author?.full_name || 'Élève')} · {new Date(c.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}

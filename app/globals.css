@@ -47,6 +47,12 @@
   --red-soft:   #cd5b3f18;
   --amber:      #b58025;
   --amber-soft: #b5802518;
+  /* Ambre LISIBLE en petit corps. `--amber` sur fond clair ne donne que 3,4:1,
+     sous le seuil de 4,5:1 exige pour du texte de moins de 14px gras — il reste
+     bon pour une pastille, un trait ou une icone, pas pour un libelle.
+     Celui-ci monte a 7,1:1. Les invitations de call l'utilisaient deja en dur
+     (#92400e), a cote d'un intitule en #f59e0b qui, lui, tombait a 2,2:1. */
+  --amber-ink:  #92400e;
 
   /* Plateformes — couleurs Instagram/YT, reprises de PageClientStats.tsx (déjà le
      fichier avec le plus d'usages analytiques cohérents) pour unifier les variantes

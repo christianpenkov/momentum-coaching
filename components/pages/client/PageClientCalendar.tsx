@@ -136,7 +136,7 @@ export default function PageClientCalendar() {
       {/* Demandes de call en attente */}
       {pendingCalls.length > 0 && (
         <div style={{ marginBottom: 16 }}>
-          <div className="eyebrow-lg" style={{ color: '#f59e0b', marginBottom: 8 }}>
+          <div className="eyebrow-lg" style={{ color: 'var(--amber-ink)', marginBottom: 8 }}>
             {pendingCalls.length} demande{pendingCalls.length > 1 ? 's' : ''} en attente
           </div>
           {pendingCalls.map(call => {
@@ -144,8 +144,8 @@ export default function PageClientCalendar() {
             const dateStr = formatDateIn(d, viewerTz);
             const timeStr = formatTimeIn(d, viewerTz);
             return (
-              <div key={call.id} className="card" style={{ borderLeft: '3px solid var(--amber)', padding: '16px 18px', marginBottom: 8 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e', marginBottom: 6 }}>
+              <div key={call.id} className="card" style={{ padding: '16px 18px', marginBottom: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--amber-ink)', marginBottom: 6 }}>
                   {(client?.coachName || 'TON COACH').toUpperCase()} TE PROPOSE UN CALL
                 </div>
                 <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', textTransform: 'capitalize' }}>{dateStr}</div>

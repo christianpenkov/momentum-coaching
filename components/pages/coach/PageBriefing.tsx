@@ -73,7 +73,7 @@ export default function PageBriefing({ id }: Props) {
 
       <div className="grid-2">
         {/* TL;DR */}
-        <div className="card" style={{ borderLeft: '3px solid var(--accent-brand)' }}>
+        <div className="card">
           <div className="card-head">
             <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Icon name="zap" size={15} /> TL;DR
@@ -83,7 +83,7 @@ export default function PageBriefing({ id }: Props) {
             {aiSummary}
           </p>
           {client.suspens && client.suspens.length > 0 && (
-            <div style={{ marginTop: 12, padding: '8px 12px', background: 'var(--surface-2)', borderRadius: 8, borderLeft: '3px solid var(--amber)' }}>
+            <div style={{ marginTop: 12, padding: '8px 12px', background: 'var(--surface-2)', borderRadius: 8 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--amber)', marginBottom: 6 }}>Points en suspens du dernier call</div>
               {client.suspens.map((s, i) => (
                 <div key={i} style={{ fontSize: 12, color: 'var(--accent)', marginBottom: 3 }}>· {s.label}</div>
@@ -126,7 +126,7 @@ export default function PageBriefing({ id }: Props) {
 
       {/* Focus + Questions */}
       <div className="grid-2" style={{ marginTop: 24 }}>
-        <div className="card" style={{ borderLeft: '3px solid var(--amber)' }}>
+        <div className="card">
           <div className="card-head">
             <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Icon name="target" size={15} /> Focus de ce call

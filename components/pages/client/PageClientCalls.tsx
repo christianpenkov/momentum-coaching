@@ -701,7 +701,7 @@ export default function PageClientCalls() {
       {/* Demandes de call en attente d'acceptation (Google Calendar) */}
       {pendingCalls.length > 0 && (
         <div style={{ marginBottom: 24 }}>
-          <div className="eyebrow-lg" style={{ color: '#f59e0b', marginBottom: 10 }}>
+          <div className="eyebrow-lg" style={{ color: 'var(--amber-ink)', marginBottom: 10 }}>
             {pendingCalls.length} demande{pendingCalls.length > 1 ? 's' : ''} en attente
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -710,13 +710,13 @@ export default function PageClientCalls() {
               const dateStr = formatDateIn(d, viewerTz);
               const timeStr = formatTimeIn(d, viewerTz);
               return (
-                <div key={call.id} className="card" style={{ borderLeft: '3px solid var(--amber)', padding: '18px 20px' }}>
+                <div key={call.id} className="card" style={{ padding: '18px 20px' }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                     <div>
                       {/* Prénom du coach plutôt que "ton coach" : l'élève sait de qui
                           vient l'invitation sans avoir à deviner. Repli sur la formule
                           générique tant que le profil du coach n'est pas chargé. */}
-                      <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e', marginBottom: 4 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--amber-ink)', marginBottom: 4 }}>
                         {(client?.coachName || 'TON COACH').toUpperCase()} TE PROPOSE UN CALL
                       </div>
                       <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent)', textTransform: 'capitalize' }}>{dateStr}</div>
