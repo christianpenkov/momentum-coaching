@@ -358,6 +358,24 @@ export async function pollIgComments(
           : null;
         const readyForBackupSend = firstSeenAt !== null && Date.now() - firstSeenAt >= 4 * 60 * 1000;
 
+        // Même bug que dans supabase/functions/poll-leads (trouvé 2026-08-28) :
+        // `detected_at` était réécrit à chaque passage, alors que le webhook le
+        // préserve. C'est la date de PREMIÈRE détection — elle dérive l'étape de
+        // pipeline du prospect et le classe au bon jour dans les stats. Ce chemin-ci
+        // est appelé par /api/instagram/refresh-today, donc par le bouton
+        // Rafraîchir : la date sautait à chaque clic.
+        //
+        // ⚠️ La lecture porte sur (profile_id, ig_user_id), la clé de conflit de
+        // l'upsert. `existingLeadForMedia` ci-dessus filtre en plus sur media_id et
+        // vaut null quand le prospect commente un AUTRE post — alors que sa ligne
+        // existe et va bien être mise à jour.
+        const { data: ligneProspect } = await serviceSupabase
+          .from('instagram_leads')
+          .select('detected_at')
+          .eq('profile_id', profileId)
+          .eq('ig_user_id', commenterId)
+          .maybeSingle();
+
         // Upsert lead — pose first_seen_without_dm seulement s'il n'existe pas déjà
         await serviceSupabase.from('instagram_leads').upsert({
           profile_id: profileId,
@@ -368,7 +386,7 @@ export async function pollIgComments(
           media_id: media.id,
           media_permalink: media.permalink || null,
           keyword_matched: cl.lm_keyword,
-          detected_at: detectedAt,
+          detected_at: ligneProspect?.detected_at ?? detectedAt,
           lead_magnet_sent: false,
           tracking_link: cl.lm_short_url || null,
           first_seen_without_dm: existingLeadForMedia?.first_seen_without_dm || new Date().toISOString(),

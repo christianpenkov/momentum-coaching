@@ -486,12 +486,35 @@ async function pollIgComments(profileId: string, token: string, igAccountId: str
         // Fix : ne poser lead_magnet_sent que si la ligne n'existait pas encore (première
         // détection par CE cron, avant tout traitement webhook) — jamais écraser une valeur
         // déjà présente.
+        // BUG "cron écrase detected_at" (trouvé 2026-08-28) : `detected_at` était
+        // écrit sans condition à chaque passage, alors que le webhook, lui, le
+        // préserve (`existingLead?.detected_at ?? timestamp`). Un prospect que ce
+        // cron revoit — parce qu'il recommente, ou simplement parce que son
+        // commentaire est encore dans la fenêtre balayée — voyait sa date de
+        // PREMIÈRE détection remise à maintenant. Or c'est elle qui dérive son
+        // étape de pipeline et le classe au bon jour dans les stats : il était
+        // donc reclassé à aujourd'hui, en silence, sans qu'aucune écriture
+        // n'échoue. Constaté en direct sur un lead du 30 juillet dont la date a
+        // bougé de 11:55:14 à 11:55:45 entre deux lectures.
+        //
+        // ⚠️ La lecture doit porter sur la MÊME clé que le conflit de l'upsert,
+        // soit (profile_id, ig_user_id). `existingLead` ci-dessus ne convient pas :
+        // il filtre en plus sur media_id — un prospect qui commente un AUTRE post
+        // le rend null alors que sa ligne existe bel et bien et va être mise à jour.
+        const { data: ligneProspect } = await supa
+          .from('instagram_leads')
+          .select('detected_at')
+          .eq('profile_id', profileId)
+          .eq('ig_user_id', commenterId)
+          .maybeSingle();
+
         await supa.from('instagram_leads').upsert({
           profile_id: profileId, source: 'comment',
           ig_username: commenterUsername || null, ig_user_id: commenterId,
           message: comment.text.slice(0, 500), media_id: media.id,
           media_permalink: media.permalink || null, keyword_matched: cl.lm_keyword,
-          detected_at: detectedAt, tracking_link: cl.lm_short_url || null,
+          detected_at: ligneProspect?.detected_at ?? detectedAt,
+          tracking_link: cl.lm_short_url || null,
           ig_account_id: igAccountId,
           ...(existingLead ? {} : { lead_magnet_sent: false }),
         }, { onConflict: 'profile_id,ig_user_id', ignoreDuplicates: false });
