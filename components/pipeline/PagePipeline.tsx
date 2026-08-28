@@ -704,18 +704,22 @@ function PipelineCard({
         <div style={{ fontSize: 10, color: 'var(--faint)', flexShrink: 0 }}>{card.date}</div>
       </div>
 
-      {/* Row 2 : barre de progression miniature */}
-      <div style={{ display: 'flex', gap: 2 }}>
-        {stages.map((s, i) => (
-          <div key={s.key} style={{
-            flex: 1, height: 2, borderRadius: 1,
-            background: i <= card.stageIdx ? s.color : 'var(--border)',
-          }} />
-        ))}
+      {/* La LIGNE DE CONTEXTE remplace la barre de progression multicolore.
+          Sept segments de 2 px ne disaient rien de lisible — on voyait des
+          couleurs, jamais où en était la personne. Une phrase le dit :
+          « sans mouvement depuis 24 j », « RDV du 18 août · rapport à remplir ».
+          C'est la seule ligne qui apprend quelque chose au survol d'une colonne. */}
+      <div style={{
+        fontSize: 10.5, lineHeight: 1.35,
+        color: card.nextDue?.urgent ? '#cd5b3f' : 'var(--muted)',
+        fontWeight: card.nextDue?.urgent ? 600 : 400,
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      }}>
+        {contexteCarte(card)}
       </div>
 
       {card.extra && (
-        <div style={{ fontSize: 10, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: '#3f8a52', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {card.extra}
         </div>
       )}
@@ -914,6 +918,30 @@ function PipelineCard({
   );
 }
 
+// Ce qu'une fiche raconte en une ligne. L'ordre suit l'urgence : ce qui bloque
+// d'abord, ce qui est prévu ensuite, l'ancienneté en dernier — et « aucun signal »
+// quand il n'y a vraiment rien, ce qui est une information et non un vide.
+function contexteCarte(card: CardData): string {
+  if (card.nextDue?.label) {
+    if (card.nextDue.at && card.nextDue.label === 'RDV') {
+      return `RDV ${new Date(card.nextDue.at).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' })}`;
+    }
+    if (card.rapportEnRetard && card.callScheduledAt) {
+      return `RDV du ${new Date(card.callScheduledAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} · rapport à remplir`;
+    }
+    return card.nextDue.label;
+  }
+  if (card.lastMoveAt) {
+    const j = Math.floor((Date.now() - new Date(card.lastMoveAt).getTime()) / 86400000);
+    if (j >= 21) return `sans mouvement depuis ${j} j`;
+    if (j <= 0)  return "vu aujourd'hui";
+    if (j === 1) return 'vu hier';
+    if (j < 7)   return `vu il y a ${j} j`;
+    return `vu il y a ${Math.floor(j / 7)} sem`;
+  }
+  return 'aucun signal';
+}
+
 // ── BoutonCase ────────────────────────────────────────────────────────────────
 // Un bouton par étape et par issue, au-dessus de la vue liste. La forme dit la
 // nature : pastille ronde pour une étape (une position dans un parcours), carré
@@ -955,6 +983,33 @@ function BoutonCase({
       }}>{n}</span>
     </button>
   );
+}
+
+// Ce qu'une tuile d'issue annonce sous son compteur : ce qu'il reste À FAIRE, et
+// rien d'autre. « 3 à recontacter » n'appelle aucune action ; « 2 à relancer
+// aujourd'hui » si.
+function contexteIssue(key: string, liste: CardData[]): string {
+  if (liste.length === 0) return 'aucun lead';
+  switch (key) {
+    case 'to_recontact': {
+      const dus = liste.filter(c => c.relanceDue).length;
+      return dus > 0 ? `${dus} à relancer maintenant` : 'aucune relance due';
+    }
+    case 'no_show': {
+      const rebookes = liste.filter(c => (c.rdvCount ?? 0) > 1).length;
+      return rebookes > 0 ? `${rebookes} ont rebooké` : 'aucun rebooking';
+    }
+    case 'closed': {
+      const total = liste.reduce((n, c) => n + (c.callRevenue ?? 0), 0);
+      return total > 0 ? `${total.toLocaleString('fr-FR')} € encaissés` : 'aucun montant saisi';
+    }
+    case 'lost': {
+      const sansReponse = liste.filter(c => c.issueReason === 'sans_reponse').length;
+      return sansReponse > 0 ? `${sansReponse} sans réponse` : 'aucune action';
+    }
+    default:
+      return 'aucune action';
+  }
 }
 
 // ── PanneauIssue ──────────────────────────────────────────────────────────────
@@ -1138,38 +1193,45 @@ function TuilesIssues({
                   onDragOver={e => onDragOver(e, issue.key)}
                   onDragLeave={() => onDragLeave(issue.key)}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
-                    padding: '9px 10px', borderRadius: 8, userSelect: 'none', flexShrink: 0,
-                    background: cible ? issue.lightBg : (estOuverte ? issue.lightBg : 'var(--surface)'),
-                    border: `1px ${cible ? 'dashed' : 'solid'} ${cible || estOuverte ? issue.color + '55' : 'var(--border)'}`,
+                    display: 'flex', flexDirection: 'column', cursor: 'pointer',
+                    padding: '10px 12px', borderRadius: 10, userSelect: 'none',
+                    flex: 1, minHeight: 0,
+                    background: cible ? issue.lightBg : 'var(--surface)',
+                    border: `1px ${cible ? 'dashed' : 'solid'} ${cible ? issue.color + '55' : 'var(--border)'}`,
+                    boxShadow: 'var(--shadow-card)',
                     transition: 'all .12s',
                   }}
                 >
-                  {/* Carré plein : la forme dit « résultat », la pastille ronde
-                      des colonnes dit « étape ». */}
-                  <span style={{ width: 9, height: 9, borderRadius: 2, background: issue.color, flexShrink: 0 }} />
-                  <span style={{
-                    fontSize: 11.5, fontWeight: 600, flex: 1, minWidth: 0,
-                    color: liste.length > 0 ? 'var(--ink)' : 'var(--muted)',
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  }}>{issue.label}</span>
-                  <span style={{
-                    fontSize: 12, fontWeight: 700, flexShrink: 0,
-                    fontVariantNumeric: 'tabular-nums',
-                    color: liste.length > 0 ? issue.color : 'var(--faint)',
-                  }}>{liste.length}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {/* Carré plein : la forme dit « résultat », la pastille ronde
+                        des colonnes dit « étape ». */}
+                    <span style={{ width: 9, height: 9, borderRadius: 2, background: issue.color, flexShrink: 0 }} />
+                    <span style={{
+                      fontSize: 12, fontWeight: 600, flex: 1, minWidth: 0,
+                      color: liste.length > 0 ? 'var(--ink)' : 'var(--muted)',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>{issue.label}</span>
+                    <span style={{
+                      fontSize: 16, fontWeight: 700, flexShrink: 0,
+                      fontVariantNumeric: 'tabular-nums',
+                      color: liste.length > 0 ? 'var(--ink)' : 'var(--faint)',
+                    }}>{liste.length}</span>
+                  </div>
+
+                  {/* La ligne de contexte, en bas de la tuile. Un compteur seul ne
+                      dit pas s'il y a quelque chose à FAIRE : « 3 à recontacter »
+                      et « 2 à relancer aujourd'hui » ne demandent pas la même
+                      chose. C'est ce qui distingue une tuile d'une étiquette. */}
+                  <div style={{
+                    marginTop: 'auto', paddingTop: 8, fontSize: 10,
+                    color: 'var(--faint)', overflow: 'hidden',
+                    textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>
+                    {contexteIssue(issue.key, liste)}
+                  </div>
                 </div>
 
-                {estOuverte && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5, paddingTop: 6, overflowY: 'auto', minHeight: 0 }}>
-                    {liste.length === 0 ? (
-                      <div style={{
-                        border: '1px dashed var(--border)', borderRadius: 7,
-                        padding: '12px 10px', textAlign: 'center', fontSize: 10, color: 'var(--faint)',
-                      }}>Aucun lead ici</div>
-                    ) : liste.map(rendreCarte)}
-                  </div>
-                )}
+
               </div>
             );
           })}
@@ -1234,7 +1296,9 @@ function KanbanColumn({
           width: estIssue ? 9 : 7, height: estIssue ? 9 : 7,
           borderRadius: estIssue ? 2.5 : '50%', background: stage.color, flexShrink: 0,
         }} />
-        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>
+        {/* Gros : sur une colonne repliée, le nombre EST l'information. En
+            petit, il fallait s'approcher pour lire « 412 ». */}
+        <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>
           {cards.length}
         </span>
         {/* Le libellé à la verticale : sans lui, une colonne repliée n'est plus
@@ -1313,11 +1377,10 @@ function KanbanColumn({
           border: isDropTarget ? `1.5px dashed ${stage.color}66` : '1.5px dashed transparent',
           transition: 'all .12s',
         }}>
-        {cards.length === 0 && !isDropTarget && (
-          <div style={{ border: '1px dashed var(--border)', borderRadius: 7, padding: '14px 10px', textAlign: 'center', fontSize: 10, color: 'var(--faint)' }}>
-            Glisser ici
-          </div>
-        )}
+        {/* Une colonne vide reste vide. « Glisser ici » répété sur six colonnes
+            occupait plus de place que les fiches elles-mêmes, pour une consigne
+            qu'on lit une fois. La zone de dépôt s'éclaire pendant le glissé,
+            c'est là qu'elle sert. */}
         {cards.map(card => (
           <PipelineCard
             key={card.key}
@@ -1865,6 +1928,7 @@ export default function PagePipeline() {
 
   const [tri, setTri] = useState<TriKey>('immobile');
   const [triOuvert, setTriOuvert] = useState(false);
+  const [filtreRapport, setFiltreRapport] = useState(false);
 
   useEffect(() => {
     try {
@@ -2508,7 +2572,10 @@ export default function PagePipeline() {
     }
   };
 
+  const rapportsARemplir = igCards.filter(c => c.rapportEnRetard).length;
+
   const filtresActifs: ((c: CardData) => boolean)[] = [];
+  if (vue === 'liste' && filtreRapport) filtresActifs.push(c => !!c.rapportEnRetard);
   if (filterCanceled)    filtresActifs.push(isCanceled);
   if (filterRescheduled) filtresActifs.push(c => c.badge === 'rescheduled');
   // Les quatre filtres réglables n'existent qu'en vue liste : les appliquer au
@@ -2917,14 +2984,13 @@ export default function PagePipeline() {
       <div className="pipeline-header" style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, flexWrap: 'wrap', rowGap: 10 }}>
         <div style={{ minWidth: 0 }}>
           <h1 className="page-title" style={{ marginBottom: 2 }}>Pipeline Leads</h1>
-          <p className="page-sub" style={{ fontSize: 12 }}>
-            {loading ? 'Chargement…' : `${totalProspects} prospect${totalProspects !== 1 ? 's' : ''}`}
+          {/* Une seule ligne. La phrase sur deux lignes qui expliquait le
+              fonctionnement mangeait 20 px de hauteur à chaque chargement, pour
+              une consigne qu'on lit une fois. Elle passe en infobulle du titre. */}
+          <p className="page-sub" style={{ fontSize: 12 }}
+             title="Le pipeline se met à jour tout seul · glisse une carte pour la déplacer, le système reprendra sa position dès qu'un nouvel événement sera détecté">
+            {loading ? 'Chargement…' : `${totalProspects} lead${totalProspects !== 1 ? 's' : ''} · ${tab === 'ig' ? 'Instagram' : tab === 'yt' ? 'YouTube' : 'Autres'}`}
           </p>
-          {!loading && (
-            <p className="page-sub pipeline-desktop" style={{ fontSize: 11, marginTop: 2 }}>
-              Le pipeline se met à jour tout seul · glisse une carte pour la déplacer, le système reprendra sa position dès qu&apos;un nouvel événement sera détecté
-            </p>
-          )}
         </div>
 
         {/* pipeline-actions : sur mobile, "Rafraichir" et les 3 onglets ne
@@ -3091,6 +3157,30 @@ export default function PagePipeline() {
               change, et « RDV pris 2 » ne dit plus si c'est deux leads ou deux
               leads qui passent le filtre. Le board répond à « où en est tout le
               monde » — il doit tout montrer. */}
+          {/* En TÊTE, et en rouge : c'est la seule chose qui bloque une
+              statistique tant qu'elle n'est pas faite. Les autres filtres
+              cherchent, celui-ci rappelle. */}
+          {vue === 'liste' && rapportsARemplir > 0 && (
+            <button
+              type="button"
+              onClick={() => setFiltreRapport(v => !v)}
+              aria-pressed={filtreRapport}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 7, minHeight: 32,
+                padding: '0 11px', borderRadius: 8, cursor: 'pointer', font: 'inherit',
+                fontSize: 11.5, fontWeight: 600,
+                background: filtreRapport ? '#cd5b3f' : '#cd5b3f18',
+                border: `1px solid ${filtreRapport ? '#cd5b3f' : '#e2b3a5'}`,
+                color: filtreRapport ? '#fff' : '#cd5b3f',
+              }}
+            >
+              Rapport à remplir
+              <span style={{
+                fontSize: 10.5, fontWeight: 700, fontVariantNumeric: 'tabular-nums',
+                color: filtreRapport ? 'rgba(255,255,255,.8)' : '#cd5b3f',
+              }}>{rapportsARemplir}</span>
+            </button>
+          )}
           {vue === 'liste' && (
             <PipelineFilters
               etats={filtresReglables}

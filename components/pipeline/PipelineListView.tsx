@@ -27,6 +27,12 @@ import Icon from '@/components/ui/Icon';
 
 const SEUIL_REPLI = 25;
 
+// Une section dépliée ne construit jamais plus de lignes que ça. À 412 leads dans
+// « Commentaire LM », le navigateur peinerait sur une seule section — et personne
+// ne lit 412 lignes. Le compte réel reste affiché à côté, et « Voir les N
+// suivants » en bas de section allonge à la demande.
+const PLAFOND_LIGNES = 50;
+
 export interface ListCard {
   key: string;
   name: string;
@@ -144,6 +150,9 @@ export default function PipelineListView({
     });
   }, [cards]);
 
+  // Combien de lignes chaque section construit. Allongé à la demande.
+  const [plafonds, setPlafonds] = useState<Record<string, number>>({});
+
   const [confirmSuppr, setConfirmSuppr] = useState(false);
   const [caseCochee, setCaseCochee] = useState(false);
   const [enCours, setEnCours] = useState(false);
@@ -245,18 +254,35 @@ export default function PipelineListView({
                   background: 'var(--surface)', border: '1px solid var(--border)',
                   borderRadius: 4, padding: '1px 6px',
                 }}>{liste.length}</span>
-                {(enRetard > 0 || dorment > 0) && (
-                  <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--muted)' }}>
-                    {enRetard > 0 && <b style={{ color: '#cd5b3f' }}>{enRetard} rapport{enRetard > 1 ? 's' : ''} à remplir</b>}
-                    {enRetard > 0 && dorment > 0 && ' · '}
-                    {dorment > 0 && `${dorment} sans mouvement depuis plus de 3 sem`}
-                  </span>
-                )}
+                <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {(enRetard > 0 || dorment > 0) && (
+                    <span style={{ fontSize: 10, color: 'var(--muted)' }}>
+                      {enRetard > 0 && <b style={{ color: '#cd5b3f' }}>{enRetard} rapport{enRetard > 1 ? 's' : ''} à remplir</b>}
+                      {enRetard > 0 && dorment > 0 && ' · '}
+                      {dorment > 0 && `${dorment} sans mouvement depuis plus de 3 sem`}
+                    </span>
+                  )}
+                  {/* « 47 sur 412 » : au-delà de PLAFOND_LIGNES, la section n'en
+                      construit qu'une partie. Le dire est obligatoire — une liste
+                      tronquée en silence se lit comme une liste complète. */}
+                  {!replie && liste.length > PLAFOND_LIGNES && (
+                    <span style={{ fontSize: 10, color: 'var(--faint)', fontVariantNumeric: 'tabular-nums' }}>
+                      {Math.min(PLAFOND_LIGNES, liste.length)} sur {liste.length}
+                    </span>
+                  )}
+                  {!replie && (
+                    <span style={{
+                      fontSize: 10, fontWeight: 600, color: 'var(--muted)',
+                      border: '1px solid var(--border)', background: 'var(--surface)',
+                      borderRadius: 6, padding: '3px 8px',
+                    }}>Replier ▴</span>
+                  )}
+                </span>
               </div>
 
               {/* Une section repliée ne construit AUCUNE ligne. C'est ce qui rend
                   la page tenable à 400 leads dans une seule étape. */}
-              {!replie && liste.map(c => {
+              {!replie && liste.slice(0, plafonds[col.key] ?? PLAFOND_LIGNES).map(c => {
                 const j = joursDepuis(c.lastMoveAt, now);
                 const dort = (j ?? 0) >= 21;
                 const sel = selection.has(c.key);
@@ -355,6 +381,31 @@ export default function PipelineListView({
                   </div>
                 );
               })}
+
+              {/* Tronquer en silence est interdit : une liste coupée se lit comme
+                  une liste complète. Le bouton dit combien restent, et les
+                  ajoute par paquets. */}
+              {!replie && liste.length > (plafonds[col.key] ?? PLAFOND_LIGNES) && (
+                <button
+                  type="button"
+                  onClick={() => setPlafonds(p => ({
+                    ...p,
+                    [col.key]: (p[col.key] ?? PLAFOND_LIGNES) + PLAFOND_LIGNES,
+                  }))}
+                  style={{
+                    display: 'block', width: '100%', padding: '10px 14px',
+                    borderTop: '1px solid var(--border-soft, #f5f1e7)', border: 'none',
+                    background: 'transparent', cursor: 'pointer', font: 'inherit',
+                    fontSize: 11.5, fontWeight: 600, color: 'var(--accent-brand, #3a6a86)',
+                  }}
+                >
+                  Voir {Math.min(PLAFOND_LIGNES, liste.length - (plafonds[col.key] ?? PLAFOND_LIGNES))} de plus
+                  {' '}
+                  <span style={{ color: 'var(--faint)', fontWeight: 400 }}>
+                    ({liste.length - (plafonds[col.key] ?? PLAFOND_LIGNES)} restants)
+                  </span>
+                </button>
+              )}
             </div>
           );
         })}
