@@ -93,11 +93,17 @@ export class RateLimiter {
   }
 
   /**
-   * Exécute `fn` sous sémaphore + token bucket, avec retry sur 429.
+   * Exécute `fn` sous sémaphore + token bucket, avec retry sur 429 ET sur 5xx.
    *
    * `fn` doit RE-créer sa requête à chaque appel (une Response ne se rejoue pas).
    * Le délai d'attente privilégie l'en-tête `x-ratelimit-reset` renvoyé par
    * Short.io — c'est le vrai temps de reset, bien plus fiable qu'un délai deviné.
+   *
+   * Les 5xx sont rejoués eux aussi : Short.io renvoie des 500 passagers, sans rapport
+   * avec le quota ni avec la requête. Constaté le 2026-08-28 à 18h01, sur les quatre
+   * profils d'un même passage — puis l'endpoint répondait 200 quelques minutes plus
+   * tard, avec exactement les mêmes paramètres. Sans reprise, un hoquet de quelques
+   * secondes chez le fournisseur coûtait un passage entier de collecte.
    */
   async run(fn: () => Promise<Response>): Promise<Response> {
     await this.acquireSlot();
@@ -106,7 +112,15 @@ export class RateLimiter {
       for (;;) {
         await this.takeToken();
         const res = await fn();
-        if (res.status !== 429 || attempt >= this.opts.maxRetries) return res;
+        const rejouable = res.status === 429 || res.status >= 500;
+        if (!rejouable || attempt >= this.opts.maxRetries) return res;
+
+        // Un 5xx n'a pas d'en-tête de reset : backoff exponentiel simple.
+        if (res.status >= 500) {
+          await sleep(Math.min(1_000 * 2 ** attempt + Math.random() * 500, this.opts.maxRetryWaitMs));
+          attempt += 1;
+          continue;
+        }
 
         const resetSeconds = Number(res.headers.get('x-ratelimit-reset'));
         const base = Number.isFinite(resetSeconds) && resetSeconds > 0

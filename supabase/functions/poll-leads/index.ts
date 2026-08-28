@@ -2222,8 +2222,25 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
     }
   } catch (e: any) { errors.push(`stripe_fetch: ${e?.message || 'unknown'}`); }
 
-  const status = errors.length === 0 ? 'ok' : 'partial';
-  await supa.from('integrations').update({ last_snapshot_status: status, last_snapshot_error: errors.length ? errors.join(', ') : null }).eq('profile_id', profileId).in('provider', ['instagram', 'youtube']);
+  // Deux niveaux de gravite.
+  //
+  // `last_snapshot_error` alimente un bandeau rouge sur l'ecran de l'eleve. Il ne doit
+  // porter que ce qui demande une action de sa part — un jeton expire, un compte
+  // deconnecte. Un hoquet passager chez un fournisseur n'en fait pas partie : il se
+  // rattrape tout seul au passage suivant, et la fenetre d'auto-reparation de 7 jours
+  // recolle meme les journees manquees.
+  //
+  // Constate le 2026-08-28 : un 500 passager de Short.io a affiche
+  // « Impossible de synchroniser les donnees » aux quatre profils, alors que rien
+  // n'etait perdu et que personne n'avait rien a faire. Ces incidents restent traces
+  // dans cron_runs, qui est le bon endroit pour l'exploitant.
+  const incidentsPassagers = (e: string) =>
+    e.includes('last_clicks') || e.includes('flux_clics_tronque') || e.includes('old_domain_');
+  const erreursVisibles = errors.filter(e => !incidentsPassagers(e));
+  const status = erreursVisibles.length === 0 ? 'ok' : 'partial';
+  await supa.from('integrations')
+    .update({ last_snapshot_status: status, last_snapshot_error: erreursVisibles.length ? erreursVisibles.join(', ') : null })
+    .eq('profile_id', profileId).in('provider', ['instagram', 'youtube']);
 
   return errors;
 }
