@@ -1,7 +1,7 @@
 # Pastille de notification et sauts de mise en page
 
 Journal des défauts corrigés les 25–27 août 2026 sur la pastille PWA et sur les
-sursauts des deux accueils (coach et élève). Huit bugs, **un seul mécanisme** : une valeur
+sursauts des deux accueils (coach et élève). Neuf bugs, **un seul mécanisme** : une valeur
 inconnue traitée comme une valeur connue.
 
 > À lire avant de toucher : `lib/pwaBadge.ts`, `public/sw.js` (bloc pastille),
@@ -29,7 +29,7 @@ lue comme une information**.
 **Règle qui en découle** : avant qu'une valeur ne déclenche une action
 destructrice (effacer, supprimer, masquer), vérifier qu'elle a été *réellement
 observée*, et pas seulement initialisée. Un drapeau « cette source a parlé »
-coûte trois lignes ; les huit bugs ci-dessous en découlent tous.
+coûte trois lignes ; les neuf bugs ci-dessous en découlent tous.
 
 ---
 
@@ -156,6 +156,36 @@ entre les deux espaces**, longtemps attribué à tort à la page elle-même.
 **Corrigé** : cache module-level, réaffiché immédiatement puis remplacé sur
 place par la version fraîche. Le rechargement continue d'avoir lieu — il
 n'efface simplement plus l'écran pendant qu'il tourne.
+
+## 9. Le badge « Commencé il y a… » des brouillons
+
+`usePendingDrafts` partait lui aussi d'un objet vide à chaque montage. La
+mention « Commencé il y a X jours · étape N/M » n'existait donc pas au premier
+rendu et s'ajoutait une fois la requête revenue : elle occupe une ligne, donc la
+carte grandissait et poussait le contenu en dessous.
+
+**Corrigé** : cache indexé par ensemble d'ids (borné à 8 entrées), réaffiché
+immédiatement puis remplacé sur place.
+
+> ⚠️ Le réamorçage depuis le cache se fait sur changement de **liste**
+> uniquement, **jamais** sur le `tick` de `notifs-refresh`. Un tick suit une
+> soumission de rapport : le brouillon vient d'être supprimé, et réafficher
+> l'entrée en cache le ferait réapparaître le temps de la requête. Un cache sert
+> à éviter un trou, pas à ressusciter une donnée qu'on sait fausse.
+
+---
+
+## Le motif à réutiliser
+
+Quatre sources alimentaient l'accueil, **quatre repartaient de zéro** à chaque
+montage : `useNotifications`, `useClientSelfData`, `usePendingDrafts`, et la
+forme du squelette. À chaque fois le même correctif — garder la dernière valeur
+connue, la réafficher tout de suite, la remplacer sur place.
+
+Avant d'ajouter un hook qui alimente un bloc **conditionnel** (un badge, une
+carte qui disparaît quand elle est vide), se demander : *que vaut-il au premier
+rendu après une navigation ?* Si la réponse est « vide », le bloc surgira et
+poussera ce qui le suit.
 
 > ⚠️ On ne mémorise **que des formes**, jamais du contenu. Réafficher un nom ou
 > une heure du lancement précédent afficherait un call annulé comme s'il tenait
