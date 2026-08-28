@@ -259,12 +259,22 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
   const echeances = detail?.installments ?? [];
   const paiements = detail?.payments ?? [];
   const journal = detail?.events ?? [];
+  const terminee = estTerminee(deal);
 
   // En prélèvement automatique, l'échéancier vit chez Stripe : on va l'y lire
   // plutôt que d'afficher la seule ligne que la base connaît.
   const { lignes: prelevements } = useEcheancesAVenir(deal, detail);
+
+  // ── Y a-t-il un lien à envoyer sur la vente elle-même ? ──────────────────
+  // Le cas du comptant, et celui du prélèvement automatique PAS ENCORE
+  // DÉMARRÉ : tant qu'aucun abonnement n'existe chez Stripe, il n'y a qu'un
+  // lien, et c'est en le payant que le client saisit sa carte.
+  const lienAEnvoyer = echeances.length === 0
+    && !deal.stripeSubscriptionId
+    && !!deal.shortUrl
+    && !terminee
+    && deal.collected < deal.amountTotal - 0.005;
   const pct = deal.amountTotal > 0 ? Math.min(100, Math.round((deal.collected / deal.amountTotal) * 100)) : 0;
-  const terminee = estTerminee(deal);
 
   return (
     <div style={{
@@ -324,12 +334,17 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
         )}
       </div>
 
-      {/* ── Les échéances ──────────────────────────────────────────────── */}
-      {(echeances.length > 0 || paiements.length > 0 || prelevements.length > 0) && (
+      {/* ── Les échéances ────────────────────────────────────────────────
+          `lienAEnvoyer` fait partie de la condition : une vente toute neuve n'a
+          ni échéance, ni paiement, ni prélèvement — la section disparaissait
+          donc entièrement, et avec elle le seul lien qu'il y avait à envoyer. */}
+      {(echeances.length > 0 || paiements.length > 0 || prelevements.length > 0 || lienAEnvoyer) && (
         <Repliable titre={echeances.length > 0
           ? `Les ${echeances.length} échéances`
           : prelevements.length > 0 ? `Les ${deal.installmentsCount ?? 1} échéances`
-          : paiements.length > 1 ? `Les ${paiements.length} paiements` : 'Le paiement'}
+          : paiements.length > 1 ? `Les ${paiements.length} paiements`
+          : paiements.length === 1 ? 'Le paiement'
+          : 'Le lien à envoyer'}
           ouvert={ouvertes.echeances}
           onToggle={() => setOuvertes(o => ({ ...o, echeances: !o.echeances }))}>
           {echeances.length > 0
@@ -390,14 +405,29 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
                 </div>
               ))}
 
-          {/* ── Le lien du comptant, faute d'échéance qui le porte ─────────
-              JAMAIS en prélèvement automatique : le lien de mise en place y a
-              déjà été payé, et l'afficher « ouvert, pas payé » racontait
-              l'inverse de ce qui s'est produit — sur le seul mode où plus aucun
-              lien n'est à envoyer. */}
-          {echeances.length === 0 && mode !== 'installments_auto'
-            && deal.shortUrl && !terminee && deal.collected < deal.amountTotal - 0.005 && (
-            <LigneLien url={deal.shortUrl} clics={detail?.clicks ?? 0} envoye={false} />
+          {/* ── Le lien porté par la vente, faute d'échéance qui le porte ───
+              En prélèvement automatique, TOUT dépend de l'existence des
+              prélèvements :
+               · pas encore de prélèvement → c'est justement ce lien qu'il faut
+                 envoyer, c'est en le payant que le client saisit sa carte et
+                 déclenche la mise en place ;
+               · prélèvements en cours → le lien a fait son travail, l'afficher
+                 « ouvert, pas payé » raconterait l'inverse de ce qui s'est passé.
+              La distinction se fait sur l'abonnement, jamais sur le mode. */}
+          {lienAEnvoyer && (
+            <>
+              {/* Le prélèvement automatique n'a rien d'automatique tant que la
+                  carte n'est pas saisie : sans cette phrase, on cherche des
+                  prélèvements qui ne peuvent pas encore exister. */}
+              {deal.paymentPlan === 'installments_auto' && paiements.length === 0 && (
+                <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6, paddingBottom: 4 }}>
+                  Les prélèvements ne démarreront qu’à la première échéance :
+                  c’est en payant ce lien que {deal.buyerName.split(' ')[0]} saisit
+                  sa carte, et Stripe met en place les suivants tout seul.
+                </div>
+              )}
+              <LigneLien url={deal.shortUrl!} clics={detail?.clicks ?? 0} envoye={false} />
+            </>
           )}
 
           {/* Le garde-fou du bornage : une date de fin absente signifie que

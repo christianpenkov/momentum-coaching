@@ -64,14 +64,27 @@ export async function GET(request: NextRequest) {
     // fin est précisément ce qu'on veut pouvoir repérer.
     const item = sub.items?.data?.[0];
 
+    // ── Où vit la date du prochain prélèvement ──────────────────────────────
+    // Stripe l'a DÉPLACÉE de la subscription vers ses items. Le SDK est épinglé
+    // sur `2026-04-22.dahlia`, où `sub.current_period_end` n'existe tout
+    // simplement plus : la lecture renvoyait `undefined` sans lever d'erreur, et
+    // l'écran affichait « date à confirmer » sur des prélèvements dont Stripe
+    // connaît parfaitement la date.
+    //
+    // Vérifié sur le compte connecté : en `2025-02-24.acacia` les deux champs
+    // existent, en `dahlia` seul celui de l'item. On lit donc l'item d'abord, la
+    // subscription en repli — ce qui tient dans les deux sens si la version
+    // épinglée redescend un jour.
+    const prochain = (item as { current_period_end?: number } | undefined)?.current_period_end
+      ?? (sub as { current_period_end?: number }).current_period_end
+      ?? null;
+
     return NextResponse.json({
       schedule: {
         status: sub.status,
         perPayment: item ? (item.price.unit_amount ?? 0) / 100 : null,
         interval: item?.price.recurring?.interval ?? null,
-        nextPaymentAt: (sub as any).current_period_end
-          ? new Date((sub as any).current_period_end * 1000).toISOString()
-          : null,
+        nextPaymentAt: prochain ? new Date(prochain * 1000).toISOString() : null,
         endsAt: sub.cancel_at ? new Date(sub.cancel_at * 1000).toISOString() : null,
         bounded: !!sub.cancel_at,
         totalCount: deal.installments_count,
