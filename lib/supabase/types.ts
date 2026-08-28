@@ -155,6 +155,10 @@ export interface Call {
   session_no_show?: boolean | null;
   session_rapport_reminder_sent?: boolean;
   lead_rapport_comment?: string | null;
+  /** Le lead était-il la cible ? Alimente le « % Calls Qualifiés ». Absent du
+   *  type jusqu'au 2026-08-28 alors que la colonne existait et que le rapport
+   *  l'écrivait — donc invisible à toute lecture TypeScript. */
+  qualified?: boolean | null;
   /** Ce qui a bloqué, saisi au rapport de vente. Une des valeurs d'ObjectionChoice. */
   objection?: string | null;
   /** Le texte libre quand objection vaut 'autre'. */

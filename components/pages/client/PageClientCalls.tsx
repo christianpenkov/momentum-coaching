@@ -1,4 +1,5 @@
 'use client';
+import { type RapportExistant } from '@/lib/rapportPatch';
 import InlineLoader from '@/components/ui/InlineLoader';
 import { Skeleton } from '@/components/ui/Skeleton';
 
@@ -68,7 +69,7 @@ interface RapportModal {
   scheduledAt: string | null;
   isFollowUp?: boolean;
   // Renseigné uniquement en mode correction (rapport déjà rempli qu'on rouvre).
-  existing?: { revenue?: number | null; comment?: string | null } | null;
+  existing?: RapportExistant | null;
   // Pas de champs fathom* ici : RapportModal ne les accepte pas dans ses props
   // et le JSX ne passe que callId/inviteeName/scheduledAt/isFollowUp/existing.
   // Les données Fathom s'affichent dans CallInfosModal, pas dans le formulaire
@@ -900,7 +901,15 @@ export default function PageClientCalls() {
               inviteeName: call.invitee_name,
               scheduledAt: call.scheduled_at,
               isFollowUp: (call as { is_follow_up?: boolean | null }).is_follow_up === true,
-              existing: { revenue: call.revenue ?? null, comment: call.lead_rapport_comment ?? null },
+              existing: {
+                revenue: call.revenue ?? null,
+                comment: call.lead_rapport_comment ?? null,
+                outcome: call.outcome ?? null,
+                qualified: (call as { qualified?: boolean | null }).qualified ?? null,
+                objection: call.objection ?? null,
+                objectionAutre: call.objection_autre ?? null,
+                relanceAt: call.relance_at ?? null,
+              },
             });
           } : undefined}
           editableNotes={infosModalCall.call_type !== 'calendly' ? (

@@ -1,5 +1,6 @@
 'use client';
 
+import { type RapportExistant } from '@/lib/rapportPatch';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useEscapeKey } from '@/lib/useEscapeKey';
@@ -548,6 +549,11 @@ interface CardData {
   // rouvre le rapport pour le corriger (voir prop `existing` de RapportModal).
   callRevenue?: number | null;
   callComment?: string | null;
+  /** Le rapport déjà soumis, pour rouvrir la modale sur ce qui a été répondu. */
+  callQualified?: boolean | null;
+  callObjection?: string | null;
+  callObjectionAutre?: string | null;
+  callRelanceAt?: string | null;
   callIsFollowUp?: boolean;
   naturalKey: string; // stage naturel avant override — pour natural_at_override
   hasProspectLink: boolean; // true si prospect_links.short_url est renseigné
@@ -565,7 +571,7 @@ function PipelineCard({
   platform: 'ig' | 'yt' | 'other';
   onConfirmLead?: (key: string) => void;
   onDeleteLead?: (key: string, callId?: string | null) => void;
-  onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string, isFollowUp: boolean, existing?: { revenue?: number | null; comment?: string | null } | null) => void;
+  onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string, isFollowUp: boolean, existing?: RapportExistant | null) => void;
   onCardClick?: (cardKey: string) => void;
   onNotALead?: (key: string, callId?: string | null) => void;
 }) {
@@ -1260,7 +1266,7 @@ function KanbanColumn({
   platform: 'ig' | 'yt' | 'other';
   onConfirmLead?: (key: string) => void;
   onDeleteLead?: (key: string, callId?: string | null) => void;
-  onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string, isFollowUp: boolean, existing?: { revenue?: number | null; comment?: string | null } | null) => void;
+  onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string, isFollowUp: boolean, existing?: RapportExistant | null) => void;
   onCardClick?: (cardKey: string) => void;
   onNotALead?: (key: string, callId?: string | null) => void;
   /** Une issue se dessine en carré plein, une étape en pastille ronde. */
@@ -1987,7 +1993,7 @@ export default function PagePipeline() {
     isFollowUp?: boolean;
     // Renseigné uniquement quand on rouvre un rapport déjà rempli, pour pré-remplir la
     // modale au lieu de faire ressaisir les valeurs de mémoire.
-    existing?: { revenue?: number | null; comment?: string | null } | null;
+    existing?: RapportExistant | null;
   } | null>(null);
 
   // Message renvoyé par le serveur quand une suppression est refusée (deal signé).
@@ -2219,6 +2225,10 @@ export default function PagePipeline() {
         callOutcome: call?.outcome ?? null,
         callRevenue: call?.revenue ?? null,
         callComment: call?.lead_rapport_comment ?? null,
+        callQualified: (call as { qualified?: boolean | null } | undefined)?.qualified ?? null,
+        callObjection: call?.objection ?? null,
+        callObjectionAutre: call?.objection_autre ?? null,
+        callRelanceAt: call?.relance_at ?? null,
         callIsFollowUp: call?.is_follow_up ?? false,
         naturalKey: natural,
         hasProspectLink: !!(prospect?.short_url),
@@ -2347,6 +2357,10 @@ export default function PagePipeline() {
         callOutcome: call.outcome ?? null,
         callRevenue: call.revenue ?? null,
         callComment: call.lead_rapport_comment ?? null,
+        callQualified: (call as { qualified?: boolean | null }).qualified ?? null,
+        callObjection: call.objection ?? null,
+        callObjectionAutre: call.objection_autre ?? null,
+        callRelanceAt: call.relance_at ?? null,
         callIsFollowUp: call.is_follow_up ?? false,
         naturalKey: state.stage,
         hasProspectLink: false,
@@ -2494,6 +2508,10 @@ export default function PagePipeline() {
         callOutcome: latestCall.outcome ?? null,
         callRevenue: latestCall.revenue ?? null,
         callComment: latestCall.lead_rapport_comment ?? null,
+        callQualified: (latestCall as { qualified?: boolean | null }).qualified ?? null,
+        callObjection: latestCall.objection ?? null,
+        callObjectionAutre: latestCall.objection_autre ?? null,
+        callRelanceAt: latestCall.relance_at ?? null,
         naturalKey: state.stage,
         hasProspectLink: false,
         avatarUrl: null,
@@ -3324,7 +3342,12 @@ export default function PagePipeline() {
                 inviteeName: c.name,
                 scheduledAt: c.callScheduledAt ?? '',
                 isFollowUp: c.callIsFollowUp ?? false,
-                existing: { revenue: c.callRevenue ?? null, comment: c.callComment ?? null },
+                existing: {
+                  revenue: c.callRevenue ?? null, comment: c.callComment ?? null,
+                  outcome: c.callOutcome ?? null, qualified: c.callQualified ?? null,
+                  objection: c.callObjection ?? null, objectionAutre: c.callObjectionAutre ?? null,
+                  relanceAt: c.callRelanceAt ?? null,
+                },
               })}
               onBulkDelete={handleBulkDelete}
               onBulkNotALead={handleBulkNotALead}

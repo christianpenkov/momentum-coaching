@@ -99,6 +99,25 @@ export interface RapportAnswers {
   isCorrection: boolean;
 }
 
+/**
+ * Ce qu'un rapport DÉJÀ SOUMIS contient, pour rouvrir la modale sur les réponses
+ * existantes plutôt que sur des champs vides.
+ *
+ * Ce type était recopié à SIX endroits (les deux pages Calls, le pipeline à trois
+ * reprises, le chargeur de modale). Ajouter une question au rapport obligeait donc
+ * à penser à six fichiers — et l'objection avait été oubliée dans les six, si bien
+ * que corriger un montant effaçait ce qui avait bloqué. Une seule définition, ici.
+ */
+export interface RapportExistant {
+  revenue?: number | null;
+  comment?: string | null;
+  outcome?: string | null;
+  qualified?: boolean | null;
+  objection?: string | null;
+  objectionAutre?: string | null;
+  relanceAt?: string | null;
+}
+
 export const EMPTY_ANSWERS: RapportAnswers = {
   showedUp: null,
   qualified: null,

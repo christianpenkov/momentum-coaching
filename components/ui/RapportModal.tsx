@@ -10,7 +10,7 @@ import RapportChoiceStep from '@/components/ui/RapportChoiceStep';
 import ConfirmCheckboxDialog from '@/components/ui/ConfirmCheckboxDialog';
 import celebrationAnimation from '@/public/animations/celebration.json';
 import { useRapportDraftWriter, type RapportDraft } from '@/lib/useRapportDraft';
-import { buildRapportPatch, estimateTotal, countAnswered, objectionsPour, EMPTY_ANSWERS, type RapportAnswers, type ObjectionChoice } from '@/lib/rapportPatch';
+import { buildRapportPatch, estimateTotal, countAnswered, objectionsPour, EMPTY_ANSWERS, type RapportAnswers, type ObjectionChoice, type RapportExistant } from '@/lib/rapportPatch';
 import { wallClockToUtc, cityLabelOf, formatDateIn, formatTimeIn } from '@/lib/timezone';
 import { useViewerTimeZone } from '@/lib/UserContext';
 
@@ -76,10 +76,7 @@ interface Props {
    * existantes servent à pré-remplir les champs pour que l'utilisateur voie ce qu'il
    * corrige au lieu de tout ressaisir de mémoire.
    */
-  existing?: {
-    revenue?: number | null;
-    comment?: string | null;
-  } | null;
+  existing?: RapportExistant | null;
   /**
    * Brouillon déjà résolu par RapportModalLoader — jamais chargé ici. Le charger
    * dans ce composant afficherait l'étape 1 vide avant de sauter à la bonne étape,
@@ -169,6 +166,16 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
     ...EMPTY_ANSWERS,
     revenue: existing?.revenue != null ? String(existing.revenue) : '',
     comment: existing?.comment ?? '',
+    // Le rapport se rouvre sur ce qui a DÉJÀ été répondu. Sans ces cinq lignes,
+    // corriger un montant effaçait l'objection et la date de relance : la
+    // modale repartait avec des champs vides, et le patch les écrasait par
+    // `null` sans que personne ne l'ait demandé.
+    outcomeChoice: (existing?.outcome === 'no_show' ? null : existing?.outcome ?? null) as RapportAnswers['outcomeChoice'],
+    showedUp: existing?.outcome ? existing.outcome !== 'no_show' : null,
+    qualified: existing?.qualified ?? null,
+    objection: (existing?.objection ?? null) as ObjectionChoice | null,
+    objectionAutre: existing?.objectionAutre ?? '',
+    relanceAt: existing?.relanceAt ? String(existing.relanceAt).slice(0, 10) : '',
     isCorrection: !!existing,
   });
 

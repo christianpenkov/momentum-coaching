@@ -380,3 +380,66 @@ test('les six branches sont soumettables', () => {
     assert.equal(isSubmittable(reponses({ showedUp: true, outcomeChoice: outcome })), true, outcome);
   }
 });
+
+// ── La correction d'un rapport ne doit RIEN effacer ────────────────────────
+// Le type de « ce qui existe déjà » était recopié à six endroits, et l'objection
+// avait été oubliée dans les six : corriger un montant repartait avec des champs
+// vides, et le patch écrasait l'objection par null sans que personne ne l'ait
+// demandé. Ces tests verrouillent l'aller-retour.
+
+test('corriger un rapport renvoie les mêmes valeurs si rien n’est touché', () => {
+  // Ce que la base contient déjà, tel que `existing` le rendrait.
+  const deja = reponses({
+    isCorrection: true,
+    showedUp: true,
+    qualified: true,
+    outcomeChoice: 'to_recontact',
+    objection: 'prix',
+    relanceAt: '2026-09-20',
+    comment: 'rappeler après son déménagement',
+  });
+  const { rapport, callFields } = buildRapportPatch(deja);
+  assert.equal(rapport.outcome, 'to_recontact');
+  assert.equal(rapport.qualified, true);
+  assert.equal(rapport.objection, 'prix');
+  assert.equal(rapport.lead_rapport_comment, 'rappeler après son déménagement');
+  assert.equal(callFields.relance_at, '2026-09-20');
+});
+
+test('corriger le MONTANT n’efface pas l’objection', () => {
+  // Le cas réel : on rouvre pour changer un montant mal saisi.
+  const avant = reponses({
+    isCorrection: true, showedUp: true, outcomeChoice: 'lost', objection: 'temps',
+  });
+  const apres = { ...avant, comment: 'corrigé' };
+  const { rapport } = buildRapportPatch(apres);
+  assert.equal(rapport.objection, 'temps', 'l’objection survit à la correction');
+  assert.equal(rapport.outcome, 'lost');
+});
+
+test('RapportExistant couvre tout ce que buildRapportPatch peut écrire', () => {
+  // Garde-fou : si une question est ajoutée au rapport sans être ajoutée à
+  // RapportExistant, la corriger l'effacerait. Ce test échoue alors.
+  const champsEcrits = new Set<string>();
+  for (const outcome of ['closed', 'second_call', 'to_recontact', 'lost', 'not_qualified'] as const) {
+    const { rapport, callFields } = buildRapportPatch(reponses({
+      showedUp: true, qualified: true, outcomeChoice: outcome, revenue: '100',
+      objection: 'prix', relanceAt: '2026-09-20', comment: 'x', isCorrection: true,
+    }));
+    Object.keys(rapport).forEach(k => champsEcrits.add(k));
+    Object.keys(callFields).forEach(k => champsEcrits.add(k));
+  }
+  // Ce que RapportExistant sait rouvrir, exprimé en noms de colonnes.
+  const rouvrables = new Set([
+    'revenue', 'lead_rapport_comment', 'outcome', 'qualified',
+    'objection', 'objection_autre', 'relance_at',
+    // Écrits mais déduits de l'outcome, donc jamais à rouvrir séparément.
+    'no_show', 'deal_closed',
+  ]);
+  const orphelins = [...champsEcrits].filter(c => !rouvrables.has(c));
+  assert.deepEqual(
+    orphelins, [],
+    `Ces champs partent en base sans que RapportExistant sache les relire : ${orphelins.join(', ')}. `
+    + 'Corriger un rapport les effacerait.',
+  );
+});

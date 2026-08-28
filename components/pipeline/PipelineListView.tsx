@@ -48,6 +48,11 @@ export interface ListCard {
   callIsFollowUp?: boolean;
   callRevenue?: number | null;
   callComment?: string | null;
+  callOutcome?: string | null;
+  callQualified?: boolean | null;
+  callObjection?: string | null;
+  callObjectionAutre?: string | null;
+  callRelanceAt?: string | null;
   rapportEnRetard?: boolean;
   relancesFaites?: number;
   isIgLink?: boolean;

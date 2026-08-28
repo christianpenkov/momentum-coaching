@@ -1,5 +1,6 @@
 'use client';
 
+import { type RapportExistant } from '@/lib/rapportPatch';
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useEscapeKey } from '@/lib/useEscapeKey';
@@ -59,7 +60,7 @@ export default function PageCalls() {
     supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
   }, []);
   // `existing` renseigné uniquement en mode correction (rapport déjà rempli qu'on rouvre).
-  const [openSalesRapportCall, setOpenSalesRapportCall] = useState<{ callId: string; inviteeName: string | null; scheduledAt: string | null; isFollowUp: boolean; existing?: { revenue?: number | null; comment?: string | null } | null } | null>(null);
+  const [openSalesRapportCall, setOpenSalesRapportCall] = useState<{ callId: string; inviteeName: string | null; scheduledAt: string | null; isFollowUp: boolean; existing?: RapportExistant | null } | null>(null);
 
   // Historique paginé par période — les 2 premières (semaine/mois courant) sont
   // affichées, le reste derrière un bouton.
@@ -649,7 +650,15 @@ export default function PageCalls() {
                 inviteeName: infosModalCall.clientName,
                 scheduledAt: call.scheduled_at,
                 isFollowUp: (call as { is_follow_up?: boolean | null }).is_follow_up === true,
-                existing: { revenue: call.revenue ?? null, comment: call.lead_rapport_comment ?? null },
+                existing: {
+                  revenue: call.revenue ?? null,
+                  comment: call.lead_rapport_comment ?? null,
+                  outcome: call.outcome ?? null,
+                  qualified: call.qualified ?? null,
+                  objection: call.objection ?? null,
+                  objectionAutre: call.objection_autre ?? null,
+                  relanceAt: call.relance_at ?? null,
+                },
               });
             } : undefined}
             fathomData={{

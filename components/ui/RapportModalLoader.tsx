@@ -1,5 +1,6 @@
 'use client';
 
+import { type RapportExistant } from '@/lib/rapportPatch';
 import { useEffect, useState } from 'react';
 import RapportModal from '@/components/ui/RapportModal';
 import ModalShell from '@/components/ui/ModalShell';
@@ -27,7 +28,7 @@ export default function RapportModalLoader(props: {
   inviteeName: string | null;
   scheduledAt: string | null;
   isFollowUp?: boolean;
-  existing?: { revenue?: number | null; comment?: string | null } | null;
+  existing?: RapportExistant | null;
   onClose: () => void;
 }) {
   const [state, setState] = useState<{ loading: boolean; draft: RapportDraft | null }>({ loading: true, draft: null });
