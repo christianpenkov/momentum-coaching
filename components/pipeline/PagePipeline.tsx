@@ -1285,9 +1285,11 @@ function KanbanColumn({
           width: 52, flexShrink: 0, alignSelf: 'stretch', cursor: 'pointer',
           display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
           padding: '9px 0', font: 'inherit', color: 'inherit',
-          paddingLeft: 8, borderLeft: '1px solid var(--border)',
-          background: isDropTarget ? stage.lightBg : 'transparent',
-          border: `1px dashed ${isDropTarget ? stage.color + '66' : 'transparent'}`,
+          // Même cadre que les colonnes dépliées : repliée, une colonne reste une
+          // colonne. Sans cadre, elle se lisait comme une décoration entre deux
+          // étapes plutôt que comme une étape à part entière.
+          background: isDropTarget ? stage.lightBg : 'var(--surface)',
+          border: `1px ${isDropTarget ? 'dashed' : 'solid'} ${isDropTarget ? stage.color + '66' : 'var(--border)'}`,
           borderRadius: 10,
         }}
       >
@@ -1317,13 +1319,15 @@ function KanbanColumn({
   // les trois premières libère beaucoup de place : la laisser vide à droite
   // gâcherait l'espace, et des colonnes larges rendent les fiches lisibles.
   return (
-    // Trait de séparation à gauche de chaque colonne : sans lui, les fiches de
-    // deux colonnes voisines se lisaient comme une seule grille, et on ne voyait
-    // plus où une étape finissait.
+    // La colonne est un CADRE : l'en-tête est dedans, pas posé au-dessus. Un
+    // trait de séparation seul ne suffisait pas — les fiches de deux colonnes
+    // voisines se lisaient comme une seule grille et on ne voyait plus où une
+    // étape finissait.
     <div style={{
       flex: '1 1 172px', minWidth: 172, maxWidth: 320, alignSelf: 'stretch',
-      display: 'flex', flexDirection: 'column', gap: 6,
-      paddingLeft: 8, borderLeft: '1px solid var(--border)',
+      display: 'flex', flexDirection: 'column',
+      background: 'var(--surface)', border: '1px solid var(--border)',
+      borderRadius: 10, overflow: 'hidden',
     }}>
       {/* En-tête de colonne — le dessin d'origine, gardé sur demande : fond
           `surface-2`, bordure, compteur en pastille colorée. Le chevron de repli
@@ -1336,9 +1340,9 @@ function KanbanColumn({
         title={`Plier « ${stage.label} »`}
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '7px 10px', borderRadius: 7, cursor: 'pointer', userSelect: 'none',
+          padding: '8px 10px', cursor: 'pointer', userSelect: 'none',
           background: isDropTarget ? stage.lightBg : 'var(--surface-2)',
-          border: `1px solid ${isDropTarget ? stage.color + '55' : 'var(--border)'}`,
+          borderBottom: '1px solid var(--border)',
           transition: 'all .12s', flexShrink: 0,
         }}
       >
@@ -1372,10 +1376,9 @@ function KanbanColumn({
         onDragLeave={onDragLeave}
         style={{
           display: 'flex', flexDirection: 'column', gap: 5, flex: 1, minHeight: 80,
-          padding: isDropTarget ? '4px' : '0', borderRadius: 8,
+          padding: 7, overflowY: 'auto',
           background: isDropTarget ? stage.lightBg + 'BB' : 'transparent',
-          border: isDropTarget ? `1.5px dashed ${stage.color}66` : '1.5px dashed transparent',
-          transition: 'all .12s',
+          transition: 'background .12s',
         }}>
         {/* Une colonne vide reste vide. « Glisser ici » répété sur six colonnes
             occupait plus de place que les fiches elles-mêmes, pour une consigne

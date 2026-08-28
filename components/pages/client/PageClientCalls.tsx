@@ -46,6 +46,9 @@ interface Call {
   revenue: number | null;
   outcome: string | null;
   lead_rapport_comment: string | null;
+  objection: string | null;
+  objection_autre: string | null;
+  relance_at: string | null;
   session_completed?: boolean | null;
   session_no_show?: boolean | null;
   fathom_status?: 'pending' | 'matched' | 'unmatched' | 'not_recorded' | null;
@@ -882,6 +885,10 @@ export default function PageClientCalls() {
           topicCustom={sessionReportsByCall[infosModalCall.id]?.topic_custom ?? null}
           notes={null}
           leadComment={infosModalCall.call_type === 'calendly' ? infosModalCall.lead_rapport_comment : null}
+          outcome={infosModalCall.call_type === 'calendly' ? infosModalCall.outcome : null}
+          objection={infosModalCall.call_type === 'calendly' ? infosModalCall.objection : null}
+          objectionAutre={infosModalCall.call_type === 'calendly' ? infosModalCall.objection_autre : null}
+          relanceAt={infosModalCall.call_type === 'calendly' ? infosModalCall.relance_at : null}
           // Calls de vente déjà rapportés : permet de corriger un montant mal saisi ou un
           // deal enregistré sur la mauvaise personne. Sans ce chemin, un rapport rempli
           // était définitif (voir docs/tracking-prospect.md). Ferme la modale de lecture

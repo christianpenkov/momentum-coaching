@@ -35,6 +35,13 @@ interface Props {
   studentNotes?: string | null;
   /** Commentaire que l'élève a laissé sur son propre call de vente. */
   leadComment?: string | null;
+  /** Le résultat du rendez-vous de vente et ce qui l'accompagne. Ces trois
+   *  informations étaient enregistrées par le rapport sans être affichées nulle
+   *  part : remplir « qu'est-ce qui a bloqué » n'avait alors aucun retour. */
+  outcome?: string | null;
+  objection?: string | null;
+  objectionAutre?: string | null;
+  relanceAt?: string | null;
   /** Bloc éditable rendu en pied de modale (notes perso de l'élève sur un coaching). */
   editableNotes?: ReactNode;
   /**
@@ -51,6 +58,38 @@ interface Props {
   onClose: () => void;
 }
 
+// Les libellés lus par l'élève. `rescheduled` et `second_call` figurent ici bien
+// qu'ils ne soient pas des issues du pipeline : sur la fiche d'un rendez-vous,
+// « reporté » est bel et bien ce qui s'est passé ce jour-là.
+const RESULTAT_LABELS: Record<string, string> = {
+  closed:        'Deal closé',
+  no_show:       'No-show',
+  to_recontact:  'À recontacter',
+  rescheduled:   'Rendez-vous reporté',
+  second_call:   '2ᵉ rendez-vous prévu',
+  lost:          'Perdu',
+  not_qualified: 'Pas qualifié',
+};
+
+const RESULTAT_STYLE: Record<string, { bg: string; fg: string }> = {
+  closed:        { bg: '#3f8a5218', fg: '#3f8a52' },
+  no_show:       { bg: '#cd5b3f18', fg: '#cd5b3f' },
+  to_recontact:  { bg: '#c2410c18', fg: '#c2410c' },
+  rescheduled:   { bg: '#b5802518', fg: '#b58025' },
+  second_call:   { bg: '#2563EB18', fg: '#2563EB' },
+  lost:          { bg: '#7a736118', fg: '#7a7361' },
+  not_qualified: { bg: '#6b728018', fg: '#6b7280' },
+};
+
+const OBJECTION_LABELS: Record<string, string> = {
+  prix:           'le prix ou le budget',
+  temps:          'le manque de temps',
+  reflechir:      'doit réfléchir ou en parler',
+  confiance:      'pas assez convaincu',
+  autre_priorite: 'une autre priorité passe avant',
+  pas_la_cible:   "ce n'était pas la cible",
+};
+
 function formatDate(dateStr: string, tz: string) {
   return formatDateIn(new Date(dateStr), tz);
 }
@@ -59,13 +98,14 @@ function formatDate(dateStr: string, tz: string) {
 // ce qui existe déjà (rapport rempli + infos Fathom) sans jamais réutiliser
 // SessionRapportModal/RapportModal, qui sont des flux de saisie, pas de lecture.
 export default function CallInfosModal({
-  counterpartName, scheduledAt, attended, topic, topicCustom, notes, studentNotes, leadComment, editableNotes, onEditRapport, fathomData, onClose,
+  counterpartName, scheduledAt, attended, topic, topicCustom, notes, studentNotes, leadComment, outcome, objection, objectionAutre, relanceAt, editableNotes, onEditRapport, fathomData, onClose,
 }: Props) {
   const { user } = useUser();
   const viewerTz = useViewerTimeZone();
   const topicLabel = topic === 'autre' ? topicCustom : SESSION_TOPICS.find(t => t.value === topic)?.label;
   const hasReport = attended !== undefined && attended !== null;
-  const hasAnything = hasReport || !!leadComment || !!editableNotes || !!onEditRapport
+  const aResultat = !!outcome;
+  const hasAnything = hasReport || aResultat || !!leadComment || !!editableNotes || !!onEditRapport
     || !!fathomData.shareUrl || !!fathomData.summary || !!fathomData.transcript;
 
   return (
@@ -129,6 +169,45 @@ export default function CallInfosModal({
 
         {/* Hors du bloc hasReport : sur un call de VENTE il n'y a jamais de rapport
             de session, donc le commentaire serait resté invisible. */}
+        {/* Le résultat du rendez-vous de vente, avec ce qui a bloqué et la date
+            de relance. C'est le seul endroit où l'on relit ce qu'on a saisi au
+            rapport — sans lui, répondre à « qu'est-ce qui a bloqué » n'avait
+            aucun retour et la question paraissait inutile. */}
+        {aResultat && (
+          <div style={{ marginTop: hasReport ? 16 : 0 }}>
+            <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8 }}>Résultat du call</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '4px 11px', borderRadius: 20, fontSize: 12, fontWeight: 700,
+                  background: RESULTAT_STYLE[outcome!]?.bg ?? 'var(--surface-2)',
+                  color: RESULTAT_STYLE[outcome!]?.fg ?? 'var(--ink-2)',
+                  border: `1px solid ${RESULTAT_STYLE[outcome!]?.fg ?? 'var(--border)'}33`,
+                }}>
+                  {RESULTAT_LABELS[outcome!] ?? outcome}
+                </span>
+              </div>
+
+              {objection && (
+                <div style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.5 }}>
+                  <span style={{ color: 'var(--muted)' }}>Ce qui a bloqué : </span>
+                  {objection === 'autre' && objectionAutre
+                    ? objectionAutre
+                    : OBJECTION_LABELS[objection] ?? objection}
+                </div>
+              )}
+
+              {relanceAt && (
+                <div style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.5 }}>
+                  <span style={{ color: 'var(--muted)' }}>À recontacter le </span>
+                  {new Date(relanceAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {leadComment && (
           <div style={{ marginTop: hasReport ? 16 : 0 }}>
             <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Ton commentaire perso</div>

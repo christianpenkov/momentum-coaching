@@ -155,6 +155,12 @@ export interface Call {
   session_no_show?: boolean | null;
   session_rapport_reminder_sent?: boolean;
   lead_rapport_comment?: string | null;
+  /** Ce qui a bloqué, saisi au rapport de vente. Une des valeurs d'ObjectionChoice. */
+  objection?: string | null;
+  /** Le texte libre quand objection vaut 'autre'. */
+  objection_autre?: string | null;
+  /** Quand recontacter, sur la branche « à recontacter » du rapport. */
+  relance_at?: string | null;
   invite_reminder_24h_sent?: boolean;
   invite_reminder_2h_sent?: boolean;
   source?: string | null;
@@ -195,7 +201,7 @@ export interface Call {
  * calculées (`alias:col.not.is(null)`) — les deux renvoient PGRST100 — d'où
  * l'énumération explicite et la colonne générée `has_fathom_transcript`.
  */
-export const CALL_COLUMNS = 'id, client_id, topic, scheduled_at, duration, ready, notes, calendly_uri, reminder_sent, created_at, join_url, calendly_event_uuid, status, invitee_email, coach_id, invitee_name, calendly_qa, source, no_show, deal_closed, revenue, ig_lead_id, short_link_path, utm_campaign, utm_medium, utm_content, google_event_id, meet_link, call_type, reminder_24h_sent, reminder_15min_sent, rapport_notif_sent, outcome, prospect_link_id, no_show_at, rescheduled, rescheduled_at, manual_override, cancellation_reason, next_rescheduled_uri, prospect_id, lead_deleted, booked_at, is_follow_up, ignored, qualified, session_completed, session_no_show, session_rapport_reminder_sent, lead_rapport_comment, invite_reminder_24h_sent, invite_reminder_2h_sent, fathom_recording_id, fathom_share_url, fathom_summary, fathom_action_items, fathom_status, fathom_matched_at, has_fathom_transcript' as const;
+export const CALL_COLUMNS = 'id, client_id, topic, scheduled_at, duration, ready, notes, calendly_uri, reminder_sent, created_at, join_url, calendly_event_uuid, status, invitee_email, coach_id, invitee_name, calendly_qa, source, no_show, deal_closed, revenue, ig_lead_id, short_link_path, utm_campaign, utm_medium, utm_content, google_event_id, meet_link, call_type, reminder_24h_sent, reminder_15min_sent, rapport_notif_sent, outcome, prospect_link_id, no_show_at, rescheduled, rescheduled_at, manual_override, cancellation_reason, next_rescheduled_uri, prospect_id, lead_deleted, booked_at, is_follow_up, ignored, qualified, session_completed, session_no_show, session_rapport_reminder_sent, lead_rapport_comment, invite_reminder_24h_sent, invite_reminder_2h_sent, fathom_recording_id, fathom_share_url, fathom_summary, fathom_action_items, fathom_status, fathom_matched_at, has_fathom_transcript, objection, objection_autre, relance_at' as const;
 
 export interface SessionReport {
   id: string;
