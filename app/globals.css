@@ -2771,6 +2771,14 @@ a { color: inherit; text-decoration: none; }
   animation: notif-voile-entre 220ms ease-out;
 }
 @keyframes notif-voile-entre { from { opacity: 0; } to { opacity: 1; } }
+/* Le voile s'efface pendant que la feuille descend, un peu plus vite qu'elle :
+   la page redevient lisible avant que la feuille ait fini de sortir du champ. */
+.notif-voile-sortie {
+  animation: none;
+  opacity: 0;
+  transition: opacity 220ms ease-out;
+  pointer-events: none;
+}
 .notif-panneau {
   position: fixed;
   top: 56px;
@@ -3000,6 +3008,19 @@ a { color: inherit; text-decoration: none; }
     transition: transform 260ms var(--notif-courbe);
   }
   .notif-panneau-glisse { transition: none; }
+
+  /* Sortie : la feuille continue jusqu'en bas de l'ecran au lieu de
+     disparaitre. Courbe d'ENTREE (lente puis accelerante), a l'inverse de la
+     montee : un objet qu'on chasse prend de la vitesse en partant, alors qu'un
+     objet qui arrive doit se poser. Au bout d'un glissement, la trajectoire
+     prolonge simplement celle que le doigt venait de donner. */
+  .notif-panneau-sortie {
+    transition: transform 280ms cubic-bezier(.32, 0, .67, 0);
+    /* L'animation de montee est terminee depuis longtemps, mais on la coupe
+       explicitement : si la feuille est fermee avant la fin des 300 ms, elle
+       ecraserait la transformation de sortie. */
+    animation: none;
+  }
 
   @keyframes notif-feuille-monte {
     from { transform: translateY(100%); }

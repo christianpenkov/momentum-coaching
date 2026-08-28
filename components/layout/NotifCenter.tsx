@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
@@ -51,8 +51,10 @@ function tonDe(t: AppNotif['type']): 'marque' | 'positif' | 'negatif' | 'attenti
   return 'marque';
 }
 
+/** Doit rester égal à la durée de transition de sortie dans globals.css. */
+const DUREE_SORTIE_MS = 280;
+
 export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh }: Props) {
-  useEscapeKey(onClose);
   const ref = useRef<HTMLDivElement>(null);
   const [rapportNotif, setRapportNotif] = useState<AppNotif | null>(null);
   const [sessionRapportNotif, setSessionRapportNotif] = useState<AppNotif | null>(null);
@@ -60,6 +62,44 @@ export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh 
 
   const [glisseY, setGlisseY] = useState(0);
   const [enGlisse, setEnGlisse] = useState(false);
+  const [enSortie, setEnSortie] = useState(false);
+
+  // ── Fermeture animée ─────────────────────────────────────────────────────
+  //
+  // `onClose` démonte le composant sur-le-champ : la feuille disparaissait donc
+  // d'un coup, y compris au bout d'un glissement où le doigt venait justement
+  // de lui donner une trajectoire. On la pousse d'abord hors de l'écran, PUIS
+  // on démonte.
+  //
+  // La cible est `innerHeight` en pixels et non `translateY(100%)` : le
+  // glissement écrit déjà une transformation en ligne, et deux sources pour la
+  // même propriété se disputeraient la priorité. Une seule valeur, un seul
+  // endroit — la sortie prolonge simplement le geste au lieu de le remplacer.
+  const sortieLancee = useRef(false);
+  const fermer = useCallback(() => {
+    if (sortieLancee.current) return;
+    const mobile = window.matchMedia('(max-width: 767px)').matches;
+    const reduit = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // Desktop : le menu ancré n'a pas de trajectoire à prolonger. Mouvement
+    // réduit : on ne rajoute pas une animation à quelqu'un qui les refuse.
+    if (!mobile || reduit) { onClose(); return; }
+    sortieLancee.current = true;
+    setEnGlisse(false);
+    // Une image d'écart avant de changer la transformation : appliquer la
+    // transition et sa nouvelle valeur dans le même rendu peut faire sauter
+    // l'animation, le navigateur n'ayant pas d'état de départ à interpoler.
+    requestAnimationFrame(() => {
+      setEnSortie(true);
+      setGlisseY(window.innerHeight);
+      window.setTimeout(onClose, DUREE_SORTIE_MS);
+    });
+  }, [onClose]);
+
+  // Lu par les écouteurs natifs, qui ne doivent pas se réabonner à chaque rendu.
+  const fermerRef = useRef(fermer);
+  useEffect(() => { fermerRef.current = fermer; }, [fermer]);
+
+  useEscapeKey(fermer);
 
   // ── Glissement vers le bas pour refermer (mobile) ────────────────────────
   //
@@ -116,7 +156,7 @@ export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh 
       // Deux façons de fermer : descendre assez loin, ou descendre vite. Sans le
       // critère de vitesse, un geste bref et franc — le plus naturel — ne
       // referme rien et la feuille remonte, ce qui se lit comme un raté.
-      if (dy > 90 || vitesse > 0.55) { onClose(); return; }
+      if (dy > 90 || vitesse > 0.55) { fermerRef.current(); return; }
       setGlisseY(0);
     }
 
@@ -130,7 +170,7 @@ export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh 
       el.removeEventListener('touchend', fin);
       el.removeEventListener('touchcancel', fin);
     };
-  }, [onClose]);
+  }, []);
 
   async function marquerLu(ids: string[]) {
     if (ids.length === 0) return;
@@ -146,11 +186,11 @@ export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh 
   useEffect(() => {
     function handler(e: MouseEvent) {
       if (rapportNotif || sessionRapportNotif) return;
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+      if (ref.current && !ref.current.contains(e.target as Node)) fermerRef.current();
     }
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [onClose, rapportNotif, sessionRapportNotif]);
+  }, [rapportNotif, sessionRapportNotif]);
 
   // Le panneau prend le focus à l'ouverture. Sans ça la tabulation restait dans
   // la page derrière, et aucun lecteur d'écran n'annonçait l'arrivée du panneau.
@@ -162,11 +202,11 @@ export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh 
 
   return createPortal(
     <>
-      <div className="notif-voile" onClick={onClose} />
+      <div className={`notif-voile${enSortie ? ' notif-voile-sortie' : ''}`} onClick={fermer} />
 
       <div
         ref={ref}
-        className={`notif-panneau${enGlisse ? ' notif-panneau-glisse' : ''}`}
+        className={`notif-panneau${enGlisse ? ' notif-panneau-glisse' : ''}${enSortie ? ' notif-panneau-sortie' : ''}`}
         style={glisseY ? { transform: `translateY(${glisseY}px)` } : undefined}
         role="dialog"
         aria-modal="true"
@@ -188,7 +228,7 @@ export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh 
             </span>
             <h2 className="notif-titre" id="notif-titre">Notifications</h2>
             {notifs.length > 0 && <span className="notif-total">{notifs.length}</span>}
-            <button type="button" className="notif-fermer" onClick={onClose} aria-label="Fermer">
+            <button type="button" className="notif-fermer" onClick={fermer} aria-label="Fermer">
               <Icon name="x" size={16} />
             </button>
           </div>
