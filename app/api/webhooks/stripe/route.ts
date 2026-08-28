@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import Stripe from 'stripe';
 import { getStripeAccess } from '@/lib/stripe-account';
-import { ensureInstallmentSchedule, METADATA_KEYS } from '@/lib/stripe-payment-links';
+import { ensureInstallmentSchedule, desactiverLiensDuDeal, METADATA_KEYS } from '@/lib/stripe-payment-links';
+import { sendPushToProfile } from '@/lib/googleCalendarService';
 import { calculerCash, statutDeal } from '@/lib/dealCash';
 
 const WEBHOOK_SECRET = process.env.STRIPE_CONNECT_WEBHOOK_SECRET!;
@@ -269,7 +270,7 @@ async function refreshDealStatus(
 ) {
   const { data: deal } = await supabase
     .from('deals')
-    .select('amount_total, status, unexpected_payment_at')
+    .select('profile_id, amount_total, status, unexpected_payment_at')
     .eq('id', dealId)
     .maybeSingle();
   if (!deal) return;
@@ -283,6 +284,17 @@ async function refreshDealStatus(
 
   if (status && status !== deal.status) {
     await supabase.from('deals').update({ status }).eq('id', dealId);
+
+    // ── Une vente qui s'annule emporte ses liens ────────────────────────────
+    // Ce chemin-ci n'est PAS le parcours guidé : c'est un remboursement intégral
+    // fait directement dans le dashboard Stripe, sans passer par Momentum. Le
+    // parcours désactive les liens lui-même ; ici personne ne l'aurait fait, et
+    // un lien resterait payable sur une vente sortie des chiffres.
+    if (status === 'canceled') {
+      await desactiverLiensDuDeal(supabase, dealId, deal.profile_id);
+      await journaliser(supabase, dealId, 'canceled',
+        'Vente annulée — remboursement intégral constaté chez Stripe');
+    }
   }
 
   // ── De l'argent sur une vente terminée ─────────────────────────────────────
@@ -304,6 +316,21 @@ async function refreshDealStatus(
       .eq('id', dealId);
     await journaliser(supabase, dealId, 'unexpected_payment',
       'Paiement reçu sur une vente terminée');
+
+    // L'écran d'annulation promet « tu seras prévenu à son arrivée » : sans
+    // notification, l'argent dormirait sur une vente que personne ne rouvre.
+    try {
+      const { data: d } = await supabase
+        .from('deals').select('buyer_name, profile_id').eq('id', dealId).maybeSingle();
+      if (d) {
+        await sendPushToProfile(
+          d.profile_id,
+          `${d.buyer_name} a payé après la fin de la vente`,
+          'A-t-il repris ses paiements, ou s’est-il trompé ?',
+          `/paiements?deal=${dealId}`,
+        );
+      }
+    } catch { /* la notification est un confort, jamais une condition */ }
   }
 
   // ⚠️ ON NE TOUCHE PAS À L'APPEL ICI — ni `deal_closed`, ni `outcome`.
@@ -547,6 +574,30 @@ async function handleEvent(event: Stripe.Event) {
         { due_by: echeance, reason: dispute.reason });
 
       await refreshDealStatus(supabase, dealId);
+
+      // ── Prévenir tout de suite ──────────────────────────────────────────
+      // Le seul incident de toute la chaîne où l'inaction coûte de l'argent :
+      // sans réponse dans le délai — 7 à 21 jours selon la banque — Stripe perd
+      // le litige automatiquement et l'argent ne revient jamais. Découvrir la
+      // chose en ouvrant la plateforme trois semaines plus tard serait trop tard.
+      //
+      // L'échec d'envoi n'interrompt rien : le bandeau rouge et la pastille
+      // restent, la notification n'est qu'un raccourci.
+      try {
+        const { data: d } = await supabase
+          .from('deals').select('buyer_name, profile_id').eq('id', dealId).maybeSingle();
+        if (d) {
+          const limite = echeance
+            ? ` Réponse à donner dans Stripe avant le ${new Date(echeance).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}.`
+            : ' Une réponse est à donner dans Stripe.';
+          await sendPushToProfile(
+            d.profile_id,
+            `${d.buyer_name} conteste un paiement`,
+            `${Math.round((dispute.amount ?? 0) / 100)} €.${limite}`,
+            `/paiements?deal=${dealId}`,
+          );
+        }
+      } catch { /* la notification est un confort, jamais une condition */ }
       break;
     }
 

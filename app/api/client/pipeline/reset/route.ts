@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
+import { plancherApresRecul } from '@/lib/pipelineStage';
 
 const supa = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -47,13 +48,18 @@ function getResetFields(targetStage: IgPreCallStage): {
       ? { first_click_at: null }
       : {},
 
-    // Events à supprimer
+    // ── Events à supprimer ────────────────────────────────────────────────
+    // ⚠️ Un recul vers `calendly_sent` doit emporter `link_clicked`, et pas
+    // seulement `first_click_at` : l'étape naturelle se RECALCULE depuis
+    // `prospect_events`, et un événement de clic survivant y remontait la carte
+    // dès le rafraîchissement suivant. Effacer la date sans l'événement ne
+    // reculait donc rien du tout.
     deleteEventTypes: idx < IG_PRE_CALL.indexOf('in_convo')
       ? ['hook_replied', 'calendly_link_sent', 'link_clicked', 'call_booked']
       : idx < IG_PRE_CALL.indexOf('calendly_sent')
       ? ['calendly_link_sent', 'link_clicked', 'call_booked']
       : idx < IG_PRE_CALL.indexOf('link_clicked')
-      ? ['call_booked']
+      ? ['link_clicked', 'call_booked']
       : ['call_booked'],
 
     // Supprimer les calls si on va avant call_booked (toujours vrai pour pré-call)
@@ -78,12 +84,21 @@ export async function POST(request: Request) {
 
   // Lire prospect_link pour récupérer calendly_link_sent_at (timestamp d'envoi original)
   const { data: pl } = await supa.from('prospect_links')
-    .select('calendly_link_sent_at')
+    .select('calendly_link_sent_at, min_stage_reached')
     .eq('profile_id', user.id)
     .eq('ig_username', username)
     .maybeSingle();
 
   const ops: PromiseLike<any>[] = [];
+
+  // ── Abaisser le plancher ─────────────────────────────────────────────────
+  // Le plancher existe pour qu'un signal automatique re-déclenché ne fasse pas
+  // reculer une carte avancée à la main. Mais quand c'est l'élève LUI-MÊME qui
+  // recule la carte, ce garde-fou se retourne contre lui : il annule son geste.
+  //
+  // Contrairement aux autres champs, celui-ci dépend de sa valeur ACTUELLE — un
+  // recul ne doit jamais REHAUSSER un plancher déjà plus bas.
+  const nouveauPlancher = plancherApresRecul(target_stage as IgPreCallStage, pl?.min_stage_reached ?? null);
 
   // 1. Reset hook_replied sur instagram_leads si nécessaire
   if (deleteHookReplied) {
@@ -97,21 +112,32 @@ export async function POST(request: Request) {
   }
 
   // 2. Reset champs prospect_links si nécessaire
-  if (Object.keys(prospectLinkFields).length > 0) {
+  {
     // Pour reset vers calendly_sent : remettre last_calendly_link_sent_at à sa valeur
     // originale (calendly_link_sent_at) pour que le prochain advance first_click_at=now
     // soit toujours postérieur, sans dépendre d'un délai arbitraire
-    const finalFields = target_stage === 'calendly_sent' && pl?.calendly_link_sent_at
-      ? { ...prospectLinkFields, last_calendly_link_sent_at: pl.calendly_link_sent_at }
-      : prospectLinkFields;
+    const finalFields: Record<string, null | boolean | string> = {
+      ...prospectLinkFields,
+      ...(target_stage === 'calendly_sent' && pl?.calendly_link_sent_at
+        ? { last_calendly_link_sent_at: pl.calendly_link_sent_at }
+        : {}),
+      // Une seule écriture pour toute la ligne : deux UPDATE concurrents sur la
+      // même ligne dans le `Promise.all` fonctionneraient — les colonnes sont
+      // disjointes — mais rien ne garantirait leur ordre, et la prochaine
+      // colonne ajoutée par distraction dans les deux endroits se perdrait
+      // silencieusement.
+      ...(nouveauPlancher !== undefined ? { min_stage_reached: nouveauPlancher } : {}),
+    };
 
-    ops.push(
-      supa.from('prospect_links')
-        .update(finalFields)
-        .eq('profile_id', user.id)
-        .eq('ig_username', username)
-        .then()
-    );
+    if (Object.keys(finalFields).length > 0) {
+      ops.push(
+        supa.from('prospect_links')
+          .update(finalFields)
+          .eq('profile_id', user.id)
+          .eq('ig_username', username)
+          .then()
+      );
+    }
   }
 
   // 3. Supprimer les events concernés
