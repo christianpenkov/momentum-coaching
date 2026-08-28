@@ -107,24 +107,22 @@ async function stripeList(apiKey: string, path: string, since: number, extra: Re
  */
 async function refreshDealStatus(dealId: string) {
   const { data: deal } = await supabase
-    .from('deals').select('amount_total, status, call_id').eq('id', dealId).maybeSingle();
+    .from('deals').select('amount_total, status').eq('id', dealId).maybeSingle();
   if (!deal) return;
 
   const { data: payments } = await supabase
     .from('deal_payments').select('amount, status').eq('deal_id', dealId);
 
   const status = statutDeal(calculerCash(payments), deal.amount_total, deal.status);
-  if (!status || status === deal.status) return;
 
-  await supabase.from('deals').update({ status }).eq('id', dealId);
-
-  // Une vente intégralement remboursée n'est plus une vente conclue : elle sort
-  // du taux de closing. `outcome` n'est PAS touché — il décide de la colonne du
-  // kanban, et la déplacer d'ici ferait bouger une carte sans demande. Même
-  // raisonnement que dans app/api/webhooks/stripe/route.ts.
-  if (status === 'canceled' && deal.call_id) {
-    await supabase.from('calls').update({ deal_closed: false }).eq('id', deal.call_id);
+  if (status && status !== deal.status) {
+    await supabase.from('deals').update({ status }).eq('id', dealId);
   }
+
+  // ⚠️ ON NE TOUCHE PAS À L'APPEL ICI — un remboursement dit qu'un mouvement
+  // d'argent a eu lieu, jamais pourquoi. Seul le geste explicite « Annuler la
+  // vente » déclasse un appel. Même raisonnement, mêmes mots, dans
+  // app/api/webhooks/stripe/route.ts.
 }
 
 /**
