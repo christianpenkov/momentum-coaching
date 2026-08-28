@@ -2780,6 +2780,9 @@ a { color: inherit; text-decoration: none; }
      bas du panneau devenait inatteignable. */
   max-height: calc(100dvh - 80px);
   overflow-y: auto;
+  /* Empeche la page derriere de defiler quand on arrive en butee, et coupe
+     l'elastique iOS qui entrerait en concurrence avec le geste de fermeture. */
+  overscroll-behavior: contain;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 16px;
@@ -2808,6 +2811,20 @@ a { color: inherit; text-decoration: none; }
   gap: 8px;
   padding: 0 16px 12px;
   border-bottom: 1px solid var(--border);
+}
+/* Rappel du repere sur lequel on vient de cliquer. Sur mobile la feuille occupe
+   tout le bas de l'ecran et la cloche du haut disparait de vue : sans ce
+   rappel, plus rien ne relie le panneau a son point de depart. */
+.notif-titre-cloche {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  background: var(--accent-brand-soft);
+  color: var(--accent-brand);
 }
 .notif-titre {
   margin: 0;

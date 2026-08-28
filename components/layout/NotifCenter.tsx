@@ -58,47 +58,79 @@ export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh 
   const [sessionRapportNotif, setSessionRapportNotif] = useState<AppNotif | null>(null);
   const [vidageEnCours, setVidageEnCours] = useState(false);
 
-  // ── Glissement vers le bas pour refermer (mobile) ────────────────────────
-  //
-  // La prise est volontairement limitée à la zone du haut (poignée + en-tête)
-  // plutôt qu'à toute la feuille : le corps est une zone qui défile, et deux
-  // gestes verticaux sur la même surface se disputent inévitablement. En posant
-  // `touch-action: none` sur la seule prise, le navigateur n'essaie jamais d'y
-  // faire défiler quoi que ce soit, et le doigt n'a rien à négocier.
   const [glisseY, setGlisseY] = useState(0);
   const [enGlisse, setEnGlisse] = useState(false);
-  const priseRef = useRef<{ y0: number; t0: number } | null>(null);
 
-  function surPrise(e: React.PointerEvent<HTMLDivElement>) {
-    // Desktop : le panneau est un menu ancré, pas une feuille — aucun geste.
-    if (window.matchMedia('(min-width: 768px)').matches) return;
-    priseRef.current = { y0: e.clientY, t0: performance.now() };
-    setEnGlisse(true);
-    e.currentTarget.setPointerCapture(e.pointerId);
-  }
+  // ── Glissement vers le bas pour refermer (mobile) ────────────────────────
+  //
+  // Deux points de départ possibles :
+  //   1. la prise du haut (poignée + en-tête), qui porte `touch-action: none` ;
+  //   2. n'importe où dans la liste, À CONDITION qu'elle soit déjà tout en
+  //      haut — tirer vers le bas n'a alors rien à faire défiler.
+  //
+  // D'où des écouteurs natifs plutôt que les événements pointeur de React : le
+  // second cas exige `preventDefault()` sur `touchmove` pour couper le
+  // défilement natif au moment où l'on décide que le geste est une fermeture,
+  // et React attache `touchmove` en passif, où `preventDefault()` est ignoré.
+  //
+  // L'armement se décide au premier mouvement, pas au contact : un doigt qui
+  // part vers le HAUT depuis une liste en haut de course veut faire défiler,
+  // pas fermer. On le laisse alors tranquille pour tout le reste du geste.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let y0 = 0, t0 = 0, arme = false, actif = false;
 
-  function surDeplacement(e: React.PointerEvent<HTMLDivElement>) {
-    const p = priseRef.current;
-    if (!p) return;
-    const dy = e.clientY - p.y0;
-    // Vers le haut : résistance forte plutôt que blocage net. La feuille suit
-    // un peu le doigt, ce qui dit « ça ne monte pas plus » sans paraître cassé.
-    setGlisseY(dy > 0 ? dy : dy * 0.2);
-  }
+    function debut(e: TouchEvent) {
+      if (window.matchMedia('(min-width: 768px)').matches) return;
+      if (e.touches.length !== 1) return;
+      const depuisPrise = !!(e.target as HTMLElement).closest?.('.notif-prise');
+      arme = depuisPrise || el!.scrollTop <= 0;
+      actif = false;
+      y0 = e.touches[0].clientY;
+      t0 = performance.now();
+    }
 
-  function surRelache(e: React.PointerEvent<HTMLDivElement>) {
-    const p = priseRef.current;
-    if (!p) return;
-    const dy = e.clientY - p.y0;
-    const vitesse = dy / Math.max(1, performance.now() - p.t0); // px/ms
-    priseRef.current = null;
-    setEnGlisse(false);
-    // Deux façons de fermer : descendre assez loin, ou descendre vite. Sans le
-    // critère de vitesse, un geste bref et franc — le plus naturel — ne
-    // referme rien et la feuille remonte, ce qui se lit comme un raté.
-    if (dy > 90 || vitesse > 0.55) { onClose(); return; }
-    setGlisseY(0);
-  }
+    function bouge(e: TouchEvent) {
+      if (!arme) return;
+      const dy = e.touches[0].clientY - y0;
+      if (!actif) {
+        // Seuil de 6 px : en deçà, on ne sait pas encore si c'est un geste ou
+        // un simple appui qui tremble.
+        if (dy > 6) { actif = true; setEnGlisse(true); }
+        else if (dy < -2) { arme = false; return; }
+        else return;
+      }
+      e.preventDefault();
+      // Vers le haut : forte résistance plutôt que blocage net. La feuille suit
+      // un peu le doigt, ce qui dit « ça ne monte pas plus » sans paraître cassé.
+      setGlisseY(dy > 0 ? dy : dy * 0.2);
+    }
+
+    function fin(e: TouchEvent) {
+      if (!arme || !actif) { arme = false; actif = false; return; }
+      const dy = (e.changedTouches[0]?.clientY ?? y0) - y0;
+      const vitesse = dy / Math.max(1, performance.now() - t0); // px/ms
+      arme = false; actif = false;
+      setEnGlisse(false);
+      // Deux façons de fermer : descendre assez loin, ou descendre vite. Sans le
+      // critère de vitesse, un geste bref et franc — le plus naturel — ne
+      // referme rien et la feuille remonte, ce qui se lit comme un raté.
+      if (dy > 90 || vitesse > 0.55) { onClose(); return; }
+      setGlisseY(0);
+    }
+
+    el.addEventListener('touchstart', debut, { passive: true });
+    el.addEventListener('touchmove', bouge, { passive: false });
+    el.addEventListener('touchend', fin);
+    el.addEventListener('touchcancel', fin);
+    return () => {
+      el.removeEventListener('touchstart', debut);
+      el.removeEventListener('touchmove', bouge);
+      el.removeEventListener('touchend', fin);
+      el.removeEventListener('touchcancel', fin);
+    };
+  }, [onClose]);
 
   async function marquerLu(ids: string[]) {
     if (ids.length === 0) return;
@@ -144,16 +176,16 @@ export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh 
         {/* Prise du geste de fermeture, et en-tête. La poignée n'est visible
             qu'en feuille : sur desktop le panneau est un menu ancré à la cloche,
             rien ne s'y glisse. */}
-        <div
-          className="notif-prise"
-          onPointerDown={surPrise}
-          onPointerMove={surDeplacement}
-          onPointerUp={surRelache}
-          onPointerCancel={surRelache}
-        >
+        <div className="notif-prise">
           <div className="notif-poignee" aria-hidden="true" />
 
           <div className="notif-entete">
+            {/* La cloche répète le repère sur lequel on vient de cliquer : ouvert
+                en plein écran sur mobile, le panneau perd sinon tout lien visuel
+                avec son point de départ. */}
+            <span className="notif-titre-cloche" aria-hidden="true">
+              <Icon name="bell" size={15} />
+            </span>
             <h2 className="notif-titre" id="notif-titre">Notifications</h2>
             {notifs.length > 0 && <span className="notif-total">{notifs.length}</span>}
             <button type="button" className="notif-fermer" onClick={onClose} aria-label="Fermer">
