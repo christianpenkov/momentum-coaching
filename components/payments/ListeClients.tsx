@@ -71,18 +71,29 @@ function LigneClient({ person, deals, isMobile, isCoach, onOuvrir }: {
        `1fr auto 1fr` place la colonne du milieu au centre EXACT de la ligne,
        quelle que soit la longueur du nom — ce qu'aucun réglage de flex ne
        garantit. */
+    /* ⚠️ Le `<button>` reste un bloc simple, et la grille vit à l'INTÉRIEUR.
+       En faisant du bouton lui-même le conteneur de grille, sa boîte cliquable
+       s'arrêtait après les montants : tout ce qui suivait le symbole € — l'écart
+       et la flèche — ne déclenchait rien, alors que le reste de la ligne
+       fonctionnait. Un `<button>` enveloppe ses enfants dans une boîte anonyme
+       dont la largeur ne suit pas toujours `width: 100%` quand on lui impose une
+       disposition. Le bouton porte donc le clic, un span intérieur porte la
+       mise en page : chacun son métier, et plus de zone morte. */
     <button onClick={onOuvrir} style={{
-      display: 'grid',
-      gridTemplateColumns: isMobile ? '1fr auto' : '1fr auto 1fr',
-      alignItems: 'center',
-      columnGap: isMobile ? 12 : 18,
-      width: '100%', textAlign: 'left',
+      display: 'block', width: '100%', textAlign: 'left',
       fontFamily: 'inherit', cursor: 'pointer', background: 'var(--surface)',
       border: isMobile ? '1px solid var(--border)' : 'none',
       borderBottom: isMobile ? '1px solid var(--border)' : '1px solid var(--border-soft)',
       borderRadius: isMobile ? 10 : 0,
       padding: isMobile ? '13px 14px' : '14px 4px',
     }}>
+      <span style={{
+        display: 'grid',
+        gridTemplateColumns: isMobile ? '1fr auto' : '1fr auto 1fr',
+        alignItems: 'center',
+        columnGap: isMobile ? 12 : 18,
+        width: '100%',
+      }}>
       <span style={{
         display: 'flex', alignItems: 'center', gap: 13, minWidth: 0,
         ...(isMobile ? { gridColumn: 1, gridRow: 1 } : null),
@@ -138,6 +149,7 @@ function LigneClient({ person, deals, isMobile, isCoach, onOuvrir }: {
           <Icon name="chevR" size={15} color="var(--faint)" style={{ pointerEvents: 'none', flexShrink: 0 }} />
         )}
       </span>
+      </span>
     </button>
   );
 }
@@ -167,7 +179,7 @@ function etatSimple(d: DealRow): string {
   if (d.status === 'canceled') return 'canceled';
   if (d.status === 'ended') return 'ended';
   if (d.status === 'paid') return 'paid';
-  if (d.hasFailure) return 'past_due';
+  if (d.overdue > 0 || d.hasFailure) return 'past_due';
   return 'open';
 }
 

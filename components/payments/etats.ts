@@ -54,7 +54,9 @@ export function etatDe(d: DealRow): EtatVente {
   if (d.status === 'canceled') return 'canceled';
   if (d.status === 'ended') return 'ended';
   if (d.status === 'paid') return 'paid';
-  if (d.hasFailure) return 'past_due';
+  // Une échéance dont la date est passée est un impayé, au même titre qu'un
+  // prélèvement refusé : dans les deux cas on attendait cet argent.
+  if (d.overdue > 0 || d.hasFailure) return 'past_due';
   return 'open';
 }
 

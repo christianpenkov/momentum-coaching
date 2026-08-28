@@ -65,6 +65,18 @@ export interface DealRow {
   refunded: number;
   /** Somme reprise par Stripe le temps d'un litige. */
   disputed: number;
+  /**
+   * Argent qu'on attendait DÉJÀ et qui n'est pas arrivé.
+   *
+   * Une échéance dont la date est passée sans être payée est un impayé, au même
+   * titre qu'un prélèvement refusé — l'écran de la vente le dit déjà en rouge,
+   * mais le ruban et le filtre l'ignoraient : ils ne comptaient que les échecs
+   * Stripe. Un client qui ne clique simplement jamais son lien n'apparaissait
+   * donc nulle part.
+   *
+   * Une échéance À VENIR n'en fait jamais partie : elle n'est pas due.
+   */
+  overdue: number;
 }
 
 /** Un client et toutes ses ventes — l'unité de la liste et de la fiche. */
@@ -262,6 +274,7 @@ export async function GET(request: NextRequest) {
       unexpectedPaymentAt: d.unexpected_payment_at ?? null,
       refunded: cash.rembourse,
       disputed: cash.conteste,
+      overdue: enRetard(d, cash.net, cash.aEchoue),
     };
   });
 
@@ -324,9 +337,7 @@ export async function GET(request: NextRequest) {
   // une échéance à venir n'est pas un impayé.
   const contracted = rows.reduce((s, r) => s + r.amountTotal, 0);
   const collected = rows.reduce((s, r) => s + r.collected, 0);
-  const unpaid = rows
-    .filter(r => r.hasFailure)
-    .reduce((s, r) => s + (r.amountTotal - r.collected), 0);
+  const unpaid = rows.reduce((s, r) => s + r.overdue, 0);
 
   const kpis = {
     contracted,
@@ -335,7 +346,7 @@ export async function GET(request: NextRequest) {
     unpaid,
     dealsCount: rows.length,
     collectedRate: contracted > 0 ? Math.round((collected / contracted) * 100) : 0,
-    failedCount: rows.filter(r => r.hasFailure).length,
+    failedCount: rows.filter(r => r.overdue > 0).length,
   };
 
   // ── Onglet « À rattacher » ─────────────────────────────────────────────────
@@ -446,6 +457,40 @@ export async function GET(request: NextRequest) {
 function etatAffiche(r: DealRow): string {
   if (r.status === 'disputed') return 'disputed';
   if (r.unexpectedPaymentAt) return 'unexpected';
-  if (r.status === 'open' && r.hasFailure) return 'past_due';
+  if (r.status === 'open' && r.overdue > 0) return 'past_due';
   return r.status;
+}
+
+/**
+ * Ce qui est dû à ce jour et n'est pas rentré.
+ *
+ * Deux sources, jamais additionnées : les échéances dont la date est passée
+ * quand la vente en a, le reste à encaisser quand un prélèvement a échoué sans
+ * qu'aucune échéance ne vive en base (comptant, prélèvement automatique).
+ * Les cumuler compterait deux fois le même argent.
+ */
+function enRetard(d: {
+  status: string; amount_total: number | string;
+  deal_installments?: Array<{ amount: number | string; status: string; due_on: string | null }> | null;
+}, encaisse: number, aEchoue: boolean): number {
+  if (d.status !== 'open' && d.status !== 'past_due') return 0;
+
+  // Une journée de marge : une échéance due aujourd'hui n'est pas en retard.
+  const limite = Date.now() - 86400_000;
+  const echeances = d.deal_installments ?? [];
+
+  if (echeances.length > 0) {
+    const somme = echeances
+      .filter(i => i.status !== 'paid' && i.due_on && new Date(i.due_on).getTime() < limite)
+      .reduce((s, i) => s + Number(i.amount), 0);
+    return Math.round(somme * 100) / 100;
+  }
+
+  // Pas d'échéance en base : le comptant et le prélèvement automatique, dont
+  // l'échéancier vit chez Stripe. Là, seul un prélèvement REFUSÉ dit qu'on
+  // attendait de l'argent qui n'est pas venu — une date à venir ne se lit pas
+  // d'ici, et supposer un retard sur une vente qui suit son cours en
+  // inventerait un.
+  if (!aEchoue) return 0;
+  return Math.max(0, Math.round((Number(d.amount_total) - encaisse) * 100) / 100);
 }

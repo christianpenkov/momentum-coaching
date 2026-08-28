@@ -35,6 +35,8 @@ export interface DealRow {
   unexpectedPaymentAt: string | null;
   refunded: number;
   disputed: number;
+  /** Argent attendu à ce jour et non rentré — échéance dépassée ou prélèvement refusé. */
+  overdue: number;
 }
 
 /** Un client et toutes ses ventes — l'unité de la liste et de la fiche. */

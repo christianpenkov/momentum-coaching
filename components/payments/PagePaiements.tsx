@@ -63,8 +63,8 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
   const filtered = useMemo(() => {
     const correspond = (d: DealRow) =>
       filter === 'all' ? true
-      : filter === 'open' ? d.status === 'open' && !d.hasFailure
-      : filter === 'unpaid' ? d.status === 'past_due' || d.hasFailure
+      : filter === 'open' ? d.status === 'open' && d.overdue <= 0 && !d.hasFailure
+      : filter === 'unpaid' ? d.status === 'past_due' || d.overdue > 0 || d.hasFailure
       : filter === 'paid' ? d.status === 'paid'
       : filter === 'ended' ? d.status === 'ended'
       : d.status === 'canceled';
