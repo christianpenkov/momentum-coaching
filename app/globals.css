@@ -2759,16 +2759,27 @@ a { color: inherit; text-decoration: none; }
    query ne pouvait donc l'adapter (le piege documente de ce projet). Sur un
    telephone le panneau atterrissait en haut a droite, la ou le pouce n'atteint
    pas, et debordait sous 356 px de viewport.                                 */
-/* Courbe de sortie exponentielle : depart franc, arrivee posee, aucun rebond.
-   Un rebond sur un panneau qu'on consulte ferait spectacle la ou on attend un
-   simple acces. */
-:root { --notif-courbe: cubic-bezier(.22, 1, .36, 1); }
+/* Courbes de mouvement — jeu « emphasized » de Material Design 3, repris tel
+   quel plutot que devine.
+   https://m3.material.io/styles/motion/easing-and-duration/tokens-specs
+
+   Le point important n'est pas la courbe prise isolement, c'est l'ASYMETRIE :
+   ce qui ENTRE dans l'ecran decelere longuement (l'oeil doit suivre et lire),
+   ce qui en SORT accelere brievement (plus rien a lire, on degage la place).
+   Une meme courbe dans les deux sens est le tell d'une animation faite a la
+   main ; le rapport de duree entre entree et sortie l'est encore plus. */
+:root {
+  --m3-emphasized:            cubic-bezier(.2, 0, 0, 1);
+  --m3-emphasized-decelerate: cubic-bezier(.05, .7, .1, 1);
+  --m3-emphasized-accelerate: cubic-bezier(.3, 0, .8, .15);
+  --m3-standard-decelerate:   cubic-bezier(0, 0, 0, 1);
+}
 
 .notif-voile {
   position: fixed;
   inset: 0;
   z-index: 1999;
-  animation: notif-voile-entre 220ms ease-out;
+  animation: notif-voile-entre 250ms var(--m3-standard-decelerate);
 }
 @keyframes notif-voile-entre { from { opacity: 0; } to { opacity: 1; } }
 /* Le voile s'efface pendant que la feuille descend, un peu plus vite qu'elle :
@@ -2776,7 +2787,7 @@ a { color: inherit; text-decoration: none; }
 .notif-voile-sortie {
   animation: none;
   opacity: 0;
-  transition: opacity 220ms ease-out;
+  transition: opacity 180ms linear;
   pointer-events: none;
 }
 .notif-panneau {
@@ -2798,8 +2809,10 @@ a { color: inherit; text-decoration: none; }
   box-shadow: var(--shadow-menu);
   z-index: 2000;
   padding: 14px 0 8px;
-  /* Descente sur desktop : le menu tombe de la cloche, discretement. */
-  animation: notif-menu-entre 170ms var(--notif-courbe);
+  /* Descente sur desktop : le menu tombe de la cloche, discretement. Duree
+     courte et courbe standard — un menu ancre est un petit element proche de
+     son declencheur, il n'a pas de distance a parcourir. */
+  animation: notif-menu-entre 180ms var(--m3-standard-decelerate);
 }
 .notif-panneau:focus { outline: none; }
 
@@ -3002,10 +3015,15 @@ a { color: inherit; text-decoration: none; }
     border-right: none;
     border-bottom: none;
     padding: 8px 0 max(12px, env(safe-area-inset-bottom));
-    animation: notif-feuille-monte 300ms var(--notif-courbe);
-    /* Retour en place quand le geste n'a pas suffi a fermer. Neutralise
-       pendant le glissement pour que la feuille colle au doigt. */
-    transition: transform 260ms var(--notif-courbe);
+    /* 400 ms : duree Material 3 d'un grand conteneur qui entre. Elle parait
+       longue ecrite, mais la courbe couvre plus des deux tiers de la distance
+       dans le premier tiers du temps — la feuille est deja la, elle finit de
+       se poser. */
+    animation: notif-feuille-monte 400ms var(--m3-emphasized-decelerate);
+    /* Retour en place quand le geste n'a pas suffi a fermer : ni entree ni
+       sortie, un deplacement DANS l'ecran, d'ou la courbe symetrique.
+       Neutralisee pendant le glissement pour que la feuille colle au doigt. */
+    transition: transform 320ms var(--m3-emphasized);
   }
   .notif-panneau-glisse { transition: none; }
 
@@ -3014,11 +3032,15 @@ a { color: inherit; text-decoration: none; }
      montee : un objet qu'on chasse prend de la vitesse en partant, alors qu'un
      objet qui arrive doit se poser. Au bout d'un glissement, la trajectoire
      prolonge simplement celle que le doigt venait de donner. */
+  /* Sortie : la feuille continue jusqu'en bas de l'ecran au lieu de
+     disparaitre. Duree pilotee depuis le composant — quand la fermeture vient
+     d'un geste vif, elle reprend la VITESSE du doigt au lieu d'imposer la
+     sienne. C'est ce qui distingue une feuille qu'on chasse d'une animation
+     qui se declenche : le mouvement ne recommence pas, il continue. */
   .notif-panneau-sortie {
-    transition: transform 280ms cubic-bezier(.32, 0, .67, 0);
-    /* L'animation de montee est terminee depuis longtemps, mais on la coupe
-       explicitement : si la feuille est fermee avant la fin des 300 ms, elle
-       ecraserait la transformation de sortie. */
+    transition: transform var(--notif-sortie-duree, 200ms) var(--m3-emphasized-accelerate);
+    /* L'animation de montee est coupee explicitement : fermer la feuille avant
+       la fin des 400 ms la laisserait ecraser la transformation de sortie. */
     animation: none;
   }
 

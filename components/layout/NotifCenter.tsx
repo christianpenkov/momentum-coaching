@@ -51,8 +51,19 @@ function tonDe(t: AppNotif['type']): 'marque' | 'positif' | 'negatif' | 'attenti
   return 'marque';
 }
 
-/** Doit rester égal à la durée de transition de sortie dans globals.css. */
-const DUREE_SORTIE_MS = 280;
+/**
+ * Bornes de la durée de sortie, en millisecondes.
+ *
+ * Quand la fermeture vient d'un geste, la durée se déduit de la vitesse du
+ * doigt : la feuille finit sa course au rythme qu'on venait de lui donner.
+ * Sans plancher, un geste très vif la ferait disparaître d'un seul cadre — on
+ * ne verrait rien partir. Sans plafond, un geste lent mais franc la laisserait
+ * traîner. Entre les deux, c'est le doigt qui décide.
+ */
+const SORTIE_MIN_MS = 130;
+const SORTIE_MAX_MS = 340;
+/** Fermeture sans geste (croix, voile, Échap) : durée Material 3 « short4 ». */
+const SORTIE_PAR_DEFAUT_MS = 200;
 
 export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh }: Props) {
   const ref = useRef<HTMLDivElement>(null);
@@ -76,7 +87,16 @@ export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh 
   // même propriété se disputeraient la priorité. Une seule valeur, un seul
   // endroit — la sortie prolonge simplement le geste au lieu de le remplacer.
   const sortieLancee = useRef(false);
-  const fermer = useCallback(() => {
+  const glisseYRef = useRef(0);
+  const [dureeSortie, setDureeSortie] = useState(SORTIE_PAR_DEFAUT_MS);
+
+  function poserGlisse(v: number) {
+    glisseYRef.current = v;
+    setGlisseY(v);
+  }
+
+  /** @param vitesse px/ms au moment du relâché, si la fermeture vient d'un geste. */
+  const fermer = useCallback((vitesse?: number) => {
     if (sortieLancee.current) return;
     const mobile = window.matchMedia('(max-width: 767px)').matches;
     const reduit = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -84,14 +104,24 @@ export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh 
     // réduit : on ne rajoute pas une animation à quelqu'un qui les refuse.
     if (!mobile || reduit) { onClose(); return; }
     sortieLancee.current = true;
+
+    // Distance restante depuis la position ACTUELLE, pas depuis le haut : au
+    // bout d'un glissement la feuille est déjà à mi-course, et repartir de zéro
+    // rallongerait artificiellement la fin du mouvement.
+    const restant = Math.max(1, window.innerHeight - glisseYRef.current);
+    const duree = vitesse && vitesse > 0
+      ? Math.min(SORTIE_MAX_MS, Math.max(SORTIE_MIN_MS, restant / vitesse))
+      : SORTIE_PAR_DEFAUT_MS;
+    setDureeSortie(duree);
+
     setEnGlisse(false);
     // Une image d'écart avant de changer la transformation : appliquer la
     // transition et sa nouvelle valeur dans le même rendu peut faire sauter
     // l'animation, le navigateur n'ayant pas d'état de départ à interpoler.
     requestAnimationFrame(() => {
       setEnSortie(true);
-      setGlisseY(window.innerHeight);
-      window.setTimeout(onClose, DUREE_SORTIE_MS);
+      poserGlisse(window.innerHeight);
+      window.setTimeout(onClose, duree);
     });
   }, [onClose]);
 
@@ -144,7 +174,7 @@ export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh 
       e.preventDefault();
       // Vers le haut : forte résistance plutôt que blocage net. La feuille suit
       // un peu le doigt, ce qui dit « ça ne monte pas plus » sans paraître cassé.
-      setGlisseY(dy > 0 ? dy : dy * 0.2);
+      poserGlisse(dy > 0 ? dy : dy * 0.2);
     }
 
     function fin(e: TouchEvent) {
@@ -156,8 +186,8 @@ export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh 
       // Deux façons de fermer : descendre assez loin, ou descendre vite. Sans le
       // critère de vitesse, un geste bref et franc — le plus naturel — ne
       // referme rien et la feuille remonte, ce qui se lit comme un raté.
-      if (dy > 90 || vitesse > 0.55) { fermerRef.current(); return; }
-      setGlisseY(0);
+      if (dy > 90 || vitesse > 0.55) { fermerRef.current(vitesse); return; }
+      poserGlisse(0);
     }
 
     el.addEventListener('touchstart', debut, { passive: true });
@@ -202,12 +232,17 @@ export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh 
 
   return createPortal(
     <>
-      <div className={`notif-voile${enSortie ? ' notif-voile-sortie' : ''}`} onClick={fermer} />
+      <div className={`notif-voile${enSortie ? ' notif-voile-sortie' : ''}`} onClick={() => fermer()} />
 
       <div
         ref={ref}
         className={`notif-panneau${enGlisse ? ' notif-panneau-glisse' : ''}${enSortie ? ' notif-panneau-sortie' : ''}`}
-        style={glisseY ? { transform: `translateY(${glisseY}px)` } : undefined}
+        style={{
+          ...(glisseY ? { transform: `translateY(${glisseY}px)` } : null),
+          // Durée passée en variable CSS plutôt qu'en `transition` inline : la
+          // courbe reste dans la feuille de styles, seul le tempo vient d'ici.
+          ...(enSortie ? { ['--notif-sortie-duree' as string]: `${Math.round(dureeSortie)}ms` } : null),
+        }}
         role="dialog"
         aria-modal="true"
         aria-labelledby="notif-titre"
@@ -228,7 +263,7 @@ export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh 
             </span>
             <h2 className="notif-titre" id="notif-titre">Notifications</h2>
             {notifs.length > 0 && <span className="notif-total">{notifs.length}</span>}
-            <button type="button" className="notif-fermer" onClick={fermer} aria-label="Fermer">
+            <button type="button" className="notif-fermer" onClick={() => fermer()} aria-label="Fermer">
               <Icon name="x" size={16} />
             </button>
           </div>
