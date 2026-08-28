@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Icon from '@/components/ui/Icon';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
+import { estEnvoye } from './etats';
 import type { DealRow, DealDetail } from './types';
 import { fmtEur, fmtDateLong, fmtRelative } from './types';
 
@@ -25,6 +26,8 @@ type Item = {
   /** Renseigné en mode manuel : permet de marquer l'échéance comme envoyée. */
   installmentId?: string | null;
   sentAt?: string | null;
+  /** Le lien a été ouvert : la case « Envoyé » n'a plus rien à demander. */
+  dejaOuvert?: boolean;
 };
 
 type Group = {
@@ -35,10 +38,12 @@ type Group = {
   items: Item[];
 };
 
-export default function RelancesTab({ deals, details, onChange }: {
+export default function RelancesTab({ deals, details, onChange, onOuvrir }: {
   deals: DealRow[];
   details: Record<string, DealDetail>;
   onChange?: () => void;
+  /** Ouvre la fiche du client concerné — une relance se prépare en la lisant. */
+  onOuvrir?: (dealId: string) => void;
 }) {
   const groups = buildGroups(deals, details);
   const total = groups.reduce((s, g) => s + g.items.length, 0);
@@ -71,7 +76,7 @@ export default function RelancesTab({ deals, details, onChange }: {
           <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10, paddingLeft: 16, maxWidth: 560 }}>{g.help}</div>
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
             {g.items.map((it, i) => (
-              <RelanceRow key={it.deal.id} item={it} first={i === 0} onChange={onChange} />
+              <RelanceRow key={it.deal.id} item={it} first={i === 0} onChange={onChange} onOuvrir={onOuvrir} />
             ))}
           </div>
         </div>
@@ -80,11 +85,13 @@ export default function RelancesTab({ deals, details, onChange }: {
   );
 }
 
-function RelanceRow({ item, first, onChange }: { item: Item; first: boolean; onChange?: () => void }) {
+function RelanceRow({ item, first, onChange, onOuvrir }: {
+  item: Item; first: boolean; onChange?: () => void; onOuvrir?: (dealId: string) => void;
+}) {
   const [copied, setCopied] = useState(false);
   // Optimiste : la case répond au clic sans attendre le serveur, sinon le geste
   // paraît cassé sur une connexion lente.
-  const [sent, setSent] = useState(!!item.sentAt);
+  const [sent, setSent] = useState(!!item.sentAt || !!item.dejaOuvert);
   const [saving, setSaving] = useState(false);
   const [marking, setMarking] = useState(false);
 
@@ -139,16 +146,27 @@ function RelanceRow({ item, first, onChange }: { item: Item; first: boolean; onC
   }
 
   return (
-    <div style={{
+    <div
+      className={onOuvrir ? 'tap-row' : undefined}
+      role={onOuvrir ? 'button' : undefined}
+      tabIndex={onOuvrir ? 0 : undefined}
+      onClick={onOuvrir ? () => onOuvrir(item.deal.id) : undefined}
+      onKeyDown={onOuvrir ? (e => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOuvrir(item.deal.id); }
+      }) : undefined}
+      style={{
       display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px',
       borderTop: first ? 'none' : '1px solid var(--border-soft)',
       flexWrap: 'wrap',
+      cursor: onOuvrir ? 'pointer' : undefined,
     }}>
       <Avatar initials={getInitials(item.deal.buyerName)} avatarUrl={item.deal.avatarUrl} size={30} seed={item.deal.id} />
       <span style={{ flex: 1, minWidth: 140 }}>
         <span style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>{item.deal.buyerName}</span>
         <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
-          {sent && item.installmentId ? `Lien marqué comme envoyé · en attente de paiement` : item.sub}
+          {sent && item.installmentId && !item.dejaOuvert
+            ? `Lien marqué comme envoyé · en attente de paiement`
+            : item.sub}
         </span>
       </span>
 
@@ -157,8 +175,8 @@ function RelanceRow({ item, first, onChange }: { item: Item; first: boolean; onC
           cette case, réversible parce qu'on se trompe de ligne.
           Sans lien (encaissement hors Stripe), il n'y a rien à envoyer : la
           case n'aurait aucun sens, seul « Marquer reçu » s'applique. */}
-      {item.installmentId && item.url && (
-        <button onClick={toggleSent} disabled={saving}
+      {item.installmentId && item.url && !item.dejaOuvert && (
+        <button onClick={e => { e.stopPropagation(); toggleSent(); }} disabled={saving}
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 7, background: 'none', border: 'none',
             cursor: saving ? 'default' : 'pointer', fontFamily: 'inherit', padding: '4px 0', flexShrink: 0,
@@ -179,7 +197,7 @@ function RelanceRow({ item, first, onChange }: { item: Item; first: boolean; onC
       {/* Sans lien (deals repris de l'historique), un bouton « Copier le lien »
           grisé serait trompeur : il n'y a rien à copier. On dit ce qui manque. */}
       {item.url ? (
-        <button className="btn-ghost" onClick={copy}
+        <button className="btn-ghost" onClick={e => { e.stopPropagation(); copy(); }}
           style={{ fontSize: 12, flexShrink: 0, border: '1px solid var(--border)', borderRadius: 7, padding: '7px 13px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <Icon name={copied ? 'check' : 'copy'} size={13} color={copied ? 'var(--green)' : 'var(--muted)'} />
           {copied ? 'Copié' : 'Copier le lien'}
@@ -187,7 +205,7 @@ function RelanceRow({ item, first, onChange }: { item: Item; first: boolean; onC
       ) : item.installmentId ? (
         // Échéance hors Stripe : personne ne peut confirmer le paiement à la
         // place de l'élève, c'est lui qui déclare l'avoir reçu.
-        <button className="btn-ghost" onClick={markReceived} disabled={marking}
+        <button className="btn-ghost" onClick={e => { e.stopPropagation(); markReceived(); }} disabled={marking}
           style={{ fontSize: 12, flexShrink: 0, border: '1px solid var(--border)', borderRadius: 7, padding: '7px 13px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <Icon name="check" size={13} color="var(--green)" />
           {marking ? '…' : 'Marquer reçu'}
@@ -248,25 +266,35 @@ function buildGroups(deals: DealRow[], details: Record<string, DealDetail>): Gro
       // rien à envoyer, seulement un versement à confirmer quand il arrive.
       const offline = !next.short_url;
       const rang = `Échéance ${next.rank}/${detail!.installments.length}`;
+      // Un lien OUVERT a forcément été reçu : réclamer de l'envoyer alors que la
+      // fiche affiche « ouvert, pas payé » faisait se contredire deux écrans sur
+      // la même échéance. C'est une relance de PAIEMENT qu'il faut, pas d'envoi.
+      const envoye = estEnvoye(next);
+      const ouvert = (next.clicks ?? 0) > 0;
       const item: Item = {
         deal: d,
         sub: offline
           ? (late
               ? `${rang} · attendue depuis le ${fmtDateLong(next.due_on)}`
               : `${rang} · attendue le ${fmtDateLong(next.due_on)}`)
-          : (late
-              ? `${rang} · à envoyer depuis le ${fmtDateLong(next.due_on)}`
-              : `${rang} · à envoyer le ${fmtDateLong(next.due_on)}`),
+          : ouvert
+            ? `${rang} · ouvert sans payer · échéance du ${fmtDateLong(next.due_on)}`
+            : envoye
+              ? `${rang} · lien envoyé, en attente de paiement`
+              : (late
+                  ? `${rang} · à envoyer depuis le ${fmtDateLong(next.due_on)}`
+                  : `${rang} · à envoyer le ${fmtDateLong(next.due_on)}`),
         url: next.short_url,
         amount: Number(next.amount),
         installmentId: next.id,
         sentAt: next.sent_at,
+        dejaOuvert: ouvert,
       };
       // Une échéance déjà marquée envoyée n'est plus une action à faire : elle
       // passe en attente de paiement, même si sa date est dépassée. En mode
       // hors Stripe il n'y a pas d'envoi, donc `sent_at` ne s'applique pas :
       // seule la date compte.
-      ((late && (offline || !next.sent_at)) ? dueNow : waiting).push(item);
+      ((late && (offline || !envoye)) ? dueNow : waiting).push(item);
       continue;
     }
 

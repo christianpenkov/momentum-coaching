@@ -82,6 +82,24 @@ export function precisionEtat(d: DealRow): string | null {
   return null;
 }
 
+/**
+ * Un lien a-t-il été envoyé au client ?
+ *
+ * ── Pourquoi ce n'est pas simplement `sent_at` ─────────────────────────────
+ * Momentum ne PEUT pas savoir qu'un lien a été envoyé : l'élève le colle dans
+ * son DM, hors de la plateforme. D'où la déclaration manuelle.
+ *
+ * Mais il peut le DÉDUIRE : un lien qui a été ouvert a forcément été reçu. La
+ * règle de tout le chantier — tout ce que Momentum peut constater, il le
+ * constate et ne le demande jamais — s'applique ici.
+ *
+ * Sans cette fonction, deux écrans se contredisaient sur la même échéance : la
+ * fiche disait « ouvert, pas payé » pendant que Relances réclamait de l'envoyer.
+ */
+export function estEnvoye(inst: { sent_at?: string | null; clicks?: number }): boolean {
+  return !!inst.sent_at || (inst.clicks ?? 0) > 0;
+}
+
 /** L'ordre d'urgence — sert à choisir l'état d'une personne qui a plusieurs ventes. */
 export const URGENCE: EtatVente[] =
   ['disputed', 'unexpected', 'past_due', 'open', 'ended', 'paid', 'canceled'];

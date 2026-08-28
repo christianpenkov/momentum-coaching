@@ -79,7 +79,7 @@ function LigneClient({ person, deals, isMobile, isCoach, onOuvrir }: {
        dont la largeur ne suit pas toujours `width: 100%` quand on lui impose une
        disposition. Le bouton porte donc le clic, un span intérieur porte la
        mise en page : chacun son métier, et plus de zone morte. */
-    <button onClick={onOuvrir} style={{
+    <button onClick={onOuvrir} className="tap-row" style={{
       display: 'block', width: '100%', textAlign: 'left',
       fontFamily: 'inherit', cursor: 'pointer', background: 'var(--surface)',
       border: isMobile ? '1px solid var(--border)' : 'none',

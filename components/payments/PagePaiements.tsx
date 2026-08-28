@@ -9,7 +9,7 @@ import ReconcileTab from './ReconcileTab';
 import RelancesTab from './RelancesTab';
 import CreateLinkModal from './CreateLinkModal';
 import { useIsMobile } from '@/lib/useIsMobile';
-import type { PaymentsData, DealRow } from './types';
+import type { PaymentsData, DealRow, PersonRow } from './types';
 import { fmtEur, fmtDateLong } from './types';
 
 /**
@@ -23,6 +23,12 @@ import { fmtEur, fmtDateLong } from './types';
 
 type Tab = 'deals' | 'reconcile' | 'relances';
 type Filter = 'all' | 'open' | 'unpaid' | 'paid' | 'ended' | 'canceled';
+
+const FILTRES: readonly Filter[] = ['all', 'open', 'unpaid', 'paid', 'ended', 'canceled'];
+const LIBELLES: readonly (readonly [Filter, string])[] = [
+  ['all', 'Tous'], ['open', 'En cours'], ['unpaid', 'Impayés'],
+  ['paid', 'Soldés'], ['ended', 'Arrêtés'], ['canceled', 'Annulés'],
+];
 
 export default function PagePaiements({ title = 'Paiements', isCoach = false }: { title?: string; isCoach?: boolean }) {
   const [tab, setTab] = useState<Tab>('deals');
@@ -60,24 +66,31 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
   // Une personne ressort dès qu'une seule de ses ventes correspond : filtrer sur
   // son état de ligne — qui n'est que le plus urgent — ferait disparaître un
   // client dont une vente sur trois est impayée, précisément celui qu'on cherche.
-  const filtered = useMemo(() => {
-    const correspond = (d: DealRow) =>
-      filter === 'all' ? true
-      : filter === 'open' ? d.status === 'open' && d.overdue <= 0 && !d.hasFailure
-      : filter === 'unpaid' ? d.status === 'past_due' || d.overdue > 0 || d.hasFailure
-      : filter === 'paid' ? d.status === 'paid'
-      : filter === 'ended' ? d.status === 'ended'
+  const gensPour = useMemo(() => {
+    const correspond = (f: Filter) => (d: DealRow) =>
+      f === 'all' ? true
+      : f === 'open' ? d.status === 'open' && d.overdue <= 0 && !d.hasFailure
+      : f === 'unpaid' ? d.status === 'past_due' || d.overdue > 0 || d.hasFailure
+      : f === 'paid' ? d.status === 'paid'
+      : f === 'ended' ? d.status === 'ended'
       : d.status === 'canceled';
 
-    const gardees = new Set(deals.filter(correspond).map(d => d.id));
-    let rows = people.filter(p => p.dealIds.some(id => gardees.has(id)));
-
     const q = search.trim().toLowerCase();
-    if (q) rows = rows.filter(p =>
-      p.name.toLowerCase().includes(q) || (p.subtitle ?? '').toLowerCase().includes(q)
-    );
-    return rows;
-  }, [deals, people, filter, search]);
+    const cherche = (p: PersonRow) => !q
+      || p.name.toLowerCase().includes(q) || (p.subtitle ?? '').toLowerCase().includes(q);
+
+    // Une liste par filtre plutôt qu'une seule : les compteurs affichés sur les
+    // pastilles doivent compter EXACTEMENT ce que le filtre montrerait, sinon
+    // ils promettent des lignes qui n'apparaissent pas.
+    const out = {} as Record<Filter, PersonRow[]>;
+    for (const f of FILTRES) {
+      const gardees = new Set(deals.filter(correspond(f)).map(d => d.id));
+      out[f] = people.filter(p => p.dealIds.some(id => gardees.has(id))).filter(cherche);
+    }
+    return out;
+  }, [deals, people, search]);
+
+  const filtered = gensPour[filter] ?? [];
 
   // ── Les litiges ouverts ───────────────────────────────────────────────────
   // Le bandeau n'occupe AUCUNE place quand il n'y a rien à signaler : il pousse
@@ -206,17 +219,30 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
           {/* Filtres masqués sans deal à filtrer : ils n'auraient aucun effet et
               encombreraient l'écran d'accueil d'un nouvel utilisateur. */}
           <div style={{ display: deals.length === 0 ? 'none' : 'flex', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-            {([['all', 'Tous'], ['open', 'En cours'], ['unpaid', 'Impayés'], ['paid', 'Soldés'], ['ended', 'Arrêtés'], ['canceled', 'Annulés']] as const).map(([key, label]) => (
-              <button key={key} onClick={() => setFilter(key)}
-                className="paiements-filter"
-                style={{
-                  border: `1px solid ${filter === key ? 'var(--ink)' : 'var(--border)'}`,
-                  background: filter === key ? 'var(--ink)' : 'var(--surface)',
-                  color: filter === key ? '#fff' : 'var(--ink-2)',
-                  fontWeight: filter === key ? 600 : 400,
-                  borderRadius: 999, padding: '6px 13px', fontSize: 12.5, cursor: 'pointer', fontFamily: 'inherit',
-                }}>{label}</button>
-            ))}
+            {LIBELLES.map(([key, label]) => {
+              const n = gensPour[key]?.length ?? 0;
+              return (
+                <button key={key} onClick={() => setFilter(key)}
+                  className="paiements-filter"
+                  style={{
+                    border: `1px solid ${filter === key ? 'var(--ink)' : 'var(--border)'}`,
+                    background: filter === key ? 'var(--ink)' : 'var(--surface)',
+                    // Un filtre vide reste cliquable mais s'efface : le griser
+                    // complètement ferait croire à une panne, le laisser plein
+                    // ferait cliquer pour rien.
+                    color: filter === key ? '#fff' : n === 0 ? 'var(--faint)' : 'var(--ink-2)',
+                    fontWeight: filter === key ? 600 : 400,
+                    borderRadius: 999, padding: '6px 13px', fontSize: 12.5, cursor: 'pointer',
+                    fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 6,
+                  }}>
+                  {label}
+                  <span className="tabular" style={{
+                    fontSize: 11,
+                    color: filter === key ? 'rgba(255,255,255,.7)' : 'var(--faint)',
+                  }}>{n}</span>
+                </button>
+              );
+            })}
             {/* Desktop : poussée à droite de la rangée de filtres. Mobile : elle
                 passe à la ligne, où `marginLeft: auto` la laissait décalée à
                 droite sur une largeur fixe de 180px au lieu de prendre la
@@ -252,7 +278,7 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
       ) : tab === 'reconcile' ? (
         <ReconcileTab orphans={data?.orphans ?? []} onDone={refetch} />
       ) : (
-        <RelancesTab deals={deals} details={data?.details ?? {}} onChange={refetch} />
+        <RelancesTab deals={deals} details={data?.details ?? {}} onChange={refetch} onOuvrir={setOpenDeal} />
       )}
 
       </>}
