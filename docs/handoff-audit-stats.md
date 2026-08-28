@@ -1,187 +1,177 @@
-# Handoff — Audit « Mes Stats » : fin YouTube, puis Instagram
+# Handoff — Audit « Mes Stats » : Business micro, puis Funnel & Calls
 
-Brief de reprise pour une nouvelle session. État arrêté au **2026-08-21**, dernier commit
-`a964646`.
+Brief de reprise pour une nouvelle session. YouTube et Instagram sont **clos**.
+État arrêté au **2026-08-27**.
 
 ---
 
 ## La méthode imposée — à respecter, elle a tout trouvé
 
-> « faut voir chaque donnée, si on l'a en instant donc on maj à chaque passage du cron ou
-> si c'est 2-3j d'attente »
+**Une métrique à la fois**, en remontant la chaîne complète **API → base → écran**, et
+en recoupant avec **une réponse d'API réelle** et **une capture d'écran**. Jamais de
+conclusion tirée de la lecture du code ou de la documentation seules.
 
-**Une métrique à la fois**, en remontant la chaîne complète **API → base → affichage**, et
-en **recoupant avec une réponse d'API réelle**. Jamais de conclusion tirée de la lecture du
-code ou de la documentation seules.
+Le skill `audit-metrique-bout-en-bout` (`~/.claude/skills/`) contient la méthode
+complète et les six pièges récurrents. **Le charger avant de commencer.**
 
-Ce que cette méthode a produit sur YouTube : **~20 problèmes**, dont un watch time qui
-affichait 0 au lieu de ~82 min depuis des mois sur 3 chemins de code, 4 courbes générées par
-un sinus, un CTR codé en dur, et 4 colonnes lues par l'UI que rien n'écrivait.
+Ce qu'elle a produit : ~23 corrections sur YouTube, ~30 sur Instagram. À chaque fois
+que j'ai conclu sans vérifier en base, je me suis trompé — au moins six fois dans la
+session Instagram, dont deux affirmations données comme certaines à Chris et démenties
+par la mesure cinq minutes plus tard.
 
-Les fois où j'ai conclu sans vérifier en base, je me suis trompé — deux fois sur le CTR
-seul (détaillé plus bas). **La vérification en base n'est pas une formalité.**
+### La règle qui compte le plus
+
+> **Vérifier en base ou contre l'API avant d'affirmer. Un « ça devrait marcher » n'est
+> pas un résultat.**
+
+Trois exemples de cette session où seule la mesure a tranché, contre ma lecture du
+code :
+
+- J'ai conclu que `poll-stories` n'était déclenchée par rien. Faux : elle tourne toutes
+  les 30 min. Ce qui m'a trompé, c'est l'upsert sur `snapshot_date` — « 2 lignes » ne
+  veut pas dire « 2 passages » mais « 2 jours couverts ».
+- J'ai décrit un « figeage » du breakdown Instagram au-delà d'un an. La vraie cause est
+  tout autre : la ventilation n'existe que sur ~12 mois, ce n'est pas la largeur de la
+  fenêtre qui compte mais l'ancienneté. Trouvé en testant des fenêtres de **largeur
+  constante décalées dans le passé**.
+- J'ai créé une table et un cron qui écrivaient... rien. `onConflict` ne peut pas viser
+  un index unique **partiel**, et l'échec est **silencieux**. Sans vérification en base,
+  je livrais une fonctionnalité morte en annonçant qu'elle marchait.
 
 ### Contraintes permanentes
 
-- **Zéro maintenance** après livraison à Quennel ; robuste à 30 élèves. Solide > rapide.
-- **Aucune donnée inventée, simulée ou codée en dur.** Un `0` affirme quelque chose, un
-  trou dit « on ne sait pas ». Ne jamais confondre les deux.
-- Réponses en **français**, explications non techniques, noms de tables conservés.
-- Déploiement : **`git push origin main` uniquement**. Jamais `vercel deploy --prod`.
-- Edge Functions : déploiement séparé,
-  `npx supabase functions deploy poll-leads --project-ref nvjgwtetyuatnkjihmtw --no-verify-jwt`.
-- **Interdiction de pousser quoi que ce soit touchant la page « Gérer mes liens »** tant que
-  la review Meta n'est pas terminée.
-- Vérifier la branche avant chaque commit — une session parallèle peut la faire basculer.
+- **Zéro maintenance** après livraison à Quennel ; robuste à **30-40 élèves**.
+  Solide > rapide.
+- **Aucune donnée inventée, simulée ou codée en dur.** Un `0` affirme quelque chose,
+  un trou dit « on ne sait pas ».
+- Réponses en **français**, explications non techniques.
+- Déploiement : **`git push origin main`**. Jamais `vercel deploy --prod`.
+- Edge Functions : **déploiement séparé obligatoire**, `git push` ne les emmène pas.
+  `npx deno check` d'abord — `tsc` et `npm run build` ne couvrent pas `supabase/functions/`.
+- **Vérifier la branche avant chaque commit**, et **stager les fichiers explicitement**
+  (`git add <fichier>`, jamais `-A`) : une session parallèle de Chris tourne souvent en
+  même temps et ses modifications se retrouveraient dans le commit. C'est arrivé deux
+  fois.
+- La review Meta est **terminée** (2026-08-27). Plus aucun gel de déploiement.
 
 ---
 
-## Où en est YouTube
+## Ce qui est clos
 
-**L'onglet est audité de bout en bout.** Deux documents portent le détail :
+**YouTube** — `docs/youtube-scalabilite.md`. 23 corrections, capacité passée de 4 à
+121 élèves.
 
-- `docs/audit-metriques-youtube.md` — l'audit complet, dont la session du 21 août en fin de
-  fichier. **Contient une section « Trois fausses pistes — ne pas corriger »** : la lire
-  avant de « réparer » quoi que ce soit.
-- `docs/youtube-api-limitations.md` — ce que l'API refuse de donner et pourquoi.
+**Instagram** — `docs/instagram-scalabilite.md` et
+`docs/instagram-reach-follow-type.md`. Ce dernier contient une référence complète sur
+`reach × follow_type` : rétention réelle, limites non documentées par Meta, et pourquoi
+la déduplication ne s'additionne jamais entre périodes.
 
-### Ce qui reste ouvert sur YouTube
+**Jetons Instagram** — l'alerte email était **inerte depuis le début** (les trois copies
+de `getIgCreds` renvoyaient le jeton mort, donc `if (!creds)` n'était jamais vrai).
+Corrigée, déplacée dans `poll-leads`, détection en moins d'une heure. Prouvé en
+conditions réelles. Voir la note mémoire `reference-cronjobs`.
 
-1. **Vérification visuelle après déploiement de `a964646`** (fait mais non constaté) :
-   - graphique « Abonnés nets / jour » : `−1 / 0 / +1` centré, **sans barre blanche** ;
-   - modale « Abonnés nets YT » : même rendu que la section (grille ajoutée) ;
-   - fiche vidéo : case CTR présente dès l'ouverture avec points de chargement, puis
-     **`N/D`** grisé avec explication au survol.
+### Restent ouverts, non bloquants
 
-2. **Le commit `c3b2eec` a un `@` parasite en première ligne** de son message (heredoc
-   PowerShell mal interprété). Purement cosmétique, corriger demanderait un force-push sur
-   `main` — décision de Chris, non prise.
-
-3. **Rien d'autre n'est connu comme cassé sur YouTube.** Si une anomalie apparaît, appliquer
-   la méthode plutôt que de supposer.
-
----
-
-## Les trois pièges qui ont coûté le plus de temps
-
-À connaître avant de toucher Instagram — ce sont des **motifs**, pas des incidents isolés.
-
-### 1. La règle écrite à plusieurs endroits qui diverge
-
-Rencontré **une dizaine de fois** : `utm_content` dans 3 chemins Calendly, `buildDestUrl`
-en double dont une copie sans `utm_term`, la vue SQL `utm_anomalies` contre
-`isValidContentId`, le watch time formaté par 3 fonctions différentes, et le CTR testé sur
-un écran mais pas sur l'autre.
-
-**Corollaire pour Instagram** : `docs/cron-poll-leads-dates.md` documente que
-`lib/ig-metrics-core.ts` (Node) est recopié à la main dans
-`supabase/functions/poll-leads/index.ts` (Deno, qui ne peut pas importer hors de son
-dossier).
-
-⚠️ **Vérifié le 2026-08-21, la description du doc ne colle plus** : `lib/ig-metrics-core.ts`
-fait 131 lignes mais n'exporte plus qu'une seule fonction (`isoDateCore`), et l'Edge
-Function ne la référence nulle part. Soit la logique a migré ailleurs, soit le fichier est
-devenu largement mort. **À trancher avant d'en faire une piste d'audit** — et corriger le
-doc dans les deux cas.
-
-**Réflexe** : quand une règle doit valoir partout, la poser une seule fois — au niveau le
-plus bas possible. Le CTR a été corrigé dans la RPC `get_yt_videos_history`, pas dans les
-composants, précisément pour ça.
-
-### 2. Une donnée présente n'est pas une donnée fiable
-
-Le cas CTR, où je me suis trompé **deux fois** :
-
-- J'ai affirmé que les vidéos anciennes n'avaient aucune donnée CTR. **Faux** : 29 sur 30
-  en avaient une. C'est pire qu'une absence — un chiffre faux s'affiche sans prévenir.
-- J'ai affirmé qu'une vidéo devait être publiée après l'« integration ready » pour avoir un
-  CTR. **Faux aussi** : le job récupère de l'historique, mais seulement une fraction
-  résiduelle (0,1 % des vues réelles sur une vidéo à 2 012 vues).
-
-**Réflexe** : croiser le volume de la métrique avec un volume de référence connu
-(impressions contre vues, ici). Un ratio absurde révèle un échantillon non représentatif.
-
-### 3. Recharts ignore `domain` sans `ticks`
-
-Trois corrections successives ont échoué sur l'axe des abonnés nets avant d'identifier que
-Recharts recalcule ses propres bornes par-dessus le `domain` fourni. **Il faut passer
-`ticks` explicitement.**
-
-Autre piège du même écran : la carte affichait un message vide **à la place du graphique**
-quand toutes les valeurs étaient à zéro — c'est-à-dire dans le cas normal.
+- La première **clôture de période** (`analytics_ig_periodes`) aura lieu le
+  **1er septembre**. Le mécanisme de figeage n'a jamais tourné en vrai.
+- Les **stats de story** n'ont jamais été validées sur une story ayant vécu ses 24 h.
+- Un **trou de collecte de story du 22 août** (05:30 → 23:57) reste inexpliqué.
+- **Rdjdkz** a un jeton révoqué : Chris doit le remettre dans les testeurs Meta et
+  reconnecter. Sa collecte est arrêtée.
 
 ---
 
-## L'audit Instagram — point de départ
+## Le périmètre à auditer
 
-### Périmètre
+### 1. Business micro — `TabShortioB`, ligne ~4745
 
-`TabInstagram` occupe les lignes **1009 à 1690** de
-`components/analytics/PageClientStats.tsx`. Ce composant est rendu par **3 routes**
-(`/mes-stats`, `/client/stats`, `/clients/[id]/analytics`) : une correction vaut donc
-automatiquement côté coach et côté élève.
+Le plus gros composant de la page. Sources principales :
+`shortio_link_daily_snapshots`, `prospect_links`, `prospect_events`,
+`instagram_lead_lm_history`, plus les posts IG/YT pour croiser les contenus.
 
-### Ce qui est déjà vérifié (ne pas refaire)
+Lire **avant de commencer** :
+- Note mémoire `architecture-shortio-analytics` — schéma complet, write-path,
+  read-path, et les patterns IDOR / merge-JSONB / fire-and-forget.
+- Note mémoire `reference-pipeline-ig-booking` — le funnel commentaire → call booké,
+  avec **8 pièges connus** déjà documentés.
+- `docs/checklist-scalabilite.md` — Short.io est une API externe, donc toute la
+  checklist quota s'applique.
 
-- Aucune donnée simulée (`Math.sin`, `mockFrom*`) ne subsiste dans le fichier.
-- Aucun pourcentage codé en dur dans la plage Instagram.
+Points d'attention connus :
+- `shortio_link_daily_snapshots` **n'a pas d'`archived_at`** : la contamination par un
+  ancien compte Instagram y est possible et non résolue (noté comme « connu, non
+  corrigé » dans un ancien document).
+- Les clics des liens **archivés** sont comptés dans « Business micro » — 25 lignes,
+  0 clic au moment de la mesure, donc théorique, mais c'est un choix produit à
+  trancher.
+- `link_category` est calculé en incluant les liens archivés.
 
-### Documents à lire d'abord
+### 2. Funnel & Calls — `TabFunnel`, ligne ~3805
 
-- `docs/instagram-api-limitations.md`
-- `docs/cron-poll-leads-dates.md` — dont la duplication `ig-metrics-core.ts` ↔ Edge Function
-- `docs/perimetre-stats-referentiel.md` — les 5 règles de périmètre
-- `docs/pipeline-leads-ig-sources.md`
+Sources : `calls`, `deals`, `stripe`, `instagram_leads`, `prospect_links`,
+`prospect_events`.
 
-### Pistes à instruire, par ordre de rendement attendu
+Lire **impérativement avant de toucher aux calls** :
+- `docs/rapports-de-call.md` — le parcours de vente a **17 étapes et 5 sorties**, la
+  carte n'existe nulle part ailleurs.
+- `docs/calls-coach-id-piege.md` — **`calls.coach_id` n'est pas le coach humain.**
+- `docs/fuseaux-horaires.md` pour tout affichage d'heure.
 
-1. **Fraîcheur de chaque métrique** — c'est la question d'origine de Chris. YouTube expose
-   trois APIs à délais différents (temps réel / J-3 / ~J-2), et l'audit a dû poser des
-   badges « J-3 » ciblés. **Faire le même inventaire pour Instagram** : quelle métrique est
-   instantanée, laquelle accuse un retard, et l'UI le dit-elle ?
-   Chris a tranché : **pas de badge** sur Appareils, Sources de trafic, Mots-clés,
-   Démographie.
+Deux règles de requête qui faussent tout si on les oublie (notes mémoire
+`feedback-backfill-filtre-ignored` et `reference-deals-source-du-cash`) :
 
-2. **Statut réel de `lib/ig-metrics-core.ts`** — code mort ou logique déplacée ? (voir
-   piège 1 : la description du doc ne correspond plus au fichier).
+```sql
+-- TOUTE requête sur calls doit porter ces deux filtres :
+where ignored is not true
+  and call_type = 'calendly'   -- vente ; 'google' = coaching
+```
 
-3. **Colonnes lues par l'UI que rien n'écrit** — 4 cas trouvés côté YouTube. Vérifier
-   colonne par colonne côté Instagram.
+> **Depuis le 2026-08-20, `deals` est la source du cash.** Tous les écrans le lisent.
+> `calls.revenue` n'est plus qu'une trace du rapport et sert de requête de contrôle
+> pour repérer les deals manquants. Ne jamais sommer `calls.revenue` pour un chiffre
+> d'affaires.
 
-4. **Métriques dépréciées en 2025** — documentées dans la mémoire projet
-   (`api_instagram_reference.md`). Vérifier qu'aucune n'est encore lue.
-
-5. **Divergence période courante / période passée** — côté Stripe, `/api/stripe/client-data`
-   appelle l'API en direct alors que le mode historique lit `stripe_payments`. Vérifier
-   qu'Instagram n'a pas la même dualité entre chemin live et chemin snapshot.
-
----
-
-## Repères techniques
-
-| Élément | Valeur |
-|---|---|
-| Projet Supabase | `nvjgwtetyuatnkjihmtw` |
-| Projet Vercel | `momentum-plateforme` (`prj_bJsNTFxTelIqO7DWcgd6E8J5rDTx`) |
-| Profil de test (Chris) | `a02e5927-7b39-4b7d-b112-0a43b30e9f09` |
-| Composant central | `components/analytics/PageClientStats.tsx` (~6900 lignes) |
-| Formatage des durées | `lib/duree.ts` + `lib/duree.test.ts` |
-| Tests | `npm test` (node --test, aucune dépendance) |
-
-**Toute requête SQL sur `calls`** doit filtrer `ignored is not true` et préciser
-`call_type` (`'calendly'` = vente, `'google'` = coaching) — sinon les chiffres sont faux.
-
-**`deals` est la source du cash** depuis le 2026-08-20 ; `calls.revenue` n'est plus qu'une
-trace du rapport.
+Autres pièges déjà documentés :
+- `.maybeSingle()` sur `instagram_leads` sans filtre (`pipeline/advance`,
+  `client/calls`) : deux lignes pour un même `ig_username` feraient échouer la requête.
+- Résolution Calendly par `ig_user_id` sans borne de compte → un call du nouveau compte
+  peut se rattacher à une ligne archivée.
+- Marge de **24 h sur `connected_at`** pour ne pas exclure les calls bookés juste avant
+  une reconnexion (note `feedback-connected-at-margin`).
 
 ---
 
-## Derniers commits
+## Comptes et outils de vérification
 
-| Commit | Objet |
-|---|---|
-| `a964646` | Barre blanche abonnés nets, carte CTR qui surgissait |
-| `d0eba5b` | CTR masqué avant démarrage du suivi (+ migration `20260821180000`) |
-| `b73f87b` | `lib/duree.ts` — un seul composant pour toutes les durées |
-| `d23d47c` | Abonnés nets : ligne plate plutôt qu'un message vide |
-| `c3b2eec` | Graphique à 0, KPI qui exclut ces jours *(message avec `@` parasite)* |
+Profil de test principal : `a02e5927-7b39-4b7d-b112-0a43b30e9f09` (Christian,
+`@chris.pkv`, 255 abonnés) — c'est le seul avec des données réelles sur toutes les
+plateformes.
+
+Identifiants navigateur : note mémoire `reference-test-accounts`.
+
+```sql
+select * from cron_runs order by ran_at desc;   -- vide = aucun incident (30j)
+select * from yt_sante_donnees;                 -- 'ok' ou 'integration deconnectee'
+select * from ig_sante_donnees;
+```
+
+Pour interroger une API externe avec les vrais identifiants, lire le jeton depuis
+`integrations` via la clé service dans `.env.local`. Chris autorise explicitement
+l'usage de ses jetons pour tester en conditions réelles.
+
+⚠️ **Sous Windows, `curl` corrompt les accents.** Utiliser Python pour tout appel HTTP
+de test (note `feedback-accents-curl-windows`).
+
+---
+
+## Comment livrer
+
+Corriger directement ce qui est un bug évident. **Poser une question uniquement quand
+la réponse change ce qu'on fait** — Chris veut le contexte complet et les conséquences,
+pas un choix technique déguisé.
+
+Ne jamais annoncer qu'une correction fonctionne avant de l'avoir constatée en base ou
+contre l'API. Si le cron doit repasser pour le prouver, forcer `last_synced_at = NULL`
+et attendre le passage : **nettoyer puis constater zéro ne prouve rien**
+(note `feedback-verifier-correction-apres-passage-cron`).
