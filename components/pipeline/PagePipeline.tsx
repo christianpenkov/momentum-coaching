@@ -17,7 +17,7 @@ import ProspectDetailModal, { GEOMETRIE_VIDE, type Geometrie } from './ProspectD
 import { isYtVideoId } from '@/lib/ytId';
 import { isCallHonored } from '@/lib/callHonored';
 import { objectionsPour, type OutcomeChoice } from '@/lib/rapportPatch';
-import { resolveLeadState, ISSUE_KEYS, ISSUE_TO_OUTCOME, type StageKey, type IssueKey } from '@/lib/pipelineStage';
+import { resolveLeadState, ISSUE_KEYS, ISSUE_TO_OUTCOME, MAX_RELANCES, type StageKey, type IssueKey } from '@/lib/pipelineStage';
 import { useViewerTimeZone } from '@/lib/UserContext';
 import { wallClockToUtc, cityLabelOf } from '@/lib/timezone';
 
@@ -1006,7 +1006,8 @@ function contexteIssue(key: string, liste: CardData[]): string {
     }
     case 'no_show': {
       const rebookes = liste.filter(c => (c.rdvCount ?? 0) > 1).length;
-      return rebookes > 0 ? `${rebookes} ont rebooké` : 'aucun rebooking';
+      if (rebookes === 0) return 'aucun rebooking';
+      return rebookes === 1 ? '1 a rebooké' : `${rebookes} ont rebooké`;
     }
     case 'closed': {
       const total = liste.reduce((n, c) => n + (c.callRevenue ?? 0), 0);
@@ -1019,6 +1020,47 @@ function contexteIssue(key: string, liste: CardData[]): string {
     default:
       return 'aucune action';
   }
+}
+
+/**
+ * La deuxième ligne d'une fiche dans le panneau d'une issue : d'où vient le lead,
+ * puis où il en est DANS cette issue.
+ *
+ * Le compte de relances est l'information de « À recontacter » — sans lui la
+ * liste dit qui est à recontacter mais pas lesquels ont déjà été relancés deux
+ * fois. Un lead jamais relancé se décrit au contraire par son immobilité.
+ */
+function sousTitreIssue(issueKey: string, c: CardData): string {
+  const bouts = [c.sub].filter(Boolean) as string[];
+
+  if (issueKey === 'to_recontact') {
+    const n = c.relancesFaites ?? 0;
+    if (n > 0) {
+      bouts.push(`relancé ${n} fois sur ${MAX_RELANCES}`);
+    } else if (c.lastMoveAt) {
+      bouts.push(`${timeAgo(c.lastMoveAt)} sans mouvement`);
+    }
+  } else {
+    const motif = motifLisible(c.issueReason);
+    if (motif) bouts.push(motif);
+  }
+
+  return bouts.join(' · ');
+}
+
+/**
+ * Le motif d'une issue, en français, ou rien.
+ *
+ * `issueReason` porte des valeurs internes : `'manual'` ne dit rien à personne, et
+ * de vieilles lignes de `pipeline_overrides` gardent des motifs de la forme
+ * `rapport:to_recontact`, écrits par la route de rapport avant qu'elle cesse de
+ * doubler l'écriture. Les afficher tels quels donnait « #LM · rapport:to_recontact »
+ * dans le panneau. Ce qui n'est pas un motif lisible n'est pas un motif.
+ */
+function motifLisible(reason: string | null | undefined): string | null {
+  if (!reason || reason === 'manual' || reason.includes(':')) return null;
+  if (reason === 'sans_reponse') return 'sorti sans réponse';
+  return reason;
 }
 
 // ── PanneauIssue ──────────────────────────────────────────────────────────────
@@ -1135,12 +1177,21 @@ function PanneauIssue({
                 <span style={{ display: 'block', fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {c.isIgLink ? c.name : `@${c.name}`}
                 </span>
-                <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
-                  {c.sub}
-                  {c.issueReason && c.issueReason !== 'manual' ? ` · ${c.issueReason}` : ''}
+                <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {sousTitreIssue(issue.key, c)}
                 </span>
               </span>
-              <span style={{ fontSize: 11, color: 'var(--faint)', flexShrink: 0 }}>{c.date}</span>
+              {/* À droite, ce qu'on attend du lead — pas la date. Une date seule
+                  demande de calculer soi-même s'il faut agir ; « dernière relance »
+                  le dit. La date reste le repli quand rien n'est attendu. */}
+              {c.nextDue ? (
+                <span style={{
+                  fontSize: 10.5, fontWeight: 600, flexShrink: 0,
+                  color: c.nextDue.urgent ? 'var(--red)' : 'var(--muted)',
+                }}>{c.nextDue.label}</span>
+              ) : (
+                <span style={{ fontSize: 11, color: 'var(--faint)', flexShrink: 0 }}>{c.date}</span>
+              )}
             </button>
           ))}
         </div>
@@ -1182,24 +1233,17 @@ function TuilesIssues({
   const total = issues.reduce((n, i) => n + (cardsParIssue[i.key]?.length ?? 0), 0);
 
   return (
-    <div style={{ display: 'flex', gap: 0, alignSelf: 'stretch', flexShrink: 0 }}>
-      {/* Séparateur épais : les issues ne sont pas la suite de l'entonnoir. Le
-          trait de 1 px qui sépare deux étapes ne suffisait pas à le dire, un
-          espace non plus. */}
-      <div style={{ width: 3, background: 'var(--border)', flexShrink: 0 }} />
+    <div style={{ display: 'flex', gap: 8, alignSelf: 'stretch', flexShrink: 0 }}>
+      {/* Séparateur : les issues ne sont pas la suite de l'entonnoir, et un
+          simple espace ne suffit pas à le dire. */}
+      <div style={{ width: 1, background: 'var(--border)', flexShrink: 0, margin: '0 4px' }} />
 
       {/* Toute la hauteur, comme une colonne : le bloc Issues est le pendant de
-          l'entonnoir, pas une annexe posée en haut à droite. Même matière que les
-          étapes — corps beige mat, en-tête blanc. */}
-      <div style={{
-        width: 200, flexShrink: 0, alignSelf: 'stretch',
-        display: 'flex', flexDirection: 'column',
-        background: 'var(--surface-2)', borderRight: '1px solid var(--border)',
-      }}>
+          l'entonnoir, pas une annexe posée en haut à droite. */}
+      <div style={{ width: 188, flexShrink: 0, alignSelf: 'stretch', display: 'flex', flexDirection: 'column', gap: 6 }}>
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '10px 11px', flexShrink: 0,
-          background: 'var(--surface)', borderBottom: '1px solid var(--border)',
+          padding: '7px 10px', flexShrink: 0,
         }}>
           <span style={{
             fontSize: 10, fontWeight: 700, letterSpacing: '.07em',
@@ -1213,7 +1257,7 @@ function TuilesIssues({
         {/* `flex: 1` sur CHAQUE tuile, pas seulement sur la pile : sans ça les
             tuiles gardaient leur hauteur naturelle et se serraient en haut, avec
             un grand vide dessous. */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: 1, minHeight: 0, padding: 7 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: 1, minHeight: 0 }}>
           {issues.map(issue => {
             const liste = cardsParIssue[issue.key] ?? [];
             const estOuverte = ouverte === issue.key;
@@ -1334,12 +1378,10 @@ function KanbanColumn({
           width: 34, flexShrink: 0, alignSelf: 'stretch', cursor: 'pointer',
           display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 9,
           padding: '11px 0', font: 'inherit', color: 'inherit',
-          // Même matière que les colonnes dépliées : beige mat, séparée par un
-          // simple trait. Une bande blanche encadrée aurait fait d'une colonne
-          // pliée un objet d'une autre nature que celle qu'elle redevient au clic.
-          background: isDropTarget ? stage.lightBg : 'var(--surface-2)',
-          border: 'none', borderRight: '1px solid var(--border)',
-          borderRadius: 0,
+          // Même cadre que les colonnes dépliées : c'est le même objet, replié.
+          background: isDropTarget ? stage.lightBg : 'var(--surface)',
+          border: `1px ${isDropTarget ? 'dashed' : 'solid'} ${isDropTarget ? stage.color + '66' : 'var(--border)'}`,
+          borderRadius: 10,
         }}
       >
         <span style={{
@@ -1364,19 +1406,20 @@ function KanbanColumn({
   }
 
   return (
-    // Corps beige mat, en-tête blanc, colonnes jointives séparées par un seul
-    // trait. Trois surfaces empilées (page → cadre blanc → fiche blanche) ne
-    // disaient plus laquelle portait l'information ; ici le blanc ne sert qu'à
-    // deux choses, l'en-tête et la fiche, et le trait suffit à borner l'étape.
+    // La colonne est un CADRE : l'en-tête est dedans, pas posé au-dessus. Un
+    // trait de séparation seul ne suffisait pas — les fiches de deux colonnes
+    // voisines se lisaient comme une seule grille et on ne voyait plus où une
+    // étape finissait.
     <div style={{
       flex: `0 0 ${LARGEUR_COLONNE}px`, alignSelf: 'stretch',
       display: 'flex', flexDirection: 'column',
-      background: 'var(--surface-2)',
-      borderRight: '1px solid var(--border)',
+      background: 'var(--surface)', border: '1px solid var(--border)',
+      borderRadius: 10, overflow: 'hidden',
     }}>
-      {/* Le seul blanc de la colonne : l'en-tête. C'est ce qui donne à la rangée
-          d'en-têtes sa ligne continue en haut du board, et ce qui distingue au
-          premier coup d'œil le nom d'une étape des fiches qu'elle contient. */}
+      {/* Pas de bandeau gris : l'en-tête vit sur le fond de la colonne, un simple
+          trait le sépare des fiches. Un bandeau plein ajoutait une troisième
+          surface (page → colonne → en-tête) au-dessus des fiches, qui en sont
+          une quatrième. */}
       <div
         role="button"
         tabIndex={0}
@@ -1385,8 +1428,8 @@ function KanbanColumn({
         title={`Plier « ${stage.label} »`}
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '10px 11px', cursor: 'pointer', userSelect: 'none',
-          background: isDropTarget ? stage.lightBg : 'var(--surface)',
+          padding: '10px 11px 8px', cursor: 'pointer', userSelect: 'none',
+          background: isDropTarget ? stage.lightBg : 'transparent',
           borderBottom: '1px solid var(--border)',
           transition: 'background .12s', flexShrink: 0,
         }}
@@ -3397,14 +3440,7 @@ export default function PagePipeline() {
               retrouvait plus haut que le contenu. En minimum, elles remplissent
               l'écran quand il y a peu de fiches ET s'étirent quand il y en a
               beaucoup. */}
-          {/* `gap: 0` : les colonnes sont jointives et séparées par leur seul
-              trait de droite. Un écart de 8 px laissait passer le fond de la page
-              entre elles et cassait la rangée d'en-têtes en huit bandeaux isolés. */}
-          <div style={{
-            display: 'flex', gap: 0, alignItems: 'stretch',
-            minWidth: '100%', minHeight: '100%',
-            borderLeft: '1px solid var(--border)',
-          }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', minWidth: '100%', minHeight: '100%' }}>
             {stages.map(stage => {
               const estIssue = false;
               // On range par `stageKey`, qui vaut l'ISSUE quand le lead est classé
