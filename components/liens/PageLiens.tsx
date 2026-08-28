@@ -5044,8 +5044,17 @@ export default function PageLiens() {
   const funnel = useMemo(() => {
     const leads: any[] = pipelineData?.leads ?? [];
     const calls: any[] = pipelineData?.calls ?? [];
+    const lmHistory: any[] = pipelineData?.lmHistory ?? [];
 
-    const commentaires = leads.length;
+    // Leads = les INTERACTIONS, pas les personnes — la definition de Mes Stats,
+    // pour que le meme mot donne le meme nombre sur les deux ecrans.
+    //
+    // `instagram_lead_lm_history` porte une ligne par lead magnet reclame, jamais
+    // ecrasee. `instagram_leads` n'en garde qu'une par personne, avec la date de
+    // sa DERNIERE interaction : compter cette table affichait 4 la ou Mes Stats
+    // en montre 17. Les memes 4 personnes, mais 17 demandes de lead magnet — et
+    // c'est le second chiffre qui dit l'activite du contenu.
+    const commentaires = lmHistory.length;
 
     // « Conversations » et non « Accroches ». L'ancienne marche comptait les DM1
     // envoyes (lead_magnet_sent), or le DM1 part a la detection : elle valait
@@ -5065,8 +5074,13 @@ export default function PageLiens() {
     // canonique des reservations, et la route la filtre deja sur
     // call_type = 'calendly' et ignored — les deux filtres sans lesquels le
     // chiffre serait faux.
-    const callsBookes = calls.length;
-    const callsViaDm = calls.filter((c: any) => c.ig_lead_id).length;
+    // `status === 'active'` : la definition de Mes Stats. Un rendez-vous annule
+    // n'y compte pas, et deux ecrans qui disent « calls bookes » doivent dire le
+    // meme nombre. Ecart connu et assume : un lead qui book puis annule
+    // disparait retroactivement du compte.
+    const callsActifs = calls.filter((c: any) => c.status === 'active');
+    const callsBookes = callsActifs.length;
+    const callsViaDm = callsActifs.filter((c: any) => c.ig_lead_id).length;
     const callsDirects = callsBookes - callsViaDm;
 
     const taux = (num: number, den: number) => (den > 0 ? Math.round((num / den) * 100) : null);
