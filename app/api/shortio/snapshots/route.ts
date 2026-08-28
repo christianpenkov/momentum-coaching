@@ -16,24 +16,17 @@ type TopEntry = { label: string; value: number };
 // privé suffisent à absorber les remontages de composant sans figer les chiffres.
 const CACHE_CONTROL = 'private, max-age=60, must-revalidate';
 
-interface SnapshotRow {
+/** Une ligne par lien, agrégée côté base par get_shortio_links_agreges. */
+interface LigneAgregee {
   link_id: string;
   path: string;
   short_url: string;
   original_url: string;
-  date: string;
-  human_clicks: number;
-  total_clicks: number;
   link_type: string | null;
   link_category: string | null;
-  top_countries: (TopEntry & { code?: string })[] | null;
-  top_referrers: TopEntry[] | null;
-  top_browsers: TopEntry[] | null;
-  top_os: TopEntry[] | null;
-  top_social: TopEntry[] | null;
-  top_cities: TopEntry[] | null;
-  utm_sources: TopEntry[] | null;
-  utm_mediums: TopEntry[] | null;
+  human_clicks: number;
+  total_clicks: number;
+  chart_data: { date: string; clicks: number }[] | null;
 }
 
 const EMPTY_STATS = {
@@ -46,146 +39,80 @@ const EMPTY_STATS = {
   links: [] as any[],
 };
 
-// Agrège un tableau de top entries (SUM par label à travers plusieurs jours)
-function mergeTop(arrays: (TopEntry[] | null)[], limit = 8): TopEntry[] {
-  const acc = new Map<string, number>();
-  for (const arr of arrays) {
-    for (const entry of (arr ?? [])) {
-      acc.set(entry.label, (acc.get(entry.label) ?? 0) + entry.value);
-    }
-  }
-  return [...acc.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, limit)
-    .map(([label, value]) => ({ label, value }));
-}
-
-// PostgREST plafonne à 1000 lignes par défaut — sans pagination explicite, une requête
-// avec beaucoup de liens/dates tronquerait silencieusement les résultats (totaux et
-// graphiques faux, sans erreur visible). Boucle par pages de 1000 jusqu'à épuisement.
-//
-// ⚠️ La requête passée DOIT porter un tri total et déterministe. Sans ORDER BY,
-// PostgreSQL ne garantit aucun ordre entre deux exécutions : un LIMIT/OFFSET peut
-// alors renvoyer deux fois la même ligne et en sauter une autre, silencieusement.
-// Le profil de test totalise déjà 4 752 lignes en All-Time, soit 5 pages.
-async function fetchAllPages<T>(
-  queryBuilder: () => any,
-  pageSize = 1000
-): Promise<{ data: T[]; error: any }> {
-  const allRows: T[] = [];
-  let from = 0;
-  while (true) {
-    const { data, error } = await queryBuilder().range(from, from + pageSize - 1);
-    if (error) return { data: allRows, error };
-    if (!data || data.length === 0) break;
-    allRows.push(...data);
-    if (data.length < pageSize) break;
-    from += pageSize;
-  }
-  return { data: allRows, error: null };
-}
-
-function mapPostgresToShortio(
-  rows: SnapshotRow[],
+function construireReponse(
+  lignes: LigneAgregee[],
   domain: string,
   metaMap: Map<string, { title: string | null; created_at: string | null }>,
 ) {
-  if (!rows.length) return { ...EMPTY_STATS, domain };
+  if (!lignes.length) return { ...EMPTY_STATS, domain };
 
-  // Grouper par link_id
-  const byLink = new Map<string, SnapshotRow[]>();
-  for (const row of rows) {
-    const group = byLink.get(row.link_id) ?? [];
-    group.push(row);
-    byLink.set(row.link_id, group);
-  }
+  // Courbe du domaine : somme des courbes par lien. `chart_data` ne contient que les
+  // journées avec au moins un clic, donc cette boucle reste courte quelle que soit la
+  // profondeur de l'historique.
+  const parDate = new Map<string, number>();
+  let totalHumain = 0;
+  let totalAvecBots = 0;
 
-  // chartData domaine : SUM total_clicks par date (tous liens)
-  const domainByDate = new Map<string, number>();
-  for (const row of rows) {
-    domainByDate.set(row.date, (domainByDate.get(row.date) ?? 0) + row.total_clicks);
-  }
-  const chartData = [...domainByDate.entries()]
+  const links = lignes.map(l => {
+    totalHumain += Number(l.human_clicks) || 0;
+    totalAvecBots += Number(l.total_clicks) || 0;
+    for (const p of l.chart_data ?? []) {
+      parDate.set(p.date, (parDate.get(p.date) ?? 0) + (Number(p.clicks) || 0));
+    }
+
+    // Repli `link_type` : la colonne d'abord, sinon l'`utm_medium` de l'URL de
+    // destination — un lien créé avant l'introduction de la colonne n'en a pas.
+    let linkType = l.link_type ?? null;
+    if (!linkType) {
+      try { linkType = new URL(l.original_url).searchParams.get('utm_medium') || null; } catch { /* URL absente ou invalide */ }
+    }
+    const utmSourceVal = (() => {
+      try { return new URL(l.original_url).searchParams.get('utm_source') || null; } catch { return null; }
+    })();
+
+    return {
+      id: l.link_id,
+      path: l.path,
+      shortUrl: l.short_url,
+      originalUrl: l.original_url,
+      title: metaMap.get(l.link_id)?.title || l.path,
+      createdAt: metaMap.get(l.link_id)?.created_at || null,
+      linkType,
+      linkCategory: l.link_category ?? null,
+      postPlatform: utmSourceVal === 'yt' ? 'YT' : utmSourceVal === 'ig' ? 'IG' : null,
+      clicks30d: Number(l.total_clicks) || 0,
+      humanClicks30d: Number(l.human_clicks) || 0,
+      clicksChange: null as number | null,
+      chartData: l.chart_data ?? [],
+      // Ventilations (pays, villes, navigateurs, OS, réseaux, référents, UTM) :
+      // conservées dans la forme de la réponse mais vides.
+      //
+      // Elles étaient calculées en fusionnant les colonnes JSONB de CHAQUE ligne
+      // journalière — c'est précisément ce rapatriement qui faisait croître le coût de
+      // lecture avec l'historique. Vérifié dans tout le code : aucun écran ne les lit,
+      // ni par lien ni au niveau du domaine. Elles restent disponibles en base pour un
+      // usage futur, via une requête dédiée.
+      countries: [] as TopEntry[], referrers: [] as TopEntry[], browsers: [] as TopEntry[],
+      os: [] as TopEntry[], social: [] as TopEntry[], cities: [] as TopEntry[],
+      utmSource: [] as TopEntry[], utmMedium: [] as TopEntry[],
+    };
+  });
+
+  const chartData = [...parDate.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([date, clicks]) => ({ date, clicks }));
 
-  // Agrégats domaine
-  let totalHumanClicks = 0;
-  let totalClicks = 0;
-  for (const row of rows) {
-    totalHumanClicks += row.human_clicks;
-    totalClicks += row.total_clicks;
-  }
-
-  const mergedCountries = mergeTop(rows.map(r => r.top_countries));
-  const topReferrers    = mergeTop(rows.map(r => r.top_referrers));
-  const topBrowsers     = mergeTop(rows.map(r => r.top_browsers));
-  const topOs           = mergeTop(rows.map(r => r.top_os));
-  const topSocial       = mergeTop(rows.map(r => r.top_social));
-  const topCities       = mergeTop(rows.map(r => r.top_cities));
-
-  // Construire les liens
-  const links = [...byLink.entries()].map(([linkId, linkRows]) => {
-    const sorted = [...linkRows].sort((a, b) => a.date.localeCompare(b.date));
-    const linkHuman = sorted.reduce((s, r) => s + r.human_clicks, 0);
-    const linkTotal = sorted.reduce((s, r) => s + r.total_clicks, 0);
-    const first = sorted[0];
-    const meta = metaMap.get(linkId);
-    // Fallback link_type : depuis la colonne DB, sinon parse originalUrl
-    let linkType = first.link_type ?? null;
-    if (!linkType) {
-      try { linkType = new URL(first.original_url).searchParams.get('utm_medium') || null; } catch {}
-    }
-    // postPlatform depuis utm_source stocké en DB ('yt' → 'YT', 'ig' → 'IG')
-    const utmSourceVal = (() => {
-      try { return new URL(first.original_url).searchParams.get('utm_source') || null; } catch { return null; }
-    })();
-    const postPlatform = utmSourceVal === 'yt' ? 'YT' : utmSourceVal === 'ig' ? 'IG' : null;
-
-    // link_category : valeur non-ambiguë issue du cron (prend la première non-null)
-    const linkCategory = sorted.find(r => r.link_category)?.link_category ?? null;
-
-    return {
-      id: linkId,
-      path: first.path,
-      shortUrl: first.short_url,
-      originalUrl: first.original_url,
-      title: meta?.title || first.path,
-      createdAt: meta?.created_at || null,
-      linkType,
-      linkCategory,
-      postPlatform,
-      clicks30d: linkTotal,
-      humanClicks30d: linkHuman,
-      clicksChange: null as number | null,
-      chartData: sorted.map(r => ({ date: r.date, clicks: r.total_clicks })),
-      countries: mergeTop(sorted.map(r => r.top_countries)),
-      referrers: mergeTop(sorted.map(r => r.top_referrers)),
-      browsers:  mergeTop(sorted.map(r => r.top_browsers)),
-      os:        mergeTop(sorted.map(r => r.top_os)),
-      social:    mergeTop(sorted.map(r => r.top_social)),
-      cities:    mergeTop(sorted.map(r => r.top_cities)),
-      utmSource: mergeTop(sorted.map(r => r.utm_sources)),
-      utmMedium: mergeTop(sorted.map(r => r.utm_mediums)),
-    };
-  }).sort((a, b) => b.clicks30d - a.clicks30d);
-
-  const totalLinks = byLink.size;
-
   return {
     domain,
-    totalLinks,
-    clicks30d: totalClicks,
-    humanClicks30d: totalHumanClicks,
+    totalLinks: links.length,
+    clicks30d: totalAvecBots,
+    humanClicks30d: totalHumain,
     clicksChange: null,
-    clicksPerLink30d: totalLinks > 0 ? Math.round(totalHumanClicks / totalLinks) : 0,
+    clicksPerLink30d: links.length > 0 ? Math.round(totalHumain / links.length) : 0,
     chartData,
-    topCountries: mergedCountries,
-    topReferrers,
-    topBrowsers,
-    topOs,
-    topSocial,
-    topCities,
+    topCountries: [] as TopEntry[], topReferrers: [] as TopEntry[],
+    topBrowsers: [] as TopEntry[], topOs: [] as TopEntry[],
+    topSocial: [] as TopEntry[], topCities: [] as TopEntry[],
     links,
   };
 }
@@ -201,7 +128,6 @@ export async function GET(request: Request) {
   const startDate = searchParams.get('startDate') ?? '';
   const endDate   = searchParams.get('endDate')   ?? '';
 
-  // Validation des dates
   const dateRe = /^\d{4}-\d{2}-\d{2}$/;
   if (!dateRe.test(startDate) || !dateRe.test(endDate)) {
     return NextResponse.json({ error: 'invalid_date' }, { status: 400 });
@@ -217,37 +143,32 @@ export async function GET(request: Request) {
     targetProfileId = profileId;
   }
 
-  console.log('[shortio/snapshots] profileId=%s start=%s end=%s', targetProfileId, startDate, endDate);
-
   try {
-    // Fetch en parallèle : snapshots (paginé, voir fetchAllPages) + domain + metadata liens
-    const [snapshotsRes, integRes, metaRes] = await Promise.all([
-      fetchAllPages<SnapshotRow>(() =>
-        serviceSupabase
-          .from('shortio_link_daily_snapshots')
-          .select('link_id,path,short_url,original_url,date,human_clicks,total_clicks,link_type,link_category,top_countries,top_referrers,top_browsers,top_os,top_social,top_cities,utm_sources,utm_mediums')
-          .eq('profile_id', targetProfileId)
-          .gte('date', startDate)
-          .lte('date', endDate)
-          // Tri total : (date, link_id) est unique par profil (contrainte du ON CONFLICT
-          // de upsert_shortio_link_snapshot), donc l'ordre est déterministe et la
-          // pagination ne peut ni dupliquer ni perdre de ligne.
-          .order('date', { ascending: true })
-          .order('link_id', { ascending: true })
-      ),
+    // Agrégation EN BASE — une ligne par lien.
+    //
+    // Cette route rapatriait auparavant les lignes brutes (une par lien ET par jour) en
+    // paginant par 1000. Le coût croissait donc avec la profondeur de l'historique : à
+    // 40 élèves et 3 ans, un All-Time représente ~110 000 lignes, soit ~110 allers-
+    // retours PostgREST. Avec la RPC, la réponse fait une ligne par lien — une centaine
+    // — que la période couvre trois mois ou cinq ans.
+    //
+    // Même motif que get_shortio_clicks_by_day et get_shortio_clicks_by_url, qui
+    // avaient déjà réglé ce problème pour les deux autres lectures de cette table.
+    const [lignesRes, integRes, metaRes] = await Promise.all([
+      serviceSupabase.rpc('get_shortio_links_agreges', {
+        p_profile_id: targetProfileId,
+        p_start_date: startDate,
+        p_end_date: endDate,
+      }),
       serviceSupabase
-        .from('integrations')
-        .select('metadata')
-        .eq('profile_id', targetProfileId)
-        .eq('provider', 'shortio')
-        .maybeSingle(),
+        .from('integrations').select('metadata')
+        .eq('profile_id', targetProfileId).eq('provider', 'shortio').maybeSingle(),
       serviceSupabase
-        .from('shortio_links_metadata')
-        .select('link_id,title,created_at')
+        .from('shortio_links_metadata').select('link_id,title,created_at')
         .eq('profile_id', targetProfileId),
     ]);
 
-    if (snapshotsRes.error) throw snapshotsRes.error;
+    if (lignesRes.error) throw lignesRes.error;
     if (integRes.error) console.warn('[shortio/snapshots] integrations_error:', integRes.error.message, { targetProfileId });
 
     const domain = (integRes.data?.metadata as any)?.domain || '';
@@ -255,20 +176,13 @@ export async function GET(request: Request) {
       (metaRes.data || []).map((m: any) => [m.link_id, { title: m.title, created_at: m.created_at }])
     );
 
-    const data = snapshotsRes.data;
-
-    if (!data?.length) {
+    const lignes = (lignesRes.data ?? []) as LigneAgregee[];
+    if (!lignes.length) {
       console.warn('[shortio/snapshots] NO_DATA profileId=%s start=%s end=%s', targetProfileId, startDate, endDate);
-      return NextResponse.json({ ...EMPTY_STATS, domain }, {
-        headers: { 'Cache-Control': CACHE_CONTROL },
-      });
+      return NextResponse.json({ ...EMPTY_STATS, domain }, { headers: { 'Cache-Control': CACHE_CONTROL } });
     }
 
-    const linkTypesSample = [...new Set((data as any[]).map((r: any) => r.link_type))].slice(0, 5);
-    console.log('[shortio/snapshots] rows=%d links=%d domain=%s integError=%s linkTypes=%s', data.length, new Set(data.map((r: any) => r.link_id)).size, domain, integRes.error?.message || 'none', JSON.stringify(linkTypesSample));
-
-    const result = mapPostgresToShortio(data as SnapshotRow[], domain, metaMap);
-    return NextResponse.json(result, {
+    return NextResponse.json(construireReponse(lignes, domain, metaMap), {
       headers: { 'Cache-Control': CACHE_CONTROL },
     });
 
