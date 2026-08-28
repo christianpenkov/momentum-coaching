@@ -1,7 +1,53 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 import { processWebhookEntry } from '@/lib/instagram-webhook-processor';
+
+/**
+ * Le worker de file tourne dans sa propre invocation, avec son propre budget de
+ * 60 s. Ce reveil ne fait que la declencher : c'est `after()` qui lui donne le
+ * droit de s'executer une fois la reponse envoyee a Meta.
+ *
+ * Le budget ci-dessous ne borne donc QUE l'attente de cette invocation-ci. S'il
+ * est atteint, le worker continue de son cote — seule l'attente s'arrete.
+ */
+export const maxDuration = 60;
+
+/**
+ * Reveille le worker de file immediatement apres la mise en file.
+ *
+ * Sans ce reveil, un evenement attendait le prochain tic du cron : 0 a 60 s,
+ * mesure entre 14 et 61 s en production le 2026-08-28. Ce delai n'etait pas un
+ * probleme de debit — la file etait vide, 5 workers en parallele inutilises —
+ * mais un probleme de DECLENCHEMENT : le worker interrogeait la file au lieu
+ * d'etre prevenu. Le DM part maintenant en quelques secondes, DM1 comme DM2.
+ *
+ * Le cron d'une minute reste en place et reste indispensable : il rattrape les
+ * reveils perdus, les reprises apres backoff, et les lignes orphelines reprises
+ * par claim_webhook_queue.
+ *
+ * Sur une rafale (post viral), chaque webhook produit un reveil, mais le cout
+ * reste borne : `claim_webhook_queue` reserve en FOR UPDATE SKIP LOCKED, donc
+ * les reveils surnumeraires ne trouvent aucune ligne a prendre et rendent la
+ * main immediatement. Aucun risque de double DM1 — ce que Meta ne pardonnerait
+ * pas, n'autorisant qu'UNE reponse privee par commentaire.
+ *
+ * Volontairement silencieux en cas d'echec : un reveil raté ne doit jamais
+ * empecher quoi que ce soit, le cron passera au plus tard une minute apres.
+ */
+function reveillerLeWorker() {
+  const base = process.env.NEXT_PUBLIC_PLATFORM_URL;
+  if (!base || !process.env.CRON_SECRET) return;
+  after(async () => {
+    try {
+      await fetch(`${base}/api/cron/process-webhook-queue`, {
+        headers: { authorization: `Bearer ${process.env.CRON_SECRET}` },
+      });
+    } catch (e: any) {
+      console.error('[IG Webhook] reveil du worker echoue (le cron rattrapera):', e?.message || e);
+    }
+  });
+}
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -86,6 +132,11 @@ export async function POST(request: Request) {
     const { error } = await serviceSupabase
       .from('webhook_queue')
       .insert(entries.map(entry => ({ source: 'instagram', payload: entry })));
+
+    if (!error) {
+      // Mise en file reussie : on declenche le traitement sans attendre le cron.
+      reveillerLeWorker();
+    }
 
     if (error) {
       // Mise en file impossible : on traite en direct plutôt que de perdre
