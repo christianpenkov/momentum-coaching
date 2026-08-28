@@ -902,29 +902,59 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                 label: o.label,
               }))}
               onChoose={v => {
+                // ── « Autre » ne fait pas avancer ──────────────────────────
+                // Tous les autres choix se suffisent à eux-mêmes : le clic EST
+                // la réponse. « Autre » ne dit rien tout seul — c'est le texte
+                // qui porte l'information. Avancer au clic escamotait le champ
+                // avant qu'il ait pu s'afficher : il n'apparaissait qu'en
+                // revenant en arrière, sous la forme d'un espace surgi sous le
+                // bouton, et personne ne pouvait deviner qu'il fallait y écrire.
+                if (v === 'autre') {
+                  setAnswers(a => ({ ...a, objection: 'autre' as ObjectionChoice }));
+                  return;
+                }
                 const suite = answers.outcomeChoice === 'to_recontact' ? 'relance_date' : 'comment';
                 goTo(suite as RapportStep, { objection: v as ObjectionChoice });
               }}
             />
           )}
 
-          {/* Texte libre de « Autre » — visible avec son exemple, sur le même
-              écran que le choix : le replier derrière un second clic ferait
-              perdre la précision qu'on vient justement de demander. */}
+          {/* Le texte libre d'« Autre », sur le même écran que le choix et juste
+              sous lui — « Autre » est le dernier bouton de la liste. Le replier
+              derrière un second clic ferait perdre la précision qu'on vient
+              justement de demander. */}
           {step === 'objection' && answers.objection === 'autre' && (
-            <div style={{ marginTop: -8, marginBottom: 20 }}>
+            <div style={{ marginTop: 12 }}>
               <input
                 type="text"
                 value={answers.objectionAutre ?? ''}
                 onChange={e => setAnswers(a => ({ ...a, objectionAutre: e.target.value.slice(0, 500) }))}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    goTo((answers.outcomeChoice === 'to_recontact' ? 'relance_date' : 'comment') as RapportStep);
+                  }
+                }}
                 placeholder="Par exemple : il déménage à l'étranger"
                 disabled={saving}
+                autoFocus
                 style={{
-                  width: '100%', padding: '10px 12px', fontSize: 14,
+                  width: '100%', padding: '12px 14px', fontSize: 14,
                   borderRadius: 10, border: '1px solid var(--border)',
                   background: 'var(--surface)', color: 'var(--ink)',
                 }}
               />
+              {/* Jamais désactivé : le bouton change de nom au lieu de bloquer,
+                  comme celui de la date de relance. Un écran de rapport se
+                  remplit après un appel, parfois à la va-vite — refuser
+                  d'avancer ferait abandonner le rapport entier pour une
+                  précision facultative. */}
+              <button
+                className="btn-primary-brand" type="button" disabled={saving}
+                style={{ width: '100%', padding: '14px', fontSize: 14, fontWeight: 700, marginTop: 10 }}
+                onClick={() => goTo((answers.outcomeChoice === 'to_recontact' ? 'relance_date' : 'comment') as RapportStep)}>
+                {(answers.objectionAutre ?? '').trim() ? 'Continuer' : 'Continuer sans préciser'}
+              </button>
             </div>
           )}
 
