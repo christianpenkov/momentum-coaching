@@ -404,14 +404,26 @@ const icons = {
       <line x1="12" y1="14" x2="12" y2="18" /><line x1="10" y1="16" x2="14" y2="16" />
     </>
   ),
+  // Curseur de souris avec ses eclats de clic. Le trace precedent etait faux :
+  // deux triangles decales et une barre en travers, qui se lisaient comme une
+  // cle a molette. Trace refait sur le modele Lucide.
   'mouse-pointer-click': (
     <>
-      <path d="M14 4.1L12 6" />
-      <path d="M4.1 14L2 12" />
-      <path d="M4.1 4L2 6" />
-      <path d="M17.9 17.4L20 20l-3-1-1-3z" />
-      <path d="M9.7 9.7l7.3 2.3-2.3 2.3-2.3-2.3z" />
-      <path d="M8 6l4 4" />
+      <path d="m9 9 5 12 1.8-5.2L21 14Z" />
+      <path d="M7.2 2.2 8 5.1" />
+      <path d="m5.1 8-2.9-.8" />
+      <path d="M14 4.1 12 6" />
+      <path d="m6 12-1.9 2" />
+    </>
+  ),
+  // Un fichier avec une fleche vers le bas : le lead a RECU le lead magnet.
+  // C'est un aboutissement, pas un clic — d'ou un symbole different du curseur.
+  'file-down': (
+    <>
+      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+      <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+      <path d="M12 12v6" />
+      <path d="m9 15 3 3 3-3" />
     </>
   ),
   'check-circle-2': (

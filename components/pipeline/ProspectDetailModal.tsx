@@ -32,7 +32,7 @@ interface TimelineEvent {
 const EVENT_STYLE: Record<string, { icon: Parameters<typeof Icon>[0]['name']; color: string }> = {
   hook_replied:        { icon: 'message-circle',        color: '#1a1815' },
   lm_sent:             { icon: 'send',                    color: '#1a1815' },
-  lm_clicked:          { icon: 'mouse-pointer-click',    color: '#1a1815' },
+  lm_clicked:          { icon: 'file-down',              color: '#1a1815' },
   calendly_link_sent:  { icon: 'calendar-plus',          color: '#1a1815' },
   link_clicked:        { icon: 'mouse-pointer-click',    color: '#1a1815' },
   call_booked:         { icon: 'phone-call',             color: '#b58025' },

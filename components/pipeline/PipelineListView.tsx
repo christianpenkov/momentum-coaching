@@ -3,6 +3,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import Image from 'next/image';
 import Icon from '@/components/ui/Icon';
+import IconeIssue from './IconeIssue';
 
 // ── La vue liste ──────────────────────────────────────────────────────────────
 //
@@ -306,10 +307,20 @@ export default function PipelineListView({
                   borderRadius: 6, fontSize: 11, fontWeight: 700, lineHeight: 1,
                   color: 'var(--ink, #1a1815)',
                 }}>{replie ? '▸' : '▾'}</span>
-                <span style={{
-                  width: estIssue ? 9 : 3, height: estIssue ? 9 : 14,
-                  borderRadius: estIssue ? 2.5 : 2, background: col.color, flexShrink: 0,
-                }} />
+                {/* Une issue porte son SYMBOLE, une étape un simple trait de
+                    couleur. Le carré plein qui servait aux deux demandait
+                    d'avoir appris la légende, et rendait « Perdu » et « Pas
+                    qualifié » indiscernables. */}
+                {estIssue ? (
+                  <span style={{ color: col.color, display: 'flex', flexShrink: 0 }}>
+                    <IconeIssue issueKey={col.key} taille={14} />
+                  </span>
+                ) : (
+                  <span style={{
+                    width: 3, height: 14, borderRadius: 2,
+                    background: col.color, flexShrink: 0,
+                  }} />
+                )}
                 <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase' }}>
                   {col.label}
                 </span>

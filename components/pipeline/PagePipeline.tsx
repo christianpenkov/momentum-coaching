@@ -14,6 +14,7 @@ import { useQuery } from '@tanstack/react-query';
 import InlineLoader from '@/components/ui/InlineLoader';
 import RapportModal from '@/components/ui/RapportModalLoader';
 import ProspectDetailModal from './ProspectDetailModal';
+import IconeIssue from './IconeIssue';
 import { isYtVideoId } from '@/lib/ytId';
 import { isCallHonored } from '@/lib/callHonored';
 import { objectionsPour, type OutcomeChoice } from '@/lib/rapportPatch';
@@ -208,42 +209,6 @@ type YtStageKey = typeof YT_STAGES[number]['key'];
 /** Une colonne du kanban : une étape ou une issue. Même forme, deux natures. */
 type ColumnDef = { key: string; label: string; color: string; lightBg: string; dot: string };
 
-// ── Le symbole d'une issue ────────────────────────────────────────────────────
-//
-// Un carré de couleur ne dit rien : il faut avoir appris la légende pour lire
-// « gris = pas qualifié ». Et pour deux daltoniens sur trente, « Perdu » (brun)
-// et « Pas qualifié » (gris) sont le même carré.
-//
-// Chaque issue porte donc un dessin qui redit la même chose que la couleur. Un
-// seul jeu de traits : contour, 1,7 px, bouts arrondis, boîte de 24 — le même
-// vocabulaire graphique partout, sinon on lit cinq icônes venues de cinq
-// endroits différents.
-const CHEMINS_ISSUE: Record<string, string> = {
-  // Flèche qui revient en arrière : reprendre contact.
-  to_recontact:  'M9 14 4 9l5-5 M4 9h9a7 7 0 0 1 0 14h-3',
-  // Un rendez-vous barré : la case était réservée, personne n'est venu.
-  no_show:       'M3 8h18 M8 3v4 M16 3v4 M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z M9 13l6 6 M15 13l-6 6',
-  // Cercle barré : la personne existe, la cible non.
-  not_qualified: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M6 6l12 12',
-  // Croix dans un cercle : l'affaire est close, sans vente.
-  lost:          'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M9 9l6 6 M15 9l-6 6',
-  // Coche dans un cercle : la seule issue qui rapporte.
-  closed:        'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M8.5 12.2l2.4 2.4 4.6-4.9',
-};
-
-function IconeIssue({ issueKey, taille = 14 }: { issueKey: string; taille?: number }) {
-  const d = CHEMINS_ISSUE[issueKey];
-  // Pas de dessin connu : on ne remplace pas par un carré au hasard, on ne met
-  // rien. Une forme inventée mentirait sur la nature de l'issue.
-  if (!d) return null;
-  return (
-    <svg width={taille} height={taille} viewBox="0 0 24 24" fill="none" aria-hidden focusable="false"
-      stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round"
-      style={{ flexShrink: 0, display: 'block' }}>
-      {d.split(' M').map((part, i) => <path key={i} d={i === 0 ? part : `M${part}`} />)}
-    </svg>
-  );
-}
 
 const ISSUE_LABELS: Record<string, string> = Object.fromEntries(ISSUES.map(i => [i.key, i.label]));
 
@@ -1027,11 +992,15 @@ function BoutonCase({
       onClick={onClick}
       aria-pressed={actif}
       style={{
-        // Compact : plus d'étapes tiennent sur une ligne, donc moins de retours
-        // à la ligne et un bloc de filtres qui ne mange pas la moitié de l'écran.
-        display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap',
-        fontSize: 10.5, fontWeight: 600, padding: '4px 8px', borderRadius: 6,
-        cursor: 'pointer', font: 'inherit', minHeight: 24,
+        // Ces douze boutons sont un SÉLECTEUR, pas le contenu : ils désignent la
+        // section qu'on veut isoler. À 24 px de haut ils occupaient deux rangées
+        // pleines au-dessus de la liste, soit près d'un dixième de l'écran pour
+        // une commande qu'on manipule une fois. Ils descendent à 20 px, ce qui
+        // les fait tenir sur moins de lignes et rend leur ensemble lisible d'un
+        // coup d'œil.
+        display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap',
+        fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 5,
+        cursor: 'pointer', font: 'inherit', minHeight: 20, lineHeight: 1.5,
         background: actif ? 'var(--accent-brand, #3a6a86)' : 'var(--surface)',
         border: `1px solid ${actif ? 'var(--accent-brand, #3a6a86)' : 'var(--border)'}`,
         color: actif ? '#fff' : 'var(--ink)',
@@ -1039,7 +1008,7 @@ function BoutonCase({
     >
       {forme === 'carre' && issueKey ? (
         <span style={{ color: actif ? '#fff' : couleur, display: 'flex', flexShrink: 0 }}>
-          <IconeIssue issueKey={issueKey} taille={12} />
+          <IconeIssue issueKey={issueKey} taille={11} />
         </span>
       ) : couleur ? (
         <span style={{
@@ -1049,7 +1018,7 @@ function BoutonCase({
       ) : null}
       {label}
       <span style={{
-        fontSize: 10.5, fontWeight: 700, fontVariantNumeric: 'tabular-nums',
+        fontSize: 10, fontWeight: 700, fontVariantNumeric: 'tabular-nums',
         color: actif ? 'rgba(255,255,255,.78)' : 'var(--muted)',
       }}>{n}</span>
     </button>
@@ -3357,18 +3326,56 @@ export default function PagePipeline() {
             droite puis le saut à gauche, au moment où les polices chargées
             changent les largeurs et déclenchent le retour à la ligne. La marge
             automatique le garde à droite dans les deux cas. */}
+        {/* RANGÉE 1, à droite — ce qui pilote l'AFFICHAGE : rafraîchir, et board
+            ou liste. Les onglets de plateforme sont sur la rangée du dessous :
+            ils changent le PÉRIMÈTRE, pas la vue. */}
         <div className="pipeline-actions" style={{
-          display: 'flex', flexDirection: 'column', alignItems: 'flex-end',
+          display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
           gap: 8, flex: 1, minWidth: 0,
         }}>
 
-          {/* RANGÉE 1 — ce qui pilote l'AFFICHAGE : rafraîchir, et board ou liste.
-              Les onglets de plateforme passent dessous : ils changent le
-              PÉRIMÈTRE, pas la vue. Les mettre sur la même ligne mettait deux
-              natures différentes au même niveau, et l'œil ne savait plus lequel
-              des deux groupes il venait de manipuler. */}
-          <div className="pipeline-actions-top" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* Le périmètre — quelle plateforme la page raconte — puis un trait,
+              puis ce qui pilote l'affichage. Deux natures distinctes, mais sur
+              UNE seule ligne.
 
+              Empilés sous Board/Liste, ils doublaient la hauteur de la colonne
+              de droite : d'où le vide au-dessus du titre, le vide sous les
+              onglets, et une rangée de filtres repoussée d'autant. Pire en vue
+              liste, où ils volaient 320 px à la barre de filtres et la
+              faisaient passer de une à cinq rangées. */}
+          {/* pipeline-tabs : sur mobile ce groupe passe en grille 3 colonnes
+              egales. En flex simple, les trois libelles cumulaient plus de
+              375px et "Autres" sortait de l'ecran (constate au navigateur). */}
+          <div className="pipeline-tabs" style={{ display: 'flex', borderRadius: 8, padding: 3, gap: 2 }}>
+            {([
+              { key: 'ig', label: 'Instagram', count: igCards.length },
+              { key: 'yt', label: 'YouTube', count: filteredYtCards.length },
+              { key: 'other', label: 'Autres', count: filteredOtherCards.length },
+            ] as const).map(t => (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                // is-active plutot qu'un style inline conditionnel : sur mobile
+                // l'onglet actif devient une pilule pleine en accent, ce qu'une
+                // media query ne pourrait pas surcharger depuis l'inline.
+                className={`pipeline-tab${tab === t.key ? ' is-active' : ''}`}
+                style={{
+                  fontSize: 12, fontWeight: 600, borderRadius: 6,
+                  cursor: 'pointer', border: 'none', transition: 'all .12s',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                {/* Enveloppe pour que la troncature mobile puisse s'y appliquer :
+                    un noeud texte nu n'est pas atteignable en CSS. */}
+                <span className="pipeline-tab-label">{t.label}</span>
+                <span className="pipeline-tab-count" style={{
+                  fontSize: 10, fontWeight: 700, minWidth: 16, height: 16,
+                  borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px',
+                }}>{t.count}</span>
+              </button>
+            ))}
+          </div>
+          <div style={{ width: 1, height: 22, background: 'var(--border)', flexShrink: 0, margin: '0 2px' }} className="pipeline-desktop" />
           <button
             onClick={handleRefresh}
             disabled={refreshing}
@@ -3408,44 +3415,36 @@ export default function PagePipeline() {
               </button>
             ))}
           </div>
-          </div>
-
-          {/* RANGÉE 2 — le périmètre : quelle plateforme la page raconte. */}
-          {/* pipeline-tabs : sur mobile ce groupe passe en grille 3 colonnes
-              egales. En flex simple, les trois libelles cumulaient plus de
-              375px et "Autres" sortait de l'ecran (constate au navigateur). */}
-          <div className="pipeline-tabs" style={{ display: 'flex', borderRadius: 8, padding: 3, gap: 2 }}>
-            {([
-              { key: 'ig', label: 'Instagram', count: igCards.length },
-              { key: 'yt', label: 'YouTube', count: filteredYtCards.length },
-              { key: 'other', label: 'Autres', count: filteredOtherCards.length },
-            ] as const).map(t => (
-              <button
-                key={t.key}
-                onClick={() => setTab(t.key)}
-                // is-active plutot qu'un style inline conditionnel : sur mobile
-                // l'onglet actif devient une pilule pleine en accent, ce qu'une
-                // media query ne pourrait pas surcharger depuis l'inline.
-                className={`pipeline-tab${tab === t.key ? ' is-active' : ''}`}
-                style={{
-                  fontSize: 12, fontWeight: 600, borderRadius: 6,
-                  cursor: 'pointer', border: 'none', transition: 'all .12s',
-                  display: 'flex', alignItems: 'center', gap: 6,
-                }}
-              >
-                {/* Enveloppe pour que la troncature mobile puisse s'y appliquer :
-                    un noeud texte nu n'est pas atteignable en CSS. */}
-                <span className="pipeline-tab-label">{t.label}</span>
-                <span className="pipeline-tab-count" style={{
-                  fontSize: 10, fontWeight: 700, minWidth: 16, height: 16,
-                  borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px',
-                }}>{t.count}</span>
-              </button>
-            ))}
-          </div>
         </div>
       </div>
 
+      {/* ── RANGÉE 2 : le périmètre à droite, les filtres à gauche ──────────
+          Les onglets étaient empilés sous Rafraîchir/Board/Liste, dans une
+          colonne de droite deux fois plus haute que le titre. D'où les deux
+          vides que ça creusait — un au-dessus du titre, un sous les onglets —
+          et une rangée de filtres poussée encore plus bas.
+
+          Les deux blocs de commandes partagent maintenant cette rangée : les
+          onglets gardent leur place sous Board/Liste, les filtres viennent
+          occuper le vide à leur gauche, et la rangée qui leur était réservée
+          disparaît. Le kanban remonte d'autant. */}
+      <div className="pipeline-rang2" style={{
+        // `flex-start` et non `center` : les onglets restent collés en haut de la
+        // rangée. Sinon ils descendaient dès que la colonne de gauche gagnait une
+        // ligne — les boutons d'étapes en vue liste — et il fallait les
+        // rechercher à chaque bascule Board/Liste.
+        display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
+        gap: 10, flexShrink: 0, flexWrap: 'wrap', rowGap: 8,
+      }}>
+        {/* En COLONNE, étirée : les filtres sont eux-mêmes une rangée qui se
+            replie, et posés en ligne ils gardaient leur largeur de contenu
+            (1310 px mesurés dans une colonne de 824) au lieu de passer à la
+            ligne. Un enfant de flex ne descend pas sous sa largeur minimale de
+            contenu ; empilé et étiré, il prend la largeur de la colonne. */}
+        <div style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'stretch',
+          gap: 6, minWidth: 0, flex: 1,
+        }}>
       {/* Filtres IG */}
       {/* Sur mobile les 6 filtres occupent deux rangees pleines, soit ~80px pris
           sur un budget vertical de ~620px — assez pour pousser la fin de
@@ -3592,6 +3591,9 @@ export default function PagePipeline() {
 
         </div>
       )}
+        </div>
+
+      </div>
 
       {/* Bloque pointer events sur les cartes non-draggées pendant un drag */}
       {draggingKey && (
