@@ -3802,3 +3802,19 @@ html[data-splash='1'] .dot-wave {
   .pipeline-page { gap: 8px !important; }
 }
 
+
+
+/* ── Tableau large : barre de défilement horizontale toujours visible ────────
+   Sur macOS et Windows 11, les barres flottantes n'apparaissent qu'au survol :
+   un tableau qui déborde de 400 px semble alors complet, et les colonnes de
+   droite sont invisibles ET insoupçonnables. On force donc l'affichage plutôt
+   que de recourir à un dégradé de bord, qui masquerait du contenu. */
+.table-scroll-x { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.table-scroll-x::-webkit-scrollbar { height: 10px; }
+.table-scroll-x::-webkit-scrollbar-track { background: transparent; }
+.table-scroll-x::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 5px;
+  border: 2px solid var(--surface);
+}
+.table-scroll-x::-webkit-scrollbar-thumb:hover { background: var(--muted); }

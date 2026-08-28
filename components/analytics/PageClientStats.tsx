@@ -6333,11 +6333,21 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 700 }}>Performance par contenu</div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>{consolidatedRows.length} contenus</div>
+                {/* Même formulation que le sous-titre de la section : « N contenus »
+                    seul laissait croire que tous ont une activité business, alors que la
+                    liste contient chaque post et chaque vidéo du compte. */}
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>{consolidatedRows.filter(aDeLActivite).length} avec activité business sur {consolidatedRows.length} contenus</div>
               </div>
               <button onClick={() => setShowAllTable(false)} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--muted)', lineHeight: 1 }}>×</button>
             </div>
-            <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 180px)' }}>
+            {/* Barre de défilement horizontale rendue VISIBLE (classe .table-scroll-x).
+                Le tableau dépasse de ~400 px la largeur de la modale : « % Calls
+                qualifiés », « Closés », « Revenue », « Vues / call » et « Cash / vue »
+                étaient hors champ, et sur un système à barres flottantes (macOS,
+                Windows 11) rien ne signalait qu'elles existaient. Une barre toujours
+                affichée est l'indice le plus honnête : elle ne masque aucun contenu,
+                contrairement à un dégradé de bord. */}
+            <div className="table-scroll-x" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 180px)' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 780 }}>
                 <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
                   <tr>
@@ -6524,7 +6534,12 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                         ['Partages', igPost.shares], ['Reach', igPost.reach],
                         ...(!isImage ? [['Sauvegardes', igPost.saved]] as [string, number | null][] : [['Sauvegardes', igPost.saved]] as [string, number | null][]),
                         ...(!isImage && igPost.avgWatchTimeMs ? [['Watch time moy.', `${(igPost.avgWatchTimeMs / 1000).toFixed(1)}s`]] as [string, any][] : []),
-                        ...(!isImage && igPost.skipRate != null ? [['Skip rate', `${Math.round(igPost.skipRate * 100)}%`]] as [string, any][] : []),
+                        // `reels_skip_rate` arrive de Meta DÉJÀ en pourcentage (mesuré en
+                        // base : de 9,20 à 76,60 sur 253 posts). Le multiplier par 100
+                        // affichait « SKIP RATE 7500 % » à l'écran, pendant que l'onglet
+                        // Instagram, qui rend le MÊME champ via fmtPct, affichait « 75,0 % ».
+                        // Deux rendus d'une même donnée, un seul juste. Aligné sur fmtPct.
+                        ...(!isImage && igPost.skipRate != null ? [['Skip rate', fmtPct(igPost.skipRate)]] as [string, any][] : []),
                       ];
                       return metrics.map(([label, val], i) => (
                         <div key={i} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 12px' }}>
