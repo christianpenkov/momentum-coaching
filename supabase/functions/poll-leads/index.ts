@@ -958,6 +958,33 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
     prospectShortUrls: (prospectLinksRows ?? []).map((pl: any) => pl.short_url),
   });
 
+  // Inventaire des liens (titre, date de creation) — ecrit ICI et plus seulement par le
+  // bouton « Rafraichir ».
+  //
+  // Cette table n'etait alimentee que par lib/shortio-fetch.ts. Le bouton etant reste
+  // casse du 18 juin au 28 aout, l'inventaire est reste gele pendant deux mois : verifie
+  // en base, 3 liens encore actifs — dont un a 4 clics — n'y figuraient pas. Or
+  // /api/shortio/snapshots y lit le TITRE des liens : sans ligne, l'ecran retombe sur le
+  // path brut. Un eleve qui n'appuie jamais sur « Rafraichir » n'avait donc aucun titre.
+  //
+  // Le cron dispose deja de la liste complete des liens : l'ecriture ne coute aucun
+  // appel Short.io supplementaire. Non bloquant : une erreur ici ne doit pas empecher la
+  // collecte des clics.
+  {
+    const { error: errMeta } = await supa.from('shortio_links_metadata').upsert(
+      links.map((l: any) => ({
+        link_id: String(l.id),
+        profile_id: profileId,
+        title: l.title || l.path || '',
+        path: l.path || '',
+        created_at: l.createdAt ?? null,
+        updated_at: new Date().toISOString(),
+      })),
+      { onConflict: 'link_id', ignoreDuplicates: false },
+    );
+    if (errMeta) errors.push(`links_metadata: ${errMeta.message}`);
+  }
+
   // ── Flux de clics : source unique, et mécanisme d'auto-réparation ─────────────
   //
   // On relit 7 jours de clics à chaque passage, pas seulement J-0 et J-1. Le surcoût
