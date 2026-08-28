@@ -117,24 +117,41 @@ select * from shortio_sante_donnees;   -- tout à 'ok' = rien à faire
 select * from cron_runs order by ran_at desc;   -- vide = aucun incident (30j)
 ```
 
+### Volume et passage à l'échelle — tranché le 2026-08-28
+
+**Aucune purge.** La question posée était « la table grossit, faut-il supprimer les
+lignes à zéro ? ». Vérification faite, la réponse est non : le disque n'est pas le mur.
+À 40 élèves, ~3 000 lignes/jour, ~750 Mo/an — des années de marge.
+
+**Le mur était la lecture**, et il est levé. `/api/shortio/snapshots` rapatriait une
+ligne par lien ET par jour : ~110 000 lignes pour un All-Time à 3 ans, soit
+~110 allers-retours. La RPC `get_shortio_links_agreges` renvoie **une ligne par lien**,
+quelle que soit la profondeur de l'historique. Les trois lectures de cette table
+agrègent désormais en SQL.
+
+Pourquoi pas la purge, mesuré avant de trancher :
+- sur une période ancienne, **64 liens visibles, 3 survivraient** — la liste des liens
+  est reconstruite à partir de ces lignes ;
+- `pipeline/advance` retrouve l'identité d'un lien par sa ligne la plus récente, sans
+  borne de date : un lien jamais cliqué deviendrait introuvable.
+
+Un trigger de purge aurait donc été une chose à surveiller, pour un problème qui
+n'arrive pas. L'agrégation SQL ne demande aucun entretien.
+
 ### Ce qui reste ouvert sur Business micro
 
-- **Historique de plus de ~40 jours toujours gonflé.** Le flux de clics Short.io ne
-  remonte pas assez loin pour le reconstruire. Non réparable ; à dire plutôt qu'à
-  masquer.
-- **Croissance de la table.** `shortio_link_daily_snapshots` grossit en
-  `nb_liens × nb_jours`. Le cron n'écrit plus les journées closes sans clic, ce qui
-  ralentit fortement la croissance, mais J-0 et J-1 restent écrits pour tous les liens.
-  À revoir si la table dépasse quelques millions de lignes : la route
-  `/api/shortio/snapshots` rapatrie les lignes brutes, les RPC agrègent déjà en SQL.
-- **Comptes Short.io partagés.** Rien n'empêche deux élèves de connecter le même
-  compte : chacun voit alors les clics de l'autre. C'est le cas des 3 profils de test.
-  Décision produit à prendre.
-- **Clics de liens de paiement Stripe** exclus de « Clics totaux » (12 en août sur le
-  profil de test). Choix assumé : ce n'est pas de l'acquisition. Ils n'apparaissent
-  nulle part ailleurs non plus.
-- Un **taux de conversion supérieur à 100 %** reste possible (un call attribué sans
-  clic tracké). Factuel, mais déroutant à l'écran.
+- **Historique de plus de ~40 jours toujours gonflé** sur le SEUL profil de test de
+  Chris (133 clics sur 150). Les élèves réels n'ont rien hors fenêtre. Le flux Short.io
+  ne remonte pas assez loin. Chris a choisi de corriger ses propres lignes en base ;
+  rien n'est prévu dans le produit.
+- **Comptes Short.io partagés.** Chris a confirmé qu'en production chaque élève apporte
+  son propre compte. Reste à **refuser à la connexion un domaine déjà pris par un autre
+  profil** — non fait à ce jour, le partage reste techniquement possible.
+- **Clics de liens de paiement Stripe** exclus de « Clics totaux ». Décision de Chris :
+  les afficher **côté Paiements** (« lien envoyé, cliqué, pas payé » sert à la relance).
+  Non fait à ce jour.
+- Un **taux de conversion supérieur à 100 %** reste possible (un call attribué sans clic
+  tracké). Factuel, mais déroutant à l'écran.
 
 ---
 
