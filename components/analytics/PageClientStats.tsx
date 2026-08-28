@@ -4758,7 +4758,7 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, callsAllTime, leadIdToMediaId, igLive, ytLive, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, selectedMetric, setSelectedMetric, chartFilter, setChartFilter, sinceConnection, integrationsReadyAt, allTimeStart }: {
+function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, callsAllTime, leadIdToMediaId, igLive, ytLive, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, joursCollectesShortio, selectedMetric, setSelectedMetric, chartFilter, setChartFilter, sinceConnection, integrationsReadyAt, allTimeStart }: {
   shortio: ShortioStats | null;
   shortioLoading?: boolean;
   ig: IGStats | null;
@@ -4789,6 +4789,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   shortioChartHistoryContent?: { date: string; ig: number; yt: number }[];
   shortioChartHistoryDm?: { date: string; calendly: number; lm: number }[];
   shortioChartHistoryStory?: { date: string; story: number }[];
+  /** Jours où la collecte Short.io a tourné. Une date absente = panne, pas zéro clic. */
+  joursCollectesShortio?: Set<string>;
   // Remontés au composant parent (PageClientStats) : ce composant est démonté/remonté
   // à chaque changement de période (loading passe par true le temps du refetch), donc
   // un state local ici serait reset à 'clics' à chaque clic précédent/suivant.
@@ -5053,6 +5055,23 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const arrivalDayStr = integrationsReadyAt ? utcDateStr(new Date(integrationsReadyAt)) : null;
   const isBeforeArrival = (date: string) => arrivalDayStr != null && date < arrivalDayStr;
   const isOutsideCoverage = (date: string) => isFutureDay(date) || isBeforeArrival(date);
+  // Couverture propre aux séries de CLICS : en plus des deux règles ci-dessus, une
+  // journée où la collecte Short.io n'a pas tourné est un trou, pas un zéro.
+  //
+  // Cas réel mesuré le 2026-08-28 sur le profil dc6f6aec : les 18 et 20 août n'ont
+  // AUCUNE ligne en base (panne de collecte), et la courbe affichait pourtant un point
+  // à 0 — indiscernable du 16 août, où la collecte a bien tourné et où personne n'a
+  // cliqué. « Un 0 affirme quelque chose, un trou dit on ne sait pas. »
+  //
+  // Ne s'applique qu'aux clics : les leads, les réponses et les calls viennent
+  // d'Instagram et de Calendly, et ne dépendent pas de la collecte Short.io.
+  //
+  // Repli : si la liste des jours collectés n'est pas connue (donnée pas encore
+  // chargée), on ne transforme rien en trou — mieux vaut l'ancien comportement qu'un
+  // graphique entièrement vide.
+  const collecteConnue = (joursCollectesShortio?.size ?? 0) > 0;
+  const isClicHorsCouverture = (date: string) =>
+    isOutsideCoverage(date) || (collecteConnue && !joursCollectesShortio!.has(date));
 
   // 1. Clics totaux — déjà par jour dans shortioChartHistory, filtrer sur la fenêtre
   // Index par date : `.find()` dans un `.map()` était quadratique — inoffensif sur 31
@@ -5060,7 +5079,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const clicsParJour = new Map<string, number>();
   for (const d of shortioChartHistory ?? []) clicsParJour.set(d.date, (clicsParJour.get(d.date) ?? 0) + d.clicks);
   const clicsSeries = regrouperComptage(dayRange, granularite,
-    date => isOutsideCoverage(date) ? null : (clicsParJour.get(date) ?? 0));
+    date => isClicHorsCouverture(date) ? null : (clicsParJour.get(date) ?? 0));
   const clicsSeriesHasData = (shortioChartHistory ?? []).length > 0;
 
   // 2. Leads commentaires — group by detected_at (jour) sur lmHistoryInPeriod (une ligne
@@ -5179,8 +5198,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const serieDouble = <A extends string, B extends string>(
     index: Map<string, any>, cleA: A, cleB: B,
   ): ({ date: string } & Record<A | B, number | null>)[] => {
-    const a = regrouperComptage(dayRange, granularite, date => isOutsideCoverage(date) ? null : (index.get(date)?.[cleA] ?? 0));
-    const b = regrouperComptage(dayRange, granularite, date => isOutsideCoverage(date) ? null : (index.get(date)?.[cleB] ?? 0));
+    const a = regrouperComptage(dayRange, granularite, date => isClicHorsCouverture(date) ? null : (index.get(date)?.[cleA] ?? 0));
+    const b = regrouperComptage(dayRange, granularite, date => isClicHorsCouverture(date) ? null : (index.get(date)?.[cleB] ?? 0));
     return a.map((p, i) => ({ date: p.date, [cleA]: p.v, [cleB]: b[i]?.v ?? null } as any));
   };
   const chartDataBio = serieDouble(bioParJour, 'ig', 'yt');
@@ -5188,7 +5207,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const chartDataDm = serieDouble(dmParJour, 'calendly', 'lm');
   const storyParJour = indexerParDate(shortioChartHistoryStory);
   const chartDataStory = regrouperComptage(dayRange, granularite,
-    date => isOutsideCoverage(date) ? null : (storyParJour.get(date)?.story ?? 0));
+    date => isClicHorsCouverture(date) ? null : (storyParJour.get(date)?.story ?? 0));
   const chartDataHasHistory = chartFilter === 'bio' ? (shortioChartHistoryBio?.length ?? 0) > 0
     : chartFilter === 'content' ? (shortioChartHistoryContent?.length ?? 0) > 0
     : chartFilter === 'dm' ? (shortioChartHistoryDm?.length ?? 0) > 0
@@ -7178,6 +7197,14 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   // valait donc strictement plus que Bio + Contenu + DM, sans explication possible
   // (1 clic sur 23 en août 2026, mesuré le 2026-08-28).
   const snapStoryByDate = new Map<string, number>();
+  // Jours pour lesquels la collecte Short.io a effectivement tourné.
+  //
+  // La RPC ne renvoie de lignes que pour les journées présentes dans
+  // shortio_link_daily_snapshots. Une journée où le cron n'a pas tourné n'y figure donc
+  // pas du tout — et jusqu'ici le graphique affichait quand même un point à 0, rendant
+  // une panne de collecte indiscernable d'une journée sans clic. Cas réel mesuré le
+  // 2026-08-28 : profil dc6f6aec, 18 et 20 août, aucune ligne en base, courbe à 0.
+  const snapJoursCollectes = new Set<string>();
   const { data: snapChartRpcData, error: snapChartRpcError } = await supabase.rpc('get_shortio_clicks_by_day', {
     p_profile_id: targetId,
     p_start_date: startDateStr,
@@ -7185,6 +7212,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   });
   if (snapChartRpcError) console.error('[PageClientStats] get_shortio_clicks_by_day (fetchSnapshot, période courante) a échoué:', snapChartRpcError.message);
   for (const row of (snapChartRpcData ?? []) as { date: string; link_category: string; total_clicks: number }[]) {
+    if (row.date) snapJoursCollectes.add(row.date);
     if (!row.date || !row.link_category) continue;
     const clicks = row.total_clicks ?? 0;
     if (CATS_BUSINESS.has(row.link_category)) {
@@ -7477,6 +7505,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     businessClicsFromDb: snapBusinessClicsFromDb,
     totalClicsChangePct: snapTotalClicsChangePct,
     shortioChartHistory: snapShortioChartHistory,
+    joursCollectesShortio: snapJoursCollectes,
     shortioChartHistoryBio: snapShortioChartHistoryBio,
     shortioChartHistoryContent: snapShortioChartHistoryContent,
     shortioChartHistoryDm: snapShortioChartHistoryDm,
@@ -7950,12 +7979,16 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
   const dmCalendlyByDate = new Map<string, number>();
   const dmLmByDate = new Map<string, number>();
   const storyByDate = new Map<string, number>();
+  // Voir le commentaire jumeau dans fetchSnapshot : une journée absente de la RPC est
+  // une journée SANS collecte, pas une journée sans clic.
+  const joursCollectesShortio = new Set<string>();
   // calendlyStaticClicsFromDb/businessClicsFromDb : calculés ici (depuis l'agrégat
   // RPC, jamais tronqué) plutôt que depuis shortioClicksRes plus haut, qui peut
   // dépasser 1000 lignes sur un mois chargé — voir commentaire sur clicksByUrl.
   let calendlyStaticClicsFromDb = 0;
   let businessClicsFromDb = 0;
   for (const row of (shortioChartHistoryRpc.data ?? []) as { date: string; link_category: string; total_clicks: number }[]) {
+    if (row.date) joursCollectesShortio.add(row.date);
     if (!row.date || !row.link_category) continue;
     const clicks = row.total_clicks ?? 0;
     if (CATS_BUSINESS.has(row.link_category)) {
@@ -8030,7 +8063,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     }
   }
 
-  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, deals: dealsRows, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, integrationsReadyAt };
+  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, deals: dealsRows, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, joursCollectesShortio, integrationsReadyAt };
   } catch { return null; }
 }
 
@@ -8363,6 +8396,9 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   const shortioChartHistoryDm: { date: string; calendly: number; lm: number }[] | undefined = sinceConnection
     ? sinceConnSnap?.shortioChartHistoryDm
     : (periodIndex === 0 ? supaData?.shortioChartHistoryDm : snapData?.shortioChartHistoryDm);
+  const joursCollectesShortio: Set<string> | undefined = sinceConnection
+    ? sinceConnSnap?.joursCollectesShortio
+    : (periodIndex === 0 ? supaData?.joursCollectesShortio : snapData?.joursCollectesShortio);
   const shortioChartHistoryStory: { date: string; story: number }[] | undefined = sinceConnection
     ? sinceConnSnap?.shortioChartHistoryStory
     : (periodIndex === 0 ? supaData?.shortioChartHistoryStory : snapData?.shortioChartHistoryStory);
@@ -8605,7 +8641,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.yt?.snapshotError} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} />}
-          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={callsAllTimeEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} shortioChartHistoryStory={shortioChartHistoryStory} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
+          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={callsAllTimeEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} shortioChartHistoryStory={shortioChartHistoryStory} joursCollectesShortio={joursCollectesShortio} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
           {tab === 5 && <TabRevenues stripe={stripeEff} calls={callsEff} deals={dealsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} />}
         </>
       )}
