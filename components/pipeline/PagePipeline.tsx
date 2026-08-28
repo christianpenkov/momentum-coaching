@@ -1191,10 +1191,8 @@ function PanneauIssue({
 
   return (
     <>
-      {/* Le voile couvre tout l'écran, barre latérale comprise : pendant qu'on
-          lit le panneau, rien d'autre ne répond, et il le dit sans exception.
-          Cliquer dessus ferme. */}
-      <div className="pipeline-voile" onClick={onFermer} aria-hidden />
+      {/* Le voile n'est PAS dessiné ici : il est monté une seule fois par la
+          page, pour tous les panneaux. Voir « UN SEUL VOILE » plus bas. */}
       <div
         className="pipeline-panneau"
         role="dialog"
@@ -2281,9 +2279,12 @@ export default function PagePipeline() {
   // ── LE VOILE ET LE PANNEAU, SANS UNE LIGNE DE MESURE ───────────────────────
   //
   // Les deux sont placés en CSS pur, par `.pipeline-voile` et `.pipeline-panneau`
-  // dans globals.css. Le voile couvre tout l'écran (`fixed; inset: 0`), barre
-  // latérale et barre du haut comprises ; le panneau commence sous la barre du
-  // logo, dont le décalage est écrit une fois dans la feuille de style.
+  // dans globals.css. Le voile couvre tout l'écran SAUF la barre du logo ; le
+  // panneau commence au même endroit, sous elle. Le décalage — la hauteur de la
+  // barre — est écrit une seule fois, dans `--h-topbar`.
+  //
+  // Le voile est monté par la PAGE, pas par chaque panneau : voir « UN SEUL
+  // VOILE » au moment du rendu.
   //
   // Une version intermédiaire mesurait la page à l'ouverture
   // (`getBoundingClientRect`) pour n'assombrir que le kanban, en réécoutant
@@ -3727,6 +3728,23 @@ export default function PagePipeline() {
           </div>
         </div>
         )}
+        {/* ── UN SEUL VOILE, POUR TOUS LES PANNEAUX ─────────────────────────
+            Chaque panneau dessinait le sien. Cliquer un lead depuis une issue
+            ferme le panneau d'issue et ouvre la fiche dans le même rendu : le
+            voile du premier était démonté, celui du second monté, et il
+            rejouait son fondu depuis l'opacité zéro. L'écran s'éclaircissait
+            puis s'assombrissait en 140 ms — le flash.
+
+            Monté ici, c'est le MÊME élément qui reste en place pendant que le
+            panneau change dessous. Il n'a rien à rejouer. */}
+        {(panneauIssue || detailModal) && (
+          <div
+            className="pipeline-voile"
+            aria-hidden
+            onClick={() => { setPanneauIssue(null); setDetailModal(null); }}
+          />
+        )}
+
         {panneauIssue && (() => {
           const issue = ISSUES.find(i => i.key === panneauIssue);
           if (!issue) return null;

@@ -548,7 +548,9 @@ function Enveloppe({
 
   return (
     <>
-      <div className="pipeline-voile" onClick={onClose} aria-hidden />
+      {/* Le voile est monté par la page, une fois pour tous les panneaux : le
+          dessiner ici le faisait rejouer son fondu a chaque changement de
+          panneau. Voir « UN SEUL VOILE » dans PagePipeline. */}
       <div
         className="pipeline-panneau"
         role="dialog"
