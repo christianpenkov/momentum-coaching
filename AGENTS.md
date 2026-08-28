@@ -11,6 +11,10 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - **Filtrer `calls` par « propriétaire »** → `docs/calls-coach-id-piege.md`.
   `calls.coach_id` n'est pas le coach humain.
 - **Afficher une heure** → `docs/fuseaux-horaires.md`.
+- **Toucher aux paiements, aux ventes ou au webhook Stripe** →
+  `docs/stripe-paiements.md`. La configuration vit dans le dashboard, hors du
+  dépôt : une case cochée par erreur fait passer un chiffre en négatif sans
+  qu'aucun test ne s'en aperçoive.
 - **Toucher un cron ou une intégration API** (YouTube, Instagram, Short.io,
   Calendry, Stripe) → **`docs/checklist-scalabilite.md`**. Objectif 30-40 élèves
   sans maintenance ; chaque point de la liste a trouvé un vrai défaut. L'audit
