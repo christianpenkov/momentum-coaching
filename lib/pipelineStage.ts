@@ -144,6 +144,8 @@ export interface StageCall {
   no_show: boolean | null;
   /** Vrai quand ce call a été reprogrammé — le résultat viendra du suivant. */
   rescheduled?: boolean | null;
+  /** La date de relance convenue dans le rapport de ce call. */
+  relance_at?: string | null;
   /** Exclu de tout calcul quand vrai. Le serveur filtre déjà, ceci est la ceinture. */
   ignored?: boolean | null;
   lead_deleted?: boolean | null;
@@ -188,6 +190,18 @@ export interface StageInput {
    * postérieure au classement, donc impossible de faire revenir le lead.
    */
   classedAt?: string | null;
+  /**
+   * La date de relance CHOISIE dans le rapport (`calls.relance_at`).
+   *
+   * Le rapport demande « quand relancer ? » sur un « à recontacter », et cette
+   * réponse était jetée : la relance était réputée due dès le classement, quelle
+   * que soit la date convenue. Un lead qu'on a promis de rappeler dans trois
+   * semaines apparaissait à relancer le jour même.
+   *
+   * Elle ne vaut que tant qu'elle est postérieure à la dernière relance faite :
+   * une fois relancé, c'est le rythme des 21 jours qui reprend la main.
+   */
+  relanceAt?: string | null;
   /** Retiré du pipeline : ne compte plus jamais, ne revient jamais. */
   notALead?: boolean;
 }
@@ -200,6 +214,14 @@ export interface LeadState {
   issueReason: string | null;
   /** Le call qui a décidé de l'issue, quand elle vient d'un call. */
   decidedByCallId: string | null;
+  /**
+   * Quand le lead est entré dans son issue : la date du rendez-vous qui l'a
+   * décidée, ou celle du classement à la main. `null` tant qu'il est actif.
+   *
+   * C'est la seule date qui situe un lead classé dans le temps. Sans elle, une
+   * liste de leads « à recontacter » ne dit pas lesquels traînent depuis juin.
+   */
+  classedAt: string | null;
   flags: {
     /** Le RDV est passé et aucun rapport n'est rempli. */
     rapportEnRetard: boolean;
@@ -209,6 +231,12 @@ export interface LeadState {
     relancesFaites: number;
     /** Le cycle est arrivé au bout : le lead sort en Perdu « sans réponse ». */
     cycleEpuise: boolean;
+    /**
+     * La dernière relance du cycle en cours. C'est d'elle que se déduisent les
+     * deux échéances affichées : la prochaine relance, à +21 jours, et la sortie
+     * automatique quand les trois ont été faites.
+     */
+    derniereRelanceAt: string | null;
   };
 }
 
@@ -320,13 +348,14 @@ export function resolveLeadState(input: StageInput, now: Date): LeadState {
     relanceDue: false,
     relancesFaites: 0,
     cycleEpuise: false,
+    derniereRelanceAt: null,
   };
 
   // « Ce n'est pas un lead » l'emporte sur tout et ne revient jamais.
   if (input.notALead) {
     return {
       stage, status: 'removed', issue: null, issueReason: null,
-      decidedByCallId: null, flags: vide,
+      decidedByCallId: null, classedAt: null, flags: vide,
     };
   }
 
@@ -344,13 +373,14 @@ export function resolveLeadState(input: StageInput, now: Date): LeadState {
       if (TERMINAL_ISSUES.includes(issue)) {
         return {
           stage: 'call_booked', status: 'classed', issue, issueReason: null,
-          decidedByCallId: call.id, flags: vide,
+          decidedByCallId: call.id, classedAt: call.scheduled_at, flags: vide,
         };
       }
       return {
-        ...applyRelanceCycle(input, issue, maintenant),
+        ...applyRelanceCycle(input, issue, maintenant, call.relance_at ?? input.relanceAt ?? null),
         stage: 'call_booked',
         decidedByCallId: call.id,
+        classedAt: call.scheduled_at,
       };
     }
 
@@ -360,7 +390,7 @@ export function resolveLeadState(input: StageInput, now: Date): LeadState {
     // éternellement en « RDV pris ».
     return {
       stage: 'call_booked', status: 'active', issue: null, issueReason: null,
-      decidedByCallId: call.id,
+      decidedByCallId: call.id, classedAt: null,
       flags: { ...vide, rapportEnRetard: passe },
     };
   }
@@ -372,7 +402,7 @@ export function resolveLeadState(input: StageInput, now: Date): LeadState {
       return {
         stage, status: 'classed', issue: manuelle,
         issueReason: input.manualReason ?? null,
-        decidedByCallId: null, flags: vide,
+        decidedByCallId: null, classedAt: input.classedAt ?? null, flags: vide,
       };
     }
     // Le lead a répondu APRÈS avoir été classé : il n'est plus en attente, il
@@ -383,16 +413,19 @@ export function resolveLeadState(input: StageInput, now: Date): LeadState {
     if (repondApresClassement(input)) {
       return {
         stage: 'in_convo', status: 'active', issue: null, issueReason: null,
-        decidedByCallId: null, flags: vide,
+        decidedByCallId: null, classedAt: null, flags: vide,
       };
     }
-    return { ...applyRelanceCycle(input, manuelle, maintenant), stage, decidedByCallId: null };
+    return {
+      ...applyRelanceCycle(input, manuelle, maintenant, input.relanceAt ?? null),
+      stage, decidedByCallId: null, classedAt: input.classedAt ?? null,
+    };
   }
 
   // 3. Ni l'un ni l'autre : le lead est actif, il porte une étape et rien d'autre.
   return {
     stage, status: 'active', issue: null, issueReason: null,
-    decidedByCallId: null, flags: vide,
+    decidedByCallId: null, classedAt: null, flags: vide,
   };
 }
 
@@ -412,7 +445,9 @@ function applyRelanceCycle(
   input: StageInput,
   issue: IssueKey,
   maintenant: number,
-): Omit<LeadState, 'stage' | 'decidedByCallId'> {
+  /** La date convenue : celle du call qui décide, sinon celle du classement. */
+  relanceAt: string | null,
+): Omit<LeadState, 'stage' | 'decidedByCallId' | 'classedAt'> {
   const base = {
     status: 'classed' as const,
     issueReason: input.manualReason ?? null,
@@ -421,21 +456,35 @@ function applyRelanceCycle(
   if (issue !== 'to_recontact') {
     return {
       ...base, issue,
-      flags: { rapportEnRetard: false, relanceDue: false, relancesFaites: 0, cycleEpuise: false },
+      flags: {
+        rapportEnRetard: false, relanceDue: false, relancesFaites: 0,
+        cycleEpuise: false, derniereRelanceAt: null,
+      },
     };
   }
 
   const { faites, derniere } = countRelancesCycle(input.relances ?? [], input.lastReplyAt);
+  const derniereIso = derniere === null ? null : new Date(derniere).toISOString();
   const ageDerniere = derniere === null ? null : (maintenant - derniere) / JOUR_MS;
   const expiree = ageDerniere !== null && ageDerniere >= RELANCE_EXPIRY_DAYS;
   const cycleEpuise = faites >= MAX_RELANCES && expiree;
+
+  // La date convenue dans le rapport repousse la PREMIÈRE relance, et elle seule.
+  // Dès qu'une relance est faite, le rythme des 21 jours reprend la main : sinon
+  // une date convenue lointaine gèlerait le cycle après coup — on relance, et le
+  // lead redevient « pas encore dû » jusqu'à cette date.
+  const choisie = toTime(relanceAt);
+  const attenteChoisie = derniere === null && choisie !== null && choisie > maintenant;
 
   if (cycleEpuise) {
     return {
       ...base,
       issue: 'lost',
       issueReason: 'sans_reponse',
-      flags: { rapportEnRetard: false, relanceDue: false, relancesFaites: faites, cycleEpuise: true },
+      flags: {
+        rapportEnRetard: false, relanceDue: false, relancesFaites: faites,
+        cycleEpuise: true, derniereRelanceAt: derniereIso,
+      },
     };
   }
 
@@ -444,10 +493,71 @@ function applyRelanceCycle(
     flags: {
       rapportEnRetard: false,
       // Une relance est due dès que la précédente a vieilli — ou dès le
-      // classement, quand aucune n'a encore été faite.
-      relanceDue: faites < MAX_RELANCES && (derniere === null || expiree),
+      // classement, quand aucune n'a encore été faite et qu'aucune date n'a été
+      // convenue dans le rapport.
+      relanceDue: faites < MAX_RELANCES && !attenteChoisie && (derniere === null || expiree),
       relancesFaites: faites,
       cycleEpuise: false,
+      derniereRelanceAt: derniereIso,
     },
   };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LE PLANCHER MANUEL
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Les valeurs que `prospect_links.min_stage_reached` peut réellement porter.
+ *
+ * Ce champ n'est écrit que par `pipeline/advance`, dont la liste ne contient pas
+ * `cold_dm` et qui refuse `lm_sent` : ses valeurs possibles sont exactement
+ * celles-ci.
+ *
+ * ⚠️ Ne JAMAIS comparer un index d'ici à un index de `IG_PRE_CALL` (côté
+ * `pipeline/reset`) : `cold_dm` en tête de cette dernière décale tout d'un cran,
+ * et « calendly_sent » y vaut 3 quand il vaut 1 ici. Les deux listes ne sont pas
+ * alignées, et c'est un piège qui ne se voit pas à la lecture.
+ */
+export const PLANCHERS_MANUELS = ['in_convo', 'calendly_sent', 'link_clicked'] as const;
+export type PlancherManuel = typeof PLANCHERS_MANUELS[number];
+
+/**
+ * Le plancher à écrire après un recul manuel vers `cible`.
+ *
+ * Renvoie `undefined` quand il ne faut RIEN écrire — à distinguer de `null`, qui
+ * veut dire « efface-le ».
+ *
+ * ── Pourquoi cette fonction existe ─────────────────────────────────────────
+ * Le plancher empêche un signal automatique re-déclenché — un nouveau
+ * commentaire, un clic tardif — de faire reculer une carte avancée à la main.
+ * Mais quand c'est l'élève LUI-MÊME qui recule la carte, ce garde-fou se
+ * retourne contre lui : l'étape se recalcule, retombe sur le plancher, et le
+ * geste s'annule tout seul quelques secondes plus tard.
+ *
+ * ── Ce qu'elle ne fait jamais ──────────────────────────────────────────────
+ * REHAUSSER. Un recul ne peut que baisser le plancher ou le laisser tel quel :
+ * un lead reculé vers « lien cliqué » alors que son plancher était « en
+ * conversation » ne doit pas se retrouver bloqué plus haut qu'avant.
+ */
+export function plancherApresRecul(
+  cible: string,
+  actuel: string | null,
+): string | null | undefined {
+  // Aucun plancher posé : il n'y a rien à abaisser.
+  if (!actuel) return undefined;
+
+  const idx = (s: string) => (PLANCHERS_MANUELS as readonly string[]).indexOf(s);
+
+  // Cible sous le plancher le plus bas (`cold_dm`, `lm_sent`) : plus rien à
+  // garantir, on efface.
+  const cibleIdx = idx(cible);
+  if (cibleIdx === -1) return null;
+
+  // Valeur stockée illisible : on la retire plutôt que de la garder sans savoir
+  // l'interpréter — un plancher qu'on ne sait pas comparer bloquerait à vie.
+  const actuelIdx = idx(actuel);
+  if (actuelIdx === -1) return null;
+
+  return cibleIdx < actuelIdx ? cible : undefined;
 }

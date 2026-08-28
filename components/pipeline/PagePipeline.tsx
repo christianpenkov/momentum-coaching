@@ -17,9 +17,9 @@ import ProspectDetailModal, { GEOMETRIE_VIDE, type Geometrie } from './ProspectD
 import { isYtVideoId } from '@/lib/ytId';
 import { isCallHonored } from '@/lib/callHonored';
 import { objectionsPour, type OutcomeChoice } from '@/lib/rapportPatch';
-import { resolveLeadState, ISSUE_KEYS, ISSUE_TO_OUTCOME, MAX_RELANCES, type StageKey, type IssueKey } from '@/lib/pipelineStage';
+import { resolveLeadState, ISSUE_KEYS, ISSUE_TO_OUTCOME, MAX_RELANCES, RELANCE_EXPIRY_DAYS, type StageKey, type IssueKey } from '@/lib/pipelineStage';
 import { useViewerTimeZone } from '@/lib/UserContext';
-import { wallClockToUtc, cityLabelOf } from '@/lib/timezone';
+import { wallClockToUtc, cityLabelOf, formatDayPartsIn } from '@/lib/timezone';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -513,6 +513,10 @@ interface CardData {
   /** Relances faites dans le cycle en cours, et si la prochaine est due. */
   relancesFaites?: number;
   relanceDue?: boolean;
+  /** La dernière relance du cycle : c'est d'elle que se déduit la prochaine. */
+  derniereRelanceAt?: string | null;
+  /** Quand le lead est entré dans son issue. `null` tant qu'il est actif. */
+  classedAt?: string | null;
   /**
    * Dernier signe de vie, quelle qu'en soit la nature : commentaire, réponse en
    * DM, clic, rendez-vous, relance. C'est ce qui permet de trier par « ça dort
@@ -1023,6 +1027,51 @@ function contexteIssue(key: string, liste: CardData[]): string {
 }
 
 /**
+ * L'échéance d'un lead « à recontacter » : la seule question que pose cette
+ * liste, c'est QUAND. Rend `null` pour les autres issues — un lead perdu ou closé
+ * n'attend plus rien, et lui inventer une échéance serait un mensonge.
+ *
+ * Trois échéances possibles, dans cet ordre :
+ *   la relance est due  → aujourd'hui, en rouge ;
+ *   les trois sont faites → la SORTIE automatique en Perdu, en rouge ;
+ *   sinon               → la prochaine relance, en gris.
+ */
+function echeanceRelance(issueKey: string, c: CardData): { label: string; urgent: boolean } | null {
+  if (issueKey !== 'to_recontact') return null;
+  if (c.relanceDue) return { label: "aujourd'hui", urgent: true };
+
+  const derniere = c.derniereRelanceAt ? new Date(c.derniereRelanceAt).getTime() : null;
+  const faites = c.relancesFaites ?? 0;
+
+  // Cycle plein : la prochaine date n'est plus une relance, c'est la sortie.
+  if (faites >= MAX_RELANCES && derniere !== null) {
+    return { label: `sort ${dansCombien(derniere + RELANCE_EXPIRY_DAYS * 86400000)}`, urgent: true };
+  }
+
+  // Même règle que la résolution : la date convenue vaut pour la PREMIÈRE relance,
+  // ensuite c'est le rythme des 21 jours. Deux règles divergentes afficheraient
+  // une échéance que le bouton ne respecterait pas.
+  const choisie = c.callRelanceAt ? new Date(c.callRelanceAt).getTime() : null;
+  const prochaine = derniere === null
+    ? choisie
+    : derniere + RELANCE_EXPIRY_DAYS * 86400000;
+
+  if (prochaine === null || prochaine <= Date.now()) return null;
+  return { label: dansCombien(prochaine), urgent: false };
+}
+
+/** « demain », « dans 9 jours », « dans 3 semaines ». Jamais « dans 0 jour ». */
+function dansCombien(at: number): string {
+  const jours = Math.round((at - Date.now()) / 86400000);
+  if (jours <= 0) return "aujourd'hui";
+  if (jours === 1) return 'demain';
+  if (jours < 14) return `dans ${jours} jours`;
+  const semaines = Math.round(jours / 7);
+  if (semaines < 9) return `dans ${semaines} semaines`;
+  return `dans ${Math.round(jours / 30)} mois`;
+}
+
+/**
  * La deuxième ligne d'une fiche dans le panneau d'une issue : d'où vient le lead,
  * puis où il en est DANS cette issue.
  *
@@ -1074,7 +1123,7 @@ function motifLisible(reason: string | null | undefined): string | null {
 // board.
 
 function PanneauIssue({
-  issue, cards, voile, onFermer, onOuvrirFiche, avatarColor, avatarInitials,
+  issue, cards, voile, onFermer, onOuvrirFiche, onRelancer, avatarColor, avatarInitials,
 }: {
   issue: ColumnDef;
   cards: CardData[];
@@ -1082,6 +1131,8 @@ function PanneauIssue({
   voile: Geometrie;
   onFermer: () => void;
   onOuvrirFiche: (key: string) => void;
+  /** Marque une relance faite. Absent = le bouton d'action ne s'affiche pas. */
+  onRelancer?: (key: string) => void;
   avatarColor: (n: string) => string;
   avatarInitials: (n: string) => string;
 }) {
@@ -1090,6 +1141,17 @@ function PanneauIssue({
     document.addEventListener('keydown', echap);
     return () => document.removeEventListener('keydown', echap);
   }, [onFermer]);
+
+  const viewerTz = useViewerTimeZone();
+  const dateCourte = (iso: string) => {
+    const p = formatDayPartsIn(new Date(iso), viewerTz);
+    return `${Number(p.day)} ${p.monthShort}`;
+  };
+
+  // Les relances ne concernent qu'« À recontacter » : une colonne vide sur les
+  // quatre autres issues aurait dit qu'il s'y passe quelque chose.
+  const avecRelances = issue.key === 'to_recontact';
+  const grille = avecRelances ? '1fr auto auto auto' : '1fr auto auto';
 
   return (
     <>
@@ -1110,7 +1172,7 @@ function PanneauIssue({
           // Le panneau commence sous la barre du logo : elle reste le seul repère
           // au-dessus de tout. Il descend en revanche jusqu'en bas, par-dessus le
           // board et les onglets.
-          position: 'fixed', top: voile.panneauTop, right: 0, bottom: 0, width: 'min(440px, 92vw)',
+          position: 'fixed', top: voile.panneauTop, right: 0, bottom: 0, width: 'min(520px, 94vw)',
           zIndex: 91, display: 'flex', flexDirection: 'column',
           background: 'var(--surface)', borderLeft: '1px solid var(--border)',
           boxShadow: '-14px 0 40px rgba(0,0,0,.13)',
@@ -1149,51 +1211,126 @@ function PanneauIssue({
             <div style={{ padding: '28px 20px', textAlign: 'center', fontSize: 12, color: 'var(--faint)' }}>
               Aucun lead dans cette issue.
             </div>
-          ) : cards.map(c => (
-            <button
-              key={c.key}
-              type="button"
-              onClick={() => onOuvrirFiche(c.key)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-                padding: '11px 20px', textAlign: 'left', cursor: 'pointer',
-                background: 'transparent', border: 'none',
-                borderBottom: '1px solid var(--border-soft, #f5f1e7)',
-                font: 'inherit', color: 'inherit',
-              }}
-            >
-              {c.avatarUrl ? (
-                <Image src={c.avatarUrl} alt="" width={30} height={30} unoptimized
-                  style={{ borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
-              ) : (
-                <span style={{
-                  width: 30, height: 30, borderRadius: 8, flexShrink: 0,
-                  background: avatarColor(c.name), color: '#fff',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 10, fontWeight: 700,
-                }}>{avatarInitials(c.name)}</span>
-              )}
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ display: 'block', fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {c.isIgLink ? c.name : `@${c.name}`}
-                </span>
-                <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {sousTitreIssue(issue.key, c)}
-                </span>
-              </span>
-              {/* À droite, ce qu'on attend du lead — pas la date. Une date seule
-                  demande de calculer soi-même s'il faut agir ; « dernière relance »
-                  le dit. La date reste le repli quand rien n'est attendu. */}
-              {c.nextDue ? (
-                <span style={{
-                  fontSize: 10.5, fontWeight: 600, flexShrink: 0,
-                  color: c.nextDue.urgent ? 'var(--red)' : 'var(--muted)',
-                }}>{c.nextDue.label}</span>
-              ) : (
-                <span style={{ fontSize: 11, color: 'var(--faint)', flexShrink: 0 }}>{c.date}</span>
-              )}
-            </button>
-          ))}
+          ) : (
+            <>
+              {/* En-tête de colonnes : trois faits par lead, et le geste au bout.
+                  Sans lui, « 1/3 » et « 18 juin » sont deux nombres sans nom. */}
+              <div style={{
+                display: 'grid', gridTemplateColumns: grille, gap: 10,
+                alignItems: 'center', padding: '7px 20px',
+                position: 'sticky', top: 0, zIndex: 1,
+                background: 'var(--surface-2)', borderBottom: '1px solid var(--border)',
+                fontSize: 9.5, fontWeight: 700, letterSpacing: '.07em',
+                textTransform: 'uppercase', color: 'var(--muted)',
+              }}>
+                <span>Lead</span>
+                <span>{avecRelances ? 'Classé le' : 'Date'}</span>
+                {avecRelances && <span>Relances</span>}
+                <span />
+              </div>
+
+              {cards.map(c => {
+                const echeance = echeanceRelance(issue.key, c);
+                const faites = c.relancesFaites ?? 0;
+                return (
+                  <div key={c.key} style={{
+                    display: 'grid', gridTemplateColumns: grille, gap: 10,
+                    alignItems: 'center', padding: '10px 20px',
+                    borderBottom: '1px solid var(--border-soft, #f5f1e7)',
+                  }}>
+                    {/* Le lead : cliquer ouvre sa fiche. Le bouton du bout est une
+                        action distincte, il ne doit pas hériter de ce clic — d'où
+                        deux zones, et non une ligne entièrement cliquable. */}
+                    <button
+                      type="button"
+                      onClick={() => onOuvrirFiche(c.key)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 10, minWidth: 0,
+                        textAlign: 'left', cursor: 'pointer', padding: 0,
+                        background: 'transparent', border: 'none', font: 'inherit', color: 'inherit',
+                      }}
+                    >
+                      {c.avatarUrl ? (
+                        <Image src={c.avatarUrl} alt="" width={30} height={30} unoptimized
+                          style={{ borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
+                      ) : (
+                        <span style={{
+                          width: 30, height: 30, borderRadius: 8, flexShrink: 0,
+                          background: avatarColor(c.name), color: '#fff',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 10, fontWeight: 700,
+                        }}>{avatarInitials(c.name)}</span>
+                      )}
+                      <span style={{ minWidth: 0 }}>
+                        <span style={{ display: 'block', fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {c.isIgLink ? c.name : `@${c.name}`}
+                        </span>
+                        {/* L'échéance, pas la source : dans une liste de leads à
+                            recontacter, savoir QUAND est la seule question. */}
+                        <span style={{
+                          display: 'block', fontSize: 11, marginTop: 1,
+                          color: echeance?.urgent ? 'var(--red)' : 'var(--muted)',
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        }}>
+                          {echeance?.label ?? sousTitreIssue(issue.key, c)}
+                        </span>
+                      </span>
+                    </button>
+
+                    <span style={{ fontSize: 12, color: 'var(--ink-2)', fontVariantNumeric: 'tabular-nums' }}>
+                      {c.classedAt ? dateCourte(c.classedAt) : '—'}
+                    </span>
+
+                    {avecRelances && (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {/* Trois pastilles : le cycle est borné, et sa fin se voit
+                            AVANT d'arriver. « 2/3 » seul demande de se rappeler
+                            que la borne est à trois. */}
+                        <span style={{ display: 'flex', gap: 3 }}>
+                          {Array.from({ length: MAX_RELANCES }, (_, i) => (
+                            <span key={i} style={{
+                              width: 7, height: 7, borderRadius: '50%',
+                              background: i < faites ? issue.color : 'transparent',
+                              border: i < faites ? 'none' : '1px solid var(--border)',
+                            }} />
+                          ))}
+                        </span>
+                        <span style={{ fontSize: 11, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>
+                          {faites}/{MAX_RELANCES}
+                        </span>
+                      </span>
+                    )}
+
+                    {/* Le geste attendu, à sa place, sur la ligne qui l'attend.
+                        Ailleurs, le bouton neutre : l'historique. */}
+                    {c.relanceDue && onRelancer ? (
+                      <button
+                        type="button"
+                        onClick={() => onRelancer(c.key)}
+                        style={{
+                          fontSize: 11, fontWeight: 600, padding: '6px 10px',
+                          borderRadius: 7, cursor: 'pointer', whiteSpace: 'nowrap',
+                          background: 'var(--accent-brand)', color: '#fff',
+                          border: '1px solid var(--accent-brand)',
+                        }}
+                      >Je l&rsquo;ai relancé</button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => onOuvrirFiche(c.key)}
+                        style={{
+                          fontSize: 11, fontWeight: 600, padding: '6px 10px',
+                          borderRadius: 7, cursor: 'pointer', whiteSpace: 'nowrap',
+                          background: 'var(--surface)', color: 'var(--ink-2)',
+                          border: '1px solid var(--border)',
+                        }}
+                      >Historique</button>
+                    )}
+                  </div>
+                );
+              })}
+            </>
+          )}
         </div>
       </div>
     </>
@@ -1530,6 +1667,10 @@ function getResetDescription(targetStage: string, currentStage: string, hasCall:
   }
   if (targetIdx < stages.indexOf('link_clicked')) {
     items.push('Le clic sur le lien Calendly sera effacé');
+    // Le plancher n'est pas un détail technique : sans cette ligne, on ne
+    // comprend pas pourquoi une carte avancée à la main accepte enfin de
+    // reculer — ni qu'un signal automatique pourra désormais la faire bouger.
+    items.push('L’étape confirmée à la main sera abaissée : un signal automatique pourra de nouveau faire avancer cette carte');
   }
   if (hasCall) {
     items.push('Le call Calendly réservé sera détaché (il reste dans ton historique mais ne sera plus lié à ce lead)');
@@ -2330,6 +2471,8 @@ export default function PagePipeline() {
         rapportEnRetard: state.flags.rapportEnRetard,
         relancesFaites: state.flags.relancesFaites,
         relanceDue: state.flags.relanceDue,
+        derniereRelanceAt: state.flags.derniereRelanceAt,
+        classedAt: state.classedAt,
         lastMoveAt,
         nextDue,
         ...rdv,
@@ -2463,6 +2606,8 @@ export default function PagePipeline() {
         rapportEnRetard: state.flags.rapportEnRetard,
         relancesFaites: state.flags.relancesFaites,
         relanceDue: state.flags.relanceDue,
+        derniereRelanceAt: state.flags.derniereRelanceAt,
+        classedAt: state.classedAt,
         lastMoveAt,
         nextDue,
         ...statsRdv(groupCalls, new Date()),
@@ -2612,6 +2757,8 @@ export default function PagePipeline() {
         rapportEnRetard: state.flags.rapportEnRetard,
         relancesFaites: state.flags.relancesFaites,
         relanceDue: state.flags.relanceDue,
+        derniereRelanceAt: state.flags.derniereRelanceAt,
+        classedAt: state.classedAt,
         ...statsRdv(calls, new Date()),
         lmClaimed: 0,
         lmReceived: 0,
@@ -3518,6 +3665,7 @@ export default function PagePipeline() {
               cards={cards.filter(c => c.stageKey === panneauIssue)}
               onFermer={() => setPanneauIssue(null)}
               onOuvrirFiche={key => { setPanneauIssue(null); setDetailModal({ cardKey: key, platform: tab }); }}
+              onRelancer={key => handleBulkRelance([key])}
               avatarColor={avatarColor}
               avatarInitials={avatarInitials}
             />

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  plancherApresRecul,
   resolveLeadState,
   resolveNaturalStage,
   pickDecidingCall,
@@ -263,6 +264,74 @@ test('une relance est due dès le classement, avant toute relance', () => {
   assert.equal(s.flags.relancesFaites, 0);
 });
 
+// ── La date de relance convenue dans le rapport ───────────────────────────────
+// Le rapport demande « quand relancer ? » sur un « à recontacter ». Cette réponse
+// était calculée puis jetée : le lead ressortait à relancer le jour même, quelle
+// que soit la date promise. Ces tests verrouillent le fait qu'elle compte.
+
+test('une date de relance convenue repousse la première relance', () => {
+  const s = etat({
+    manualIssue: 'to_recontact',
+    relances: [],
+    relanceAt: dans(21),
+  });
+  assert.equal(s.issue, 'to_recontact');
+  assert.equal(s.flags.relanceDue, false, 'on a promis de rappeler dans 3 semaines');
+  assert.equal(s.flags.relancesFaites, 0);
+});
+
+test('une date convenue déjà passée ne retient plus rien', () => {
+  const s = etat({ manualIssue: 'to_recontact', relances: [], relanceAt: jours(2) });
+  assert.equal(s.flags.relanceDue, true, 'la date est passée : c’est maintenant');
+});
+
+test('la date convenue du call qui décide est celle qui compte', () => {
+  const s = etat({
+    calls: [call({ outcome: 'to_recontact', relance_at: dans(10) })],
+    relances: [],
+  });
+  assert.equal(s.issue, 'to_recontact');
+  assert.equal(s.flags.relanceDue, false);
+});
+
+test('une relance faite APRÈS la date convenue rend la main au rythme des 21 jours', () => {
+  // Sans cette règle, une date convenue lointaine gèlerait le cycle pour toujours :
+  // on relance, et le lead reste « pas encore dû » jusqu'à cette date.
+  const s = etat({
+    manualIssue: 'to_recontact',
+    relanceAt: dans(30),
+    relances: [jours(1)],
+  });
+  assert.equal(s.flags.relancesFaites, 1);
+  assert.equal(s.flags.relanceDue, false, 'relancé hier : on attend 21 jours');
+
+  const vieux = etat({
+    manualIssue: 'to_recontact',
+    relanceAt: dans(30),
+    relances: [jours(RELANCE_EXPIRY_DAYS + 1)],
+  });
+  assert.equal(vieux.flags.relanceDue, true, 'la relance a vieilli, la date convenue est caduque');
+});
+
+test('la dernière relance du cycle est exposée, pour calculer les échéances', () => {
+  const s = etat({ manualIssue: 'to_recontact', relances: [jours(40), jours(3)] });
+  assert.equal(s.flags.derniereRelanceAt, jours(3));
+
+  const aucune = etat({ manualIssue: 'to_recontact', relances: [] });
+  assert.equal(aucune.flags.derniereRelanceAt, null);
+});
+
+test('classedAt : la date du call qui décide, ou celle du classement à la main', () => {
+  const parCall = etat({ calls: [call({ outcome: 'closed', scheduled_at: jours(9) })] });
+  assert.equal(parCall.classedAt, jours(9));
+
+  const aLaMain = etat({ manualIssue: 'lost', classedAt: jours(4) });
+  assert.equal(aLaMain.classedAt, jours(4));
+
+  const actif = etat({ signals: { hasReplied: true } });
+  assert.equal(actif.classedAt, null, 'un lead actif n’est entré dans aucune issue');
+});
+
 test('le cycle de relance ne touche que « À recontacter »', () => {
   // Décision de Chris : un lead Perdu ou Pas qualifié n'est dans aucun cycle.
   for (const issue of ['lost', 'not_qualified'] as const) {
@@ -490,4 +559,51 @@ test('une réponse ne défait pas le résultat d’un rendez-vous', () => {
     lastReplyAt: jours(1),
   });
   assert.equal(s.issue, 'lost', 'le call reste la source');
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LE PLANCHER MANUEL — plancherApresRecul
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+// `undefined` = ne rien écrire · `null` = effacer · une chaîne = abaisser.
+// La distinction compte : écrire `null` quand il n'y a rien à faire est
+// inoffensif ici, mais rend le test aveugle à une régression où l'on effacerait
+// un plancher qu'on devait conserver.
+
+test('plancher — aucun plancher posé, rien à écrire', () => {
+  assert.equal(plancherApresRecul('in_convo', null), undefined);
+});
+
+test('plancher — un recul plus bas l’abaisse', () => {
+  assert.equal(plancherApresRecul('in_convo', 'link_clicked'), 'in_convo');
+  assert.equal(plancherApresRecul('calendly_sent', 'link_clicked'), 'calendly_sent');
+});
+
+test('plancher — un recul vers cold_dm ou lm_sent l’efface', () => {
+  assert.equal(plancherApresRecul('cold_dm', 'link_clicked'), null);
+  assert.equal(plancherApresRecul('lm_sent', 'in_convo'), null);
+});
+
+// LE cas qui justifie la fonction : sans cette garde, reculer vers « lien
+// cliqué » un lead dont le plancher est « en conversation » le REHAUSSERAIT, et
+// bloquerait le lead plus haut qu'avant le geste.
+test('plancher — un recul plus haut que le plancher ne le rehausse jamais', () => {
+  assert.equal(plancherApresRecul('link_clicked', 'in_convo'), undefined);
+  assert.equal(plancherApresRecul('link_clicked', 'calendly_sent'), undefined);
+});
+
+test('plancher — un recul vers le plancher lui-même ne change rien', () => {
+  assert.equal(plancherApresRecul('calendly_sent', 'calendly_sent'), undefined);
+});
+
+// Une valeur illisible ne doit pas bloquer le lead à vie : on la retire.
+test('plancher — une valeur stockée inconnue est effacée', () => {
+  assert.equal(plancherApresRecul('in_convo', 'showed_up'), null);
+});
+
+// ⚠️ Le piège des deux listes : `IG_PRE_CALL` (reset) commence par `cold_dm`,
+// PLANCHERS_MANUELS non. Comparer leurs index donnerait ici 'calendly_sent'
+// (3 < 4 dans IG_PRE_CALL) au lieu de undefined (1 < 0 est faux ici).
+test('plancher — les index d’IG_PRE_CALL ne s’appliquent pas ici', () => {
+  assert.equal(plancherApresRecul('calendly_sent', 'in_convo'), undefined);
 });
