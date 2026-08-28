@@ -62,6 +62,8 @@ export interface DealEvent {
 
 export interface DealPayment {
   id: string;
+  /** L'échéance que ce paiement solde — nul en comptant et en prélèvement auto. */
+  installment_id: string | null;
   amount: number | string;
   status: string;
   paid_at: string | null;

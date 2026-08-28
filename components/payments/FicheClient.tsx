@@ -261,6 +261,15 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
   const journal = detail?.events ?? [];
   const terminee = estTerminee(deal);
 
+  // Quand chaque échéance a-t-elle réellement été payée. Un plan par liens se
+  // paie dans le désordre — la 2 avant la 1 — donc la date prévue ne dit rien
+  // de la date reçue.
+  const dateDePaiement = new Map<string, string>(
+    paiements
+      .filter(p => p.status === 'succeeded' && p.installment_id && p.paid_at)
+      .map(p => [p.installment_id as string, p.paid_at as string]),
+  );
+
   // En prélèvement automatique, l'échéancier vit chez Stripe : on va l'y lire
   // plutôt que d'afficher la seule ligne que la base connaît.
   const { lignes: prelevements } = useEcheancesAVenir(deal, detail);
@@ -350,7 +359,7 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
           {echeances.length > 0
             ? echeances.map(i => (
                 <LigneEcheance key={i.id} inst={i} total={echeances.length} mode={mode}
-                  onChange={onChange} />
+                  payeLe={dateDePaiement.get(i.id) ?? null} onChange={onChange} />
               ))
             /* ── Prélèvement automatique ──────────────────────────────────
                L'échéancier vit chez Stripe : la base ne connaît que les
@@ -547,14 +556,22 @@ function Repliable({ titre, ouvert, onToggle, children }: {
  * illisibles, et c'est justement en mode « un lien par échéance » qu'il y en a
  * plusieurs à distinguer.
  */
-function LigneEcheance({ inst, total, mode, onChange }: {
+function LigneEcheance({ inst, total, mode, payeLe, onChange }: {
   inst: DealDetail['installments'][number];
   total: number;
   mode: ReturnType<typeof modeDe>;
+  /** Date réelle du paiement, quand elle est connue. */
+  payeLe: string | null;
   onChange: () => Promise<unknown> | void;
 }) {
   const [marque, setMarque] = useState(false);
   const payee = inst.status === 'paid';
+
+  // Une échéance non payée dont la date est passée n'est pas « à payer
+  // jusqu'au », c'est en retard. La formulation au futur sur une date dépassée
+  // laissait croire qu'il restait du temps.
+  const enRetard = !payee && !!inst.due_on
+    && new Date(inst.due_on).getTime() < Date.now() - 86400_000;
 
   async function declarerRecu() {
     setMarque(true);
@@ -573,15 +590,24 @@ function LigneEcheance({ inst, total, mode, onChange }: {
       <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
         <span style={{
           width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
-          background: payee ? 'var(--green)' : inst.sent_at ? 'var(--amber)' : '#d8d2c5',
+          background: payee ? 'var(--green)' : enRetard ? 'var(--red)'
+            : inst.sent_at ? 'var(--amber)' : '#d8d2c5',
         }} />
         <span style={{ flex: 1, minWidth: 0 }}>
           <span style={{ display: 'block', fontSize: 12.5, color: payee ? 'var(--ink)' : 'var(--ink-2)' }}>
             {inst.rank}/{total}
             {'  '}
-            <span style={{ color: 'var(--muted)' }}>
-              {payee ? `payée le ${fmtDateLong(inst.due_on)}`
+            <span style={{ color: enRetard ? 'var(--red)' : 'var(--muted)' }}>
+              {/* ── La date d'un paiement est celle du PAIEMENT ──────────────
+                  On affichait `due_on`, l'échéance prévue : une échéance payée
+                  en avance annonçait donc « payée le 19 septembre » alors qu'on
+                  était le 28 août. Sans date réelle connue — un virement déclaré
+                  avant que la colonne existe — on ne date pas plutôt que
+                  d'inventer. */}
+              {payee
+                ? (payeLe ? `payée le ${fmtDateLong(payeLe)}` : 'payée')
                 : mode === 'installments_auto' ? `sera prélevée le ${fmtDateLong(inst.due_on)}`
+                : enRetard ? `en retard depuis le ${fmtDateLong(inst.due_on)}`
                 // « jusqu'au » et non « le » : le client peut payer avant, et
                 // « le 14 août » se lit comme une date imposée.
                 : `à payer jusqu’au ${fmtDateLong(inst.due_on)}`}
