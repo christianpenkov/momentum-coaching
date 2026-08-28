@@ -38,6 +38,45 @@ function debugLog(message: string, data?: any) {
   serviceSupabase.from('webhook_debug_log').insert({ message, data: data ?? null }).then();
 }
 
+/**
+ * Trace en base un refus de Meta sur un envoi de DM.
+ *
+ * Le resultat de ces envois ne partait que dans `console.error` et `pushEvent`
+ * — un flux en memoire perdu a la fin de la requete. Le 2026-08-28, trois DM1
+ * ont ete refuses par Meta sans qu'aucune trace n'en subsiste : la fiche du
+ * lead affichait `lead_magnet_sent` a true, le badge s'affichait, et le
+ * prospect n'avait rien recu. Il a fallu rejouer l'appel a la main pour
+ * decouvrir le motif (`error_subcode 2534014`).
+ *
+ * C'est le pire mode de defaillance pour cette plateforme : silencieux, et il
+ * fait perdre des prospects. `cron_runs` est la table de sante que decrit
+ * AGENTS.md (`select * from cron_runs` — vide = aucun incident), donc un echec
+ * d'envoi y devient visible sans dependre des logs Vercel.
+ *
+ * Volontairement non bloquant : tracer un echec ne doit jamais en provoquer un
+ * second, ni interrompre le traitement des evenements suivants de la file.
+ */
+function tracerEchecEnvoi(etape: string, profileId: string | null, erreur: any, contexte: Record<string, unknown> = {}) {
+  console.error(`[IG Webhook] ${etape} refuse par Meta :`, JSON.stringify(erreur));
+  serviceSupabase.from('cron_runs').insert({
+    fonction: 'ig_envoi_dm',
+    profils_en_erreur: 1,
+    erreurs: {
+      etape,
+      profile_id: profileId,
+      // Le sous-code porte le motif reel — 2534014 signale un private reply
+      // refuse, notamment sur un commentaire qui en a deja recu un (Meta n'en
+      // autorise qu'UN par commentaire, cf. app/api/webhooks/instagram/route.ts).
+      code: erreur?.code ?? null,
+      error_subcode: erreur?.error_subcode ?? null,
+      message: erreur?.message ?? null,
+      ...contexte,
+    },
+  }).then(({ error }) => {
+    if (error) console.error('[IG Webhook] trace cron_runs impossible:', error.message);
+  });
+}
+
 // Insensible à la casse ET aux accents pour le matching mot-clé lead magnet — "Méta"
 // doit matcher le mot-clé "Meta" configuré par le coach (demande explicite Chris,
 // 2026-07-30). NFD décompose les caractères accentués en (lettre de base + diacritique
@@ -797,8 +836,13 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
               lmButtonLabel
             );
             if (dm2Data.error) {
-              console.error('[IG Webhook] Erreur DM2 (lien) après clic QR:', dm2Data.error);
               pushEvent({ type: 'dm2_error', error: dm2Data.error });
+              // Le plus couteux des trois : la personne vient de cliquer, elle
+              // attend son lien. Un echec ici est invisible cote coach.
+              tracerEchecEnvoi('dm2_lien', pid, dm2Data.error, {
+                ig_username: leadForDm2.ig_username,
+                ig_lead_id: leadForDm2.id,
+              });
             } else {
               console.log(`[IG Webhook] DM2 (lien) envoyé après clic QR — message_id: ${dm2Data.message_id}`);
               pushEvent({ type: 'dm2_sent', message_id: dm2Data.message_id });
@@ -940,8 +984,8 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
             if (accrocheText) {
               const dm1Data = await sendAccroche(accrocheText, accrocheBtn);
               if (dm1Data.error) {
-                console.error('[IG Webhook] Erreur accroche story:', dm1Data.error);
                 pushEvent({ type: 'dm1_error', error: dm1Data.error, ig_user_id: senderId });
+                tracerEchecEnvoi('dm1_accroche_story', pid, dm1Data.error, { ig_user_id: senderId });
               } else {
                 leadMagnetSent = true;
                 pushEvent({ type: 'dm1_sent', message_id: dm1Data.message_id, ig_user_id: senderId });
@@ -1270,8 +1314,13 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
       const dm1Data = await dm1Res.json();
 
       if (dm1Data.error) {
-        console.error(`[IG Webhook] Erreur DM1 :`, dm1Data.error);
         pushEvent({ type: 'dm1_error', error: dm1Data.error, commenterUsername });
+        tracerEchecEnvoi('dm1_commentaire', profile_id, dm1Data.error, {
+          ig_username: commenterUsername,
+          comment_id: commentId,
+          media_id: mediaId,
+          keyword: matchedKeyword,
+        });
       } else {
         leadMagnetSent = true;
         console.log(`[IG Webhook] DM1 envoyé (avec QR button) — message_id: ${dm1Data.message_id}`);
