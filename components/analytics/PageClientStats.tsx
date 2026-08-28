@@ -16,6 +16,22 @@ import {
   AreaChart as ReAreaChart, Area,
 } from 'recharts';
 import { getPeriodWindow, parisDateStr, parisAddDays } from '@/lib/period';
+import { granulariteFenetre, regrouperComptage, regrouperTaux, libelleBucket, type Granularite } from '@/lib/chart-buckets';
+// Listes de catégories : UNE seule définition (lib/shortio-link-category.ts). Elles
+// étaient recopiées trois fois dans ce fichier (TOTAL_CLICS_CATS, SNAP_BUSINESS_CATS,
+// CHART_BUSINESS_CATS) plus trois fois pour bio/contenu — six occasions de diverger à
+// la prochaine catégorie ajoutée. Un test vérifie que les groupes du graphique
+// couvrent exactement les catégories comptées dans « Clics totaux ».
+import { BUSINESS_CATEGORIES, CATEGORY_GROUPS } from '@/lib/shortio-link-category';
+
+const CATS_BUSINESS = new Set<string>(BUSINESS_CATEGORIES);
+const CATS_BIO_IG = new Set<string>(CATEGORY_GROUPS.bioIg);
+const CATS_BIO_YT = new Set<string>(CATEGORY_GROUPS.bioYt);
+const CATS_CONTENT_IG = new Set<string>(CATEGORY_GROUPS.contentIg);
+const CATS_CONTENT_YT = new Set<string>(CATEGORY_GROUPS.contentYt);
+const CATS_DM_CALENDLY = new Set<string>(CATEGORY_GROUPS.dmCalendly);
+const CATS_DM_LM = new Set<string>(CATEGORY_GROUPS.dmLm);
+const CATS_STORY = new Set<string>(CATEGORY_GROUPS.story);
 import { isCallHonored } from '@/lib/callHonored';
 import { dureeDepuisSecondes, dureeDepuisMinutes, positionLecteur, formaterDureeVideo } from '@/lib/duree';
 
@@ -4742,7 +4758,7 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, callsAllTime, leadIdToMediaId, igLive, ytLive, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, selectedMetric, setSelectedMetric, chartFilter, setChartFilter, sinceConnection, integrationsReadyAt }: {
+function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, callsAllTime, leadIdToMediaId, igLive, ytLive, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, selectedMetric, setSelectedMetric, chartFilter, setChartFilter, sinceConnection, integrationsReadyAt, allTimeStart }: {
   shortio: ShortioStats | null;
   shortioLoading?: boolean;
   ig: IGStats | null;
@@ -4772,15 +4788,18 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   shortioChartHistoryBio?: { date: string; ig: number; yt: number }[];
   shortioChartHistoryContent?: { date: string; ig: number; yt: number }[];
   shortioChartHistoryDm?: { date: string; calendly: number; lm: number }[];
+  shortioChartHistoryStory?: { date: string; story: number }[];
   // Remontés au composant parent (PageClientStats) : ce composant est démonté/remonté
   // à chaque changement de période (loading passe par true le temps du refetch), donc
   // un state local ici serait reset à 'clics' à chaque clic précédent/suivant.
   selectedMetric: 'clics' | 'leads' | 'hookReply' | 'calendlyLinks' | 'activation' | 'calls';
   setSelectedMetric: (m: 'clics' | 'leads' | 'hookReply' | 'calendlyLinks' | 'activation' | 'calls') => void;
-  chartFilter: 'all' | 'dm' | 'content' | 'bio';
-  setChartFilter: (f: 'all' | 'dm' | 'content' | 'bio') => void;
+  chartFilter: 'all' | 'dm' | 'content' | 'bio' | 'story';
+  setChartFilter: (f: 'all' | 'dm' | 'content' | 'bio' | 'story') => void;
   sinceConnection?: boolean;
   integrationsReadyAt?: string | null;
+  /** Début réel de la fenêtre All-Time (identique à celui utilisé par le fetch). */
+  allTimeStart?: string | null;
 }) {
   const now = new Date();
   // Stories individuelles avec CTA (LM ou Calendly) — pour afficher titre/miniature des
@@ -4937,7 +4956,6 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // Clics totaux : toutes catégories business connues (bio + desc + lm_dm_auto + calendly_dm_prospect)
   // En S-0 : businessClicsFromDb couvre déjà toutes les BUSINESS_CATEGORIES
   // En S-1+ : sommer tous les clics de clicksByUrl (snapshots DB filtrés sur la fenêtre)
-  const TOTAL_CLICS_CATS = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto','calendly_dm_prospect','calendly_story']);
   const totalClics = (() => {
     if (shortioChartHistory && shortioChartHistory.length > 0) {
       // shortioChartHistory est déjà borné à la bonne fenêtre en amont (branchement 3
@@ -4965,7 +4983,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
       let total = 0;
       for (const [url, clics] of clicksByUrl) {
         const cat = catByUrl.get(url);
-        if (cat && TOTAL_CLICS_CATS.has(cat)) total += clics;
+        if (cat && CATS_BUSINESS.has(cat)) total += clics;
       }
       return total;
     }
@@ -4999,15 +5017,32 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // Tous les jours de la période restent sur l'axe (même les jours futurs d'une
   // semaine/mois en cours) — c'est chaque SÉRIE (v: null au lieu de 0) qui décide où
   // la ligne s'arrête visuellement, pas l'axe lui-même.
+  //
+  // ⚠️ En All-Time, periodStart/periodEnd valent le MOIS EN COURS : ils viennent de
+  // getPeriodWindow(_pIdx, 'month'), qui ignore sinceConnection. L'axe affichait donc
+  // « 1 août → 29 août » sous un en-tête « All-Time depuis le 09/06 » et sous un KPI
+  // « 150 clics », alors que la courbe n'en totalisait que 23. Constaté à l'écran le
+  // 2026-08-28. La fenêtre du graphique doit être celle du FETCH, pas celle du mois.
+  const chartStart = sinceConnection && allTimeStart ? new Date(allTimeStart) : periodStart;
+  const chartEnd = sinceConnection ? new Date() : periodEnd;
   const dayRange: string[] = (() => {
     const days: string[] = [];
-    let d = periodStart;
-    while (d.getTime() <= periodEnd.getTime()) {
+    let d = chartStart;
+    const finStr = utcDateStr(chartEnd);
+    while (utcDateStr(d) <= finStr) {
       days.push(utcDateStr(d));
       d = parisAddDays(d, 1);
     }
     return days;
   })();
+  // Un point par jour est lisible sur une semaine ou un mois. Sur toute l'histoire
+  // d'un élève, c'est 400 points la première année : on regroupe par semaine puis par
+  // mois au-delà des seuils de lib/chart-buckets.ts. Les séries de TAUX passent par
+  // regrouperTaux (somme des numérateurs / somme des dénominateurs) — faire la moyenne
+  // des pourcentages journaliers donnerait un chiffre faux.
+  const granularite: Granularite = granulariteFenetre(dayRange.length);
+  const parJour = granularite === 'jour';
+  const fmtAxisBucket = (v: string) => libelleBucket(v, granularite);
   const todayUTCStr = utcDateStr(new Date());
   const isFutureDay = (date: string) => date > todayUTCStr;
   // Jour antérieur à l'arrivée de l'élève : même traitement qu'un jour futur — un trou,
@@ -5020,10 +5055,12 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const isOutsideCoverage = (date: string) => isFutureDay(date) || isBeforeArrival(date);
 
   // 1. Clics totaux — déjà par jour dans shortioChartHistory, filtrer sur la fenêtre
-  const clicsSeries = dayRange.map(date => ({
-    date,
-    v: isOutsideCoverage(date) ? null : ((shortioChartHistory ?? []).find(d => d.date === date)?.clicks ?? 0),
-  }));
+  // Index par date : `.find()` dans un `.map()` était quadratique — inoffensif sur 31
+  // points, mais l'All-Time en produit 400 la première année et 800 la deuxième.
+  const clicsParJour = new Map<string, number>();
+  for (const d of shortioChartHistory ?? []) clicsParJour.set(d.date, (clicsParJour.get(d.date) ?? 0) + d.clicks);
+  const clicsSeries = regrouperComptage(dayRange, granularite,
+    date => isOutsideCoverage(date) ? null : (clicsParJour.get(date) ?? 0));
   const clicsSeriesHasData = (shortioChartHistory ?? []).length > 0;
 
   // 2. Leads commentaires — group by detected_at (jour) sur lmHistoryInPeriod (une ligne
@@ -5034,7 +5071,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const day = utcDateStr(new Date(h.detected_at));
     leadsPerDay.set(day, (leadsPerDay.get(day) ?? 0) + 1);
   }
-  const leadsSeries = dayRange.map(date => ({ date, v: isOutsideCoverage(date) ? null : (leadsPerDay.get(date) ?? 0) }));
+  const leadsSeries = regrouperComptage(dayRange, granularite, date => isOutsideCoverage(date) ? null : (leadsPerDay.get(date) ?? 0));
 
   // 3. Réponses accroche LM DM — vrai timestamp hook_replied_at (ajouté au select ci-dessus)
   const hookRepliesPerDay = new Map<string, number>();
@@ -5044,7 +5081,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const day = utcDateStr(new Date(l.hookRepliedAt));
     hookRepliesPerDay.set(day, (hookRepliesPerDay.get(day) ?? 0) + 1);
   }
-  const hookReplySeries = dayRange.map(date => ({ date, v: isOutsideCoverage(date) ? null : (hookRepliesPerDay.get(date) ?? 0) }));
+  const hookReplySeries = regrouperComptage(dayRange, granularite, date => isOutsideCoverage(date) ? null : (hookRepliesPerDay.get(date) ?? 0));
 
   // 4. Liens Calendly envoyés DM — calendly_link_sent_at ?? created_at, sur calendlyLinksSent (déjà filtré période)
   const calendlyLinksPerDay = new Map<string, number>();
@@ -5053,7 +5090,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const day = utcDateStr(new Date(ts));
     calendlyLinksPerDay.set(day, (calendlyLinksPerDay.get(day) ?? 0) + 1);
   }
-  const calendlyLinksSeries = dayRange.map(date => ({ date, v: isOutsideCoverage(date) ? null : (calendlyLinksPerDay.get(date) ?? 0) }));
+  const calendlyLinksSeries = regrouperComptage(dayRange, granularite, date => isOutsideCoverage(date) ? null : (calendlyLinksPerDay.get(date) ?? 0));
 
   // 5. Taux d'activation DM — deux ratios par jour, comme la KPI card (LM et Calendly) :
   // LM = clics lead magnet / LM envoyés (jour = commentedAt), Calendly = clics lien
@@ -5068,12 +5105,9 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     lmEnvoyesPerDay.set(day, (lmEnvoyesPerDay.get(day) ?? 0) + 1);
     if (l.id && lmClickedByLeadId?.has(l.id)) lmClicsPerDay.set(day, (lmClicsPerDay.get(day) ?? 0) + 1);
   }
-  const activationLmSeries = dayRange.map(date => {
-    if (isOutsideCoverage(date)) return { date, v: null as any };
-    const sent = lmEnvoyesPerDay.get(date) ?? 0;
-    const clicked = lmClicsPerDay.get(date) ?? 0;
-    return { date, v: sent > 0 ? Math.round((clicked / sent) * 100) : 0 };
-  });
+  const activationLmSeries = regrouperTaux(dayRange, granularite, date => isOutsideCoverage(date)
+    ? null
+    : { num: lmClicsPerDay.get(date) ?? 0, den: lmEnvoyesPerDay.get(date) ?? 0 });
 
   const calendlyClicsPerDay = new Map<string, number>();
   for (const l of calendlyLinksSent) {
@@ -5081,16 +5115,15 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const day = utcDateStr(new Date(l.calendly_link_sent_at ?? l.created_at));
     calendlyClicsPerDay.set(day, (calendlyClicsPerDay.get(day) ?? 0) + 1);
   }
-  const activationCalendlySeries = dayRange.map(date => {
-    if (isOutsideCoverage(date)) return { date, v: null as any };
-    const sent = calendlyLinksPerDay.get(date) ?? 0;
-    const clicked = calendlyClicsPerDay.get(date) ?? 0;
-    return { date, v: sent > 0 ? Math.round((clicked / sent) * 100) : 0 };
-  });
-  const activationSeries = dayRange.map((date, i) => ({
-    date,
-    lm: activationLmSeries[i].v,
-    calendly: activationCalendlySeries[i].v,
+  const activationCalendlySeries = regrouperTaux(dayRange, granularite, date => isOutsideCoverage(date)
+    ? null
+    : { num: calendlyClicsPerDay.get(date) ?? 0, den: calendlyLinksPerDay.get(date) ?? 0 });
+  // Les deux séries partagent la même liste de buckets (même dayRange, même
+  // granularité) : l'index est donc aligné par construction.
+  const activationSeries = activationLmSeries.map((p, i) => ({
+    date: p.date,
+    lm: p.v,
+    calendly: activationCalendlySeries[i]?.v ?? null,
   }));
 
   // 6. Calls bookés — groupés par jour sur la date de RÉSERVATION, la même que
@@ -5111,9 +5144,19 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // null (trou) hors couverture, comme les autres séries : avant l'arrivée de l'élève
   // ou après aujourd'hui, un 0 se lirait comme « aucun call » au lieu de « pas de
   // donnée ».
-  const callsSeries = dayRange.map(date => isOutsideCoverage(date)
-    ? { date, booked: null, honored: null, closed: null, revenue: null }
-    : { date, ...(callsPerDay.get(date) ?? { booked: 0, honored: 0, closed: 0, revenue: 0 }) });
+  const callsChamp = (champ: 'booked' | 'honored' | 'closed' | 'revenue') =>
+    regrouperComptage(dayRange, granularite, date => isOutsideCoverage(date) ? null : (callsPerDay.get(date)?.[champ] ?? 0));
+  const callsBookedB = callsChamp('booked');
+  const callsHonoredB = callsChamp('honored');
+  const callsClosedB = callsChamp('closed');
+  const callsRevenueB = callsChamp('revenue');
+  const callsSeries = callsBookedB.map((p, i) => ({
+    date: p.date,
+    booked: p.v,
+    honored: callsHonoredB[i]?.v ?? null,
+    closed: callsClosedB[i]?.v ?? null,
+    revenue: callsRevenueB[i]?.v ?? null,
+  }));
 
   // ── Graphique filtré — sur la vraie période sélectionnée (dayRange), pas une fenêtre
   // glissante fixe de 30 jours indépendante de periodStart/periodEnd. Avant ce fix,
@@ -5123,24 +5166,33 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // Content/Dm — voir fetchSupabaseStats/fetchSnapshot — couvrent maintenant aussi
   // l'historique). Source : mêmes tables shortio_link_daily_snapshots par catégorie
   // que shortioChartHistory (total), déjà filtrées sur periodStart/periodEnd.
-  const chartDataBio: { date: string; ig: number | null; yt: number | null }[] = dayRange.map(date => {
-    if (isOutsideCoverage(date)) return { date, ig: null, yt: null };
-    const row = (shortioChartHistoryBio ?? []).find(d => d.date === date);
-    return { date, ig: row?.ig ?? 0, yt: row?.yt ?? 0 };
-  });
-  const chartDataContent: { date: string; ig: number | null; yt: number | null }[] = dayRange.map(date => {
-    if (isOutsideCoverage(date)) return { date, ig: null, yt: null };
-    const row = (shortioChartHistoryContent ?? []).find(d => d.date === date);
-    return { date, ig: row?.ig ?? 0, yt: row?.yt ?? 0 };
-  });
-  const chartDataDm: { date: string; calendly: number | null; lm: number | null }[] = dayRange.map(date => {
-    if (isOutsideCoverage(date)) return { date, calendly: null, lm: null };
-    const row = (shortioChartHistoryDm ?? []).find(d => d.date === date);
-    return { date, calendly: row?.calendly ?? 0, lm: row?.lm ?? 0 };
-  });
+  // Index par date puis regroupement, comme clicsSeries : `.find()` dans un `.map()`
+  // coûtait O(jours x lignes), invisible sur un mois, sensible sur l'All-Time.
+  const indexerParDate = <T extends { date: string }>(rows: T[] | undefined) => {
+    const m = new Map<string, T>();
+    for (const r of rows ?? []) m.set(r.date, r);
+    return m;
+  };
+  const bioParJour = indexerParDate(shortioChartHistoryBio);
+  const contentParJour = indexerParDate(shortioChartHistoryContent);
+  const dmParJour = indexerParDate(shortioChartHistoryDm);
+  const serieDouble = <A extends string, B extends string>(
+    index: Map<string, any>, cleA: A, cleB: B,
+  ): ({ date: string } & Record<A | B, number | null>)[] => {
+    const a = regrouperComptage(dayRange, granularite, date => isOutsideCoverage(date) ? null : (index.get(date)?.[cleA] ?? 0));
+    const b = regrouperComptage(dayRange, granularite, date => isOutsideCoverage(date) ? null : (index.get(date)?.[cleB] ?? 0));
+    return a.map((p, i) => ({ date: p.date, [cleA]: p.v, [cleB]: b[i]?.v ?? null } as any));
+  };
+  const chartDataBio = serieDouble(bioParJour, 'ig', 'yt');
+  const chartDataContent = serieDouble(contentParJour, 'ig', 'yt');
+  const chartDataDm = serieDouble(dmParJour, 'calendly', 'lm');
+  const storyParJour = indexerParDate(shortioChartHistoryStory);
+  const chartDataStory = regrouperComptage(dayRange, granularite,
+    date => isOutsideCoverage(date) ? null : (storyParJour.get(date)?.story ?? 0));
   const chartDataHasHistory = chartFilter === 'bio' ? (shortioChartHistoryBio?.length ?? 0) > 0
     : chartFilter === 'content' ? (shortioChartHistoryContent?.length ?? 0) > 0
     : chartFilter === 'dm' ? (shortioChartHistoryDm?.length ?? 0) > 0
+    : chartFilter === 'story' ? (shortioChartHistoryStory?.length ?? 0) > 0
     : false;
 
   // ── Section 2 : tableau consolidé par contenu — tous les posts, pas seulement ceux avec business ──
@@ -5322,6 +5374,12 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 
   const consolidatedRows = [...rawConsolidatedRows, ...storySequenceContentRows]
     .sort((a, b) => b.views - a.views || b.revenue - a.revenue);
+  // « Activité business » = au moins une colonne business non nulle. Sert au sous-titre
+  // de la section, qui annonçait le nombre TOTAL de contenus sous le libellé « avec
+  // activité business » — un post publié sans aucun lien ni lead y était compté.
+  const aDeLActivite = (r: typeof consolidatedRows[number]) =>
+    r.clicsDesc > 0 || r.lmDetectes > 0 || r.lmClics > 0 || r.lmReponses > 0 ||
+    r.dmCount > 0 || r.callsBooked > 0 || r.callsHonored > 0 || r.closed > 0 || r.revenue > 0;
 
   // ── Section 3 : pipeline prospects ──
   const getProspectStatus = (l: any): ProspectStatus => {
@@ -5358,16 +5416,21 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           // doit contenir que des leads ayant effectivement reçu un LM (un clic sur un
           // lien LM sans envoi enregistré sortirait le ratio au-dessus de 100 %).
           const lmClics = leadsInPeriod.filter((l: MockLead) => l.id && l.leadMagnetSent && lmClickedByLeadId?.has(l.id)).length;
-          const tauxLmClic = lmEnvoyes > 0 ? Math.round((lmClics / lmEnvoyes) * 100) : 0;
+          const tauxLmClic = lmEnvoyes > 0 ? Math.round((lmClics / lmEnvoyes) * 100) : null;
           // calendlyActivatedDb (et non un recomptage par lead) : compte les first_click_at
           // PARMI calendlyLinksSent, donc exactement la population du dénominateur
           // lmCalendlyLinks. L'ancien calcul comptait les leads porteurs d'un événement
           // link_clicked, une population différente : un lead ayant cliqué alors que sa
           // ligne prospect_links n'était pas marquée calendly_link_sent comptait au
           // numérateur sans être au dénominateur — observé à 150 % (3 clics / 2 liens).
-          const tauxCalendlyClic = lmCalendlyLinks > 0 ? Math.round((calendlyActivatedDb / lmCalendlyLinks) * 100) : 0;
-          const tauxActColor = tauxCalendlyClic >= 50 ? GREEN : tauxCalendlyClic >= 25 ? AMBER : RED;
-          const tauxLmColor = tauxLmClic >= 50 ? GREEN : tauxLmClic >= 25 ? AMBER : RED;
+          const tauxCalendlyClic = lmCalendlyLinks > 0 ? Math.round((calendlyActivatedDb / lmCalendlyLinks) * 100) : null;
+          // `null` et non `0` quand aucun lien n'a été envoyé : un « 0 % » en rouge
+          // affirme « personne n'a cliqué », alors que la vérité est « il n'y avait
+          // rien à cliquer ». Observé en août 2026 : 0 lien Calendly envoyé, et la
+          // carte affichait quand même 0 % en rouge.
+          const couleurTaux = (t: number | null) => t === null ? 'var(--faint)' : t >= 50 ? GREEN : t >= 25 ? AMBER : RED;
+          const tauxActColor = couleurTaux(tauxCalendlyClic);
+          const tauxLmColor = couleurTaux(tauxLmClic);
 
           const cardStyle = (metric: NonNullable<typeof selectedMetric>) => ({
             background: selectedMetric === metric ? '#3a6a8610' : 'var(--surface-2)',
@@ -5435,12 +5498,12 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                 <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
                   <div>
                     <div style={{ fontSize: 10, color: 'var(--faint)', marginBottom: 2 }}>LM</div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: tauxLmColor, lineHeight: 1 }}>{tauxLmClic}%</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: tauxLmColor, lineHeight: 1 }}>{tauxLmClic === null ? '—' : `${tauxLmClic}%`}</div>
                   </div>
                   <div style={{ width: 1, height: 28, background: 'var(--border)' }} />
                   <div>
                     <div style={{ fontSize: 10, color: 'var(--faint)', marginBottom: 2 }}>Calendly</div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: tauxActColor, lineHeight: 1 }}>{tauxCalendlyClic}%</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: tauxActColor, lineHeight: 1 }}>{tauxCalendlyClic === null ? '—' : `${tauxCalendlyClic}%`}</div>
                   </div>
                 </div>
                 <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>clics / liens envoyés</div>
@@ -5475,7 +5538,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         {selectedMetric === 'clics' && (
           <>
           <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
-            {([['all', 'Tous les clics'], ['dm', 'DM uniquement'], ['content', 'Contenu uniquement'], ['bio', 'Bio uniquement']] as const).map(([k, label]) => (
+            {/* « Story » manquait : les clics calendly_story comptaient dans « Tous les clics »
+                sans appartenir à aucun filtre, rendant la somme des filtres inférieure au
+                total sans explication. */}
+            {([['all', 'Tous les clics'], ['dm', 'DM uniquement'], ['content', 'Contenu uniquement'], ['bio', 'Bio uniquement'], ['story', 'Story uniquement']] as const).map(([k, label]) => (
               <button key={k} onClick={() => setChartFilter(k)} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: `1px solid ${chartFilter === k ? 'var(--accent-brand)' : 'var(--border)'}`, background: chartFilter === k ? '#3a6a8612' : 'transparent', color: chartFilter === k ? 'var(--accent-brand)' : 'var(--muted)', transition: 'all .12s' }}>
                 {label}
               </button>
@@ -5484,7 +5550,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           {chartFilter === 'all' ? (
             clicsSeriesHasData || clicsSeries.some(d => (d.v ?? 0) > 0) ? (
               <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
-                <AreaChart data={clicsSeries} areas={[{ key: 'v', label: 'Clics', color: 'var(--accent-brand)' }]} xKey="date" height={200} showWeekday={sPeriod === 7} />
+                <AreaChart data={clicsSeries} tickFormatter={parJour ? undefined : fmtAxisBucket} areas={[{ key: 'v', label: 'Clics', color: 'var(--accent-brand)' }]} xKey="date" height={200} showWeekday={parJour && sPeriod === 7} />
               </div>
             ) : (
               <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', borderRadius: 10, color: 'var(--muted)', fontSize: 12, marginBottom: 10 }}>
@@ -5508,7 +5574,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     <stop offset="95%" stopColor={YT_COLOR} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates((chartFilter === 'bio' ? chartDataBio : chartDataContent).length, sPeriod)} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={!parJour ? fmtAxisBucket : (sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate)} interval={graduationsDates((chartFilter === 'bio' ? chartDataBio : chartDataContent).length, sPeriod)} />
                 {/* Domain avec marge explicite — pas de Math.max(0, ...) inconditionnel sur
                     la borne basse (confirmé par inspection DOM réelle : ce clamp écrasait la
                     marge à 0 dès que dataMin valait déjà 0, laissant le point collé pile au
@@ -5533,6 +5599,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                 <Area type="monotone" dataKey="yt" name="YouTube" stroke={YT_COLOR} strokeWidth={2} fill="url(#grad-chart-yt)" dot={todayDotFactory(YT_COLOR, 'date', lastRealPointKey(chartFilter === 'bio' ? chartDataBio : chartDataContent, 'date', 'yt'))} activeDot={{ r: 3, strokeWidth: 0, fill: YT_COLOR }} isAnimationActive={false} />
               </ReAreaChart>
             </ResponsiveContainer>
+          ) : chartFilter === 'story' ? (
+            <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
+              <AreaChart data={chartDataStory} tickFormatter={parJour ? undefined : fmtAxisBucket} areas={[{ key: 'v', label: 'Story', color: '#8B5CF6' }]} xKey="date" height={200} showWeekday={parJour && sPeriod === 7} />
+            </div>
           ) : chartFilter === 'dm' ? (
             <ResponsiveContainer width="100%" height={200}>
               <ReAreaChart data={chartDataDm} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
@@ -5546,7 +5616,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     <stop offset="95%" stopColor={AMBER} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(chartDataDm.length, sPeriod)} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={!parJour ? fmtAxisBucket : (sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate)} interval={graduationsDates(chartDataDm.length, sPeriod)} />
                 {/* Clampé à 0 si dataMin >= 0 (compteur de clics jamais négatif) — mêmes
                     raisons que le bloc content/bio ci-dessus, évite un tick "-1" absurde
                     quand tous les jours sont à 0. */}
@@ -5573,24 +5643,24 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         )}
         {selectedMetric === 'leads' && (
           <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
-            <AreaChart data={leadsSeries} areas={[{ key: 'v', label: 'Leads', color: AMBER }]} xKey="date" height={160} showWeekday={sPeriod === 7} />
+            <AreaChart data={leadsSeries} tickFormatter={parJour ? undefined : fmtAxisBucket} areas={[{ key: 'v', label: 'Leads', color: AMBER }]} xKey="date" height={160} showWeekday={parJour && sPeriod === 7} />
           </div>
         )}
         {selectedMetric === 'hookReply' && (
           <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
-            <AreaChart data={hookReplySeries} areas={[{ key: 'v', label: 'Réponses', color: GREEN }]} xKey="date" height={160} showWeekday={sPeriod === 7} />
+            <AreaChart data={hookReplySeries} tickFormatter={parJour ? undefined : fmtAxisBucket} areas={[{ key: 'v', label: 'Réponses', color: GREEN }]} xKey="date" height={160} showWeekday={parJour && sPeriod === 7} />
           </div>
         )}
         {selectedMetric === 'calendlyLinks' && (
           <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
-            <AreaChart data={calendlyLinksSeries} areas={[{ key: 'v', label: 'Liens envoyés', color: BLUE }]} xKey="date" height={160} showWeekday={sPeriod === 7} />
+            <AreaChart data={calendlyLinksSeries} tickFormatter={parJour ? undefined : fmtAxisBucket} areas={[{ key: 'v', label: 'Liens envoyés', color: BLUE }]} xKey="date" height={160} showWeekday={parJour && sPeriod === 7} />
           </div>
         )}
         {selectedMetric === 'activation' && (
           <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
             <ResponsiveContainer width="100%" height={160}>
               <ReAreaChart data={activationSeries} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(activationSeries.length, sPeriod)} padding={{ left: 0, right: 0 }} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={!parJour ? fmtAxisBucket : (sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate)} interval={graduationsDates(activationSeries.length, sPeriod)} padding={{ left: 0, right: 0 }} />
                 <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={36} unit="%" domain={[-4, 100]} />
                 <Tooltip content={({ active, payload, label }) => !active || !payload?.length ? null : (
                   <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div>
@@ -5611,7 +5681,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             <ResponsiveContainer width="100%" height={180}>
               <ComposedChart data={callsSeries} margin={{ top: 4, right: 8, left: 0, bottom: 0 }} barCategoryGap="0%">
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(callsSeries.length, sPeriod)} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={!parJour ? fmtAxisBucket : (sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate)} interval={graduationsDates(callsSeries.length, sPeriod)} />
                 <YAxis yAxisId="left" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${v}€`} />
                 <Tooltip content={({ active, payload, label }) => !active || !payload?.length ? null : (
@@ -5632,13 +5702,11 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         {/* ── Tableau breakdown par source ── */}
         {(() => {
           // Clics bio depuis DB uniquement (urlToCategoryFromDb = source de vérité, pas limité au top 20 API)
-          const BIO_IG_CATS = new Set(['calendly_bio_ig','lm_bio_ig']);
-          const BIO_YT_CATS = new Set(['calendly_bio_yt','lm_bio_yt']);
           const bioIGClics = clicksByUrl ? [...clicksByUrl.entries()]
-            .filter(([url]) => BIO_IG_CATS.has(urlToCategoryFromDb?.get(url) ?? ''))
+            .filter(([url]) => CATS_BIO_IG.has(urlToCategoryFromDb?.get(url) ?? ''))
             .reduce((s, [, v]) => s + v, 0) : null;
           const bioYTClics = clicksByUrl ? [...clicksByUrl.entries()]
-            .filter(([url]) => BIO_YT_CATS.has(urlToCategoryFromDb?.get(url) ?? ''))
+            .filter(([url]) => CATS_BIO_YT.has(urlToCategoryFromDb?.get(url) ?? ''))
             .reduce((s, [, v]) => s + v, 0) : null;
           const isCalendlyLink = (l: any) => (l.originalUrl || '').toLowerCase().includes('calendly');
           const igContentLinks = postLinks.filter((l: any) => l.postPlatform === 'IG' && isCalendlyLink(l));
@@ -6087,7 +6155,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 
       {/* ── Section 2 : Performance par contenu ── */}
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 22px' }}>
-        <SectionHead title="Performance par contenu" sub={`${consolidatedRows.length} contenus avec activité business`} />
+        {/* Le sous-titre annonçait « N contenus avec activité business » alors que
+            consolidatedRows contient TOUS les posts et vidéos du compte, y compris ceux
+            dont chaque colonne vaut « — ». Deux chiffres désormais, tous deux vrais. */}
+        <SectionHead title="Performance par contenu" sub={`${consolidatedRows.filter(aDeLActivite).length} contenus avec activité business sur ${consolidatedRows.length}`} />
 
         {/* Barre de filtres */}
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14, paddingBottom: 14, borderBottom: '1px solid var(--border)' }}>
@@ -6764,7 +6835,11 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     const qualifiedAnswered = qualifiableProspects.length;
                     const qualifiedPct = qualifiedAnswered > 0 ? Math.round((qualifiedCount / qualifiedAnswered) * 100) : null;
 
-                    const hasActivity = leadsCount > 0;
+                    // `clicsDesc` est affiché indépendamment de hasActivity (colonne
+                    // « Clics desc. » ci-dessous) : le laisser hors de cette condition
+                    // faisait cohabiter la mention « Aucune activité » et « 2 clics » sur
+                    // la même ligne (observé sur le LM « Tunnel Closing », août 2026).
+                    const hasActivity = leadsCount > 0 || clicsDesc > 0;
 
                     return (
                       <tr key={i} style={{ borderBottom: '1px solid var(--border-soft)' }}>
@@ -6823,10 +6898,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 }
 
 // ── Pill période flottante (onglet Funnel & Calls) ────────────────────────────
-function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, connectedAt, sinceConnection, setSinceConnection }: {
+function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, connectedAt, allTimeStart, sinceConnection, setSinceConnection }: {
   period: Period; setPeriod: (p: Period) => void;
   periodIndex: number; setPeriodIndex: (fn: (i: number) => number) => void;
   connectedAt?: string | null;
+  /** Début RÉEL de la fenêtre All-Time (integrations_ready_at), à ne pas confondre
+   *  avec connectedAt, qui borne seulement la navigation arrière. Les deux divergent :
+   *  29/05 contre 09/06 sur le profil de test, soit 11 jours annoncés à tort. */
+  allTimeStart?: string | null;
   sinceConnection?: boolean; setSinceConnection?: (v: boolean) => void;
 }) {
   const maxIndex = connectedAt
@@ -6847,12 +6926,11 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, connectedA
       <div style={{ textAlign: 'center', minWidth: 120 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
           {/* « All-Time » plutôt que « Depuis connexion » : le nom du mode côté
-              utilisateur. La fenêtre reste techniquement [connectedAt, aujourd'hui]
-              — c'est bien tout l'historique disponible, la connexion étant le
-              premier jour où des données existent. */}
+              utilisateur. La fenêtre est [integrations_ready_at, aujourd'hui] —
+              le jour où le pipeline Momentum de l'élève est devenu opérationnel. */}
           {sinceConnection ? 'All-Time' : (periodIndex === 0 ? 'Période actuelle' : `${period === 7 ? 'S' : 'M'}−${periodIndex}`)}
         </div>
-        <div style={{ fontSize: 10, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{sinceConnection ? (connectedAt ? `depuis le ${new Date(connectedAt).toLocaleDateString('fr-FR')}` : '') : periodLabel(period, periodIndex)}</div>
+        <div style={{ fontSize: 10, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{sinceConnection ? ((allTimeStart ?? connectedAt) ? `depuis le ${new Date((allTimeStart ?? connectedAt)!).toLocaleDateString('fr-FR')}` : '') : periodLabel(period, periodIndex)}</div>
       </div>
       <button onClick={() => setPeriodIndex(i => Math.max(i - 1, 0))} disabled={sinceConnection || periodIndex === 0}
         style={{ background: 'none', border: 'none', cursor: (sinceConnection || periodIndex === 0) ? 'default' : 'pointer', fontSize: 20, color: (sinceConnection || periodIndex === 0) ? 'var(--faint)' : 'var(--ink)', padding: '0 4px', lineHeight: 1 }}>›</button>
@@ -7037,7 +7115,6 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   // retour, jamais de risque de troncature à 1000 même avec des centaines de liens).
   const snapClicksByUrl = new Map<string, number>();
   const snapClicksByPath = new Map<string, number>();
-  const SNAP_BUSINESS_CATS = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto','calendly_dm_prospect','calendly_story']);
   let snapBusinessClicsFromDb = 0;
   for (const row of shortioClickRows as { short_url: string | null; path: string | null; link_category: string | null; total_clicks: number }[]) {
     const clicks = row.total_clicks ?? 0;
@@ -7049,7 +7126,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       const p = row.path.toLowerCase();
       snapClicksByPath.set(p, (snapClicksByPath.get(p) ?? 0) + clicks);
     }
-    if (row.link_category && SNAP_BUSINESS_CATS.has(row.link_category)) {
+    if (row.link_category && CATS_BUSINESS.has(row.link_category)) {
       snapBusinessClicsFromDb += clicks;
     }
   }
@@ -7058,10 +7135,6 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   // même RPC get_shortio_clicks_by_day que fetchSupabaseStats (voir le commentaire
   // détaillé là-bas sur la root cause de troncature à 1000 lignes) — jamais de
   // risque de dépassement, même pour un mois avec beaucoup de liens actifs.
-  const SNAP_BIO_IG_CATS = new Set(['calendly_bio_ig', 'lm_bio_ig']);
-  const SNAP_BIO_YT_CATS = new Set(['calendly_bio_yt', 'lm_bio_yt']);
-  const SNAP_CONTENT_IG_CATS = new Set(['calendly_desc_ig', 'lm_desc_ig']);
-  const SNAP_CONTENT_YT_CATS = new Set(['calendly_desc_yt', 'lm_desc_yt']);
   const snapChartByDate = new Map<string, number>();
   const snapBioIgByDate = new Map<string, number>();
   const snapBioYtByDate = new Map<string, number>();
@@ -7069,6 +7142,11 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   const snapContentYtByDate = new Map<string, number>();
   const snapDmCalendlyByDate = new Map<string, number>();
   const snapDmLmByDate = new Map<string, number>();
+  // Story : cette série manquait. `calendly_story` était compté dans « Clics totaux »
+  // mais n'appartenait à AUCUN des trois filtres du graphique — « Tous les clics »
+  // valait donc strictement plus que Bio + Contenu + DM, sans explication possible
+  // (1 clic sur 23 en août 2026, mesuré le 2026-08-28).
+  const snapStoryByDate = new Map<string, number>();
   const { data: snapChartRpcData, error: snapChartRpcError } = await supabase.rpc('get_shortio_clicks_by_day', {
     p_profile_id: targetId,
     p_start_date: startDateStr,
@@ -7078,15 +7156,16 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   for (const row of (snapChartRpcData ?? []) as { date: string; link_category: string; total_clicks: number }[]) {
     if (!row.date || !row.link_category) continue;
     const clicks = row.total_clicks ?? 0;
-    if (SNAP_BUSINESS_CATS.has(row.link_category)) {
+    if (CATS_BUSINESS.has(row.link_category)) {
       snapChartByDate.set(row.date, (snapChartByDate.get(row.date) ?? 0) + clicks);
     }
-    if (SNAP_BIO_IG_CATS.has(row.link_category)) snapBioIgByDate.set(row.date, (snapBioIgByDate.get(row.date) ?? 0) + clicks);
-    else if (SNAP_BIO_YT_CATS.has(row.link_category)) snapBioYtByDate.set(row.date, (snapBioYtByDate.get(row.date) ?? 0) + clicks);
-    else if (SNAP_CONTENT_IG_CATS.has(row.link_category)) snapContentIgByDate.set(row.date, (snapContentIgByDate.get(row.date) ?? 0) + clicks);
-    else if (SNAP_CONTENT_YT_CATS.has(row.link_category)) snapContentYtByDate.set(row.date, (snapContentYtByDate.get(row.date) ?? 0) + clicks);
-    else if (row.link_category === 'calendly_dm_prospect') snapDmCalendlyByDate.set(row.date, (snapDmCalendlyByDate.get(row.date) ?? 0) + clicks);
-    else if (row.link_category === 'lm_dm_auto') snapDmLmByDate.set(row.date, (snapDmLmByDate.get(row.date) ?? 0) + clicks);
+    if (CATS_BIO_IG.has(row.link_category)) snapBioIgByDate.set(row.date, (snapBioIgByDate.get(row.date) ?? 0) + clicks);
+    else if (CATS_BIO_YT.has(row.link_category)) snapBioYtByDate.set(row.date, (snapBioYtByDate.get(row.date) ?? 0) + clicks);
+    else if (CATS_CONTENT_IG.has(row.link_category)) snapContentIgByDate.set(row.date, (snapContentIgByDate.get(row.date) ?? 0) + clicks);
+    else if (CATS_CONTENT_YT.has(row.link_category)) snapContentYtByDate.set(row.date, (snapContentYtByDate.get(row.date) ?? 0) + clicks);
+    else if (CATS_DM_CALENDLY.has(row.link_category)) snapDmCalendlyByDate.set(row.date, (snapDmCalendlyByDate.get(row.date) ?? 0) + clicks);
+    else if (CATS_DM_LM.has(row.link_category)) snapDmLmByDate.set(row.date, (snapDmLmByDate.get(row.date) ?? 0) + clicks);
+    else if (CATS_STORY.has(row.link_category)) snapStoryByDate.set(row.date, (snapStoryByDate.get(row.date) ?? 0) + clicks);
   }
   // Variation "Clics totaux" vs la période équivalente précédente — même principe
   // que fetchSupabaseStats (voir le commentaire détaillé là-bas). Ici periodIndex
@@ -7101,7 +7180,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   if (snapPrevChartRpcError) console.error('[PageClientStats] get_shortio_clicks_by_day (fetchSnapshot, période précédente) a échoué:', snapPrevChartRpcError.message);
   let snapPrevBusinessClics = 0;
   for (const row of (snapPrevChartRpcData ?? []) as { date: string; link_category: string; total_clicks: number }[]) {
-    if (row.link_category && SNAP_BUSINESS_CATS.has(row.link_category)) snapPrevBusinessClics += (row.total_clicks ?? 0);
+    if (row.link_category && CATS_BUSINESS.has(row.link_category)) snapPrevBusinessClics += (row.total_clicks ?? 0);
   }
   // Même convention que fetchSupabaseStats (voir commentaire là-bas) : 0/0 → 0%,
   // 0 → X → +100%, sinon vraie variation. Jamais null.
@@ -7117,6 +7196,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   const snapShortioChartHistoryBio: { date: string; ig: number; yt: number }[] = [];
   const snapShortioChartHistoryContent: { date: string; ig: number; yt: number }[] = [];
   const snapShortioChartHistoryDm: { date: string; calendly: number; lm: number }[] = [];
+  const snapShortioChartHistoryStory: { date: string; story: number }[] = [];
   {
     let d = periodStart;
     while (d.getTime() <= periodEnd.getTime()) {
@@ -7124,6 +7204,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       snapShortioChartHistoryBio.push({ date: dateStr, ig: snapBioIgByDate.get(dateStr) ?? 0, yt: snapBioYtByDate.get(dateStr) ?? 0 });
       snapShortioChartHistoryContent.push({ date: dateStr, ig: snapContentIgByDate.get(dateStr) ?? 0, yt: snapContentYtByDate.get(dateStr) ?? 0 });
       snapShortioChartHistoryDm.push({ date: dateStr, calendly: snapDmCalendlyByDate.get(dateStr) ?? 0, lm: snapDmLmByDate.get(dateStr) ?? 0 });
+      snapShortioChartHistoryStory.push({ date: dateStr, story: snapStoryByDate.get(dateStr) ?? 0 });
       d = parisAddDays(d, 1);
     }
   }
@@ -7368,6 +7449,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     shortioChartHistoryBio: snapShortioChartHistoryBio,
     shortioChartHistoryContent: snapShortioChartHistoryContent,
     shortioChartHistoryDm: snapShortioChartHistoryDm,
+    shortioChartHistoryStory: snapShortioChartHistoryStory,
   };
   } catch (e) {
     return null;
@@ -7816,20 +7898,16 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
   // Graphique historique : déjà agrégé côté DB par get_shortio_clicks_by_day
   // (1 ligne par jour × catégorie, plus jamais 1 ligne par lien — voir le
   // commentaire détaillé plus haut sur la root cause de troncature à 1000 lignes).
-  const CHART_BUSINESS_CATS = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto','calendly_dm_prospect','calendly_story']);
   const chartByDate = new Map<string, number>();
   // Sous-totaux par catégorie de source (bio/contenu/dm) — alimente les graphiques
   // filtrés "DM/Contenu/Bio uniquement" sur la vraie période sélectionnée.
-  const BIO_IG_CATS = new Set(['calendly_bio_ig', 'lm_bio_ig']);
-  const BIO_YT_CATS = new Set(['calendly_bio_yt', 'lm_bio_yt']);
-  const CONTENT_IG_CATS = new Set(['calendly_desc_ig', 'lm_desc_ig']);
-  const CONTENT_YT_CATS = new Set(['calendly_desc_yt', 'lm_desc_yt']);
   const bioIgByDate = new Map<string, number>();
   const bioYtByDate = new Map<string, number>();
   const contentIgByDate = new Map<string, number>();
   const contentYtByDate = new Map<string, number>();
   const dmCalendlyByDate = new Map<string, number>();
   const dmLmByDate = new Map<string, number>();
+  const storyByDate = new Map<string, number>();
   // calendlyStaticClicsFromDb/businessClicsFromDb : calculés ici (depuis l'agrégat
   // RPC, jamais tronqué) plutôt que depuis shortioClicksRes plus haut, qui peut
   // dépasser 1000 lignes sur un mois chargé — voir commentaire sur clicksByUrl.
@@ -7838,7 +7916,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
   for (const row of (shortioChartHistoryRpc.data ?? []) as { date: string; link_category: string; total_clicks: number }[]) {
     if (!row.date || !row.link_category) continue;
     const clicks = row.total_clicks ?? 0;
-    if (CHART_BUSINESS_CATS.has(row.link_category)) {
+    if (CATS_BUSINESS.has(row.link_category)) {
       chartByDate.set(row.date, (chartByDate.get(row.date) ?? 0) + clicks);
       // businessClicsFromDb/calendlyStaticClicsFromDb représentent uniquement la
       // période courante (KPI "Clics totaux" du haut de page) — shortioChartHistoryRpc
@@ -7847,12 +7925,13 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
       if (row.date >= since30d && row.date <= until30d) businessClicsFromDb += clicks;
     }
     if (CALENDLY_CATEGORIES.has(row.link_category) && row.date >= since30d && row.date <= until30d) calendlyStaticClicsFromDb += clicks;
-    if (BIO_IG_CATS.has(row.link_category)) bioIgByDate.set(row.date, (bioIgByDate.get(row.date) ?? 0) + clicks);
-    else if (BIO_YT_CATS.has(row.link_category)) bioYtByDate.set(row.date, (bioYtByDate.get(row.date) ?? 0) + clicks);
-    else if (CONTENT_IG_CATS.has(row.link_category)) contentIgByDate.set(row.date, (contentIgByDate.get(row.date) ?? 0) + clicks);
-    else if (CONTENT_YT_CATS.has(row.link_category)) contentYtByDate.set(row.date, (contentYtByDate.get(row.date) ?? 0) + clicks);
-    else if (row.link_category === 'calendly_dm_prospect') dmCalendlyByDate.set(row.date, (dmCalendlyByDate.get(row.date) ?? 0) + clicks);
-    else if (row.link_category === 'lm_dm_auto') dmLmByDate.set(row.date, (dmLmByDate.get(row.date) ?? 0) + clicks);
+    if (CATS_BIO_IG.has(row.link_category)) bioIgByDate.set(row.date, (bioIgByDate.get(row.date) ?? 0) + clicks);
+    else if (CATS_BIO_YT.has(row.link_category)) bioYtByDate.set(row.date, (bioYtByDate.get(row.date) ?? 0) + clicks);
+    else if (CATS_CONTENT_IG.has(row.link_category)) contentIgByDate.set(row.date, (contentIgByDate.get(row.date) ?? 0) + clicks);
+    else if (CATS_CONTENT_YT.has(row.link_category)) contentYtByDate.set(row.date, (contentYtByDate.get(row.date) ?? 0) + clicks);
+    else if (CATS_DM_CALENDLY.has(row.link_category)) dmCalendlyByDate.set(row.date, (dmCalendlyByDate.get(row.date) ?? 0) + clicks);
+    else if (CATS_DM_LM.has(row.link_category)) dmLmByDate.set(row.date, (dmLmByDate.get(row.date) ?? 0) + clicks);
+    else if (CATS_STORY.has(row.link_category)) storyByDate.set(row.date, (storyByDate.get(row.date) ?? 0) + clicks);
   }
 
   // Variation "Clics totaux" vs la période équivalente précédente (semaine d'avant si
@@ -7884,6 +7963,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
   const shortioChartHistoryBio: { date: string; ig: number; yt: number }[] = [];
   const shortioChartHistoryContent: { date: string; ig: number; yt: number }[] = [];
   const shortioChartHistoryDm: { date: string; calendly: number; lm: number }[] = [];
+  const shortioChartHistoryStory: { date: string; story: number }[] = [];
   {
     let d = _periodStart;
     while (d.getTime() <= _periodEnd.getTime()) {
@@ -7908,7 +7988,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     }
   }
 
-  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, deals: dealsRows, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, integrationsReadyAt };
+  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, deals: dealsRows, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, integrationsReadyAt };
   } catch { return null; }
 }
 
@@ -7994,7 +8074,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   // démonté/remonté à chaque changement de période (loading passe par true le
   // temps du refetch) — un state local y serait reset à 'clics' à chaque fois.
   const [shortioBMetric, setShortioBMetric] = useState<'clics' | 'leads' | 'hookReply' | 'calendlyLinks' | 'activation' | 'calls'>('clics');
-  const [shortioBChartFilter, setShortioBChartFilter] = useState<'all' | 'dm' | 'content' | 'bio'>('all');
+  const [shortioBChartFilter, setShortioBChartFilter] = useState<'all' | 'dm' | 'content' | 'bio' | 'story'>('all');
 
   const refreshKey = `analytics_${profileId || 'me'}`;
   const { inCooldown, startCooldown } = useRefreshCooldown(refreshKey);
@@ -8241,6 +8321,9 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   const shortioChartHistoryDm: { date: string; calendly: number; lm: number }[] | undefined = sinceConnection
     ? sinceConnSnap?.shortioChartHistoryDm
     : (periodIndex === 0 ? supaData?.shortioChartHistoryDm : snapData?.shortioChartHistoryDm);
+  const shortioChartHistoryStory: { date: string; story: number }[] | undefined = sinceConnection
+    ? sinceConnSnap?.shortioChartHistoryStory
+    : (periodIndex === 0 ? supaData?.shortioChartHistoryStory : snapData?.shortioChartHistoryStory);
   // Clics Calendly statiques (bio + desc) depuis DB — pour Vue générale uniquement.
   // Jamais calculé pour periodIndex>0 aujourd'hui (undefined) — même chose en mode
   // "depuis connexion", cohérent avec ce comportement existant.
@@ -8432,7 +8515,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
           >
             {refreshing ? 'Rafraîchissement…' : '↻ Rafraîchir'}
           </button>
-          <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} connectedAt={connectedAt} sinceConnection={sinceConnection} setSinceConnection={setSinceConnection} />
+          <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} connectedAt={connectedAt} allTimeStart={allTimeStart} sinceConnection={sinceConnection} setSinceConnection={setSinceConnection} />
         </div>
       </div>
 
@@ -8467,7 +8550,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.yt?.snapshotError} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} />}
-          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={calls} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} />}
+          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={calls} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} shortioChartHistoryStory={shortioChartHistoryStory} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
           {tab === 5 && <TabRevenues stripe={stripeEff} calls={callsEff} deals={dealsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} />}
         </>
       )}

@@ -6,7 +6,15 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { snapshotIgPosts } from '../_shared/ig-posts.ts';
 import { formatTimeIn, safeZone } from '../_shared/timezone.ts';
-import { createShortioLimiter, mapWithConcurrency, sleep } from '../_shared/rate-limit.ts';
+import { limiteurShortio, mapWithConcurrency, sleep } from '../_shared/rate-limit.ts';
+// Règle de catégorie PARTAGÉE avec lib/shortio-fetch.ts (bouton Rafraîchir) et
+// backfill-shortio. Elle existait en trois copies, déjà divergentes : celle de
+// backfill-shortio ignorait utm_medium=story et effaçait donc tous les clics
+// Calendly de séquence story. Fichier sans aucun import, lisible par Node et Deno.
+import { createLinkCategoryResolver, type LinkCategory } from '../../../lib/shortio-link-category.ts';
+// Lecture du flux de clics : même module que le bouton « Rafraîchir » (Node), pour
+// qu'une seule règle de filtrage et de datation existe dans toute la plateforme.
+import { fetchClicsShortio, agregerClics, estVraiClic, cleClic, type ClicShortio } from '../../../lib/shortio-clicks.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -17,11 +25,22 @@ const PLATFORM_URL = Deno.env.get('NEXT_PUBLIC_PLATFORM_URL') || 'https://moment
 
 const supa = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-// Limiteur Short.io PARTAGÉ par tout le run — c'est le point essentiel : le quota
-// (~60 req/fenêtre) est global à la clé/domaine, et plusieurs profils partagent le
-// même domaine. Un limiteur par profil ne protégerait de rien, puisqu'ils se
-// cannibalisent mutuellement (constaté en prod à 4 élèves, cf. snapshotOldDomainLinks).
-const shortio = createShortioLimiter();
+// Limiteur Short.io indexé sur le DOMAINE interrogé (cf. _shared/rate-limit.ts).
+//
+// Le quota se partage entre les profils qui visent le même compte Short.io — d'où un
+// limiteur commun à ceux-là. Mais un limiteur unique pour TOUT le run plafonnait la
+// plateforme entière à 50 appels/minute, alors qu'en production chaque élève apporte
+// son propre compte, donc son propre quota. `shortio(domainId)` donne le bon seau.
+const shortio = (domainId: string | number) => limiteurShortio(domainId);
+
+// Fenêtre d'auto-réparation par défaut : le cron relit 7 jours de clics à chaque
+// passage et réécrit les journées closes. Toute valeur fausse se corrige donc seule en
+// moins d'une semaine, sans intervention. Une fenêtre plus large est acceptée à la
+// demande (`{"jours_reparation": 40}`) pour rattraper un historique fautif en une
+// passe — même code, même règle, donc aucun risque de divergence.
+const FENETRE_REPARATION_DEFAUT = 7;
+const FENETRE_REPARATION_MAX = 60;
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Utils
@@ -903,7 +922,7 @@ async function fetchShortioLinks(creds: { apiKey: string; domainId: string }) {
     url.searchParams.set('domain_id', creds.domainId);
     url.searchParams.set('limit', String(limit));
     if (beforeId) url.searchParams.set('beforeId', beforeId);
-    const res = await shortio.run(() => fetch(url.toString(), { headers: { authorization: creds.apiKey, accept: 'application/json' } }));
+    const res = await shortio(creds.domainId).run(() => fetch(url.toString(), { headers: { authorization: creds.apiKey, accept: 'application/json' } }));
     if (!res.ok) throw new Error(`Short.io links ${res.status}`);
     const data = await safeJson(res);
     const page: any[] = data?.links || [];
@@ -914,16 +933,16 @@ async function fetchShortioLinks(creds: { apiKey: string; domainId: string }) {
   return allLinks;
 }
 
-async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; domain: string; domainId: string }): Promise<{
+async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; domain: string; domainId: string }, joursReparation = FENETRE_REPARATION_DEFAUT): Promise<{
   errors: string[];
   rawClicks: { path: string; dt: string; human: boolean }[];
-  resolveLinkCategory: (path: string, shortUrl: string, linkType: string | null) => string | null;
+  resolveLinkCategory: (path: string, shortUrl: string, originalUrl: string) => LinkCategory | null;
   dateToday: string;
 }> {
   const errors: string[] = [];
   const dateToday = isoDate(0);
   const dateYesterday = isoDate(1);
-  const noopCategory = () => null;
+  const noopCategory = (): LinkCategory | null => null;
   let links: any[];
   try { links = await fetchShortioLinks(creds); } catch (e: any) { return { errors: [`fetch_links: ${e?.message}`], rawClicks: [], resolveLinkCategory: noopCategory, dateToday }; }
   if (!links.length) return { errors: [], rawClicks: [], resolveLinkCategory: noopCategory, dateToday };
@@ -934,167 +953,138 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
     supa.from('prospect_links').select('short_url').eq('profile_id', profileId),
   ]);
 
-  // Maps url → catégorie pour lookup O(1)
-  const descCalendlyIg = new Set<string>();
-  const descCalendlyYt = new Set<string>();
-  const descLmIg = new Set<string>();
-  const descLmYt = new Set<string>();
-  const lmDmAutoUrls = new Set<string>();
-  for (const cl of contentLinksRows ?? []) {
-    const platform = (cl.platform || '').toUpperCase();
-    if (cl.desc_calendly_short_url) (platform === 'YT' ? descCalendlyYt : descCalendlyIg).add(cl.desc_calendly_short_url.toLowerCase());
-    if (cl.desc_lm_short_url) (platform === 'YT' ? descLmYt : descLmIg).add(cl.desc_lm_short_url.toLowerCase());
-    if (cl.lm_short_url) lmDmAutoUrls.add(cl.lm_short_url.toLowerCase());
-  }
-  const prospectUrls = new Set<string>((prospectLinksRows ?? []).map((pl: any) => (pl.short_url || '').toLowerCase()));
+  const resolveLinkCategory = createLinkCategoryResolver({
+    contentLinks: contentLinksRows ?? [],
+    prospectShortUrls: (prospectLinksRows ?? []).map((pl: any) => pl.short_url),
+  });
 
-  // Détermine link_category à partir du path, link_type et des maps de référence
-  const resolveLinkCategory = (path: string, shortUrl: string, linkType: string | null): string | null => {
-    const p = path.toLowerCase();
-    const u = shortUrl.toLowerCase();
-    if (linkType === 'bio') {
-      const hasIg = p.includes('ig') || p.includes('-ig');
-      const hasYt = p.includes('yt') || p.includes('-yt');
-      const isCalendly = p.includes('calendly') || p.startsWith('bio-calendly');
-      const isLm = p.startsWith('lm-bio') || p.startsWith('lm-');
-      if (isCalendly && hasIg) return 'calendly_bio_ig';
-      if (isCalendly && hasYt) return 'calendly_bio_yt';
-      if (isLm && hasYt) return 'lm_bio_yt';
-      if (isLm && hasIg) return 'lm_bio_ig';
-      if (hasIg) return 'calendly_bio_ig';
-      if (hasYt) return 'calendly_bio_yt';
-    }
-    if (linkType === 'description') {
-      if (descCalendlyIg.has(u)) return 'calendly_desc_ig';
-      if (descCalendlyYt.has(u)) return 'calendly_desc_yt';
-      if (descLmIg.has(u)) return 'lm_desc_ig';
-      if (descLmYt.has(u)) return 'lm_desc_yt';
-    }
-    if (linkType === 'leadmagnet' || (linkType === null && (p.startsWith('lm-') || p.startsWith('guide-') || p.startsWith('beau-')))) {
-      if (lmDmAutoUrls.has(u)) return 'lm_dm_auto';
-      // leadmagnet orphelin (lien LM DM auto sans content_link correspondant)
-      return 'lm_dm_auto';
-    }
-    if (linkType === 'dm' || (linkType === null && (p.includes('prendre-rdv') || p.includes('christian') || p.includes('incogniton')))) {
-      if (prospectUrls.has(u)) return 'calendly_dm_prospect';
-      if (p.startsWith('lm-')) return 'lm_dm_auto';
-      return 'calendly_dm_prospect';
-    }
-    // Lien Calendly d'une séquence story — généré par POST /api/client/story-sequences
-    // avec utm_medium=story et path=story-calendly-{slug}. Le CTA Lead Magnet d'une
-    // séquence n'a pas de lien Short.io propre (mot-clé en reply, pas de clic à tracker
-    // ici) — seule la catégorie Calendly a besoin d'exister côté link_category.
-    if (linkType === 'story') return 'calendly_story';
-    return null;
-  };
-
-  // Récupérer last_clicks une seule fois pour J-0 — stable vs API stats (eventually consistent).
-  // rawClicks est aussi retourné à l'appelant (voir fin de fonction) pour que
-  // syncLmClickStream réutilise ce même appel au lieu de refaire une requête identique
-  // (même afterDate 48h, même endpoint) juste après — la duplication provoquait un
-  // rate limit 429 Short.io sur le second appel (découvert via les logs D3 du 2026-07-26).
-  const todayClicksByPath = new Map<string, number>();
+  // ── Flux de clics : source unique, et mécanisme d'auto-réparation ─────────────
+  //
+  // On relit 7 jours de clics à chaque passage, pas seulement J-0 et J-1. Le surcoût
+  // est d'une page d'API (mesuré : 694 entrées sur 14 jours pour le domaine le plus
+  // bruyant, soit 2 pages), et le gain est décisif : toute valeur fausse écrite dans
+  // les 7 derniers jours est RÉÉCRITE à la vraie valeur au passage suivant. Le système
+  // se répare seul, sans intervention.
+  //
+  // Règle de date unique : un clic appartient au jour PARIS de son propre horodatage.
+  // C'est la seule définition qui coïncide avec getPeriodWindow côté écran. L'ancienne
+  // approche (`period=yesterday`, calendrier Short.io) écrivait les clics de J-2 sur la
+  // ligne de J-1 à chaque passage tombant entre minuit Paris et minuit UTC — mesuré le
+  // 2026-08-28 : 13 liens sur 18 portaient leurs clics sur deux jours consécutifs.
+  const FENETRE_REPARATION_JOURS = joursReparation;
+  const clicsParPathEtJour = new Map<string, { human: number; total: number }>();
+  const cle = (path: string, jour: string) => `${path} ${jour}`;
   let rawClicks: { path: string; dt: string; human: boolean }[] = [];
+  // Jour le plus ancien réellement couvert par le flux : on ne réécrit JAMAIS un jour
+  // qu'on n'a pas pu observer, sinon une rétention plus courte que la fenêtre effacerait
+  // des journées réelles en les remettant à zéro.
+  let jourLePlusAncienVu: string | null = null;
+  let fluxIncomplet = true;
   try {
-    const afterDate48h = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-    const lcRes = await shortio.run(() => fetch(`https://api-v2.short.io/statistics/domain/${creds.domainId}/last_clicks`, {
-      method: 'POST',
-      headers: { authorization: creds.apiKey, 'content-type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify({ limit: 500, afterDate: afterDate48h }),
-    }));
-    if (lcRes.ok) {
-      const lcData = await safeJson(lcRes);
-      rawClicks = lcData?.clicks ?? lcData ?? [];
-      for (const click of rawClicks) {
-        if (!click.human || !click.path) continue;
-        const clickDate = click.dt ? isoDateFromInstant(click.dt) : dateToday;
-        if (clickDate !== dateToday) continue;
-        const p = click.path.replace(/^\//, '');
-        todayClicksByPath.set(p, (todayClicksByPath.get(p) ?? 0) + 1);
-      }
-    }
-  } catch { /* non bloquant — fallback sur API stats si last_clicks échoue */ }
+    const depuis = new Date(Date.now() - FENETRE_REPARATION_JOURS * 24 * 60 * 60 * 1000).toISOString();
+    const { clics, tronque } = await fetchClicsShortio(creds.domainId, creds.apiKey, depuis, fn => shortio(creds.domainId).run(fn));
+    rawClicks = clics as { path: string; dt: string; human: boolean }[];
+    fluxIncomplet = tronque;
+    const agg = agregerClics(clics, isoDateFromInstant);
+    jourLePlusAncienVu = agg.jourLePlusAncienVu;
+    for (const [k, v] of agg.parPathEtJour) clicsParPathEtJour.set(k, v);
+  } catch (e: any) {
+    errors.push(`last_clicks: ${e?.message || 'unknown'}`);
+    fluxIncomplet = true;
+  }
+
+  // Jours à (ré)écrire : de J-6 à J-0, bornés au plus ancien jour réellement observé.
+  const joursAEcrire: string[] = [];
+  for (let i = FENETRE_REPARATION_JOURS - 1; i >= 0; i--) {
+    const j = isoDate(i);
+    if (jourLePlusAncienVu && j < jourLePlusAncienVu) continue;
+    joursAEcrire.push(j);
+  }
+
+  // Lignes déjà porteuses de clics dans la fenêtre : ce sont les seules journées
+  // closes qu'il faut réécrire même sans clic dans le flux — c'est ainsi qu'une valeur
+  // fantôme héritée revient à zéro. Sans cette liste, il faudrait réécrire 7 jours ×
+  // tous les liens à chaque passage (28 000 écritures à 40 élèves) pour ne corriger
+  // qu'une poignée de lignes.
+  const dejaAvecClics = new Set<string>();
+  if (joursAEcrire.length) {
+    const { data: rows, error: errRows } = await supa
+      .from('shortio_link_daily_snapshots')
+      .select('link_id, date')
+      .eq('profile_id', profileId)
+      .gte('date', joursAEcrire[0])
+      .gt('human_clicks', 0);
+    if (errRows) errors.push(`lignes_a_corriger: ${errRows.message}`);
+    for (const r of rows ?? []) dejaAvecClics.add(`${r.link_id}|${r.date}`);
+  }
 
   // Construit un index path → link_id pour mapper last_clicks vers les liens
   const pathToLinkId = new Map<string, string>();
   for (const l of links) if (l.path) pathToLinkId.set(l.path, String(l.id));
 
-  // Helper : snapshot un lien pour une période donnée
-  const snapshotLink = async (l: any, period: string, date: string) => {
+  // Helper : écrit le snapshot d'un lien pour un jour donné.
+  //
+  // Plus aucune distinction « hier via l'API stats / aujourd'hui via le flux » : une
+  // seule source (le flux de clics), une seule règle de date (jour Paris de l'horodatage
+  // du clic). C'est ce qui rend le coût indépendant du nombre de liens ET supprime le
+  // décalage d'un jour.
+  const snapshotLink = async (l: any, date: string) => {
     const linkId = String(l.id);
     const path = l.path || '';
     const shortUrl = l.secureShortURL || l.shortURL || `https://${creds.domain}/${path}`;
     const originalUrl = l.originalURL || '';
     let link_type: string | null = null;
-    try { link_type = new URL(originalUrl).searchParams.get('utm_medium') || null; } catch {}
-    const link_category = resolveLinkCategory(path, shortUrl, link_type);
+    try { link_type = new URL(originalUrl).searchParams.get('utm_medium') || null; } catch { /* lien sans URL exploitable */ }
+    const link_category = resolveLinkCategory(path, shortUrl, originalUrl);
+    const compte = clicsParPathEtJour.get(cleClic(path, date)) ?? { human: 0, total: 0 };
 
-    // Pour J-0 : utiliser last_clicks (stable) plutôt que l'API stats (eventually consistent)
-    // Pour J-1 : API stats (données finalisées = fiables)
-    let human_clicks: number;
-    let total_clicks: number;
-    let stats: any = {};
+    // Une journée close, sans clic dans le flux et sans clic déjà en base, n'a rien à
+    // écrire : la ligne serait un zéro de plus, identique à ce qu'une absence de ligne
+    // signifie déjà. On évite ainsi 7 écritures par lien et par passage.
+    const journeeCourante = date >= dateYesterday;
+    if (!journeeCourante && compte.total === 0 && !dejaAvecClics.has(`${linkId}|${date}`)) return;
 
-    if (period === 'today') {
-      human_clicks = todayClicksByPath.get(path) ?? 0;
-      total_clicks = human_clicks; // last_clicks ne retourne que les clics humains
-    } else {
-      const statsRes = await shortio.run(() => fetch(`https://api-v2.short.io/statistics/link/${linkId}?period=${period}`, { headers: { authorization: creds.apiKey, accept: 'application/json' } }));
-      stats = statsRes.ok ? await safeJson(statsRes) : {};
-      human_clicks = Number(stats.humanClicks ?? 0);
-      total_clicks = Number(stats.totalClicks ?? 0);
-    }
+    // Écrasement autorisé sur les journées TERMINÉES seulement.
+    //
+    // Une journée close ne bouge plus : le flux fait autorité, et l'écrasement est ce
+    // qui répare les valeurs fausses héritées. La journée EN COURS garde le
+    // comportement monotone (GREATEST) : Short.io met quelques minutes à indexer un
+    // clic, et un passage qui ne le voit pas encore ne doit pas ramener le compteur
+    // à 0 — régression reproduite et confirmée le 2026-08-14.
+    const journeeTerminee = date < dateToday;
 
-    // Passe par la RPC upsert_shortio_link_snapshot (déjà utilisée côté refresh-today/
-    // lib/shortio-fetch.ts) au lieu d'un upsert direct de table — son ON CONFLICT fait
-    // GREATEST(existant, nouveau) sur human_clicks/total_clicks, ce qu'un upsert direct
-    // ne fait pas. Sans ça, un run 'today' dont last_clicks n'a pas encore indexé un clic
-    // très récent (délai de propagation Short.io) écrasait un compteur déjà correct à 0 —
-    // reproduit et confirmé le 2026-08-14 (human_clicks 1 → 0 entre deux runs cron).
     await supa.rpc('upsert_shortio_link_snapshot', {
       p_profile_id: profileId, p_link_id: linkId, p_path: path, p_short_url: shortUrl,
-      p_original_url: originalUrl, p_date: date, p_human_clicks: human_clicks, p_total_clicks: total_clicks,
+      p_original_url: originalUrl, p_date: date,
+      p_human_clicks: compte.human, p_total_clicks: compte.total,
       p_link_type: link_type,
-      p_top_countries: (stats.country || []).filter((c: any) => c.score > 0).slice(0, 8).map((c: any) => ({ label: c.countryName || c.country || 'Inconnu', code: c.country || '', value: Number(c.score) })),
-      p_top_referrers: (stats.referer || []).filter((r: any) => r.score > 0).slice(0, 8).map((r: any) => ({ label: r.refhost || 'Direct', value: Number(r.score) })),
-      p_top_browsers: (stats.browser || []).filter((b: any) => b.score > 0).slice(0, 8).map((b: any) => ({ label: b.browser || 'Inconnu', value: Number(b.score) })),
-      p_top_os: (stats.os || []).filter((o: any) => o.score > 0).slice(0, 8).map((o: any) => ({ label: o.os || 'Inconnu', value: Number(o.score) })),
-      p_top_social: (stats.social || []).filter((s: any) => s.score > 0).slice(0, 8).map((s: any) => ({ label: s.social || 'Direct', value: Number(s.score) })),
-      p_top_cities: (stats.city || []).filter((c: any) => c.score > 0).slice(0, 8).map((c: any) => ({ label: `${c.name || '?'} (${c.countryCode || '?'})`, value: Number(c.score) })),
-      p_utm_sources: (stats.utm_source || []).filter((u: any) => u.score > 0 && u.utm_source).slice(0, 8).map((u: any) => ({ label: u.utm_source, value: Number(u.score) })),
-      p_utm_mediums: (stats.utm_medium || []).filter((u: any) => u.score > 0 && u.utm_medium).slice(0, 8).map((u: any) => ({ label: u.utm_medium, value: Number(u.score) })),
+      // `null` : la RPC fait COALESCE, donc les ventilations déjà collectées restent
+      // intactes. Un tableau vide les effacerait.
+      p_top_countries: null, p_top_referrers: null, p_top_browsers: null, p_top_os: null,
+      p_top_social: null, p_top_cities: null, p_utm_sources: null, p_utm_mediums: null,
       p_backfill_source: 'cron',
       p_link_category: link_category,
+      p_ecraser: journeeTerminee,
     });
   };
 
-  // Snapshot agrégat domaine J-1 + J-0 en parallèle
-  await Promise.allSettled([
-    shortio.run(() => fetch(`https://api-v2.short.io/statistics/domain/${creds.domainId}?period=yesterday`, { headers: { authorization: creds.apiKey, accept: 'application/json' } }))
-      .then(r => r.ok ? safeJson(r) : null)
-      .then(domainStats => domainStats && supa.from('analytics_daily_snapshots').upsert({
-        profile_id: profileId, date: dateYesterday,
-        shortio_clicks: Number(domainStats.clicks ?? 0),
-        shortio_human_clicks: Number(domainStats.humanClicks ?? 0),
-        shortio_top_countries: (domainStats.country || []).filter((c: any) => c.score > 0).slice(0, 8).map((c: any) => ({ label: c.countryName || c.country, code: c.country, value: c.score })),
-        shortio_top_referrers: (domainStats.referer || []).filter((r: any) => r.score > 0).slice(0, 8).map((r: any) => ({ label: r.refhost || 'Direct', value: r.score })),
-      }, { onConflict: 'profile_id,date', ignoreDuplicates: false })),
-    shortio.run(() => fetch(`https://api-v2.short.io/statistics/domain/${creds.domainId}?period=today`, { headers: { authorization: creds.apiKey, accept: 'application/json' } }))
-      .then(r => r.ok ? safeJson(r) : null)
-      .then(domainStats => domainStats && supa.from('analytics_daily_snapshots').upsert({
-        profile_id: profileId, date: dateToday,
-        shortio_clicks: Number(domainStats.clicks ?? 0),
-        shortio_human_clicks: Number(domainStats.humanClicks ?? 0),
-        shortio_top_countries: (domainStats.country || []).filter((c: any) => c.score > 0).slice(0, 8).map((c: any) => ({ label: c.countryName || c.country, code: c.country, value: c.score })),
-        shortio_top_referrers: (domainStats.referer || []).filter((r: any) => r.score > 0).slice(0, 8).map((r: any) => ({ label: r.refhost || 'Direct', value: r.score })),
-      }, { onConflict: 'profile_id,date', ignoreDuplicates: false })),
-  ]);
+  // Les deux appels `statistics/domain?period=yesterday|today` qui vivaient ici
+  // remplissaient analytics_daily_snapshots.shortio_clicks / shortio_human_clicks /
+  // shortio_top_countries / shortio_top_referrers. Vérifié le 2026-08-28 : AUCUN code
+  // et AUCUNE vue SQL ne lit ces quatre colonnes. C'étaient 2 appels Short.io par élève
+  // et par passage — plus 2 autres dans /api/shortio/refresh-today — pour des données
+  // que personne ne consulte. Supprimés.
 
-  // Snapshot par lien : J-1 + J-0 en parallèle
-  const settled = await Promise.allSettled(links.flatMap((l: any) => [
-    snapshotLink(l, 'yesterday', dateYesterday),
-    snapshotLink(l, 'today', dateToday),
-  ]));
+  // Écriture des jours de la fenêtre pour chaque lien.
+  //
+  // Si le flux est tronqué, on ne réécrit QUE le jour en cours, et en mode monotone :
+  // réécrire une journée close à partir d'un flux incomplet la ramènerait à une valeur
+  // trop basse. Mieux vaut ne pas toucher et retenter au passage suivant.
+  if (fluxIncomplet) errors.push('flux_clics_tronque_reparation_reportee');
+  const jours = fluxIncomplet ? [dateToday] : joursAEcrire;
+  const settled = await Promise.allSettled(
+    links.flatMap((l: any) => jours.map((j: string) => snapshotLink(l, j))),
+  );
 
   for (const s of settled) if (s.status === 'rejected') errors.push(String(s.reason?.message || 'link_snapshot_failed'));
   return { errors, rawClicks, resolveLinkCategory, dateToday };
@@ -1117,7 +1107,7 @@ async function snapshotOldDomainLinks(
   apiKey: string,
   activeDomainId: string,
   allDomains: { id: number | string; hostname: string }[],
-  resolveLinkCategory: (path: string, shortUrl: string, linkType: string | null) => string | null,
+  resolveLinkCategory: (path: string, shortUrl: string, originalUrl: string) => LinkCategory | null,
   dateToday: string,
 ): Promise<string[]> {
   const errors: string[] = [];
@@ -1146,35 +1136,30 @@ async function snapshotOldDomainLinks(
       if (!links.length) continue;
 
       const momentumLinks = links.filter((l: any) => {
-        let linkType: string | null = null;
-        try { linkType = new URL(l.originalURL || '').searchParams.get('utm_medium') || null; } catch {}
         const shortUrl = l.secureShortURL || l.shortURL || `https://${oldDomain.hostname}/${l.path || ''}`;
-        return resolveLinkCategory(l.path || '', shortUrl, linkType) !== null;
+        return resolveLinkCategory(l.path || '', shortUrl, l.originalURL || '') !== null;
       });
       if (!momentumLinks.length) continue;
 
       const afterDate48h = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-      const callLastClicks = () => fetch(`https://api-v2.short.io/statistics/domain/${oldDomain.id}/last_clicks`, {
-        method: 'POST',
-        headers: { authorization: apiKey, 'content-type': 'application/json', accept: 'application/json' },
-        body: JSON.stringify({ limit: 500, afterDate: afterDate48h }),
-      });
-
-      // Le retry 429 manuel qui était ici est désormais assuré par le limiteur
-      // partagé (backoff exponentiel + jitter + lecture de x-ratelimit-reset),
-      // qui couvre en plus TOUS les autres appels Short.io — pas seulement
-      // celui-ci. MAX_RATE_LIMIT_WAIT_MS est conservé côté limiteur.
-      const lcRes = await shortio.run(callLastClicks);
-      if (!lcRes.ok) { errors.push(`old_domain_${oldDomain.id}_last_clicks: HTTP ${lcRes.status}`); continue; }
-
-      const lcData = await safeJson(lcRes);
-      const rawClicks: { path: string; dt: string; human: boolean }[] = lcData?.clicks ?? lcData ?? [];
+      // Même lecture paginée et même filtrage du bruit 404 que pour le domaine actif :
+      // sans pagination, un domaine scanné saturait le plafond de 500 avec des requêtes
+      // sur `/*` et les vrais clics passaient à la trappe.
+      let rawClicks: ClicShortio[];
+      try {
+        const r = await fetchClicsShortio(oldDomain.id, apiKey, afterDate48h, fn => shortio(oldDomain.id).run(fn));
+        rawClicks = r.clics;
+        if (r.tronque) errors.push(`old_domain_${oldDomain.id}_flux_tronque`);
+      } catch (e: any) {
+        errors.push(`old_domain_${oldDomain.id}_last_clicks: ${e?.message || 'unknown'}`);
+        continue;
+      }
       const clicksByPath = new Map<string, number>();
       for (const click of rawClicks) {
-        if (!click.human || !click.path) continue;
+        if (!estVraiClic(click) || !click.human) continue;
         const clickDate = click.dt ? isoDateFromInstant(click.dt) : dateToday;
         if (clickDate !== dateToday) continue;
-        const p = click.path.replace(/^\//, '');
+        const p = (click.path || '').replace(/^\//, '');
         clicksByPath.set(p, (clicksByPath.get(p) ?? 0) + 1);
       }
 
@@ -1183,7 +1168,7 @@ async function snapshotOldDomainLinks(
         const path = l.path || '';
         const shortUrl = l.secureShortURL || l.shortURL || `https://${oldDomain.hostname}/${path}`;
         let linkType: string | null = null;
-        try { linkType = new URL(l.originalURL || '').searchParams.get('utm_medium') || null; } catch {}
+        try { linkType = new URL(l.originalURL || '').searchParams.get('utm_medium') || null; } catch { /* lien sans URL exploitable */ }
         const humanClicks = clicksByPath.get(path) ?? 0;
 
         // top_*/utm_* à null (pas []) : la RPC fait COALESCE(EXCLUDED.x, existant.x) — null
@@ -1195,7 +1180,7 @@ async function snapshotOldDomainLinks(
           p_top_countries: null, p_top_referrers: null, p_top_browsers: null, p_top_os: null, p_top_social: null, p_top_cities: null,
           p_utm_sources: null, p_utm_mediums: null,
           p_backfill_source: 'cron',
-          p_link_category: resolveLinkCategory(path, shortUrl, linkType),
+          p_link_category: resolveLinkCategory(path, shortUrl, l.originalURL || ''),
         });
       }
     } catch (e: any) {
@@ -1858,7 +1843,7 @@ async function rattraperTrousYt(profileId: string, accessToken: string): Promise
   return errors;
 }
 
-async function snapshotProfile(profileId: string): Promise<string[]> {
+async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPARATION_DEFAUT): Promise<string[]> {
   const errors: string[] = [];
   const yesterday = isoDate(1);
   const todayStr = isoDate(0);
@@ -2014,7 +1999,7 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
   const shioCreds = await getShortioLinkCreds(profileId);
   if (shioCreds) {
     try {
-      const { errors: shioErrors, rawClicks, resolveLinkCategory, dateToday } = await snapshotShortioLinks(profileId, shioCreds);
+      const { errors: shioErrors, rawClicks, resolveLinkCategory, dateToday } = await snapshotShortioLinks(profileId, shioCreds, joursReparation);
       if (shioErrors.length) errors.push(...shioErrors.map(e => `shortio_link: ${e}`));
       const csErrors = await syncLmClickStream(profileId, rawClicks);
       if (csErrors.length) errors.push(...csErrors.map(e => `shortio_click_stream: ${e}`));
@@ -2226,6 +2211,15 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ error: 'Non autorisé' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
   }
 
+  // Fenêtre d'auto-réparation Short.io : 7 jours par défaut, élargissable pour un
+  // rattrapage ponctuel (`{"jours_reparation": 30}`). Bornée à FENETRE_REPARATION_MAX
+  // pour qu'une valeur aberrante ne fasse pas exploser le temps de traitement.
+  const corps = await req.json().catch(() => ({} as Record<string, unknown>));
+  const joursDemandes = Number((corps as Record<string, unknown>)?.jours_reparation);
+  const joursReparation = Number.isFinite(joursDemandes) && joursDemandes > 0
+    ? Math.min(Math.floor(joursDemandes), FENETRE_REPARATION_MAX)
+    : FENETRE_REPARATION_DEFAUT;
+
   const { data: integrations } = await supa.from('integrations').select('profile_id, provider, last_ig_poll').in('provider', ['instagram', 'youtube', 'shortio']);
   if (!integrations?.length) return new Response(JSON.stringify({ polled: 0, snapshots: 0 }), { headers: { 'Content-Type': 'application/json' } });
 
@@ -2280,7 +2274,7 @@ Deno.serve(async (req: Request) => {
     }
 
     try {
-      const snapErrors = await snapshotProfile(profile.profile_id);
+      const snapErrors = await snapshotProfile(profile.profile_id, joursReparation);
       if (snapErrors.length === 0) snapshots++;
       else profileErrors.push(...snapErrors);
     } catch { profileErrors.push('snapshot_failed'); }

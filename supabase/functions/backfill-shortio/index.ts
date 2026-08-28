@@ -4,6 +4,7 @@
 // À déclencher une seule fois manuellement via Supabase Dashboard ou curl.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createLinkCategoryResolver } from '../../../lib/shortio-link-category.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -76,56 +77,18 @@ Deno.serve(async (req) => {
 
     const headers = { authorization: apiKey, accept: 'application/json' };
 
-    // Tables de référence pour link_category
+    // Même règle de catégorie que le cron et le bouton Rafraîchir
+    // (lib/shortio-link-category.ts, source unique). La copie qui vivait ici
+    // ignorait utm_medium=story : tous les liens Calendly de séquence story
+    // étaient rétro-remplis sans catégorie, donc absents de « Clics totaux ».
     const [{ data: contentLinksRows }, { data: prospectLinksRows }] = await Promise.all([
       supa.from('content_links').select('platform, desc_calendly_short_url, desc_lm_short_url, lm_short_url').eq('profile_id', profileId),
       supa.from('prospect_links').select('short_url').eq('profile_id', profileId),
     ]);
-
-    const descCalendlyIg = new Set<string>();
-    const descCalendlyYt = new Set<string>();
-    const descLmIg = new Set<string>();
-    const descLmYt = new Set<string>();
-    const lmDmAutoUrls = new Set<string>();
-    for (const cl of contentLinksRows ?? []) {
-      const platform = (cl.platform || '').toUpperCase();
-      if (cl.desc_calendly_short_url) (platform === 'YT' ? descCalendlyYt : descCalendlyIg).add(cl.desc_calendly_short_url.toLowerCase());
-      if (cl.desc_lm_short_url) (platform === 'YT' ? descLmYt : descLmIg).add(cl.desc_lm_short_url.toLowerCase());
-      if (cl.lm_short_url) lmDmAutoUrls.add(cl.lm_short_url.toLowerCase());
-    }
-    const prospectUrls = new Set<string>((prospectLinksRows ?? []).map((pl: any) => (pl.short_url || '').toLowerCase()));
-
-    const resolveLinkCategory = (path: string, shortUrl: string, linkType: string | null): string | null => {
-      const p = path.toLowerCase();
-      const u = shortUrl.toLowerCase();
-      if (linkType === 'bio') {
-        const hasIg = p.includes('ig') || p.includes('-ig');
-        const hasYt = p.includes('yt') || p.includes('-yt');
-        const isCalendly = p.includes('calendly') || p.startsWith('bio-calendly');
-        const isLm = p.startsWith('lm-bio') || p.startsWith('lm-');
-        if (isCalendly && hasIg) return 'calendly_bio_ig';
-        if (isCalendly && hasYt) return 'calendly_bio_yt';
-        if (isLm && hasYt) return 'lm_bio_yt';
-        if (isLm && hasIg) return 'lm_bio_ig';
-        if (hasIg) return 'calendly_bio_ig';
-        if (hasYt) return 'calendly_bio_yt';
-      }
-      if (linkType === 'description') {
-        if (descCalendlyIg.has(u)) return 'calendly_desc_ig';
-        if (descCalendlyYt.has(u)) return 'calendly_desc_yt';
-        if (descLmIg.has(u)) return 'lm_desc_ig';
-        if (descLmYt.has(u)) return 'lm_desc_yt';
-      }
-      if (linkType === 'leadmagnet' || (linkType === null && (p.startsWith('lm-') || p.startsWith('guide-') || p.startsWith('beau-')))) {
-        return 'lm_dm_auto';
-      }
-      if (linkType === 'dm' || (linkType === null && (p.includes('prendre-rdv') || p.includes('christian') || p.includes('incogniton')))) {
-        if (prospectUrls.has(u)) return 'calendly_dm_prospect';
-        if (p.startsWith('lm-')) return 'lm_dm_auto';
-        return 'calendly_dm_prospect';
-      }
-      return null;
-    };
+    const resolveLinkCategory = createLinkCategoryResolver({
+      contentLinks: contentLinksRows ?? [],
+      prospectShortUrls: (prospectLinksRows ?? []).map((pl: any) => pl.short_url),
+    });
 
     // Récupère tous les liens de tous les domaines connus du compte (actif + anciens)
     let linksWithDomain: { link: any; hostname: string }[];
@@ -147,7 +110,7 @@ Deno.serve(async (req) => {
         const originalUrl = l.originalURL || '';
         let link_type: string | null = null;
         try { link_type = new URL(originalUrl).searchParams.get('utm_medium') || null; } catch {}
-        const link_category = resolveLinkCategory(path, shortUrl, link_type);
+        const link_category = resolveLinkCategory(path, shortUrl, originalUrl);
 
         const statsRes = await fetch(`https://api-v2.short.io/statistics/link/${linkId}?period=last30`, { headers });
         if (!statsRes.ok) { skipped++; continue; }

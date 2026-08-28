@@ -9,6 +9,13 @@ const serviceSupabase = createClient(
 
 type TopEntry = { label: string; value: number };
 
+// Réponse propre à UN élève, dérivée d'une session authentifiée : jamais `public`
+// (un cache partagé pourrait la resservir à quelqu'un d'autre), et jamais 24 h — le
+// bouton « Rafraîchir » écrit en base puis relit cette route, et une réponse gardée
+// une journée par le navigateur rendait le rafraîchissement invisible. 60 s de cache
+// privé suffisent à absorber les remontages de composant sans figer les chiffres.
+const CACHE_CONTROL = 'private, max-age=60, must-revalidate';
+
 interface SnapshotRow {
   link_id: string;
   path: string;
@@ -56,6 +63,11 @@ function mergeTop(arrays: (TopEntry[] | null)[], limit = 8): TopEntry[] {
 // PostgREST plafonne à 1000 lignes par défaut — sans pagination explicite, une requête
 // avec beaucoup de liens/dates tronquerait silencieusement les résultats (totaux et
 // graphiques faux, sans erreur visible). Boucle par pages de 1000 jusqu'à épuisement.
+//
+// ⚠️ La requête passée DOIT porter un tri total et déterministe. Sans ORDER BY,
+// PostgreSQL ne garantit aucun ordre entre deux exécutions : un LIMIT/OFFSET peut
+// alors renvoyer deux fois la même ligne et en sauter une autre, silencieusement.
+// Le profil de test totalise déjà 4 752 lignes en All-Time, soit 5 pages.
 async function fetchAllPages<T>(
   queryBuilder: () => any,
   pageSize = 1000
@@ -217,6 +229,11 @@ export async function GET(request: Request) {
           .eq('profile_id', targetProfileId)
           .gte('date', startDate)
           .lte('date', endDate)
+          // Tri total : (date, link_id) est unique par profil (contrainte du ON CONFLICT
+          // de upsert_shortio_link_snapshot), donc l'ordre est déterministe et la
+          // pagination ne peut ni dupliquer ni perdre de ligne.
+          .order('date', { ascending: true })
+          .order('link_id', { ascending: true })
       ),
       serviceSupabase
         .from('integrations')
@@ -243,7 +260,7 @@ export async function GET(request: Request) {
     if (!data?.length) {
       console.warn('[shortio/snapshots] NO_DATA profileId=%s start=%s end=%s', targetProfileId, startDate, endDate);
       return NextResponse.json({ ...EMPTY_STATS, domain }, {
-        headers: { 'Cache-Control': 'public, max-age=86400' },
+        headers: { 'Cache-Control': CACHE_CONTROL },
       });
     }
 
@@ -252,11 +269,15 @@ export async function GET(request: Request) {
 
     const result = mapPostgresToShortio(data as SnapshotRow[], domain, metaMap);
     return NextResponse.json(result, {
-      headers: { 'Cache-Control': 'public, max-age=86400' },
+      headers: { 'Cache-Control': CACHE_CONTROL },
     });
 
   } catch (e: any) {
+    // 503 et non 200 + EMPTY_STATS : renvoyer des zéros sur une panne de base affirme
+    // « aucun clic » alors que la vérité est « on ne sait pas ». L'appelant
+    // (fetchSnapshot / fetchSupabaseStats) fait déjà `r.ok ? r.json() : null`, donc
+    // l'écran retombe sur son état « pas de données » au lieu d'afficher des zéros.
     console.error('[shortio/snapshots] DB_ERROR', e?.message, { profileId: targetProfileId });
-    return NextResponse.json(EMPTY_STATS);
+    return NextResponse.json({ error: 'db_unavailable' }, { status: 503 });
   }
 }

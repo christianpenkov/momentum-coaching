@@ -22,6 +22,11 @@ interface AreaChartProps {
   // à activer seulement quand le graphique montre 7 points ou moins (vue semaine),
   // sinon les ticks se chevauchent sur une vue mois (jusqu'à 31 points).
   showWeekday?: boolean;
+  // Formatage explicite des libellés de l'axe X. Sert quand les points ne sont plus
+  // des JOURS mais des semaines ou des mois (mode All-Time, cf. lib/chart-buckets.ts) :
+  // sans ça, la clé "2026-06-08" d'une semaine s'affiche "8 juin", indiscernable d'un
+  // point journalier. Ignoré quand absent (comportement d'origine).
+  tickFormatter?: (v: string) => string;
   // Nom du champ booléen (dans chaque objet de `data`) marquant un jour passé/aujourd'hui
   // dont la ligne existe en base mais dont cette métrique précise n'a pas encore été
   // collectée (distinct d'un vrai 0 ou d'un jour futur). Un jour pending n'affiche aucun
@@ -90,7 +95,7 @@ const CustomTooltip = ({ active, payload, label, formatter }: { active?: boolean
   );
 };
 
-export default function AreaChart({ data, areas, xKey, height = 220, formatter, showWeekday, pendingKey }: AreaChartProps) {
+export default function AreaChart({ data, areas, xKey, height = 220, formatter, showWeekday, pendingKey, tickFormatter }: AreaChartProps) {
   // Coupe la ligne aux jours futurs (date > aujourd'hui) — sans ça, une source de
   // données qui pose 0 plutôt que null pour les jours sans ligne (ex: igDays) trace la
   // courbe à plat jusqu'à la fin du mois/semaine calendaire au lieu de s'arrêter à
@@ -144,13 +149,13 @@ export default function AreaChart({ data, areas, xKey, height = 220, formatter, 
             })}
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-          <XAxis dataKey={xKey} tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={(v: string) => {
+          <XAxis dataKey={xKey} tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={tickFormatter ?? ((v: string) => {
             const d = new Date(v);
             if (isNaN(d.getTime())) return v;
             return showWeekday
               ? d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' })
               : d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }).replace('.', '');
-          }} interval={tickInterval} />
+          })} interval={tickInterval} />
           {/* Domain avec marge explicite — sans ça, Recharts colle le domaine "auto" pile
               sur [min, max] des données : un point à la valeur min se retrouve collé au bord
               bas de la zone de tracé, et son halo de pulsation (todayDotFactory) déborde

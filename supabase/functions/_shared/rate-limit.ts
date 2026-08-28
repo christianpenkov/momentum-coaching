@@ -133,13 +133,37 @@ export function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Limiteur Short.io partagé par tout un run de cron.
+ * Limiteur Short.io — UN PAR COMPTE Short.io, pas un seul pour tout le run.
  *
- * 60 req/fenêtre est le quota observé (en-tête `x-ratelimit-limit`). On vise
- * volontairement en dessous (50) : la clé peut être utilisée en parallèle par le
- * bouton « Rafraîchir » du dashboard ou par une autre fonction, et un 429 coûte
- * plus cher en temps qu'une requête légèrement retardée.
+ * Le quota Short.io se partage entre les profils qui interrogent le MÊME compte
+ * (constaté en prod le 2026-08-14 : deux profils sur `ubizenai.s.gy` se
+ * cannibalisaient). D'où un limiteur partagé au départ.
+ *
+ * Mais un limiteur UNIQUE pour tout le run transforme ce garde-fou en goulot : en
+ * production chaque élève connecte SON propre compte Short.io, donc dispose de SON
+ * propre quota. Faire passer 40 élèves dans un seul seau de 50 jetons/minute impose
+ * un plafond global de 50 appels/minute à toute la plateforme, alors que la limite
+ * réelle est de 50/minute × 40 comptes.
+ *
+ * On indexe donc le limiteur sur le DOMAINE interrogé, qui identifie le compte : deux
+ * profils sur le même domaine partagent leur seau (comportement d'origine, correct),
+ * deux profils sur des comptes distincts ne se gênent plus.
+ *
+ * Mesure du 2026-08-28 : 70 appels légers (`limit: 1`) d'affilée sur un même domaine
+ * ne déclenchent AUCUN 429 et ne renvoient aucun en-tête `x-ratelimit-*`, alors qu'un
+ * seul appel `limit: 500` en a déclenché un. Le débit toléré dépend donc du COÛT des
+ * requêtes, pas seulement de leur nombre — raison de plus pour garder le backoff sur
+ * 429 comme filet réel, et le seau comme simple garde-fou.
  */
+const limiteursParDomaine = new Map<string, RateLimiter>();
+
+export function limiteurShortio(cleCompte: string | number): RateLimiter {
+  const k = String(cleCompte);
+  let l = limiteursParDomaine.get(k);
+  if (!l) { l = createShortioLimiter(); limiteursParDomaine.set(k, l); }
+  return l;
+}
+
 export function createShortioLimiter(): RateLimiter {
   return new RateLimiter({
     concurrency: 5,

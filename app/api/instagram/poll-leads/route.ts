@@ -37,7 +37,7 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
     const shioCreds = await getShortioLinkCreds(profileId);
     if (shioCreds) {
       // 1. Snapshot granulaire par lien → shortio_link_daily_snapshots
-      const { synced: shioSynced, errors: shioErrors } = await snapshotShortioLinks(profileId, 'yesterday', 'cron');
+      const { synced: shioSynced, errors: shioErrors } = await snapshotShortioLinks(profileId, 'cron');
       if (shioErrors.length) errors.push(...shioErrors.map(e => `shortio_link: ${e}`));
 
       // 2. Agrégat domaine J-1 → analytics_daily_snapshots (via period=yesterday)

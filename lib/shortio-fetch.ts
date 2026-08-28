@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
-import { isoDateCore } from './ig-metrics-core';
+import { parisDateStr } from './period';
+import { fetchClicsShortio, agregerClics, cleClic } from './shortio-clicks';
+import { createLinkCategoryResolver, type LinkCategory } from './shortio-link-category';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -28,24 +30,6 @@ export interface ShortioLinkRow {
   createdAt: string | null;
 }
 
-export interface ShortioLinkSnapshot {
-  link_id: string;
-  path: string;
-  short_url: string;
-  original_url: string;
-  date: string;
-  human_clicks: number;
-  total_clicks: number;
-  link_type: string | null;
-  top_countries: { label: string; code: string; value: number }[];
-  top_referrers: { label: string; value: number }[];
-  top_browsers:  { label: string; value: number }[];
-  top_os:        { label: string; value: number }[];
-  top_social:    { label: string; value: number }[];
-  top_cities:    { label: string; value: number }[];
-  utm_sources:   { label: string; value: number }[];
-  utm_mediums:   { label: string; value: number }[];
-}
 
 // ── Credentials depuis integrations ──────────────────────────────────────────
 export async function getShortioLinkCreds(profileId: string): Promise<ShortioLinkCreds | null> {
@@ -100,145 +84,6 @@ async function fetchShortioLinks(creds: ShortioLinkCreds): Promise<ShortioLinkRo
   }));
 }
 
-// ── Stats d'un lien pour une période (today | yesterday | last7 | last30 | custom) ──
-async function fetchShortioLinkStats(
-  creds: ShortioLinkCreds,
-  link: ShortioLinkRow,
-  period: string,
-  date: string, // date ISO YYYY-MM-DD à stocker dans le snapshot
-): Promise<ShortioLinkSnapshot> {
-  const res = await fetch(
-    `https://api-v2.short.io/statistics/link/${link.id}?period=${period}`,
-    { headers: { authorization: creds.apiKey, accept: 'application/json' } }
-  );
-
-  // Dériver link_type depuis utm_medium de l'originalUrl
-  let link_type: string | null = null;
-  try { link_type = new URL(link.originalUrl).searchParams.get('utm_medium') || null; } catch {}
-
-  if (!res.ok) return emptySnapshot(link, date, link_type);
-
-  let stats: any = {};
-  try { stats = await res.json(); } catch { return emptySnapshot(link, date, link_type); }
-
-  const pick = (arr: any[], labelKey: string, extraKey?: string) =>
-    (arr || [])
-      .filter((x: any) => x.score > 0)
-      .slice(0, 8)
-      .map((x: any) => ({ label: x[labelKey] || x[extraKey || labelKey] || 'Inconnu', value: Number(x.score) }));
-
-  return {
-    link_id:      link.id,
-    path:         link.path,
-    short_url:    link.shortUrl,
-    original_url: link.originalUrl,
-    date,
-    link_type,
-    human_clicks: Number(stats.humanClicks ?? 0),
-    total_clicks: Number(stats.totalClicks ?? 0),
-    top_countries: (stats.country || [])
-      .filter((c: any) => c.score > 0).slice(0, 8)
-      .map((c: any) => ({ label: c.countryName || c.country || 'Inconnu', code: c.country || '', value: Number(c.score) })),
-    top_referrers: pick(stats.referer,   'refhost', 'referer').map(x => ({ ...x, label: x.label || 'Direct' })),
-    top_browsers:  pick(stats.browser,   'browser'),
-    top_os:        pick(stats.os,        'os'),
-    top_social:    pick(stats.social,    'social').map(x => ({ ...x, label: x.label || 'Direct' })),
-    top_cities:    (stats.city || [])
-      .filter((c: any) => c.score > 0).slice(0, 8)
-      .map((c: any) => ({ label: `${c.name || '?'} (${c.countryCode || '?'})`, value: Number(c.score) })),
-    utm_sources:   (stats.utm_source || [])
-      .filter((u: any) => u.score > 0 && u.utm_source).slice(0, 8)
-      .map((u: any) => ({ label: u.utm_source, value: Number(u.score) })),
-    utm_mediums:   (stats.utm_medium || [])
-      .filter((u: any) => u.score > 0 && u.utm_medium).slice(0, 8)
-      .map((u: any) => ({ label: u.utm_medium, value: Number(u.score) })),
-  };
-}
-
-function emptySnapshot(link: ShortioLinkRow, date: string, link_type: string | null = null): ShortioLinkSnapshot {
-  return {
-    link_id: link.id, path: link.path, short_url: link.shortUrl,
-    original_url: link.originalUrl, date, link_type,
-    human_clicks: 0, total_clicks: 0,
-    top_countries: [], top_referrers: [], top_browsers: [],
-    top_os: [], top_social: [], top_cities: [],
-    utm_sources: [], utm_mediums: [],
-  };
-}
-
-// ── Upsert un snapshot dans shortio_link_daily_snapshots ─────────────────────
-async function upsertShortioLinkSnapshot(
-  profileId: string,
-  row: ShortioLinkSnapshot,
-  source: 'cron' | 'refresh_partial',
-): Promise<string | null> {
-  const { error } = await serviceSupabase.rpc('upsert_shortio_link_snapshot', {
-    p_profile_id:    profileId,
-    p_link_id:       row.link_id,
-    p_path:          row.path,
-    p_short_url:     row.short_url,
-    p_original_url:  row.original_url ?? null,
-    p_date:          row.date,
-    p_human_clicks:  row.human_clicks,
-    p_total_clicks:  row.total_clicks,
-    p_link_type:     row.link_type ?? null,
-    p_top_countries: row.top_countries ?? null,
-    p_top_referrers: row.top_referrers ?? null,
-    p_top_browsers:  row.top_browsers ?? null,
-    p_top_os:        row.top_os ?? null,
-    p_top_social:    row.top_social ?? null,
-    p_top_cities:    row.top_cities ?? null,
-    p_utm_sources:   row.utm_sources ?? null,
-    p_utm_mediums:   row.utm_mediums ?? null,
-    p_backfill_source: source,
-  });
-
-  if (error) return error.message;
-
-  // NE PAS écrire first_click_at depuis le snapshot daily :
-  // les stats agrégées Short.io comptent certains bots comme humanClicks (incohérence API).
-  // Seul le click stream temps réel (syncLmClickStream) a le détail human:true par clic
-  // et est la seule source fiable pour écrire first_click_at sur prospect_links.
-  if (row.human_clicks > 0) {
-
-    // Check : lien LM personnalisé sur instagram_leads.tracking_link
-    // On vérifie le total cumulé (pas juste le snapshot du jour) pour ne pas rater les clics passés
-    {
-      const { data: cumulRow } = await serviceSupabase
-        .from('shortio_link_daily_snapshots')
-        .select('human_clicks')
-        .eq('profile_id', profileId)
-        .eq('path', row.path)
-        .gt('human_clicks', 0)
-        .limit(1)
-        .maybeSingle();
-
-      if (cumulRow) {
-        const { data: igLead } = await serviceSupabase
-          .from('instagram_leads')
-          .select('id, ig_username, profile_id')
-          .eq('profile_id', profileId)
-          .filter('tracking_link', 'like', `%/${row.path}`)
-          .maybeSingle();
-
-        if (igLead) {
-          const { error: evtErr } = await serviceSupabase.from('prospect_events').upsert({
-            profile_id:   profileId,
-            prospect_key: igLead.ig_username.toLowerCase(),
-            platform:     'ig',
-            event_type:   'lm_clicked',
-            occurred_at:  new Date(row.date + 'T12:00:00Z').toISOString(),
-            ig_lead_id:   igLead.id,
-          }, { onConflict: 'ig_lead_id,event_type', ignoreDuplicates: true });
-          if (evtErr) console.error('[shortio-fetch] lm_clicked upsert:', evtErr.message);
-        }
-      }
-    }
-  }
-
-  return null;
-}
-
 // ── Click stream : attribution lm_clicked + link_clicked avec timestamp précis ──
 // afterDate : ISO string — ne récupère que les clics après cette date
 // Traite deux types de liens :
@@ -250,6 +95,8 @@ async function upsertShortioLinkSnapshot(
 // header x-ratelimit-reset pour attendre exactement le bon délai avant un unique retry,
 // plutôt qu'un délai fixe qui ne correspond pas au vrai temps de réinitialisation.
 const CLICK_STREAM_MAX_RATE_LIMIT_WAIT_MS = 60_000;
+// Conservé pour la compatibilité de signature ; la lecture paginée réelle vit
+// désormais dans lib/shortio-clicks.ts (source unique avec le cron).
 async function fetchLastClicksWithRetry(domainId: string | number, apiKey: string, afterDate: string): Promise<Response> {
   const call = () => fetch(
     `https://api-v2.short.io/statistics/domain/${domainId}/last_clicks`,
@@ -386,11 +233,21 @@ export async function syncLmClickStream(
   return errors;
 }
 
-// ── Helper principal : snapshot complet pour un profil sur une période ────────
+// ── Bouton « Rafraîchir » : snapshot du jour ─────────────────────────────────
+//
+// Même source et même règle de date que le cron (lib/shortio-clicks.ts) : un clic
+// appartient au jour PARIS de son horodatage. C'est indispensable, sinon le bouton
+// réintroduirait les valeurs fausses que le cron vient de corriger.
+//
+// Il n'écrit QUE la journée en cours, et en mode monotone (jamais `p_ecraser`) :
+// réparer les journées closes est le travail du cron, qui dispose d'une fenêtre de
+// 7 jours. Le bouton doit rester rapide et ne jamais pouvoir dégrader l'historique.
+//
+// Coût : 1 à 2 appels Short.io par domaine (le flux, paginé) plus la liste des liens,
+// au lieu d'un appel PAR LIEN comme auparavant.
 export async function snapshotShortioLinks(
   profileId: string,
-  period: 'yesterday' | 'today',
-  source: 'cron' | 'refresh_partial',
+  source: 'cron' | 'refresh_partial' = 'refresh_partial',
 ): Promise<{ synced: number; errors: string[] }> {
   const errors: string[] = [];
 
@@ -403,45 +260,72 @@ export async function snapshotShortioLinks(
   } catch (e: any) {
     return { synced: 0, errors: [`fetch_links: ${e?.message || 'unknown'}`] };
   }
-
   if (!links.length) return { synced: 0, errors: [] };
 
-  // Upsert métadonnées des liens (title, createdAt) — une fois par nuit, non bloquant
-  serviceSupabase.from('shortio_links_metadata').upsert(
-    links.map(l => ({
-      link_id:    l.id,
-      profile_id: profileId,
-      title:      l.title,
-      path:       l.path,
-      created_at: l.createdAt,
-      updated_at: new Date().toISOString(),
-    })),
-    { onConflict: 'link_id', ignoreDuplicates: false }
-  ).then(({ error }) => {
-    if (error) console.error('[shortio-fetch] metadata_upsert:', error.message);
+  // Même règle de catégorie que le cron (source unique).
+  const [contentLinksRes, prospectLinksRes] = await Promise.all([
+    serviceSupabase.from('content_links').select('platform, desc_calendly_short_url, desc_lm_short_url, lm_short_url').eq('profile_id', profileId),
+    serviceSupabase.from('prospect_links').select('short_url').eq('profile_id', profileId),
+  ]);
+  const resolveLinkCategory = createLinkCategoryResolver({
+    contentLinks: contentLinksRes.data ?? [],
+    prospectShortUrls: (prospectLinksRes.data ?? []).map((pl: { short_url: string | null }) => pl.short_url),
   });
 
-  const date = isoDateCore(period === 'yesterday' ? 1 : 0);
+  // Métadonnées des liens (titre, date de création) — non bloquant.
+  serviceSupabase.from('shortio_links_metadata').upsert(
+    links.map(l => ({
+      link_id: l.id, profile_id: profileId, title: l.title, path: l.path,
+      created_at: l.createdAt, updated_at: new Date().toISOString(),
+    })),
+    { onConflict: 'link_id', ignoreDuplicates: false },
+  ).then(({ error }) => { if (error) console.error('[shortio-fetch] metadata_upsert:', error.message); });
 
-  // Fetch stats pour chaque lien en parallèle (Promise.allSettled → robuste)
-  const settled = await Promise.allSettled(
-    links.map(link => fetchShortioLinkStats(creds, link, period, date))
-  );
-
-  let synced = 0;
-  for (let i = 0; i < settled.length; i++) {
-    const s = settled[i];
-    const link = links[i];
-    const snapshot = s.status === 'fulfilled'
-      ? s.value
-      : emptySnapshot(link, date);
-
-    if (s.status === 'rejected') {
-      errors.push(`fetch_link_${link.path}: ${s.reason?.message || 'unknown'}`);
+  // Flux de clics des dernières 36 h sur TOUS les domaines du compte (l'élève qui a
+  // changé de domaine garde des liens actifs sur l'ancien). 36 h et non 24 h : une
+  // marge suffisante pour couvrir toute la journée Paris en cours quel que soit le
+  // décalage UTC, sans ramener inutilement l'avant-veille.
+  const depuis = new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString();
+  const clicsParPathEtJour = new Map<string, { human: number; total: number }>();
+  const domaines = creds.allDomains.length > 0 ? creds.allDomains : [{ id: creds.domainId, hostname: creds.domain }];
+  for (const d of domaines) {
+    try {
+      const { clics } = await fetchClicsShortio(d.id, creds.apiKey, depuis);
+      const agg = agregerClics(clics, iso => parisDateStr(new Date(iso)));
+      for (const [k, v] of agg.parPathEtJour) {
+        const cur = clicsParPathEtJour.get(k) ?? { human: 0, total: 0 };
+        clicsParPathEtJour.set(k, { human: cur.human + v.human, total: cur.total + v.total });
+      }
+    } catch (e: any) {
+      // Tracé, pas avalé : sans ça, un quota dépassé produisait des zéros
+      // indiscernables d'une absence réelle de clic.
+      errors.push(`click_stream_domain_${d.id}: ${e?.message || 'unknown'}`);
     }
+  }
 
-    const upsertErr = await upsertShortioLinkSnapshot(profileId, snapshot, source);
-    if (upsertErr) errors.push(`upsert_${link.path}: ${upsertErr}`);
+  const aujourdhui = parisDateStr(new Date());
+  let synced = 0;
+  for (const link of links) {
+    const compte = clicsParPathEtJour.get(cleClic(link.path, aujourdhui)) ?? { human: 0, total: 0 };
+    const { error } = await serviceSupabase.rpc('upsert_shortio_link_snapshot', {
+      p_profile_id: profileId,
+      p_link_id: link.id,
+      p_path: link.path,
+      p_short_url: link.shortUrl,
+      p_original_url: link.originalUrl ?? null,
+      p_date: aujourdhui,
+      p_human_clicks: compte.human,
+      p_total_clicks: compte.total,
+      p_link_type: (() => { try { return new URL(link.originalUrl).searchParams.get('utm_medium'); } catch { return null; } })(),
+      // `null` : la RPC fait COALESCE, donc les ventilations déjà collectées restent
+      // intactes. Un tableau vide les effacerait.
+      p_top_countries: null, p_top_referrers: null, p_top_browsers: null, p_top_os: null,
+      p_top_social: null, p_top_cities: null, p_utm_sources: null, p_utm_mediums: null,
+      p_backfill_source: source,
+      p_link_category: resolveLinkCategory(link.path, link.shortUrl, link.originalUrl),
+      p_ecraser: false,
+    });
+    if (error) errors.push(`upsert_${link.path}: ${error.message}`);
     else synced++;
   }
 
