@@ -26,6 +26,38 @@ export interface DealRow {
   hasFailure: boolean;
   /** Le deal a-t-il au moins un lien de paiement Stripe ? Faux = hors Stripe. */
   hasLinks: boolean;
+
+  endedBy: 'stripe' | 'user' | null;
+  endedAt: string | null;
+  endedReason: string | null;
+  stopsAt: string | null;
+  disputeDueBy: string | null;
+  unexpectedPaymentAt: string | null;
+  refunded: number;
+  disputed: number;
+}
+
+/** Un client et toutes ses ventes — l'unité de la liste et de la fiche. */
+export interface PersonRow {
+  key: string;
+  name: string;
+  subtitle: string | null;
+  subtitleCoach: string | null;
+  avatarUrl: string | null;
+  dealIds: string[];
+  contracted: number;
+  collected: number;
+  status: string;
+  since: string;
+}
+
+export interface DealEvent {
+  id: string;
+  deal_id: string;
+  kind: string;
+  label: string;
+  created_at: string;
+  meta: Record<string, unknown> | null;
 }
 
 export interface DealPayment {
@@ -45,11 +77,16 @@ export interface DealInstallment {
   status: string;
   short_url: string | null;
   sent_at: string | null;
+  /** Clics humains sur le lien de cette échéance, sur toute sa durée de vie. */
+  clicks?: number;
 }
 
 export interface DealDetail {
   payments: DealPayment[];
   installments: DealInstallment[];
+  /** Clics sur le lien porté par la vente elle-même (comptant). */
+  clicks?: number;
+  events?: DealEvent[];
 }
 
 export interface Orphan {
@@ -74,6 +111,7 @@ export interface PaymentsData {
     failedCount: number;
   };
   deals: DealRow[];
+  people: PersonRow[];
   orphans: Orphan[];
   details: Record<string, DealDetail>;
 }
@@ -90,6 +128,20 @@ export interface Candidate {
 /** Montants sans décimales : en high-ticket, les centimes sont du bruit. */
 export function fmtEur(n: number): string {
   return `${Math.round(n).toLocaleString('fr-FR')} €`;
+}
+
+/**
+ * Montant au centime près — réservé aux écrans qui touchent à l'argent.
+ *
+ * Ailleurs l'arrondi est le bon choix : les centimes sont du bruit. Mais sur un
+ * écran qui annonce « 200,00 € à rembourser », l'arrondi ferait taper dans
+ * Stripe un chiffre différent de celui reçu, et laisserait un écart de quelques
+ * centimes qui empêcherait la vente de se solder.
+ */
+export function fmtEurExact(n: number): string {
+  return new Intl.NumberFormat('fr-FR', {
+    style: 'currency', currency: 'EUR', minimumFractionDigits: 2,
+  }).format(n);
 }
 
 export function fmtDateLong(iso: string | null): string {
