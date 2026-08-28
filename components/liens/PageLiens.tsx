@@ -4266,8 +4266,11 @@ function Entonnoir({ data, ouvert, onToggle, compact, mobile = false }: {
   // croire à un décompte brut, et le chiffre ne collerait pas avec Instagram.
   const etapes: { libelle: string; valeur: number; taux: number | null; precision?: string }[] = [
     { libelle: 'Contenus', valeur: data.contenus, taux: null },
-    { libelle: 'Prospects', valeur: data.commentaires, taux: null },
-    { libelle: 'Conversations', valeur: data.conversations, taux: data.tauxConversations },
+    { libelle: 'Leads', valeur: data.commentaires, taux: null },
+    // Pas de taux : « 75 % » sous Conversations invitait a lire une performance,
+    // alors que l'ecran repond a « ou en sont mes leads », pas a « est-ce que je
+    // convertis bien ». La performance vit dans Mes Stats.
+    { libelle: 'Conversations', valeur: data.conversations, taux: null },
     // Les deux chemins, dits sous le chiffre : la conversation en est un, le
     // lien en bio ou en description est l'autre.
     { libelle: 'Calls bookés', valeur: data.callsBookes, taux: data.tauxCalls,
@@ -4307,7 +4310,7 @@ function Entonnoir({ data, ouvert, onToggle, compact, mobile = false }: {
         <span style={{
           flex: 1, font: "600 10px 'IBM Plex Mono', monospace", letterSpacing: '.07em',
           textTransform: 'uppercase', color: MUTED,
-        }}>Du contenu au prospect</span>
+        }}>Du contenu à l'appel</span>
 
         {mobile ? (
           <span style={{
