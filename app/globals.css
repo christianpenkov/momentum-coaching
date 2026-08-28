@@ -53,6 +53,12 @@
      Celui-ci monte a 7,1:1. Les invitations de call l'utilisaient deja en dur
      (#92400e), a cote d'un intitule en #f59e0b qui, lui, tombait a 2,2:1. */
   --amber-ink:  #92400e;
+  /* Ocre — pour ce qui s'est arrêté avant la fin sans que rien n'aille mal :
+     une vente clôturée, des prélèvements stoppés. Le vert dirait « réussi », le
+     rouge « incident », l'ambre « attention » : les trois mentiraient. Assez
+     sombre pour rester lisible en petit corps (5,6:1 sur --surface). */
+  --taupe:      #8a7350;
+  --taupe-soft: #8a735018;
 
   /* Plateformes — couleurs Instagram/YT, reprises de PageClientStats.tsx (déjà le
      fichier avec le plus d'usages analytiques cohérents) pour unifier les variantes
@@ -96,13 +102,26 @@
   --ease-snap:   cubic-bezier(.4,0,.2,1);
 }
 
-/* Focus clavier — anneau tokenisé sur tous les interactifs (accessibilité) */
+/* Focus clavier — anneau tokenisé sur tous les interactifs (accessibilité)
+ *
+ * `[tabindex="-1"]` est EXCLU : cette valeur signifie « focusable par le code,
+ * mais hors du parcours clavier ». Un anneau de focus clavier y est donc faux
+ * par définition. Les conteneurs qui prennent le focus a l'ouverture — panneau
+ * de notifications, modale du pipeline — le portent, et heritaient d'un anneau
+ * bleu de 3 px a leur premiere ouverture, quand le navigateur n'a pas encore vu
+ * d'interaction au doigt et applique `:focus-visible` par defaut.
+ * `ModalShell` utilisait deja ce meme `:not([tabindex="-1"])` pour son piege a
+ * focus : la regle est ici alignee dessus.
+ *
+ * Plus de `border-radius` non plus : un anneau en `box-shadow` epouse deja
+ * l'arrondi de l'element. L'imposer ici ecrasait celui du composant — 6 px sur
+ * une feuille arrondie a 26 px, et des angles quasi droits sur toute pastille
+ * arrondie qui recevait le focus. */
 button:focus-visible, a:focus-visible, input:focus-visible,
 textarea:focus-visible, select:focus-visible, [role="button"]:focus-visible,
-[tabindex]:focus-visible {
+[tabindex]:not([tabindex="-1"]):focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-brand) 40%, transparent);
-  border-radius: var(--r-sm);
 }
 
 /* État désactivé — cohérent sur tous les interactifs, jusqu'ici géré au cas par
@@ -2814,7 +2833,10 @@ a { color: inherit; text-decoration: none; }
      son declencheur, il n'a pas de distance a parcourir. */
   animation: notif-menu-entre 180ms var(--m3-standard-decelerate);
 }
-.notif-panneau:focus { outline: none; }
+/* Le panneau prend le focus a l'ouverture pour que le clavier et les lecteurs
+   d'ecran y entrent : c'est un point d'entree, pas un controle. Aucun anneau. */
+.notif-panneau:focus,
+.notif-panneau:focus-visible { outline: none; }
 
 @keyframes notif-menu-entre {
   from { opacity: 0; transform: translateY(-6px) scale(.985); }
