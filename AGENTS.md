@@ -71,9 +71,54 @@ même entre eux (version 16, chemin `_14`). Et un écart de quelques minutes ent
 et déploiement n'est jamais concluant — le schéma normal est « je déploie, puis je
 commite ».
 
+# Les crons vivent à DEUX endroits
+
+⚠️ **Avant d'ajouter un cron, vérifier qu'il n'existe pas déjà dans l'autre
+planificateur.** Un doublon ne se contente pas de doubler la charge : deux passages
+simultanés lisent le même drapeau d'idempotence avant que l'un ne l'écrive, et la
+notification part en double.
+
+```sql
+select jobname, schedule, active from cron.job order by jobid;   -- côté Supabase
+```
+
+## pg_cron — dans la base (relevé le 2026-08-30)
+
+| Job | Fréquence | Pourquoi ici et pas ailleurs |
+|-----|-----------|------------------------------|
+| `call-reminders-15min` | `*/15 * * * *` | Edge Function, pas de dépendance externe |
+| `send-pending-dm3-1min` | `* * * * *` | Chemin critique à la minute |
+| `process-webhook-queue-1min` | `* * * * *` | Chemin critique à la minute |
+| `purge-debug-logs` | 3h30 | **SQL pur, aucune URL** |
+| `purge-webhook-queue-daily` | 3h35 | **SQL pur, aucune URL** |
+| `purge-call-rapport-drafts-daily` | 3h45 | **SQL pur, aucune URL** |
+
+Les trois purges sont des `SELECT public.purge_*()`. Les déplacer sur un planificateur
+externe imposerait de **créer une route HTTP pour chacune** et d'exposer sur Internet
+des opérations de purge — plus de code, plus de surface d'attaque, pour un ménage qui
+aujourd'hui ne dépend de rien. Les deux jobs à la minute restent ici pour la même
+raison de robustesse : pas de saut réseau, pas de compte tiers dans le chemin critique.
+
+## cron-job.org — hors de la base
+
+Sync Calendly (30 min) · Notify rapport call (30 min) · `poll-leads` (5 min) ·
+`poll-stories` (30 min) · `installment-reminders` (1×/jour) ·
+`/api/stripe/cron-health` (1×/jour).
+
+⚠️ Ne rien mettre dans `vercel.json` — il est volontairement vide.
+
+Le ping de santé Stripe **n'écrit rien quand tout va bien** : `integrations.status = 'ok'`
+ne prouve donc pas qu'il a tourné. La preuve est le corps de sa réponse dans
+l'historique cron-job.org — `{"ok":true,"testes":N,"vivantes":N,"pannes":0}`.
+
 # Santé de la plateforme
 
 ```sql
 select * from cron_runs order by ran_at desc;   -- vide = aucun incident (30j)
 select * from yt_sante_donnees;                 -- 'ok' partout
+select * from integrations_sante;               -- 'ok' ou 'non_connectee'
 ```
+
+⚠️ Sur les vues de santé, `etat <> 'ok'` n'est **pas** un filtre d'anomalie :
+`non_connectee` et `integration deconnectee` disent seulement que l'intégration n'est
+pas branchée. Les chercher comme des pannes fait remonter 23 faux positifs.
