@@ -35,6 +35,7 @@ const CATS_DM_CALENDLY = new Set<string>(CATEGORY_GROUPS.dmCalendly);
 const CATS_DM_LM = new Set<string>(CATEGORY_GROUPS.dmLm);
 const CATS_STORY = new Set<string>(CATEGORY_GROUPS.story);
 import { isCallHonored } from '@/lib/callHonored';
+import { contenuConversion } from '@/lib/attribution-roles';
 import { isCallCanceled } from '@/lib/sessionRapport';
 import { usePeriodesIg, porteeDeLaPeriode, typePeriodePour, type TypePeriodeIg } from '@/lib/porteeIg';
 import { bucketCallsByBookedDay, parisDayRange, tauxOuTrou, idsDeContinuation } from '@/lib/callSeries';
@@ -135,6 +136,8 @@ interface CallRecord {
   rescheduled?: boolean; source?: string; notes?: string;
   ig_lead_id?: string | null; outcome?: string | null;
   utm_content?: string | null; utm_medium?: string | null;
+  /** Repli d'attribution LEGITIME : le lien prospect par lequel ce call est arrive. */
+  prospect_link_id?: string | null;
   qualified?: boolean | null; booked_at?: string | null;
   lead_deleted?: boolean | null; ignored?: boolean | null;
 }
@@ -5123,6 +5126,17 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // opportunite neuve sur le contenu.
   const continuationsContenu = idsDeContinuation(callsAllTime ?? calls ?? []);
 
+  // Repli d'attribution LEGITIME : le contenu d'ou vient un lien prospect.
+  //
+  // Pose a la creation du lien et jamais reecrit, contrairement a
+  // `instagram_leads.media_id` qu'un commentaire posterieur ecrase. Sert uniquement
+  // quand `utm_content` manque — cas des liens crees avant le correctif du 19/08.
+  const contenuDuLienProspect = new Map<string, string>(
+    (prospectLinksData ?? [])
+      .filter((pl: any) => pl?.id && pl?.content_id)
+      .map((pl: any) => [String(pl.id), String(pl.content_id)]),
+  );
+
   const igLiveViewsById = new Map<string, number>((igLive?.posts ?? []).map((p: any) => [p.id, p.views || p.reach || 0]));
   const ytLiveViewsById = new Map<string, number>((ytLive?.videos ?? []).map((v: any) => [v.id, v.views || 0]));
 
@@ -5550,15 +5564,30 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     // Calls bookés/closés/revenue depuis la table calls (source de vérité)
     // postCalls = calls rattachés à ce contenu (DM + description), filtrés sur la période sélectionnée (scheduled_at)
     // postCallsDesc = uniquement via lien description (utm_medium = 'description') — pour breakdown par source
-    // Priorité à utm_content (rempli au clic du lien Calendly précis, daté et lié au
-    // bon contenu au moment du booking) plutôt qu'à ig_lead_id → leadIdToMediaId (état
-    // COURANT mutable de instagram_leads, qui s'écrase à chaque nouvelle interaction
-    // de la même personne — un call booké en janvier depuis un post se retrouverait
-    // attribué à tort à une story réclamée par la même personne en juillet). Fallback
-    // sur ig_lead_id seulement si utm_content est absent (ex: cold DM sans lien traqué).
-    // `source === 'ig_dm'` : même garde que la vue des posts. Sans elle, un call
-    // fusionné venu d'une bio serait attribué au contenu dont le lead vient.
-    const matchesContent = (c: CallRecord) => c.utm_content ? c.utm_content === postId : (c.source === 'ig_dm' && c.ig_lead_id ? leadIdToMediaId?.get(c.ig_lead_id) === postId : false);
+    // Attribution de CONVERSION : `utm_content`, sinon le contenu du LIEN PROSPECT.
+    //
+    // Le repli precedent lisait `leadIdToMediaId`, c'est-a-dire `instagram_leads.media_id`.
+    // Ce champ est ECRASE a chaque nouveau commentaire de la meme personne : la table
+    // porte une seule ligne par personne et par eleve (`unique (profile_id, ig_user_id)`)
+    // et l'upsert de `lib/ig-fetch.ts` y remet le dernier post commente. Mesure du
+    // 2026-08-29 : le post GUIDE affichait 1 call et 500 EUR avec 0 commentaire et
+    // 0 conversation, parce qu'un commentaire posterieur sur un autre post l'avait
+    // efface de la fiche. Un contenu se faisait donc voler ses calls.
+    //
+    // `prospect_links.content_id` remplace ce repli : il est pose a la creation du lien
+    // et jamais reecrit, et il decrit le contenu d'ou vient CE lien-la. Verifie sur
+    // l'unique call concerne (`af9d5898`, 15/08) : son lien datait du 7 juin, avant le
+    // correctif qui a impose `utm_content`, et son contenu etait toujours la.
+    //
+    // Apres ce repli, l'absence de contenu ne concerne plus que les liens de BIO, qui
+    // n'en ont aucun par nature — un trou legitime, jamais un zero.
+    //
+    // La regle vit dans `lib/attribution-roles.ts`, testee sur fixtures reelles.
+    const matchesContent = (c: CallRecord) =>
+      contenuConversion({
+        utm_content: c.utm_content,
+        prospect_link_content_id: c.prospect_link_id ? contenuDuLienProspect.get(c.prospect_link_id) ?? null : null,
+      }) === postId;
     const postCalls = (calls && leadIdToMediaId)
       ? calls.filter(c => matchesContent(c) && isInPeriod(callPeriodDate(c)))
       : [];
@@ -8033,7 +8062,10 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     // Paginé (fetchAllPages) — plafond fixe .limit(500) auparavant, même raison.
     fetchAllPages<any>(() =>
       supabase.from('prospect_links')
-        .select('id, ig_lead_id, ig_username, short_url, calendly_link_sent, calendly_link_sent_at, first_click_at, created_at, keyword_matched, source_at_creation')
+        // `content_id` : le repli d'attribution LEGITIME quand un call n'a pas
+        // d'`utm_content` (liens crees avant le correctif du 19/08). Pose a la creation
+        // du lien et jamais reecrit — contrairement a `instagram_leads.media_id`.
+        .select('id, ig_lead_id, ig_username, short_url, content_id, calendly_link_sent, calendly_link_sent_at, first_click_at, created_at, keyword_matched, source_at_creation')
         // archived_at : même filtre que instagram_leads plus haut, sinon la table
         // Performance LM et l'attribution comptent des prospects d'un ancien compte.
         .eq('profile_id', targetId).is('archived_at', null)
