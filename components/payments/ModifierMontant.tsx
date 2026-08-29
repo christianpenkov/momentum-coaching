@@ -109,7 +109,8 @@ export default function ModifierMontant({ deal, detail, onClose, onDone, onRembo
   const echeancierApres = useMemo(() => {
     if (reste <= 0.005) return [];
     const pas = deal.installmentInterval === 'week' ? 7 : 30;
-    const dernier = echeancierAvant[echeancierAvant.length - 1];
+    const offset = echeancierAvant.length;
+    const dernier = echeancierAvant[offset - 1];
     const base = dernier?.date ? new Date(dernier.date).getTime() : Date.now();
     // Le reliquat d'arrondi va sur la première : la somme doit faire exactement
     // le total, sinon la vente ne se solderait jamais.
@@ -118,8 +119,10 @@ export default function ModifierMontant({ deal, detail, onClose, onDone, onRembo
       rang: dejaPayees + i + 1,
       // Les échéances existantes gardent leur date — c'est la promesse faite au
       // client. Seules celles qu'on ajoute en reçoivent une nouvelle.
+      // Même décalage qu'en modalités : sans échéance existante, la première
+      // part d'aujourd'hui, comme la route l'écrit.
       date: echeancierAvant[i]?.date
-        ?? new Date(base + (i - echeancierAvant.length + 1) * pas * 86400_000).toISOString(),
+        ?? new Date(base + (i - offset + (offset > 0 ? 1 : 0)) * pas * 86400_000).toISOString(),
       montant: i === 0 ? premiere : apresParEcheance,
     }));
   }, [reste, nbApres, apresParEcheance, echeancierAvant, dejaPayees, deal.installmentInterval]);

@@ -90,14 +90,20 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
   const echeancierApres = useMemo(() => {
     if (reste <= 0.005 || aCreer === 0) return [];
     const pas = rythme === 'week' ? 7 : 30;
-    const dernier = echeancierAvant[echeancierAvant.length - 1];
+    const offset = echeancierAvant.length;
+    const dernier = echeancierAvant[offset - 1];
     const base = dernier?.date ? new Date(dernier.date).getTime() : Date.now();
     const premiere = arrondi(reste - parEcheance * (aCreer - 1));
+      // ⚠️ `+ (offset > 0 ? 1 : 0)` et non `+ 1` : quand AUCUNE échéance
+      // n'existe encore, la première part d'aujourd'hui — c'est ce que la route
+      // écrit (`depart + i * pas`, donc i=0 = aujourd'hui). Avec un `+ 1`
+      // inconditionnel, l'aperçu décalait tout d'un cran et promettait des dates
+      // que la validation ne produisait pas.
     return Array.from({ length: aCreer }, (_, i) => ({
       rang: dejaPayees + i + 1,
       date: (!changeRythme && echeancierAvant[i]?.date)
         ? echeancierAvant[i].date
-        : new Date(base + (i - echeancierAvant.length + 1) * pas * 86400_000).toISOString(),
+        : new Date(base + (i - offset + (offset > 0 ? 1 : 0)) * pas * 86400_000).toISOString(),
       montant: i === 0 ? premiere : parEcheance,
     }));
   }, [reste, aCreer, parEcheance, echeancierAvant, dejaPayees, rythme, changeRythme]);
@@ -231,7 +237,10 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {(['one_shot', 'installments_auto', 'installments_manual', 'offline'] as Mode[]).map(m => (
           <Chip key={m} on={mode === m} onClick={() => setMode(m)}>
-            {m === 'one_shot' ? 'Comptant' : libelleMode(m)}
+            {/* `libelleMode` est écrit pour le milieu d'une phrase (« … en 3 fois
+                mensuel, prélèvement automatique »). Sur un bouton, une minuscule
+                à côté de « Comptant » se lit comme une faute. */}
+            {majuscule(m === 'one_shot' ? 'Comptant' : libelleMode(m))}
           </Chip>
         ))}
       </div>
@@ -308,8 +317,14 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
             )}
             <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
               <strong>Rien n’est prélevé aujourd’hui.</strong>
+              {/* ⚠️ « Les anciens liens cesseront de fonctionner » suppose qu'il
+                  y en avait. Sur une vente encaissée hors Stripe — celle qu'on
+                  vient justement mettre en place — il n'y en a aucun, et la
+                  phrase annonçait la mort de quelque chose qui n'existe pas. */}
               {mode !== 'installments_auto' && mode !== 'offline' && reste > 0.005 && (
-                <> Les anciens liens cesseront de fonctionner, et tu recevras les nouveaux.</>
+                deal.hasLinks
+                  ? <> Les anciens liens cesseront de fonctionner, et tu recevras les nouveaux.</>
+                  : <> Tu recevras {aCreer > 1 ? 'les liens' : 'le lien'} à envoyer à {prenom}.</>
               )}
             </div>
           </Encart>
@@ -318,7 +333,9 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
               Annoncer « 3 fois 400 € » sans montrer les dates ni ce que chaque
               échéance valait avant oblige à croire sur parole au moment précis
               où on veut vérifier. */}
-          {(echeancierAvant.length > 0 || echeancierApres.length > 0) && (
+          {/* Deux lignes au moins : sur un comptant, « les échéances à venir »
+              suivi d'un unique « 1/1 » ne dit rien que l'encart n'ait déjà dit. */}
+          {(echeancierAvant.length > 1 || echeancierApres.length > 1) && (
             <div style={{ marginTop: 12 }}>
               <Section marge={0}>
                 {mode === 'installments_auto' ? 'Les prélèvements à venir' : 'Les échéances à venir'}
@@ -360,3 +377,5 @@ function libelleAvant(mode: Mode, nb: number, rythme: string): string {
 }
 
 const arrondi = (n: number) => Math.round(n * 100) / 100;
+
+const majuscule = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
