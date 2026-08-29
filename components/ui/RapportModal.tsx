@@ -950,13 +950,14 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                 placeholder="Par exemple : il déménage à l'étranger"
                 disabled={saving}
                 autoFocus
-                // Le plein écran rend la feuille défilante ; encore faut-il
-                // qu'elle défile. Sur la branche « à recontacter », sept choix
-                // précèdent ce champ : `autoFocus` seul le laissait sous la
-                // ligne de flottaison, visible seulement après un geste manuel.
-                // `block: 'center'` le place au milieu, donc au-dessus du
-                // clavier quelle que soit sa hauteur.
-                ref={el => { el?.scrollIntoView({ block: 'center', behavior: 'smooth' }); }}
+                // La remontée au-dessus du clavier est faite par ModalShell, à
+                // l'ouverture du clavier. Elle a été retirée d'ici : posée sur un
+                // `ref` fléché en ligne, elle se rejouait à CHAQUE caractère tapé
+                // — l'identité de la fonction change à chaque rendu, donc React
+                // rappelle le ref — et le défilement lisse luttait contre la
+                // frappe. Sur la branche « à recontacter », sept choix précèdent
+                // ce champ : sans remontée, `autoFocus` seul le laisse sous la
+                // ligne de flottaison.
                 style={{
                   width: '100%', padding: '12px 14px', fontSize: 14,
                   borderRadius: 10, border: '1px solid var(--border)',

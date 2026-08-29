@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { useHauteurClavier } from '@/lib/useHauteurClavier';
 import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 
@@ -33,6 +34,24 @@ export default function ModalShell({
 }: Props) {
   const boxRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
+  const clavier = useHauteurClavier();
+
+  // Le champ actif est remonté quand le clavier APPARAÎT, pas à chaque frappe :
+  // l'effet ne se déclenche que sur un changement de hauteur de clavier. Un
+  // scrollIntoView posé sur le `ref` du champ se rejouerait à chaque caractère
+  // tapé (une fonction fléchée en ligne change d'identité à chaque rendu), et le
+  // défilement lisse se battrait contre l'utilisateur pendant qu'il écrit.
+  //
+  // Il doit passer APRÈS le rendu qui contracte la feuille : tant qu'elle a son
+  // ancienne taille, le contenu n'a rien à faire défiler et l'appel est sans effet.
+  useEffect(() => {
+    if (clavier === 0 || hidden || !boxRef.current) return;
+    const actif = document.activeElement;
+    if (!(actif instanceof HTMLElement) || !boxRef.current.contains(actif)) return;
+    if (actif.tagName !== 'INPUT' && actif.tagName !== 'TEXTAREA') return;
+    const t = setTimeout(() => actif.scrollIntoView({ block: 'center', behavior: 'smooth' }), 0);
+    return () => clearTimeout(t);
+  }, [clavier, hidden]);
 
   // Mobile, variant centered uniquement : l'overlay est centré sur toute la hauteur
   // d'écran (position: fixed, inset: 0), qui ne rétrécit PAS quand le clavier s'ouvre
@@ -46,9 +65,17 @@ export default function ModalShell({
   // note. Être ancré en bas ne protège de rien : `flex-end` colle la feuille au bas
   // du viewport de MISE EN PAGE, celui-là même que le clavier recouvre. Un champ
   // situé en bas d'un sheet passe donc dessous — constaté le 2026-08-30 sur
-  // l'objection « Autre » du rapport de vente. Deux remèdes selon la coquille :
-  // ici `fullScreen` (la feuille prend tout l'écran et devient défilable) ; pour
-  // les feuilles qui n'utilisent pas ModalShell, le hook `lib/useHauteurClavier`.
+  // l'objection « Autre » du rapport de vente. Il est traité plus bas, en rendu
+  // déclaratif (`clavier`), et NON dans l'effet impératif ci-dessous : un sheet qui
+  // porte une saisie se re-rend à chaque frappe, et React réécrirait alors le
+  // `height: 100dvh` d'origine, faisant retomber la feuille sous le clavier entre
+  // deux événements de `visualViewport`.
+  //
+  // ⚠️ `fullScreen` seul NE SUFFIT PAS, et c'est le piège : il fixe la feuille à
+  // `100vh`, une unité qui ignore le clavier au même titre que `100dvh`. La zone de
+  // défilement se termine donc SOUS le clavier — une fois en bas, il n'y a plus rien
+  // à faire défiler et le champ ne peut plus remonter, quel que soit le
+  // scrollIntoView. Il faut que la feuille se CONTRACTE réellement.
   //
   // Quand le clavier est ouvert, on passe aussi de 'center' à 'flex-start' (+ un padding
   // haut réduit) : centrer la boîte dans le peu d'espace restant au-dessus du clavier la
@@ -131,6 +158,12 @@ export default function ModalShell({
   const isSheet = variant === 'sheet';
   const handleOverlayClick = onOverlayClick ?? onClose;
 
+  // La hauteur réellement visible au-dessus du clavier. `100dvh` vaut la hauteur du
+  // viewport de mise en page, dont le clavier occupe le bas : on la lui retranche.
+  // Appliqué au sheet uniquement — le variant centré a son propre recalage impératif
+  // juste au-dessus, et lui n'a pas de saisie qui le re-rende à chaque frappe.
+  const visible = isSheet && clavier > 0 ? `calc(100dvh - ${clavier}px)` : null;
+
   return createPortal(
     <motion.div
       ref={overlayRef}
@@ -144,7 +177,7 @@ export default function ModalShell({
         overlayMouseDownOnSelf.current = false;
       }}
       style={{
-        position: 'fixed', top: 0, left: 0, right: 0, height: '100dvh', zIndex: 2500,
+        position: 'fixed', top: 0, left: 0, right: 0, height: visible ?? '100dvh', zIndex: 2500,
         background: isSheet ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.5)',
         backdropFilter: isSheet ? undefined : 'blur(4px)',
         display: 'flex',
@@ -163,8 +196,11 @@ export default function ModalShell({
         transition={isSheet ? { type: 'spring', stiffness: 380, damping: 34 } : { type: 'spring', stiffness: 400, damping: 30 }}
         onClick={e => e.stopPropagation()}
         style={isSheet ? {
-          width: '100%', maxWidth: width, maxHeight: fullScreen ? '100vh' : '90vh',
-          height: fullScreen ? '100vh' : undefined,
+          width: '100%', maxWidth: width,
+          // Le clavier ouvert prime sur tout : la feuille se contracte a la zone
+          // visible, sinon sa zone de defilement se termine sous le clavier.
+          maxHeight: visible ?? (fullScreen ? '100vh' : '90vh'),
+          height: visible ?? (fullScreen ? '100vh' : undefined),
           background: 'var(--surface)',
           borderRadius: fullScreen ? 0 : '20px 20px 0 0',
           overflow: 'hidden auto',
