@@ -70,17 +70,40 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       });
   }, [profileId, isClient]);
 
+  /**
+   * ⚠️ Une requête en ÉCHEC ne doit jamais produire une liste vide.
+   *
+   * Les requêtes ci-dessous ne récupéraient que `data`, jamais `error`. Or en
+   * cas d'échec — jeton expiré au réveil de la PWA, coupure réseau brève, RLS
+   * momentanément en défaut — Supabase renvoie `data: null`. Le code en faisait
+   * une liste vide, écrivait `setBadgeCount('notifs', 0)`, et LA PASTILLE
+   * DISPARAISSAIT : un rapport en attente semblait traité. Elle revenait à la
+   * réouverture de l'app, quand le jeton se rafraîchissait et que les requêtes
+   * repassaient — d'où un défaut qui se corrigeait tout seul et paraissait
+   * venir d'iOS.
+   *
+   * Sur échec on sort donc sans rien écrire : l'état précédent reste affiché,
+   * et le prochain passage (60 s, Realtime, ou retour au premier plan)
+   * corrigera. Un compte périmé vaut mieux qu'un compte faux — ne rien savoir
+   * n'est pas savoir qu'il n'y a rien.
+   *
+   * Les requêtes ANNEXES (noms d'élèves) n'ont pas ce garde : leur échec ne
+   * retire aucune ligne, il laisse seulement un libellé de repli.
+   */
   const refresh = useCallback(async () => {
     if (!profileId) { setNotifs([]); return; }
 
     // ── Notifs coach (réponses élève + rapports de session en attente) ──
     if (!isClient) {
       const supabase = createClient();
-      const { data: coachRows } = await supabase
+      const { data: coachRows, error: errCoachRows } = await supabase
         .from('client_notifications')
         .select('id, type, payload, created_at, call_id')
         .in('type', ['call_accepted', 'call_declined'])
         .is('read_at', null);
+      // Requête en échec : on garde l'état précédent au lieu de conclure « rien
+      // en attente ». Voir le commentaire de `refresh` plus haut.
+      if (errCoachRows) return;
 
       // Nom de l'élève : pas stocké dans le payload, résolu via un join call_id → clients.name
       // (même pattern que pour session_rapport ci-dessous).
@@ -123,12 +146,13 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       });
 
       // ── Rapports de session Google Meet en attente ──
-      const { data: googleCalls } = await supabase
+      const { data: googleCalls, error: errGoogleCalls } = await supabase
         .from('calls')
         .select('id, client_id, topic, scheduled_at, duration, call_type, status, session_completed, session_no_show')
         .eq('coach_id', profileId)
         .eq('call_type', 'google')
         .eq('status', 'active');
+      if (errGoogleCalls) return;
 
       const pendingSessionCalls = getPendingSessionRapports((googleCalls ?? []) as Call[]);
       let sessionRapportNotifs: AppNotif[] = [];
@@ -160,7 +184,7 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       // docs/calls-coach-id-piege.md. Ne renvoie rien tant que le coach n'a pas
       // connecté son propre Calendly (comportement attendu, pas une erreur).
       const nowIso = new Date().toISOString();
-      const { data: coachSalesCalls } = await supabase
+      const { data: coachSalesCalls, error: errCoachSales } = await supabase
         .from('calls')
         .select('id, invitee_name, scheduled_at, duration, outcome')
         .eq('coach_id', profileId)
@@ -169,6 +193,7 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
         .neq('ignored', true)
         .eq('call_type', 'calendly')
         .lt('scheduled_at', nowIso);
+      if (errCoachSales) return;
 
       const salesRapportNotifs: AppNotif[] = (coachSalesCalls ?? [])
         .filter(c => c.outcome === null)
@@ -229,7 +254,10 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       );
     }
 
-    const { data: calls } = await callsQuery;
+    // C'est CETTE requête qui portait le rapport de vente en attente côté élève :
+    // son échec silencieux vidait la liste et effaçait la pastille.
+    const { data: calls, error: errCalls } = await callsQuery;
+    if (errCalls) return;
 
     const rapportNotifs: AppNotif[] = (calls || [])
       .filter(c => c.outcome === null)
@@ -247,11 +275,12 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       }));
 
     // ── Calls coaching en attente d'acceptation (créés par le coach, pas Calendly) ──
-    const { data: pendingCalls } = await supabase
+    const { data: pendingCalls, error: errPending } = await supabase
       .from('calls')
       .select('id, topic, scheduled_at, duration')
       .eq('status', 'pending_acceptance')
       .neq('call_type', 'calendly');
+    if (errPending) return;
 
     const callRequestNotifs: AppNotif[] = (pendingCalls ?? []).map(c => ({
       id: `call_request_${c.id}`,
@@ -264,11 +293,12 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
     }));
 
     // ── Annulations de call non lues (persistées en DB jusqu'au clic OK) ──
-    const { data: canceledRows } = await supabase
+    const { data: canceledRows, error: errCanceled } = await supabase
       .from('client_notifications')
       .select('id, payload, created_at, call_id')
       .eq('type', 'call_canceled')
       .is('read_at', null);
+    if (errCanceled) return;
 
     const callCanceledNotifs: AppNotif[] = (canceledRows ?? []).map(row => ({
       id: `call_canceled_${row.id}`,
@@ -282,11 +312,12 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
     }));
 
     // ── Calls reportés non lus (persistées en DB jusqu'au clic OK) ──
-    const { data: rescheduledRows } = await supabase
+    const { data: rescheduledRows, error: errResched } = await supabase
       .from('client_notifications')
       .select('id, payload, created_at, call_id')
       .eq('type', 'call_rescheduled')
       .is('read_at', null);
+    if (errResched) return;
 
     const callRescheduledNotifs: AppNotif[] = (rescheduledRows ?? []).map(row => {
       const d = row.payload?.scheduled_at ? new Date(row.payload.scheduled_at) : null;

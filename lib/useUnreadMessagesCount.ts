@@ -69,13 +69,18 @@ export function useUnreadMessagesCount(): number {
 
     async function refresh() {
       if (clientIds.length === 0 || cancelled) return;
-      const { count: c } = await supabase
+      const { count: c, error } = await supabase
         .from('messages')
         .select('id', { count: 'exact', head: true })
         .in('client_id', clientIds)
         .neq('sender_id', user!.id)
         .is('read_at', null);
       if (cancelled) return;
+      // Une requête en échec renvoie `count: null`, que le code transformait en
+      // 0 : la part « messages » de la pastille s'effaçait alors qu'on ne savait
+      // simplement rien. Même défaut que dans useNotifications — on sort sans
+      // rien écrire, le prochain événement Realtime corrigera.
+      if (error) return;
       const n = c ?? 0;
       // Diffusé à TOUS les montages (Sidebar + BottomNavCoach) depuis l'unique
       // abonnement partagé, au lieu d'un setCount par instance du hook.
