@@ -435,7 +435,8 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
                   sa carte, et Stripe met en place les suivants tout seul.
                 </div>
               )}
-              <LigneLien url={deal.shortUrl!} clics={detail?.clicks ?? 0} envoye={false} />
+              <LigneLien url={deal.shortUrl!} clics={detail?.clicks ?? 0} envoye={false}
+                premierClic={detail?.firstClickAt} suivi={detail?.tracked !== false} />
             </>
           )}
 
@@ -629,6 +630,7 @@ function LigneEcheance({ inst, total, mode, payeLe, onChange }: {
 
       {!payee && inst.short_url && (
         <LigneLien url={inst.short_url} clics={inst.clicks ?? 0} envoye={!!inst.sent_at}
+          premierClic={inst.firstClickAt} suivi={inst.tracked !== false}
           installmentId={inst.id} onChange={onChange} />
       )}
     </div>
@@ -642,10 +644,14 @@ function LigneEcheance({ inst, total, mode, payeLe, onChange }: {
  * Momentum peut constater, il le constate et ne le demande jamais. Un lien
  * ouvert est forcément un lien reçu — inutile de faire cocher « envoyé ».
  */
-function LigneLien({ url, clics, envoye, installmentId, onChange }: {
+function LigneLien({ url, clics, envoye, premierClic, suivi = true, installmentId, onChange }: {
   url: string;
   clics: number;
   envoye: boolean;
+  /** Jour de la première ouverture — « ouvert le 26 août » se relance, « ouvert » se discute. */
+  premierClic?: string | null;
+  /** Faux = le lien ne passe pas par Short.io, aucune ouverture n'est mesurable. */
+  suivi?: boolean;
   installmentId?: string;
   onChange?: () => Promise<unknown> | void;
 }) {
@@ -653,8 +659,16 @@ function LigneLien({ url, clics, envoye, installmentId, onChange }: {
   const [marque, setMarque] = useState(envoye);
 
   const ouvert = clics > 0;
-  const etiquette = ouvert ? { texte: 'ouvert, pas payé', couleur: 'var(--amber-ink)', fond: 'var(--amber-soft)' }
+  // ⚠️ Sans suivi, zéro clic ne veut PAS dire « jamais ouvert » : il veut dire
+  // qu'on ne sait pas. Le dire évite de conclure qu'un client ignore un lien
+  // qu'il a peut-être déjà lu.
+  const etiquette = ouvert
+    ? {
+        texte: premierClic ? `ouvert le ${fmtDateLong(premierClic)}, pas payé` : 'ouvert, pas payé',
+        couleur: 'var(--amber-ink)', fond: 'var(--amber-soft)',
+      }
     : marque ? { texte: 'envoyé', couleur: 'var(--accent-brand)', fond: 'var(--accent-brand-soft)' }
+    : !suivi ? { texte: 'ouverture non suivie', couleur: 'var(--muted)', fond: 'var(--surface-2)' }
     : { texte: 'pas encore envoyé', couleur: 'var(--muted)', fond: 'var(--surface-2)' };
 
   async function marquerEnvoye() {

@@ -185,14 +185,21 @@ export async function GET(request: NextRequest) {
     }
   }
   const clicsParLien = new Map<string, number>();
+  // Le JOUR de la première ouverture, et pas seulement le compte : « il a ouvert
+  // sans payer » se discute, « il a ouvert le 26 août sans payer » se relance.
+  const premierClicParLien = new Map<string, string>();
   if (linkIds.size) {
     const { data: snaps } = await supa
       .from('shortio_link_daily_snapshots')
-      .select('link_id, human_clicks')
+      .select('link_id, human_clicks, date')
       .eq('profile_id', profileId)
       .in('link_id', [...linkIds]);
     for (const s of snaps ?? []) {
       clicsParLien.set(s.link_id, (clicsParLien.get(s.link_id) ?? 0) + (s.human_clicks ?? 0));
+      if ((s.human_clicks ?? 0) > 0 && s.date) {
+        const connu = premierClicParLien.get(s.link_id);
+        if (!connu || s.date < connu) premierClicParLien.set(s.link_id, s.date);
+      }
     }
   }
 
@@ -442,9 +449,18 @@ export async function GET(request: NextRequest) {
           // Trois états d'étiquette sur la ligne : rien · envoyé · ouvert sans
           // payer. Le troisième vaut le deuxième : s'il l'a ouvert, il l'a reçu.
           clicks: i.shortio_link_id ? (clicsParLien.get(i.shortio_link_id) ?? 0) : 0,
+          firstClickAt: i.shortio_link_id ? (premierClicParLien.get(i.shortio_link_id) ?? null) : null,
+          // ⚠️ `shortio_link_id` NUL sur un lien qui existe n'est pas une erreur :
+          // sans Short.io joignable, l'URL Stripe brute part telle quelle — on
+          // encaisse, on perd seulement le suivi. L'écran doit alors dire qu'il
+          // ne sait pas, et surtout pas « jamais ouvert » : un zéro affirmerait
+          // quelque chose de faux.
+          tracked: !!i.shortio_link_id,
         })),
       // Un comptant n'a pas d'échéance : son lien est porté par la vente.
       clicks: d.shortio_link_id ? (clicsParLien.get(d.shortio_link_id) ?? 0) : 0,
+      firstClickAt: d.shortio_link_id ? (premierClicParLien.get(d.shortio_link_id) ?? null) : null,
+      tracked: !!d.shortio_link_id,
       events: journalParDeal.get(d.id) ?? [],
     }])),
   });

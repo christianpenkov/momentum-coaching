@@ -83,6 +83,10 @@ export interface DealInstallment {
   sent_at: string | null;
   /** Clics humains sur le lien de cette échéance, sur toute sa durée de vie. */
   clicks?: number;
+  /** Jour de la première ouverture (AAAA-MM-JJ), ou null si jamais ouvert. */
+  firstClickAt?: string | null;
+  /** Le lien passe-t-il par Short.io ? Faux = aucune ouverture n'est mesurable. */
+  tracked?: boolean;
 }
 
 export interface DealDetail {
@@ -90,6 +94,8 @@ export interface DealDetail {
   installments: DealInstallment[];
   /** Clics sur le lien porté par la vente elle-même (comptant). */
   clicks?: number;
+  firstClickAt?: string | null;
+  tracked?: boolean;
   events?: DealEvent[];
 }
 

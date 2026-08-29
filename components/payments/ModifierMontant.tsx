@@ -80,6 +80,16 @@ export default function ModifierMontant({ deal, detail, onClose, onDone, onRembo
     return detail?.clicks ?? 0;
   }, [aVenir, detail, encaisse]);
 
+  // Le jour de la PREMIÈRE ouverture. « Il a ouvert sans payer » se discute ;
+  // « il a ouvert le 26 août sans payer » se relance.
+  const dateOuverture = useMemo(() => {
+    const dates = [
+      ...aVenir.map(e => e.firstClickAt),
+      detail?.firstClickAt,
+    ].filter(Boolean) as string[];
+    return dates.sort()[0] ?? null;
+  }, [aVenir, detail]);
+
   // ── Le saut sur la dernière échéance ─────────────────────────────────────
   // 1 000 € en 3 fois, 2 payées, corrigé à 4 000 € : il reste 3 334 € à prendre
   // sur une seule échéance, qui passe de 334 € à 3 334 €. Un montant multiplié
@@ -355,7 +365,8 @@ export default function ModifierMontant({ deal, detail, onClose, onDone, onRembo
           {clicsSurLienMort > 0 && (
             <div style={{ marginTop: 12 }}>
               <Encart>
-                {deal.buyerName.split(' ')[0]} a déjà ouvert l’ancien lien
+                {deal.buyerName.split(' ')[0]} a ouvert l’ancien lien
+                {dateOuverture ? ` le ${fmtDateLong(dateOuverture)}` : ''}
                 {' '}<strong>sans payer</strong>. Il ne fonctionnera plus après cette
                 modification : pense à lui envoyer le nouveau.
               </Encart>

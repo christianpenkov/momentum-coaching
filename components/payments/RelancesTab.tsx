@@ -289,7 +289,7 @@ function buildGroups(deals: DealRow[], details: Record<string, DealDetail>): Gro
               ? `${rang} · attendue depuis le ${fmtDateLong(next.due_on)}`
               : `${rang} · attendue le ${fmtDateLong(next.due_on)}`)
           : ouvert
-            ? `${rang} · ouvert sans payer · échéance du ${fmtDateLong(next.due_on)}`
+            ? `${rang} · ouvert ${next.firstClickAt ? `le ${fmtDateLong(next.firstClickAt)} ` : ''}sans payer · échéance du ${fmtDateLong(next.due_on)}`
             : envoye
               ? `${rang} · lien envoyé, en attente de paiement`
               : (late

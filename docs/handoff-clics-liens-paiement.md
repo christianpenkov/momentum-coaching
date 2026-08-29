@@ -1,5 +1,31 @@
 # Handoff — afficher les clics sur les liens de paiement
 
+> ## ✅ TRAITÉ le 2026-08-29 par le chantier Paiements
+>
+> L'affichage existait déjà quand ce handoff est arrivé : il avait été construit en
+> parallèle, à partir de la même intention côté maquettes. Les trois états sont en
+> place sur la fiche client, dans l'onglet Relances et dans l'écran de modification
+> du montant.
+>
+> **Ce qui manquait vraiment, et qui a été ajouté :** la DATE de première ouverture.
+> Les deux specs la demandaient, aucune des deux ne l'avait obtenue. « Il a ouvert
+> sans payer » se discute ; « il a ouvert le 26 août sans payer » se relance.
+>
+> **Les trois pièges, un par un :**
+> - *Piège 1 (`shortio_link_id` nul)* — aucun cas en base aujourd'hui (5 liens, 5
+>   suivis), mais le cas est traité : l'étiquette dit « ouverture non suivie », jamais
+>   un zéro.
+> - *Piège 2 (zéro clic ≠ zéro ouverture)* — l'écran n'écrit nulle part « jamais
+>   ouvert ». Il parle d'envoi, pas d'absence d'ouverture.
+> - *Piège 3 (`link_category`)* — vérifié en base : les 5 liens de paiement sont bien
+>   `null`. Rien ne leur en attribue.
+>
+> **Un écart avec la lecture proposée ici :** une seule requête pour tous les liens de
+> la page, dans `/api/payments`, plutôt qu'un aller-retour par vente. Même donnée,
+> même filtre `human_clicks`, un appel au lieu de N.
+>
+> Le reste du document est conservé tel quel : il documente la donnée et ses pièges.
+
 Écrit le 2026-08-29 par le chantier « audit Business micro », à destination du chantier
 Paiements. Rien à faire côté Short.io ni côté cron : **la donnée est déjà en base**, il
 ne manque que l'affichage.
