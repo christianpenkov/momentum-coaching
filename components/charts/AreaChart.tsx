@@ -135,7 +135,15 @@ export default function AreaChart({ data, areas, xKey, height = 220, formatter, 
           </span>
         </div>
       )}
-      <ResponsiveContainer width="100%" height="100%">
+      {/* `initialDimension` : au tout premier rendu, ResponsiveContainer mesure son
+          parent AVANT que le ResizeObserver n'ait livré ses dimensions, et rend donc
+          une fois en -1 x -1 — d'où l'avertissement « The width(-1) and height(-1) of
+          chart should be greater than 0 » dans la console. Le graphique s'affichait
+          correctement à la frame suivante, mais l'avertissement restait, et un bruit
+          permanent en console masque celui du jour où quelque chose casse vraiment.
+          On donne donc une taille de départ : elle est immédiatement corrigée par
+          l'observateur, elle sert seulement à ne pas partir de zéro. */}
+      <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 600, height }}>
         <ReAreaChart data={safeData} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
           <defs>
             {areas.map((a, i) => {

@@ -5601,7 +5601,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
               Aucun événement
             </div>
           ) : (chartFilter === 'content' || chartFilter === 'bio') ? (
-            <ResponsiveContainer width="100%" height={200}>
+            <ResponsiveContainer width="100%" height={200} initialDimension={{ width: 600, height: 200 }}>
               <ReAreaChart data={chartFilter === 'bio' ? chartDataBio : chartDataContent} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                 <defs>
                   <linearGradient id="grad-chart-ig" x1="0" y1="0" x2="0" y2="1">
@@ -5643,7 +5643,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
               <AreaChart data={chartDataStory} tickFormatter={parJour ? undefined : fmtAxisBucket} areas={[{ key: 'v', label: 'Story', color: '#8B5CF6' }]} xKey="date" height={200} showWeekday={parJour && sPeriod === 7} />
             </div>
           ) : chartFilter === 'dm' ? (
-            <ResponsiveContainer width="100%" height={200}>
+            <ResponsiveContainer width="100%" height={200} initialDimension={{ width: 600, height: 200 }}>
               <ReAreaChart data={chartDataDm} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                 <defs>
                   <linearGradient id="grad-dm-calendly" x1="0" y1="0" x2="0" y2="1">
@@ -5717,7 +5717,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         )}
         {selectedMetric === 'calls' && (
           <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
-            <ResponsiveContainer width="100%" height={180}>
+            <ResponsiveContainer width="100%" height={180} initialDimension={{ width: 600, height: 180 }}>
               <ComposedChart data={callsSeries} margin={{ top: 4, right: 8, left: 0, bottom: 0 }} barCategoryGap="0%">
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                 <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={!parJour ? fmtAxisBucket : (sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate)} interval={graduationsDates(callsSeries.length, sPeriod)} />
@@ -6011,13 +6011,27 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           const tauxBadge = (num: number, den: number, isContent: boolean) => {
             if (den === 0) return null;
             const pct = Math.round((num / den) * 100);
-            let color: string;
-            if (isContent) {
-              color = pct >= 2 ? GREEN : pct >= 1 ? AMBER : RED;
-            } else {
-              color = pct >= 50 ? GREEN : pct >= 25 ? AMBER : RED;
+            // Au-dessus de 100 %, le chiffre est exact mais il ne mesure plus une
+            // conversion : il dit qu'il y a eu PLUS de calls que de clics enregistres.
+            // C'est possible et frequent — un prospect qui ouvre le lien hors
+            // navigateur, ou qui reserve depuis un lien transmis a la main, ne laisse
+            // aucun clic dans Short.io.
+            //
+            // Sans explication, « 150 % » se lit comme un bug de la plateforme. On le
+            // sort donc de l'echelle de couleur (vert = bien, rouge = mal n'a plus de
+            // sens ici), et on dit pourquoi au survol. On ne plafonne pas et on
+            // n'invente rien : le chiffre reste celui qu'il est.
+            const horsEchelle = pct > 100;
+            if (horsEchelle) {
+              return {
+                pct, color: 'var(--muted)',
+                titre: 'Plus de rendez-vous que de clics enregistrés : certains prospects ont ouvert le lien sans que le clic soit tracé (hors navigateur, ou lien transmis à la main).',
+              };
             }
-            return { pct, color };
+            const color = isContent
+              ? (pct >= 2 ? GREEN : pct >= 1 ? AMBER : RED)
+              : (pct >= 50 ? GREEN : pct >= 25 ? AMBER : RED);
+            return { pct, color, titre: undefined as string | undefined };
           };
           const tauxHonoréBadge = (honored: number, booked: number) => {
             if (booked === 0) return null;
@@ -6038,8 +6052,19 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           const TD = ({ children, right, faint }: { children: React.ReactNode; right?: boolean; faint?: boolean }) => (
             <td style={{ padding: '8px 10px', textAlign: right ? 'right' : 'left', fontSize: 12, color: faint ? 'var(--faint)' : 'var(--ink)', verticalAlign: 'middle' }}>{children}</td>
           );
-          const RateBadge = ({ pct, color }: { pct: number; color: string }) => (
-            <span style={{ fontSize: 10, fontWeight: 700, color, background: color + '18', borderRadius: 4, padding: '1px 5px', marginLeft: 4, whiteSpace: 'nowrap' }}>{pct}%</span>
+          const RateBadge = ({ pct, color, titre }: { pct: number; color: string; titre?: string }) => (
+            // `color + '18'` produit un fond translucide a partir d'un hexa. Sur une
+            // variable CSS (--muted), la concatenation ne veut rien dire : on retombe
+            // alors sur un fond neutre explicite.
+            <span
+              title={titre}
+              style={{
+                fontSize: 10, fontWeight: 700, color,
+                background: color.startsWith('#') ? color + '18' : 'var(--surface-2)',
+                borderRadius: 4, padding: '1px 5px', marginLeft: 4, whiteSpace: 'nowrap',
+                cursor: titre ? 'help' : undefined,
+              }}
+            >{pct}%</span>
           );
 
           // Tri des rows (la ligne Total est toujours en bas)
@@ -6137,15 +6162,25 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                               ) : <span style={{ fontSize: 10, color: 'var(--faint)' }}>— leads uniques</span>}
                             </div>
                           ) : row.clics !== null ? (
-                            // Bio / contenu : juste les clics
-                            <span style={{ fontWeight: 700 }}>{fmt(row.clics)}</span>
+                            // Bio / contenu : des clics bruts.
+                            //
+                            // L'unite est ECRITE, comme sur les lignes DM juste au-dessus
+                            // (« liens envoyes », « leads uniques »). La colonne porte deux
+                            // grandeurs differentes selon la ligne, et seules les lignes DM
+                            // le disaient : un nombre nu se lisait comme comparable a celui
+                            // du dessus, alors qu'il ne l'est pas. C'est aussi pour ca que la
+                            // somme de cette colonne ne tombe jamais sur « Clics totaux ».
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                              <span style={{ fontWeight: 700 }}>{fmt(row.clics)}</span>
+                              <span style={{ fontSize: 10, color: 'var(--muted)' }}>clics</span>
+                            </span>
                           ) : (
                             <span style={{ color: 'var(--faint)' }}>—</span>
                           )}
                         </TD>
                         <TD right>
                           {row.booked > 0
-                            ? <><span style={{ fontWeight: 700 }}>{row.booked}</span>{bkTaux && <RateBadge pct={bkTaux.pct} color={bkTaux.color} />}</>
+                            ? <><span style={{ fontWeight: 700 }}>{row.booked}</span>{bkTaux && <RateBadge pct={bkTaux.pct} color={bkTaux.color} titre={bkTaux.titre} />}</>
                             : <span style={{ color: 'var(--faint)' }}>—</span>}
                         </TD>
                         <TD right>
