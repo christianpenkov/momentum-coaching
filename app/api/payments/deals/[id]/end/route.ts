@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
-import { getStripeAccess, resolveTargetProfile } from '@/lib/stripe-account';
+import { getStripeAccess, appelStripe, resolveTargetProfile } from '@/lib/stripe-account';
 import { desactiverLiensDuDeal } from '@/lib/stripe-payment-links';
 import { calculerCash, type LignePaiement } from '@/lib/dealCash';
 
@@ -76,8 +76,8 @@ export async function POST(
     let actif = true;
     if (access) {
       try {
-        const sub = await access.stripe.subscriptions.retrieve(
-          deal!.stripe_subscription_id, undefined, access.opts);
+        const sub = await appelStripe(access, () => access.stripe.subscriptions.retrieve(
+          deal!.stripe_subscription_id, undefined, access.opts));
         actif = sub.status !== 'canceled';
       } catch {
         // Stripe injoignable : on suppose actif, plutôt que de clôturer une vente

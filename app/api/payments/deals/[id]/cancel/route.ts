@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
-import { getStripeAccess, resolveTargetProfile } from '@/lib/stripe-account';
+import { getStripeAccess, appelStripe, resolveTargetProfile } from '@/lib/stripe-account';
 import { desactiverLiensDuDeal } from '@/lib/stripe-payment-links';
 import { calculerCash, type LignePaiement } from '@/lib/dealCash';
 
@@ -148,7 +148,8 @@ async function prelevementEnCours(profileId: string, subscriptionId: string | nu
   const access = await getStripeAccess(profileId);
   if (!access) return true;
   try {
-    const sub = await access.stripe.subscriptions.retrieve(subscriptionId, undefined, access.opts);
+    const sub = await appelStripe(access, () =>
+      access.stripe.subscriptions.retrieve(subscriptionId, undefined, access.opts));
     return sub.status !== 'canceled';
   } catch {
     return true;

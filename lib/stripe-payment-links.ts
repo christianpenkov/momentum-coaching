@@ -1,6 +1,6 @@
 import Stripe from 'stripe';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { getStripeAccess, type StripeAccess } from '@/lib/stripe-account';
+import { getStripeAccess, appelStripe, type StripeAccess } from '@/lib/stripe-account';
 import { shortenUrl } from '@/lib/shortio-create';
 
 /**
@@ -91,7 +91,7 @@ export async function createDealPaymentLink(
   if (input.leadId) metadata[METADATA_KEYS.lead] = input.leadId;
   if (input.installmentId) metadata[METADATA_KEYS.installment] = input.installmentId;
 
-  const link = await stripe.paymentLinks.create({
+  const link = await appelStripe(acc, () => stripe.paymentLinks.create({
     line_items: [{
       quantity: 1,
       price_data: {
@@ -126,7 +126,7 @@ export async function createDealPaymentLink(
       // arrivent sans identifiant et tombent en paiements orphelins.
       subscription_data: { metadata },
     } : {}),
-  }, opts);
+  }, opts));
 
   // ── Couche Short.io : le tracking du clic ─────────────────────────────────
   // Elle ne participe PAS au rattachement du paiement — ce sont les metadata
@@ -211,11 +211,11 @@ export async function desactiverLiensDuDeal(
   let desactives = 0;
   for (const id of ids) {
     try {
-      await access.stripe.paymentLinks.update(
+      await appelStripe(access, () => access.stripe.paymentLinks.update(
         id,
         { active: false, inactive_message: LIEN_INACTIF },
         access.opts,
-      );
+      ));
       desactives++;
     } catch (err) {
       // Déjà inactif, supprimé chez Stripe, réseau coupé : on note et on continue.
@@ -253,7 +253,8 @@ export async function ajusterPrelevements(
 ): Promise<{ ajuste: boolean; raison: string }> {
   const { stripe, opts } = access;
 
-  const sub = await stripe.subscriptions.retrieve(subscriptionId, undefined, opts);
+  const sub = await appelStripe(access, () =>
+    stripe.subscriptions.retrieve(subscriptionId, undefined, opts));
   if (sub.status === 'canceled') return { ajuste: false, raison: 'canceled' };
 
   const item = sub.items?.data?.[0];
@@ -266,19 +267,19 @@ export async function ajusterPrelevements(
   const produit = typeof ancien.product === 'string' ? ancien.product : ancien.product?.id;
   if (!produit) return { ajuste: false, raison: 'no_product' };
 
-  const prix = await stripe.prices.create({
+  const prix = await appelStripe(access, () => stripe.prices.create({
     currency: currency.toLowerCase(),
     unit_amount: toMinor(montantParEcheance),
     product: produit,
     // Rythme repris à l'identique, jamais dérivé d'une saisie : c'est lui qui
     // déclencherait un prélèvement immédiat s'il changeait.
     recurring: { interval: recurring.interval, interval_count: recurring.interval_count },
-  }, opts);
+  }, opts));
 
-  await stripe.subscriptions.update(subscriptionId, {
+  await appelStripe(access, () => stripe.subscriptions.update(subscriptionId, {
     items: [{ id: item.id, price: prix.id }],
     proration_behavior: 'none',
-  }, opts);
+  }, opts));
 
   return { ajuste: true, raison: 'updated' };
 }
@@ -310,7 +311,8 @@ export async function ajusterNombreEcheances(
 ): Promise<{ ajuste: boolean; raison: string }> {
   const { stripe, opts } = access;
 
-  const sub = await stripe.subscriptions.retrieve(subscriptionId, undefined, opts);
+  const sub = await appelStripe(access, () =>
+    stripe.subscriptions.retrieve(subscriptionId, undefined, opts));
   if (sub.status === 'canceled') return { ajuste: false, raison: 'canceled' };
 
   // Pas encore borné : le cas nominal de la création s'en charge mieux que nous.
@@ -328,7 +330,7 @@ export async function ajusterNombreEcheances(
   const phase = schedule.phases[schedule.phases.length - 1];
   if (!phase) return { ajuste: false, raison: 'no_phase' };
 
-  await stripe.subscriptionSchedules.update(scheduleId, {
+  await appelStripe(access, () => stripe.subscriptionSchedules.update(scheduleId, {
     end_behavior: 'cancel',
     phases: schedule.phases.map((p, i) => ({
       items: p.items.map(it => ({
@@ -343,7 +345,7 @@ export async function ajusterNombreEcheances(
         ? { duration: { interval, interval_count: nombreTotal } }
         : { end_date: p.end_date }),
     })),
-  }, opts);
+  }, opts));
 
   return { ajuste: true, raison: 'updated' };
 }
@@ -371,7 +373,8 @@ export async function ensureInstallmentSchedule(
 ): Promise<{ scheduled: boolean; reason: string }> {
   const { stripe, opts } = access;
 
-  const sub = await stripe.subscriptions.retrieve(subscriptionId, undefined, opts);
+  const sub = await appelStripe(access, () =>
+    stripe.subscriptions.retrieve(subscriptionId, undefined, opts));
 
   // Garde-fou 3 : déjà borné, rien à faire.
   if (sub.schedule) return { scheduled: true, reason: 'already_scheduled' };
@@ -379,10 +382,10 @@ export async function ensureInstallmentSchedule(
 
   // from_subscription reprend la config existante (prix, intervalle, ancre de
   // facturation) : le schedule démarre exactement où la subscription en est.
-  const schedule = await stripe.subscriptionSchedules.create(
+  const schedule = await appelStripe(access, () => stripe.subscriptionSchedules.create(
     { from_subscription: subscriptionId },
     opts,
-  );
+  ));
 
   const phase = schedule.phases[0];
   if (!phase) return { scheduled: false, reason: 'no_phase' };
@@ -401,7 +404,7 @@ export async function ensureInstallmentSchedule(
   //
   // On repasse aussi les items de la phase courante : l'API exige de renvoyer
   // toutes les phases présentes et futures à chaque update.
-  await stripe.subscriptionSchedules.update(schedule.id, {
+  await appelStripe(access, () => stripe.subscriptionSchedules.update(schedule.id, {
     end_behavior: 'cancel',
     phases: [{
       items: phase.items.map(i => ({
@@ -412,7 +415,7 @@ export async function ensureInstallmentSchedule(
       duration: { interval, interval_count: installmentsCount },
       metadata: (phase.metadata ?? undefined) as Stripe.MetadataParam | undefined,
     }],
-  }, opts);
+  }, opts));
 
   return { scheduled: true, reason: 'created' };
 }

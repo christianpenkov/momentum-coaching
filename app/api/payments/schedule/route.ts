@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
-import { getStripeAccess, resolveTargetProfile } from '@/lib/stripe-account';
+import { getStripeAccess, appelStripe, resolveTargetProfile } from '@/lib/stripe-account';
 
 /**
  * Échéancier réel d'un deal en prélèvement automatique, lu chez Stripe.
@@ -52,11 +52,11 @@ export async function GET(request: NextRequest) {
   if (!access) return NextResponse.json({ schedule: null });
 
   try {
-    const sub = await access.stripe.subscriptions.retrieve(
+    const sub = await appelStripe(access, () => access.stripe.subscriptions.retrieve(
       deal.stripe_subscription_id,
       undefined,
       access.opts,
-    );
+    ));
 
     // `cancel_at` porte la fin du bornage posé par ensureInstallmentSchedule.
     // Son absence signifie que le bornage n'a pas pris — l'information doit
