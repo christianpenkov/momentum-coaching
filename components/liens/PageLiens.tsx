@@ -3212,8 +3212,15 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
         media_id: l.media_id ?? null, origine: 'Instagram',
       }));
 
+    // `source` et non `platform` : platform vaut 'other' pour tout ce qui n'est
+    // pas YouTube, donc un call venu d'une description Instagram s'affichait
+    // « other ». C'est `source` qui porte le canal reel, et c'est lui que le
+    // pipeline lit pour ses propres libelles (PagePipeline, srcLabel).
     (pipelinePourProspects.nonIgProspects || []).forEach((p: any) =>
-      ajouter(p.name || p.email, { ig_user_id: null, avatar_url: null, origine: p.platform || 'Prospect' }));
+      ajouter(p.name || p.email, {
+        ig_user_id: null, avatar_url: null,
+        origine: LIBELLE_SOURCE_CALL[p.source] || 'Prospect',
+      }));
 
     (pipelinePourProspects.calls || []).forEach((c: any) =>
       ajouter(c.invitee_name, { ig_user_id: null, avatar_url: null, origine: LIBELLE_SOURCE_CALL[c.source] || 'Call' }));
