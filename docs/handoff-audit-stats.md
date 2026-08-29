@@ -157,7 +157,7 @@ volontairement — rien n'est en attente par oubli.
   Non fait : ce chantier était en cours pendant l'audit.
 - **Ventilations pays / ville / navigateur / OS / UTM** : plus collectées depuis le
   passage au flux de clics. Personne ne les lit. Le pourquoi, le où toucher et le piège
-  à éviter sont dans `docs/shortio-ventilations-non-collectees.md`.
+  à éviter sont dans `docs/shortio-pays-ville-navigateur-des-clics.md`.
 
 ### Ce qui a été fermé le 2026-08-29
 

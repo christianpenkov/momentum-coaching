@@ -1,4 +1,11 @@
-# Ventilations Short.io — arrêtées le 2026-08-28, comment les récupérer
+# D'où viennent les clics (pays, ville, navigateur, OS, réseau) — collecte arrêtée le 2026-08-28
+
+Ce document parle du **détail de chaque clic Short.io** : de quel pays il vient, de
+quelle ville, avec quel navigateur, quel système, depuis quel réseau social. Le code
+appelle ça les « ventilations » — c'est le seul endroit où ce mot est utile.
+
+Ce n'est PAS le nombre de clics, qui lui est collecté normalement et affiché partout.
+C'est uniquement le détail *à côté* du compteur.
 
 Les colonnes `top_countries`, `top_cities`, `top_browsers`, `top_os`, `top_social`,
 `top_referrers`, `utm_sources` et `utm_mediums` de `shortio_link_daily_snapshots`
@@ -8,7 +15,7 @@ mais plus aucune n'est ajoutée depuis cette date.
 Ce document existe pour le jour où tu voudras les récupérer. Il dit pourquoi elles se
 sont arrêtées, ce que ça coûte de les relancer, et où toucher.
 
-## Pourquoi elles se sont arrêtées
+## Pourquoi la collecte s'est arrêtée
 
 Elles venaient d'un appel `GET /statistics/link/{id}` fait **pour chaque lien, à chaque
 passage du cron**. C'est précisément cet appel qui rendait le cron intenable :
