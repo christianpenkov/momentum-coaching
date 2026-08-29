@@ -98,6 +98,16 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
   // permanent qui deviendrait invisible à force d'être là.
   const litiges = useMemo(() => deals.filter(d => d.status === 'disputed'), [deals]);
 
+  // ── Ce qui reste dû SANS aucun moyen de l'encaisser ──────────────────────
+  // « Reste à encaisser · échéances à venir » décrivait comme un calendrier ce
+  // qui n'en a pas : une vente signée sans lien, sans prélèvement et sans
+  // échéancier n'attend pas une date, elle attend une décision. Sur cet écran,
+  // 6 600 € des 7 300 € annoncés étaient dans ce cas.
+  const sansMoyen = useMemo(() => deals
+    .filter(d => (d.status === 'open' || d.status === 'past_due')
+      && !d.hasLinks && !d.stripeSubscriptionId && !d.installmentsCount)
+    .reduce((s, d) => s + Math.max(0, d.amountTotal - d.collected), 0), [deals]);
+
   // La fiche s'ouvre sur une personne. Un lien ?deal=<id> désigne une vente : on
   // remonte à son propriétaire, sans quoi la notification n'ouvrirait rien.
   const personneOuverte = useMemo(() => {
@@ -197,7 +207,10 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
             sub={k ? `${k.dealsCount} deal${k.dealsCount > 1 ? 's' : ''} signé${k.dealsCount > 1 ? 's' : ''}` : ''} />
           <Kpi label="Cash collecté" value={k ? fmtEur(k.collected) : '—'}
             sub={k ? `${k.collectedRate} % du contracté` : ''} color="var(--green)" />
-          <Kpi label="Reste à encaisser" value={k ? fmtEur(k.remaining) : '—'} sub="échéances à venir" />
+          <Kpi label="Reste à encaisser" value={k ? fmtEur(k.remaining) : '—'}
+            sub={sansMoyen > 0
+              ? `dont ${fmtEur(sansMoyen)} sans moyen de paiement`
+              : 'échéances à venir'} />
           <Kpi label="Impayés" value={k ? fmtEur(k.unpaid) : '—'}
             sub={k && k.failedCount > 0
               ? `${k.failedCount} paiement${k.failedCount > 1 ? 's' : ''} en échec`

@@ -211,9 +211,18 @@ function RelanceRow({ item, first, onChange, onOuvrir }: {
           {marking ? '…' : 'Marquer reçu'}
         </button>
       ) : (
-        <span style={{ fontSize: 11.5, color: 'var(--faint)', flexShrink: 0, width: 118, textAlign: 'right' }}>
-          Encaissé hors Momentum
-        </span>
+        // ⚠️ Ici, ni lien ni échéance : RIEN n'est en place pour encaisser cette
+        // vente. « Encaissé hors Momentum », au participe passé, affirmait
+        // l'inverse — que l'argent était déjà rentré, ailleurs. Sur une ligne de
+        // relance, c'est le contresens le plus coûteux possible : on passe son
+        // chemin sur une vente qui n'a jamais rien encaissé.
+        //
+        // On nomme donc l'action qui reste à faire, et non un état qui n'existe pas.
+        <button className="btn-ghost" onClick={e => { e.stopPropagation(); onOuvrir?.(item.deal.id); }}
+          style={{ fontSize: 12, flexShrink: 0, border: '1px solid var(--border)', borderRadius: 7, padding: '7px 13px', display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+          <Icon name="settings" size={13} color="var(--muted)" />
+          Choisir comment encaisser
+        </button>
       )}
 
       {/* Rappel après copie : le geste suivant se passe hors de Momentum (coller
