@@ -574,7 +574,15 @@ function Enveloppe({
   );
 }
 
-export default function ProspectDetailModal({ context, displayName, stageLabel, stageColor, onClose, commePanneau = false }: Props & { commePanneau?: boolean }) {
+export default function ProspectDetailModal({ context, displayName, stageLabel, stageColor, onClose, commePanneau = false, fusion }: Props & {
+  commePanneau?: boolean;
+  /**
+   * Cette fiche a absorbé une fiche e-mail. Présent seulement dans ce cas —
+   * absent, rien ne s'affiche : une mention « pas fusionnée » sur toutes les
+   * autres fiches serait du bruit permanent pour un cas rare.
+   */
+  fusion?: { nom: string; date: string; onSeparer: () => void } | null;
+}) {
   const [error, setError] = useState(false);
   const timelineRef = useRef<HTMLDivElement>(null);
 
@@ -664,6 +672,37 @@ export default function ProspectDetailModal({ context, displayName, stageLabel, 
             <TimelineList timeline={timeline} />
           )}
         </div>
+
+        {/* ── LA FUSION SE DÉFAIT ICI ────────────────────────────────────────
+            Le rapprochement se fait sur un e-mail partagé, et l'e-mail n'est
+            qu'un indice : les réservations de test faites avec sa propre adresse
+            sont un faux positif connu. Une fusion faite par réflexe doit donc
+            pouvoir se défaire — sinon elle ne se défait plus qu'en base, et
+            après livraison, par personne.
+
+            Séparer ne remet en place QUE les rendez-vous que cette fusion avait
+            déplacés : le lead a en général déjà les siens. */}
+        {fusion && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+            padding: '10px 24px', borderTop: '1px solid var(--border)',
+            background: 'var(--amber-soft, #b5802518)',
+          }}>
+            <span style={{ fontSize: 11.5, color: 'var(--ink-2)', flex: 1, minWidth: 0 }}>
+              Fusionnée avec <b>{fusion.nom}</b> le {fusion.date}
+            </span>
+            <button
+              type="button"
+              onClick={fusion.onSeparer}
+              style={{
+                fontSize: 11, fontWeight: 600, padding: '6px 11px', borderRadius: 7,
+                cursor: 'pointer', whiteSpace: 'nowrap',
+                background: 'var(--surface)', color: 'var(--amber-ink, #92400e)',
+                border: '1px solid #e8cf9a',
+              }}
+            >Séparer à nouveau</button>
+          </div>
+        )}
 
         <div style={{ padding: '12px 24px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
           <button

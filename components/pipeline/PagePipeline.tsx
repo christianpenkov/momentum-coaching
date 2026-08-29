@@ -1,7 +1,7 @@
 'use client';
 
 import { type RapportExistant } from '@/lib/rapportPatch';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 import PipelineFunnelMobile from './PipelineFunnelMobile';
@@ -15,6 +15,7 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import RapportModal from '@/components/ui/RapportModalLoader';
 import ProspectDetailModal from './ProspectDetailModal';
 import IconeIssue from './IconeIssue';
+import { detecterDoublons, type DoublonSoupconne } from '@/lib/fusionFiches';
 import { isYtVideoId } from '@/lib/ytId';
 import { isCallHonored } from '@/lib/callHonored';
 import { objectionsPour, type OutcomeChoice } from '@/lib/rapportPatch';
@@ -110,6 +111,15 @@ interface Call {
   relance_at: string | null;
 }
 
+/** Une décision déjà prise sur un doublon soupçonné. Voir lib/fusionFiches.ts. */
+interface DecisionFusionLue {
+  ig_lead_id: string;
+  prospect_id: string;
+  statut: 'fusionnee' | 'refusee';
+  call_ids: string[];
+  decided_at: string;
+}
+
 interface NonIgProspect {
   id: string;
   platform: 'yt' | 'other';
@@ -160,6 +170,7 @@ interface PipelineData {
   leads: IgLead[];
   prospects: ProspectLink[];
   nonIgProspects: NonIgProspect[];
+  fusions: DecisionFusionLue[];
   calls: Call[];
   overrides: Override[];
   events: ProspectEvent[];
@@ -1021,6 +1032,83 @@ function contexteCarte(card: CardData): string {
     return `a bougé il y a ${Math.floor(j / 7)} sem`;
   }
   return 'aucun signal';
+}
+
+// ── BandeauDoublon ────────────────────────────────────────────────────────────
+//
+// Une même personne peut occuper deux fiches : une Instagram (elle a commenté)
+// et une e-mail (elle a réservé depuis une bio ou une description). Rien ne les
+// relie en base — `instagram_leads` n'a aucune colonne e-mail.
+//
+// Le doublon se signale TOUT SEUL, en haut de la page, là où les deux fiches
+// sont côte à côte. Pas de marqueur discret sur une carte : il faudrait survoler
+// la bonne carte au bon moment, ce qui est une corvée déguisée. Pas de requête à
+// lancer non plus : personne ne la lancerait, et l'objectif du projet est zéro
+// maintenance après livraison.
+//
+// Rien à afficher = rien du tout. Le bandeau n'existe que quand il a quelque
+// chose à dire, donc il ne coûte aucune place le reste du temps.
+
+function BandeauDoublon({
+  doublon, restants, onFusionner, onRefuser,
+}: {
+  doublon: DoublonSoupconne;
+  /** Combien d'autres paires attendent derrière celle-ci. */
+  restants: number;
+  onFusionner: () => void;
+  onRefuser: () => void;
+}) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, flexWrap: 'wrap',
+      padding: '10px 14px', borderRadius: 10,
+      background: 'var(--amber-soft, #b5802518)', border: '1px solid #e8cf9a',
+    }}>
+      <span style={{ color: 'var(--amber-ink, #92400e)', display: 'flex', flexShrink: 0 }}>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden
+          stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M16 3a4 4 0 0 1 0 8" /><path d="M8 3a4 4 0 0 0 0 8" />
+          <path d="M12 13c-4 0-7 2-7 4v3h14v-3c0-2-3-4-7-4z" />
+        </svg>
+      </span>
+
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>
+          @{doublon.igUsername} et {doublon.prospectNom} partagent {doublon.email}
+        </div>
+        {/* Ce que la fusion ferait, en clair et chiffré. « Fusionner » sans dire
+            ce qui bouge demande de faire confiance à un bouton. */}
+        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
+          Même personne ? Fusionner rattachera {doublon.callIds.length} rendez-vous à @{doublon.igUsername}.
+          {restants > 0 && ` · ${restants} autre${restants > 1 ? 's' : ''} à vérifier`}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+        <button
+          type="button"
+          onClick={onRefuser}
+          title="La question ne sera plus reposée pour ces deux fiches"
+          style={{
+            fontSize: 11.5, fontWeight: 600, minHeight: 32, padding: '0 11px',
+            borderRadius: 8, cursor: 'pointer', whiteSpace: 'nowrap',
+            background: 'var(--surface)', color: 'var(--ink-2)',
+            border: '1px solid var(--border)',
+          }}
+        >Ce n&rsquo;est pas la même</button>
+        <button
+          type="button"
+          onClick={onFusionner}
+          style={{
+            fontSize: 11.5, fontWeight: 600, minHeight: 32, padding: '0 13px',
+            borderRadius: 8, cursor: 'pointer', whiteSpace: 'nowrap',
+            background: 'var(--amber-ink, #92400e)', color: '#fff',
+            border: '1px solid var(--amber-ink, #92400e)',
+          }}
+        >Fusionner</button>
+      </div>
+    </div>
+  );
 }
 
 // ── BoutonCase ────────────────────────────────────────────────────────────────
@@ -3245,6 +3333,51 @@ export default function PagePipeline() {
     }, 'retiré');
   }, [executerEnLot, cardsByKey, tab]);
 
+  // ── LES DOUBLONS SOUPÇONNÉS ────────────────────────────────────────────────
+  // Calculé à chaque affichage, à partir des données déjà chargées : aucune
+  // colonne d'état à tenir à jour, rien à recalculer, rien à purger. Seules les
+  // DÉCISIONS sont stockées, et seulement pour ne jamais reposer une question
+  // déjà répondue.
+  const doublons = useMemo(() => {
+    if (!data) return [];
+    return detecterDoublons({
+      leads:     data.leads,
+      calls:     data.calls,
+      prospects: data.nonIgProspects,
+      decisions: data.fusions,
+    });
+  }, [data]);
+
+  const trancherDoublon = useCallback(async (
+    d: DoublonSoupconne,
+    action: 'fusionner' | 'refuser',
+  ) => {
+    await mutate('/api/client/pipeline/fusion', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        action, ig_lead_id: d.igLeadId, prospect_id: d.prospectId, call_ids: d.callIds,
+      }),
+      erreur: action === 'fusionner'
+        ? "Les deux fiches n'ont pas pu être fusionnées."
+        : "Le refus n'a pas pu être enregistré.",
+    });
+    // On relit tout : la fusion change l'appartenance de rendez-vous, donc les
+    // cartes, les colonnes et les compteurs. Recalculer à la main ce que le
+    // serveur vient de déplacer, c'est se préparer à diverger de lui.
+    refetch();
+  }, [refetch]);
+
+  const separerFusion = useCallback(async (igLeadId: string, prospectId: string) => {
+    await mutate('/api/client/pipeline/fusion', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'separer', ig_lead_id: igLeadId, prospect_id: prospectId }),
+      erreur: "Les deux fiches n'ont pas pu être séparées.",
+    });
+    refetch();
+  }, [refetch]);
+
   const handleBulkRelance = useCallback(async (keys: string[]) => {
     await executerEnLot(keys, async key => {
       const res = await fetch('/api/client/pipeline/relance', {
@@ -3614,6 +3747,18 @@ export default function PagePipeline() {
           </div>
         </div>
       </div>
+
+      {/* Un seul bandeau à la fois, même quand plusieurs paires attendent : deux
+          questions côte à côte se répondent au hasard. La suivante apparaît dès
+          que celle-ci est tranchée. */}
+      {doublons.length > 0 && (
+        <BandeauDoublon
+          doublon={doublons[0]}
+          restants={doublons.length - 1}
+          onFusionner={() => trancherDoublon(doublons[0], 'fusionner')}
+          onRefuser={() => trancherDoublon(doublons[0], 'refuser')}
+        />
+      )}
 
       {/* ── RANGÉE 2 : le périmètre à droite, les filtres à gauche ──────────
           Les onglets étaient empilés sous Rafraîchir/Board/Liste, dans une
@@ -3989,6 +4134,14 @@ export default function PagePipeline() {
           const displayName = matchedCard
             ? (detailModal.platform === 'ig' && !matchedCard.isIgLink ? `@${matchedCard.name}` : matchedCard.name)
             : (ctx.lead?.ig_username ? `@${ctx.lead.ig_username}` : ctx.calls[0]?.invitee_name || 'Prospect');
+          // La fusion de CE lead, s'il en a une. On cherche par `ig_lead_id` :
+          // c'est la seule clé stable, le pseudo peut changer.
+          const fusionDuLead = ctx.lead
+            ? data.fusions.find(f => f.ig_lead_id === ctx.lead!.id && f.statut === 'fusionnee')
+            : undefined;
+          const prospectFusionne = fusionDuLead
+            ? data.nonIgProspects.find(p => p.id === fusionDuLead.prospect_id)
+            : undefined;
           return (
             <ProspectDetailModal
               context={ctx}
@@ -3997,6 +4150,11 @@ export default function PagePipeline() {
               stageColor={stage.color}
               onClose={() => setDetailModal(null)}
               commePanneau={!tactile}
+              fusion={fusionDuLead ? {
+                nom: prospectFusionne?.name || 'une fiche e-mail',
+                date: new Date(fusionDuLead.decided_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }),
+                onSeparer: () => { setDetailModal(null); separerFusion(fusionDuLead.ig_lead_id, fusionDuLead.prospect_id); },
+              } : null}
             />
           );
         })()}

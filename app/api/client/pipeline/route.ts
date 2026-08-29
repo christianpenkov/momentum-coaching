@@ -44,7 +44,7 @@ export async function GET() {
     );
   }
 
-  const [leadsRes, prospectsRes, nonIgProspectsRes, callsRes, overridesRes, clicksRes, eventsRes, lmHistoryRes] = await Promise.all([
+  const [leadsRes, prospectsRes, nonIgProspectsRes, callsRes, overridesRes, clicksRes, eventsRes, lmHistoryRes, fusionsRes] = await Promise.all([
     supa.from('instagram_leads')
       .select('id, ig_username, ig_user_id, keyword_matched, lead_magnet_sent, hook_replied, hook_replied_at, tracking_link, detected_at, media_id, source, avatar_url')
       .eq('profile_id', user.id)
@@ -92,6 +92,13 @@ export async function GET() {
       .eq('profile_id', user.id)
       .is('archived_at', null)
       .order('detected_at', { ascending: false }),
+    // Les doublons déjà tranchés : fusionnés (avec la liste des rendez-vous
+    // déplacés, pour pouvoir séparer) ou refusés (pour ne plus reposer la
+    // question). Sans cette lecture, le bandeau reproposerait à chaque
+    // chargement une paire sur laquelle l'élève a déjà répondu.
+    supa.from('fusions_fiches')
+      .select('ig_lead_id, prospect_id, statut, call_ids, decided_at')
+      .eq('profile_id', user.id)
   ]);
 
   // Map ig_story_id → nom de séquence, pour distinguer un media_id "post" (permalink
@@ -152,6 +159,7 @@ export async function GET() {
     leads: leadsRes.data ?? [],
     prospects,
     nonIgProspects: nonIgProspectsRes.data ?? [],
+    fusions: fusionsRes.data ?? [],
     calls: callsRes.data ?? [],
     overrides: overridesRes.data ?? [],
     events: eventsRes.data ?? [],
