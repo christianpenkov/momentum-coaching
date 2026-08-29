@@ -23,7 +23,7 @@ export default function ReconcileTab({ orphans, onDone }: { orphans: Orphan[]; o
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Tout est rattaché</div>
           <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6, maxWidth: 320 }}>
-            Chaque paiement encaissé est relié à son deal. Les paiements reçus hors Momentum apparaîtront ici.
+            Chaque paiement encaissé est relié à sa vente. Ceux qu&apos;aucune vente ne revendique apparaîtront ici.
           </div>
         </div>
       </div>
@@ -33,7 +33,7 @@ export default function ReconcileTab({ orphans, onDone }: { orphans: Orphan[]; o
   return (
     <div>
       <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16, maxWidth: 640, lineHeight: 1.6 }}>
-        Chaque bloc est un paiement reçu — virement encaissé à la main, lien créé dans Stripe, ou deal antérieur à la fonctionnalité.
+        Chaque bloc est un paiement reçu que Momentum n&apos;a pas su rattacher — lien créé directement dans Stripe, ou vente antérieure à la fonctionnalité.
       </div>
       {orphans.map(o => <OrphanCard key={o.paymentId} orphan={o} onDone={onDone} />)}
     </div>

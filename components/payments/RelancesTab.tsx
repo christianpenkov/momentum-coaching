@@ -61,7 +61,7 @@ export default function RelancesTab({ deals, details, onChange, onOuvrir }: {
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Rien à relancer</div>
           <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6, maxWidth: 300 }}>
-            Tous tes deals sont soldés ou leurs échéances sont à jour.
+            Aucune vente n&apos;attend de geste : tout est encaissé, à jour, ou déjà terminé.
           </div>
         </div>
       </div>

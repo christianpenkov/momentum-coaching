@@ -202,16 +202,16 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
               serveur — seul l'onglet « À rattacher » est borné. */}
           <CashCollectedHero k={k} />
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-            <MiniKpi label="Reste dû" value={k ? fmtEur(k.remaining) : '—'} />
+            <MiniKpi label="À encaisser" value={k ? fmtEur(k.remaining) : '—'} />
             <MiniKpi label="Impayés" value={k ? fmtEur(k.unpaid) : '—'} color={k && k.unpaid > 0 ? 'var(--red)' : undefined} />
-            <MiniKpi label="Deals" value={String(k?.dealsCount ?? 0)} />
+            <MiniKpi label="Ventes" value={String(k?.dealsCount ?? 0)} />
           </div>
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14, marginBottom: 20 }}>
           <Kpi label="Cash contracté" value={k ? fmtEur(k.contracted) : '—'}
-            sub={k ? `${k.dealsCount} deal${k.dealsCount > 1 ? 's' : ''} signé${k.dealsCount > 1 ? 's' : ''}` : ''} />
-          <Kpi label="Cash collecté" value={k ? fmtEur(k.collected) : '—'}
+            sub={k ? `${k.dealsCount} vente${k.dealsCount > 1 ? 's' : ''} signée${k.dealsCount > 1 ? 's' : ''}` : ''} />
+          <Kpi label="Cash encaissé" value={k ? fmtEur(k.collected) : '—'}
             sub={k ? `${k.collectedRate} % du contracté` : ''} color="var(--green)" />
           <Kpi label="Reste à encaisser" value={k ? fmtEur(k.remaining) : '—'}
             sub={sansMoyen > 0
@@ -475,7 +475,7 @@ function CashCollectedHero({ k }: { k: PaymentsData['kpis'] | undefined }) {
 
   return (
     <div className="card" style={{ padding: '16px 18px', marginBottom: 10 }}>
-      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 7 }}>Cash collecté</div>
+      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 7 }}>Cash encaissé</div>
       <div className="tabular" style={{
         fontSize, fontWeight: 700, letterSpacing: '-1px', lineHeight: 1,
         color: k && k.collected > 0 ? 'var(--green)' : 'var(--muted)',
@@ -500,7 +500,7 @@ function CashCollectedHero({ k }: { k: PaymentsData['kpis'] | undefined }) {
           encaissé — sans lui la carte ne dirait plus rien de ce qui reste. */}
       <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
         {!k ? ''
-          : k.contracted === 0 ? 'aucun deal signé'
+          : k.contracted === 0 ? 'aucune vente signée'
           : rate >= 100 ? 'intégralement encaissé'
           : `${rate} % de ${fmtEur(k.contracted)} contractés`}
       </div>
@@ -581,7 +581,7 @@ export function Pill({ label, tone }: { label: string; tone: 'green' | 'amber' |
  */
 function StripeDisconnected({ isCoach }: { isCoach: boolean }) {
   const bullets = [
-    'Chaque euro encaissé rattaché à son deal et à son prospect',
+    'Chaque euro encaissé rattaché à sa vente et à son prospect',
     'Le contenu Instagram ou YouTube qui a produit le lead',
     'Échéances, impayés et relances suivis sans aucune saisie',
   ];
@@ -594,7 +594,7 @@ function StripeDisconnected({ isCoach }: { isCoach: boolean }) {
         Relie Stripe, et le reste se fait tout seul
       </div>
       <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.65, maxWidth: 420, marginBottom: 22 }}>
-        Quand un client paie sur Stripe, il apparaît ici automatiquement, rattaché au deal et au contenu qui l&apos;a produit.
+        Quand un client paie sur Stripe, il apparaît ici automatiquement, rattaché à sa vente et au contenu qui l&apos;a produit.
       </div>
       {bullets.map(t => (
         <div key={t} style={{ display: 'flex', gap: 11, alignItems: 'flex-start', marginBottom: 11 }}>
@@ -619,9 +619,9 @@ function EmptyDeals({ onCreate }: { onCreate: () => void }) {
         <Icon name="circle-dollar-sign" size={20} color="var(--muted)" />
       </div>
       <div style={{ textAlign: 'center' }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', marginBottom: 4 }}>Aucun deal pour l&apos;instant</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', marginBottom: 4 }}>Aucune vente pour l&apos;instant</div>
         <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6, maxWidth: 300 }}>
-          Un deal apparaît ici dès que tu clôtures un call, ou quand tu crées un lien de paiement à la main.
+          Une vente apparaît ici dès que tu enregistres le rapport d&apos;un call, ou quand tu crées un lien de paiement à la main.
         </div>
       </div>
       <button className="btn-primary-brand" style={{ fontSize: 12, marginTop: 6 }} onClick={onCreate}>
@@ -632,8 +632,12 @@ function EmptyDeals({ onCreate }: { onCreate: () => void }) {
 }
 
 function subtitleFor(tab: Tab, clients: number, deals: number, orphans: number, relances: number, isCoach: boolean): string {
-  if (tab === 'reconcile') return `${orphans} paiement${orphans > 1 ? 's' : ''} sans identifiant Momentum`;
-  if (tab === 'relances') return `${relances} relance${relances > 1 ? 's' : ''} en attente`;
+  // « sans identifiant Momentum » décrivait la cause technique ; ce qui compte
+  // est qu'aucune vente ne les revendique.
+  if (tab === 'reconcile') return `${orphans} paiement${orphans > 1 ? 's' : ''} rattaché${orphans > 1 ? 's' : ''} à aucune vente`;
+  // Toutes ces lignes ne sont pas des relances : certaines n'ont même pas de
+  // moyen de paiement. Ce qu'elles ont en commun, c'est d'attendre un geste.
+  if (tab === 'relances') return `${relances} vente${relances > 1 ? 's' : ''} en attente d'une action`;
   // Les deux chiffres, parce qu'ils diffèrent dès qu'un client rachète — et que
   // « 4 ventes » sur une liste de 3 lignes se lirait comme une erreur.
   const ventes = deals === clients ? '' : ` · ${deals} vente${deals > 1 ? 's' : ''}`;
