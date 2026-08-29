@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import InlineLoader from '@/components/ui/InlineLoader';
+import BandeauIntegrations from '@/components/analytics/BandeauIntegrations';
 import { useQuery } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
 import { useEscapeKey } from '@/lib/useEscapeKey';
@@ -8714,12 +8715,10 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
         </div>
       )}
 
-      {/* Banner erreur snapshot */}
-      {!backfillInProgress && snapshotError && (
-        <div style={{ marginBottom: 16, padding: '10px 16px', background: '#cd5b3f10', border: '1px solid #cd5b3f40', borderRadius: 8, fontSize: 13, color: '#cd5b3f', display: 'flex', alignItems: 'center', gap: 8 }}>
-          ⚠️ Impossible de synchroniser les données — {snapshotError.split(',')[0]}
-        </div>
-      )}
+      {/* Santé des 7 intégrations obligatoires — remplace le bandeau `snapshotError`,
+          qui ne regardait qu'Instagram et YouTube. Une panne de Calendly, Short.io ou
+          Stripe figeait les chiffres sans qu'aucun écran ne le dise. */}
+      {!backfillInProgress && <BandeauIntegrations profileId={profileId} />}
 
       {/* Banner données obsolètes */}
       {!backfillInProgress && snapshotStale && !snapshotError && (
