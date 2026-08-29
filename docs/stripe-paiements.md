@@ -192,6 +192,33 @@ Deux morceaux lisent la même règle. **À la livraison chez Quennel** :
 Principe général : quand deux morceaux doivent s'accorder sur un calcul, les
 déployer dans l'ordre où le décalage temporaire est *inoffensif*.
 
+### Une fonction périme sans que son propre dossier bouge
+
+Constaté le 2026-08-29 : `sync-stripe-payments` tournait avec un `dealCash.ts`
+**antérieur au lot 2** — sans `disputed`, sans `ended`. Son `index.ts` n'avait
+pas changé depuis son déploiement ; c'est le fichier `_shared/` qu'elle importe
+qui avait bougé, 20 minutes après.
+
+Un litige aurait donc été ignoré par cette fonction, et une vente clôturée
+recalculée au lieu d'être protégée. Sans impact réel — elle ne traite que les
+comptes en clé restreinte, et aucun n'existait — mais invisible autrement.
+
+**Ne jamais conclure d'un horodatage.** Deux pièges, tous deux vérifiés le même
+jour :
+
+- `updated_at` peut mentir : `refresh-ig-posts` l'affiche au 02/08 alors que son
+  code déployé contient les filtres du 20/08, et son `entrypoint_path` pointe sur
+  une version antérieure à son `version`.
+- Comparer une date de commit à un `updated_at` sans normaliser les fuseaux
+  invente un écart. Les commits de ce dépôt portent des décalages variables
+  (+02:00, +03:00) : un déploiement fait *à la minute du commit* passe alors pour
+  « jamais déployé ». Cinq faux positifs produits ainsi le 2026-08-29.
+
+**Le seul contrôle qui prouve quelque chose** : `get_edge_function`, puis
+chercher dans le code renvoyé une chaîne distinctive du dernier commit. Et pour
+les dépendances : croiser la date de déploiement avec le dernier commit de
+**chaque fichier `_shared/` importé**, pas seulement du dossier de la fonction.
+
 ---
 
 ## 6. Requêtes de contrôle
