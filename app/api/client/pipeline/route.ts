@@ -56,7 +56,12 @@ export async function GET() {
     // autre compte Instagram) revenait par ici — et s'affichait à une étape erronée,
     // le lead qui portait hook_replied ayant été filtré de l'autre source.
     supa.from('prospect_links')
-      .select('id, ig_username, short_url, content_id, created_at, calendly_link_sent, calendly_link_sent_at, last_calendly_link_sent_at, first_click_at, min_stage_reached')
+      // `ig_lead_id`, `prospect_id` et `source_at_creation` disent À QUI appartient
+      // ce lien. Sans eux, l'écran ne pouvait pas le savoir : il traitait TOUT lien
+      // comme un lien Instagram, et un lien de suivi généré pour quelqu'un venu de
+      // YouTube créait une carte dans l'onglet Instagram. Les trois colonnes
+      // existent en base depuis le 2026-08-27 ; seule cette requête les ignorait.
+      .select('id, ig_username, short_url, content_id, created_at, calendly_link_sent, calendly_link_sent_at, last_calendly_link_sent_at, first_click_at, min_stage_reached, ig_lead_id, prospect_id, source_at_creation')
       .eq('profile_id', user.id)
       .is('archived_at', null)
       .order('created_at', { ascending: false }),

@@ -51,6 +51,14 @@ interface ProspectLink {
   last_calendly_link_sent_at: string | null;  // dernier envoi (mis à jour à chaque renvoi)
   first_click_at: string | null;
   min_stage_reached: string | null;  // plancher IG_STAGES — jamais reculer en dessous, même si un signal auto plus faible se re-déclenche
+  /**
+   * À QUI ce lien appartient. `ig_username` ne le dit pas : la colonne porte
+   * désormais des noms d'invités de calls YouTube depuis que la liste de
+   * prospects a été élargie aux trois sources — elle ment sur son contenu.
+   */
+  ig_lead_id: string | null;    // lead Instagram ⇒ onglet Instagram
+  prospect_id: string | null;   // personne déjà connue ailleurs ⇒ SON onglet d'origine
+  source_at_creation: string | null;
 }
 
 interface Call {
@@ -195,11 +203,36 @@ const IG_STAGES = [
   { key: 'call_booked',   label: 'RDV pris',            color: '#2563EB', lightBg: '#EFF6FF', dot: '#2563EB' },
 ] as const;
 
-// YouTube n'a qu'une étape : un lead YouTube arrive directement par un lien
-// Calendly en description, sans DM ni lead magnet. Tout le reste de son parcours
-// se joue dans les issues.
+// YouTube et « Autres » n'avaient qu'UNE étape : un lead y arrive par un lien
+// Calendly en description, donc directement au rendez-vous.
+//
+// Depuis qu'on peut générer un LIEN DE SUIVI pour n'importe qui (« Gérer mes
+// liens »), ce n'est plus vrai : une personne venue de YouTube peut recevoir un
+// lien et le cliquer avant d'avoir réservé. Sans ces deux étapes, elle n'aurait
+// aucune colonne où exister — elle serait invisible entre le clic et la
+// réservation, c'est-à-dire exactement au moment où il faut la relancer.
+//
+/**
+ * Le canal d'origine d'un prospect, en clair. Mêmes mots que ceux déjà affichés
+ * sur les cartes construites depuis un call (`srcLabel`) — deux libellés
+ * différents pour la même source se liraient comme deux choses différentes.
+ */
+const SOURCE_LABELS: Record<string, string> = {
+  ig_description: 'Lien description',
+  ig_story:       'Story',
+  ig_dm:          'DM',
+  ig_bio:         'Lien bio',
+  yt_description: 'Description YouTube',
+};
+
+// PAS de « Calendly envoyé » ici, contrairement à Instagram : une carte
+// YouTube naît au CLIC (décision de Chris, 2026-08-29). La colonne « lien
+// envoyé, pas encore cliqué » serait donc vide pour toujours. Côté Instagram
+// elle reste peuplée, mais par les leads — leur carte vient de `instagram_leads`,
+// pas du lien.
 const YT_STAGES = [
-  { key: 'call_booked', label: 'RDV pris', color: '#2563EB', lightBg: '#EFF6FF', dot: '#2563EB' },
+  { key: 'link_clicked',  label: 'Lien cliqué', color: '#EA580C', lightBg: '#FFF7ED', dot: '#EA580C' },
+  { key: 'call_booked',   label: 'RDV pris',    color: '#2563EB', lightBg: '#EFF6FF', dot: '#2563EB' },
 ] as const;
 
 // Les issues ne sont PAS ordonnées : aucune n'est « après » une autre. Elles ne
@@ -2398,9 +2431,46 @@ export default function PagePipeline() {
   const igCards: CardData[] = [];
   if (data) {
     const seen = new Set<string>();
+
+    // ── QUELS LIENS DE SUIVI DONNENT UNE CARTE INSTAGRAM ─────────────────────
+    //
+    // Avant : tous. Chaque `prospect_link` devenait une carte Instagram, sans
+    // qu'on regarde d'où venait la personne. Deux conséquences :
+    //
+    //   1. Un lien généré pour quelqu'un venu de YouTube le faisait apparaître
+    //      dans l'onglet Instagram — et en DOUBLE, puisque son call YouTube lui
+    //      donnait déjà une carte dans le bon onglet. Une personne, deux cartes,
+    //      comptée deux fois dans le total de l'en-tête.
+    //   2. La carte naissait à la GÉNÉRATION du lien, avant tout envoi. Un nom
+    //      tapé par erreur créait un lead immédiatement, en « Calendly envoyé »
+    //      alors que rien n'avait été envoyé.
+    //
+    // Deux règles désormais :
+    //
+    //   • Un lien qui porte un `prospect_id` appartient à quelqu'un venu
+    //     d'ailleurs. Il n'entre pas ici : c'est le bloc YouTube/Autres qui le
+    //     traite, dans l'onglet que sa source commande.
+    //   • Sinon, il faut un SIGNAL RÉEL — la personne a cliqué, ou elle a un
+    //     rendez-vous. Un lien seulement généré n'existe pas encore dans le
+    //     pipeline.
+    //
+    // Un lead Instagram, lui, garde toujours sa carte : elle vient de
+    // `data.leads`, pas du lien.
+    const cheminDe = (url: string | null) => {
+      if (!url) return null;
+      try { return new URL(url).pathname.slice(1); } catch { return null; }
+    };
+    const lienDonneUneCarteIg = (p: ProspectLink) => {
+      if (p.prospect_id) return false;
+      if (p.ig_lead_id) return true;
+      if (p.first_click_at) return true;
+      const chemin = cheminDe(p.short_url);
+      return !!chemin && data.calls.some(c => c.short_link_path === chemin && !c.ig_lead_id);
+    };
+
     const allUsernames = new Set<string>([
       ...data.leads.map(l => l.ig_username.toLowerCase()),
-      ...data.prospects.map(p => p.ig_username.toLowerCase()),
+      ...data.prospects.filter(lienDonneUneCarteIg).map(p => p.ig_username.toLowerCase()),
     ]);
 
     for (const username of allUsernames) {
@@ -2745,6 +2815,25 @@ export default function PagePipeline() {
       }
     };
 
+    // ── LES LIENS DE SUIVI DE CES GENS-LÀ ───────────────────────────────────
+    // Un lien généré pour quelqu'un venu d'ailleurs porte son `prospect_id`. Il
+    // appartient donc à SON onglet, et c'est ici qu'il est lu — plus dans le bloc
+    // Instagram, qui le rangeait au mauvais endroit.
+    const liensParProspect = new Map<string, ProspectLink[]>();
+    for (const pl of data.prospects) {
+      if (!pl.prospect_id) continue;
+      const l = liensParProspect.get(pl.prospect_id) ?? [];
+      l.push(pl);
+      liensParProspect.set(pl.prospect_id, l);
+    }
+    /** Le lien le plus récent d'un prospect, celui qui décrit son état actuel. */
+    const dernierLien = (prospectId: string | null | undefined): ProspectLink | null => {
+      if (!prospectId) return null;
+      const l = liensParProspect.get(prospectId);
+      if (!l || l.length === 0) return null;
+      return l.slice().sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+    };
+
     // Grouper par prospect_id quand disponible, sinon par racine de chaîne de
     // reprogrammation (qui vaut call.id pour un call jamais reprogrammé).
     const prospectGroups = new Map<string, typeof nonIgCalls>();
@@ -2778,6 +2867,9 @@ export default function PagePipeline() {
       // Troisième et dernière cascade unifiée. YouTube n'a qu'une étape : le lead
       // arrive par un lien Calendly en description, sans DM ni lead magnet. Tout
       // son parcours se joue donc dans les issues.
+      // Le lien de suivi n'ajoute rien à quelqu'un qui a déjà réservé : le
+      // plancher reste « RDV pris ». Il sert seulement à faire exister la carte
+      // AVANT le rendez-vous, plus bas.
       const state = resolveLeadState({
         signals:      { minStageReached: 'call_booked' },
         calls,
@@ -2845,6 +2937,71 @@ export default function PagePipeline() {
       } else {
         ytCards.push(card);
       }
+    }
+
+    // ── LES GENS QUI ONT CLIQUÉ UN LIEN DE SUIVI SANS ENCORE RÉSERVER ────────
+    //
+    // Ils n'ont aucun call, donc aucun des groupes ci-dessus ne les contient, et
+    // le bloc Instagram ne les prend plus. Sans ce passage, quelqu'un qui vient
+    // de cliquer le lien qu'on lui a envoyé disparaîtrait du pipeline jusqu'à ce
+    // qu'il réserve — c'est-à-dire pile au moment où il faut le relancer.
+    //
+    // Leur onglet vient de la SOURCE du prospect, jamais du lien : une personne
+    // reste là d'où elle vient, pour toujours. Un lien de suivi n'est pas un
+    // signal d'appartenance, il ajoute un événement à un parcours existant.
+    for (const prospect of data.nonIgProspects) {
+      if (prospectGroups.has(prospect.id)) continue;   // il a déjà une carte
+      const lien = dernierLien(prospect.id);
+      if (!lien || !lien.first_click_at) continue;      // la carte naît au clic
+
+      const override = effectiveOverrides.find(o => o.prospect_key === prospect.id);
+      const state = resolveLeadState({
+        signals: {
+          linkClickedValid: true,
+          minStageReached: (lien.min_stage_reached as StageKey | null) ?? null,
+        },
+        manualIssue:  override?.stage ?? null,
+        manualReason: override?.reason ?? null,
+      }, new Date());
+
+      const src = prospect.source?.toLowerCase() ?? '';
+      const carte: CardData = {
+        key: prospect.id,
+        name: prospect.name || 'Prospect',
+        sub: SOURCE_LABELS[src] ?? 'Lien de suivi',
+        date: timeAgo(lien.first_click_at),
+        stageKey: state.issue ?? state.stage,
+        stageIdx: 0,
+        stage: state.stage,
+        issue: state.issue,
+        issueReason: state.issueReason,
+        rapportEnRetard: false,
+        relancesFaites: state.flags.relancesFaites,
+        relanceDue: state.flags.relanceDue,
+        derniereRelanceAt: state.flags.derniereRelanceAt,
+        classedAt: state.classedAt,
+        rdvCount: 0,
+        rdvAnyMissed: false,
+        rdvAllHonored: false,
+        lastPastRdvAt: null,
+        lmClaimed: 0,
+        lmReceived: 0,
+        lastMoveAt: lien.first_click_at,
+        nextDue: computeNextDue(state, null, lien.first_click_at, new Date()),
+        noSource: false,
+        badge: null,
+        naturalKey: state.stage,
+        hasProspectLink: true,
+        avatarUrl: null,
+      };
+
+      // L'onglet d'origine, et lui seul. `prospects.platform` vaut « other »
+      // pour ig_bio / ig_description / ig_story alors que le pipeline range ces
+      // gens dans Instagram : c'est la SOURCE qui commande, comme partout
+      // ailleurs dans cet écran.
+      if (src.startsWith('ig')) igCards.push(carte);
+      else if (src.startsWith('yt')) ytCards.push(carte);
+      else otherCards.push(carte);
     }
   }
 
