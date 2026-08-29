@@ -215,9 +215,29 @@ jour :
   « jamais déployé ». Cinq faux positifs produits ainsi le 2026-08-29.
 
 **Le seul contrôle qui prouve quelque chose** : `get_edge_function`, puis
-chercher dans le code renvoyé une chaîne distinctive du dernier commit. Et pour
-les dépendances : croiser la date de déploiement avec le dernier commit de
-**chaque fichier `_shared/` importé**, pas seulement du dossier de la fonction.
+chercher dans le code renvoyé une chaîne distinctive du dernier commit.
+
+### Deux questions, pas une
+
+« Une dépendance a-t-elle changé après le déploiement ? » est la bonne PREMIÈRE
+question. Ce n'est pas la conclusion.
+
+La seconde : **la fonction utilise-t-elle la partie qui a changé ?**
+
+Le 2026-08-29, la première question a désigné trois candidats de plus. La
+seconde les a tous écartés :
+
+- `poll-stories` et `send-pending-dm3` n'importent que `mapWithConcurrency` de
+  `rate-limit.ts`, et n'appellent jamais `RateLimiter.run()`. Le changement
+  portait exactement sur `run()` — elles ne passent jamais par ce chemin. Et
+  `mapWithConcurrency` n'a pas bougé d'un caractère depuis sa création
+  (`git log -S` ne renvoie que le commit qui l'a créée). Leur copie embarquée est
+  périmée sur du code qu'elles n'exécutent pas.
+- `refresh-ig-posts` était simplement déjà à jour, malgré son `updated_at`.
+
+Sans cette seconde question, la règle produit des redéploiements en production
+pour rien — et c'est le genre de bruit qui finit par faire ignorer la règle
+elle-même. Trois candidats, zéro action.
 
 ---
 
