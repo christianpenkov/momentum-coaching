@@ -252,8 +252,10 @@ export default function PipelineListView({
                           style={{
                             display: 'block', width: '100%', textAlign: 'left',
                             padding: '8px 10px', borderRadius: 7, cursor: 'pointer',
+                            // `font: 'inherit'` retiré : il effaçait la taille et
+                            // la graisse déclarées juste avant.
                             fontSize: 12, fontWeight: tri === t.key ? 700 : 500,
-                            font: 'inherit', border: 'none', textTransform: 'none',
+                            border: 'none', textTransform: 'none',
                             background: tri === t.key ? 'var(--surface-2)' : 'transparent',
                             color: 'var(--ink)',
                           }}

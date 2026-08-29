@@ -176,10 +176,19 @@ export type { IgLead, ProspectLink, Call, ProspectEvent, LmHistoryEntry, Pipelin
 // déclenché la refonte du 2026-08-27. `showed_up` et `closed` étaient des
 // étapes ; ce sont des résultats. Voir lib/pipelineStage.ts pour le modèle.
 
+// ⚠️ C'est l'ordre d'AFFICHAGE, pas l'ordre de progression. Celui-ci vit dans
+// `STAGE_ORDER` (lib/pipelineStage.ts) et décide de ce qui peut avancer vers
+// quoi : le déplacer casserait la résolution d'étape. Les deux sont volontairement
+// séparés, et `stageIdx` n'est qu'un index dans CE tableau-ci — il sert à
+// retrouver un libellé et une couleur, jamais à comparer deux étapes.
+//
+// Cold DM ouvre la rangée : c'est une PORTE D'ENTRÉE, au même titre que le
+// commentaire sous un post, pas une case qui viendrait après le lead magnet.
+// Le mettre en troisième position le faisait lire comme une suite.
 const IG_STAGES = [
+  { key: 'cold_dm',       label: 'Cold DM',             color: '#0891B2', lightBg: '#ECFEFF', dot: '#0891B2' },
   { key: 'lm_sent',       label: 'Commentaire LM',      color: '#7C3AED', lightBg: '#F5F3FF', dot: '#7C3AED' },
   { key: 'lm_received',   label: 'Lead magnet reçu',    color: '#A855F7', lightBg: '#FAF5FF', dot: '#A855F7' },
-  { key: 'cold_dm',       label: 'Cold DM',             color: '#0891B2', lightBg: '#ECFEFF', dot: '#0891B2' },
   { key: 'in_convo',      label: 'En conversation',     color: '#9333EA', lightBg: '#FDF4FF', dot: '#9333EA' },
   { key: 'calendly_sent', label: 'Calendly envoyé',     color: '#D97706', lightBg: '#FFFBEB', dot: '#D97706' },
   { key: 'link_clicked',  label: 'Lien cliqué',         color: '#EA580C', lightBg: '#FFF7ED', dot: '#EA580C' },
@@ -992,15 +1001,20 @@ function BoutonCase({
       onClick={onClick}
       aria-pressed={actif}
       style={{
-        // Ces douze boutons sont un SÉLECTEUR, pas le contenu : ils désignent la
-        // section qu'on veut isoler. À 24 px de haut ils occupaient deux rangées
-        // pleines au-dessus de la liste, soit près d'un dixième de l'écran pour
-        // une commande qu'on manipule une fois. Ils descendent à 20 px, ce qui
-        // les fait tenir sur moins de lignes et rend leur ensemble lisible d'un
-        // coup d'œil.
-        display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap',
-        fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 5,
-        cursor: 'pointer', font: 'inherit', minHeight: 20, lineHeight: 1.5,
+        // EXACTEMENT la typographie des filtres qui les suivent : 11,5 px en 600,
+        // 32 px de haut, coins à 8. Ils vivaient à 10 px sur 20 px de haut, et
+        // deux rangées de commandes empilées avec deux échelles différentes se
+        // lisaient comme deux systèmes qui n'ont rien à voir. Ils en sont un
+        // seul : « ce que je regarde », puis « ce que je garde dedans ».
+        display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap',
+        //
+        // Pas de `font: 'inherit'` : cette propriété raccourcie remet à zéro
+        // font-size ET font-weight. Posée après les deux lignes ci-dessous, elle
+        // les effaçait — les boutons rendaient à 14 px en 400, la taille du
+        // corps de texte, jamais celle qu'on croyait avoir écrite. La famille
+        // est déjà héritée par la règle globale `button { font-family: inherit }`.
+        fontSize: 11.5, fontWeight: 600, padding: '0 11px', borderRadius: 8,
+        cursor: 'pointer', minHeight: 32,
         background: actif ? 'var(--accent-brand, #3a6a86)' : 'var(--surface)',
         border: `1px solid ${actif ? 'var(--accent-brand, #3a6a86)' : 'var(--border)'}`,
         color: actif ? '#fff' : 'var(--ink)',
@@ -1008,17 +1022,17 @@ function BoutonCase({
     >
       {forme === 'carre' && issueKey ? (
         <span style={{ color: actif ? '#fff' : couleur, display: 'flex', flexShrink: 0 }}>
-          <IconeIssue issueKey={issueKey} taille={11} />
+          <IconeIssue issueKey={issueKey} taille={13} />
         </span>
       ) : couleur ? (
         <span style={{
-          width: 5.5, height: 5.5, borderRadius: '50%', flexShrink: 0,
+          width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
           background: actif ? '#fff' : couleur,
         }} />
       ) : null}
       {label}
       <span style={{
-        fontSize: 10, fontWeight: 700, fontVariantNumeric: 'tabular-nums',
+        fontSize: 10.5, fontWeight: 700, fontVariantNumeric: 'tabular-nums',
         color: actif ? 'rgba(255,255,255,.78)' : 'var(--muted)',
       }}>{n}</span>
     </button>

@@ -314,7 +314,9 @@ function Choix({
             aria-pressed={on}
             style={{
               minHeight: 30, padding: '0 10px', borderRadius: 7, cursor: 'pointer',
-              fontSize: 11.5, fontWeight: 600, font: 'inherit',
+              // `font: 'inherit'` retiré : il effaçait la taille et la graisse
+              // déclarées juste avant. La famille est héritée globalement.
+              fontSize: 11.5, fontWeight: 600,
               border: `1px solid ${on ? 'var(--accent-brand, #3a6a86)' : 'var(--border)'}`,
               background: on ? 'var(--accent-brand, #3a6a86)' : 'var(--surface)',
               color: on ? '#fff' : 'var(--ink-2, #3d3a33)',
