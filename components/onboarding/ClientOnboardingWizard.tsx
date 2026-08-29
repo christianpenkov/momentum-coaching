@@ -9,7 +9,7 @@ import { buildClientWizardConfig } from '@/lib/onboarding/clientWizardConfig';
 
 export default function ClientOnboardingWizard() {
   const { user } = useUser();
-  const { isOpen, closeWizard } = useOnboardingWizard();
+  const { isOpen, closeWizard, locked } = useOnboardingWizard();
   const [coachName, setCoachName] = useState<string | null>(null);
 
   useEffect(() => {
@@ -24,7 +24,9 @@ export default function ClientOnboardingWizard() {
       });
   }, [user?.id]);
 
-  const initialStep = user?.onboardingStep === 'in_progress' ? 'connect' : undefined;
+  // Verrouillé : on ouvre directement sur l'écran de connexion. L'écran de bienvenue
+  // reste accessible par les pastilles, mais ce n'est pas ce qu'on demande à l'élève.
+  const initialStep = locked || user?.onboardingStep === 'in_progress' ? 'connect' : undefined;
 
   return (
     <WizardShell
@@ -32,6 +34,7 @@ export default function ClientOnboardingWizard() {
       onClose={closeWizard}
       config={buildClientWizardConfig(coachName)}
       initialStep={initialStep}
+      locked={locked}
     />
   );
 }

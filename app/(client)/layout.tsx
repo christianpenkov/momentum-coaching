@@ -27,11 +27,36 @@ function ClientLayoutInner({ children, shellRef, navRef }: {
   // Les donnees de la page, pas seulement la session : sans ca l'ecran de
   // lancement partait des la session resolue et laissait apparaitre le loader
   // de la page pendant que ses donnees chargeaient encore.
-  const { loading: dataLoading } = useClientSelf();
+  const { clientRow, loading: dataLoading } = useClientSelf();
   usePushNotifications(user?.id ?? null);
   const [moreOpen, setMoreOpen] = useState(false);
+
+  // Verrou d'accès : tant que les 7 intégrations obligatoires ne sont pas connectées,
+  // l'élève ne voit que l'écran de connexion.
+  //
+  // La condition est `integrations_ready_at IS NULL`, et rien d'autre : c'est
+  // exactement la sémantique de la colonne, posée par le trigger
+  // `recalc_integrations_ready_at` quand les 7 providers sont là, et jamais
+  // réécrite ensuite. Aucune liste de providers recopiée ici — elle vit dans le
+  // trigger, une seule fois, et ne peut donc pas diverger.
+  //
+  // Pourquoi ce verrou existe : cette date est la borne de départ de TOUTES les
+  // stats (docs/perimetre-stats-referentiel.md, règle 1). Sans elle, un élève
+  // pouvait accumuler des calls avant que la collecte de clics Short.io ne
+  // démarre — et l'entonnoir divisait alors des calls par des clics qui
+  // n'existaient pas encore. Le verrou fait coïncider les deux dates par
+  // construction.
+  //
+  // On attend que le contexte ait répondu (`dataLoading`) avant de verrouiller :
+  // sinon l'écran de connexion clignote une fraction de seconde à chaque
+  // chargement, pour tout le monde.
+  const accesVerrouille = !dataLoading && !!clientRow && !clientRow.integrations_ready_at;
+
   return (
-    <OnboardingWizardProvider autoOpen={user?.onboardingStep === 'not_started'}>
+    <OnboardingWizardProvider
+      autoOpen={user?.onboardingStep === 'not_started'}
+      locked={accesVerrouille}
+    >
       {/* Monté ici et non dans la page : le layout survit aux navigations, donc
           l'overlay peut jouer son fondu de sortie au lieu d'être démonté d'un
           coup avec la page qui chargeait. Branché sur `loading` du contexte

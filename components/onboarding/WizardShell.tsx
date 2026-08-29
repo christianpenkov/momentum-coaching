@@ -14,6 +14,9 @@ interface WizardShellProps {
   onClose: () => void;
   config: WizardConfig;
   initialStep?: string;
+  /** Verrou d'accès : le wizard ne se ferme pas et s'arrête à l'étape « connect »
+   *  tant que les intégrations obligatoires ne sont pas toutes connectées. */
+  locked?: boolean;
 }
 
 const CONFETTI_PIECES = [
@@ -56,11 +59,15 @@ const staggerChild = {
 // pour les deux rôles, juste avant l'écran de fin.
 type PhaseStep = { key: string; kind: 'welcome' | 'connect' | 'walkthrough' | 'pwa' | 'final'; walkthroughIndex?: number };
 
-function buildSteps(config: WizardConfig): PhaseStep[] {
+function buildSteps(config: WizardConfig, locked = false): PhaseStep[] {
   const steps: PhaseStep[] = [
     { key: 'welcome', kind: 'welcome' },
     { key: 'connect', kind: 'connect' },
   ];
+  // Verrouillé : le parcours s'arrête à « connect ». Montrer la visite guidée d'un
+  // produit auquel on n'a pas encore accès n'apprend rien et brouille le seul geste
+  // attendu. Les étapes réapparaissent d'elles-mêmes dès que le verrou se lève.
+  if (locked) return steps;
   config.walkthroughSteps.forEach((_, i) => steps.push({ key: `walkthrough-${i}`, kind: 'walkthrough', walkthroughIndex: i }));
   steps.push({ key: 'pwa', kind: 'pwa' });
   steps.push({ key: 'final', kind: 'final' });
@@ -80,9 +87,9 @@ async function persistProgress(step: string, data?: Record<string, unknown>) {
   }
 }
 
-export default function WizardShell({ open, onClose, config, initialStep }: WizardShellProps) {
+export default function WizardShell({ open, onClose, config, initialStep, locked = false }: WizardShellProps) {
   const reduced = useReducedMotion();
-  const steps = useMemo(() => buildSteps(config), [config]);
+  const steps = useMemo(() => buildSteps(config, locked), [config, locked]);
 
   const findIndex = useCallback((key?: string) => {
     const idx = steps.findIndex(s => s.key === key);
@@ -103,14 +110,22 @@ export default function WizardShell({ open, onClose, config, initialStep }: Wiza
   }, [open, initialStep, findIndex]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || locked) return;
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [open, onClose]);
+  }, [open, onClose, locked]);
 
-  const current = steps[index];
-  const isLast = index === steps.length - 1;
+  // `index` peut pointer au-delà de la liste quand le verrou se pose alors que
+  // l'utilisateur était plus loin dans le parcours (il a connecté 6 outils, puis en
+  // a déconnecté un). Sans ce recadrage, `steps[index]` vaut undefined et le rendu
+  // casse.
+  const safeIndex = Math.min(index, steps.length - 1);
+  const current = steps[safeIndex];
+  const isLast = safeIndex === steps.length - 1;
+  // Verrouillé sur la dernière étape disponible : il n'y a nulle part où aller tant
+  // que les intégrations manquent.
+  const bloqueIci = locked && current.kind === 'connect';
 
   function goToIndex(i: number, opts?: { markInProgress?: boolean }) {
     setIndex(i);
@@ -123,26 +138,37 @@ export default function WizardShell({ open, onClose, config, initialStep }: Wiza
   }
 
   function handleNext() {
+    // Verrouillé : ni avancer, ni marquer l'onboarding terminé. Le bouton est déjà
+    // désactivé, cette garde couvre les autres chemins (clavier, pastilles).
+    if (bloqueIci) return;
     if (isLast) {
       persistProgress('completed');
       onClose();
       return;
     }
-    goToIndex(index + 1);
+    goToIndex(safeIndex + 1);
   }
+
+  const libelleBouton = bloqueIci
+    ? 'Connecte tes outils pour continuer'
+    : isLast ? 'Terminer'
+    : current.kind === 'connect' ? 'Continuer vers la visite →'
+    : 'Suivant';
 
   if (!open) return null;
 
   if (reduced) {
     return (
-      <div className="onboarding-backdrop" onClick={onClose}>
+      <div className="onboarding-backdrop" onClick={locked ? undefined : onClose}>
         <div onClick={e => e.stopPropagation()} style={{ width: 520, background: 'var(--surface)', borderRadius: 20, border: '1px solid var(--border)', padding: 48, position: 'relative' }}>
-          <button onClick={onClose} className="icon-btn" style={{ position: 'absolute', top: 20, right: 20 }} type="button">
-            <Icon name="x" size={18} />
-          </button>
+          {!locked && (
+            <button onClick={onClose} className="icon-btn" style={{ position: 'absolute', top: 20, right: 20 }} type="button">
+              <Icon name="x" size={18} />
+            </button>
+          )}
           <StepBody current={current} config={config} />
-          <button onClick={handleNext} className="btn-primary-brand" type="button" style={{ marginTop: 16 }}>
-            {isLast ? 'Terminer' : 'Suivant'}
+          <button onClick={handleNext} disabled={bloqueIci} className="btn-primary-brand" type="button" style={{ marginTop: 16, opacity: bloqueIci ? 0.5 : 1, cursor: bloqueIci ? 'not-allowed' : 'pointer' }}>
+            {libelleBouton}
           </button>
         </div>
       </div>
@@ -158,13 +184,17 @@ export default function WizardShell({ open, onClose, config, initialStep }: Wiza
             <div className="onboarding-orb-2" />
             <div className="onboarding-orb-3" />
 
-            <button onClick={onClose} type="button" className="icon-btn" style={{ position: 'absolute', top: 20, right: 20, zIndex: 10 }} aria-label="Fermer le guide de démarrage">
-              <Icon name="x" size={18} />
-            </button>
+            {/* Pas de croix quand l'accès est verrouillé : il n'y a rien derrière à
+                atteindre tant que les intégrations obligatoires manquent. */}
+            {!locked && (
+              <button onClick={onClose} type="button" className="icon-btn" style={{ position: 'absolute', top: 20, right: 20, zIndex: 10 }} aria-label="Fermer le guide de démarrage">
+                <Icon name="x" size={18} />
+              </button>
+            )}
 
             <AnimatePresence mode="wait">
               <m.div
-                key={`step-${index}`}
+                key={`step-${safeIndex}`}
                 variants={cardVariants}
                 initial="hidden"
                 animate="visible"
@@ -184,7 +214,7 @@ export default function WizardShell({ open, onClose, config, initialStep }: Wiza
               >
                 <m.div variants={staggerContainer} initial="hidden" animate="visible">
                   <m.div variants={staggerChild} className="eyebrow-sm" style={{ fontFamily: 'var(--font-mono)', color: 'var(--muted)', marginBottom: 24 }}>
-                    {index + 1} / {steps.length}
+                    {safeIndex + 1} / {steps.length}
                   </m.div>
 
                   <StepBody current={current} config={config} />
@@ -193,24 +223,28 @@ export default function WizardShell({ open, onClose, config, initialStep }: Wiza
                     <button
                       type="button"
                       onClick={handleNext}
+                      disabled={bloqueIci}
                       onMouseEnter={() => setNextHovered(true)}
                       onMouseLeave={() => setNextHovered(false)}
                       style={{
                         background: 'var(--accent-brand)', color: '#fff',
                         border: 'none', borderRadius: 10,
                         padding: '13px 32px', fontSize: 14, fontWeight: 600,
-                        cursor: 'pointer',
+                        cursor: bloqueIci ? 'not-allowed' : 'pointer',
+                        opacity: bloqueIci ? 0.45 : 1,
                         display: 'inline-flex', alignItems: 'center', gap: 8,
                         fontFamily: 'inherit',
                         transition: 'background 120ms, transform 80ms, color 120ms',
-                        transform: nextHovered ? 'translateY(-1px)' : 'translateY(0)',
-                        boxShadow: nextHovered ? '0 6px 20px rgba(42,42,40,0.18)' : '0 2px 8px rgba(42,42,40,0.10)',
+                        transform: nextHovered && !bloqueIci ? 'translateY(-1px)' : 'translateY(0)',
+                        boxShadow: nextHovered && !bloqueIci ? '0 6px 20px rgba(42,42,40,0.18)' : '0 2px 8px rgba(42,42,40,0.10)',
                       }}
                     >
-                      {isLast ? 'Terminer' : current.kind === 'connect' ? 'Continuer vers la visite →' : 'Suivant'}
-                      <span style={{ display: 'inline-flex', transition: 'transform 120ms', transform: nextHovered ? 'translateX(3px)' : 'translateX(0)' }}>
-                        <Icon name="arrowR" size={15} color="#fff" />
-                      </span>
+                      {libelleBouton}
+                      {!bloqueIci && (
+                        <span style={{ display: 'inline-flex', transition: 'transform 120ms', transform: nextHovered ? 'translateX(3px)' : 'translateX(0)' }}>
+                          <Icon name="arrowR" size={15} color="#fff" />
+                        </span>
+                      )}
                     </button>
                   </m.div>
 
@@ -222,9 +256,9 @@ export default function WizardShell({ open, onClose, config, initialStep }: Wiza
                         transition={{ duration: 0.2, ease: 'easeOut' } as object}
                         style={{
                           borderRadius: '50%',
-                          background: i === index ? 'var(--accent-brand)' : i < index ? 'var(--green)' : 'var(--border)',
-                          width: i === index ? 10 : 7,
-                          height: i === index ? 10 : 7,
+                          background: i === safeIndex ? 'var(--accent-brand)' : i < safeIndex ? 'var(--green)' : 'var(--border)',
+                          width: i === safeIndex ? 10 : 7,
+                          height: i === safeIndex ? 10 : 7,
                           flexShrink: 0,
                           cursor: 'pointer',
                         }}

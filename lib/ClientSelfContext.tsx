@@ -70,3 +70,10 @@ export function useClientSelf() {
   if (!ctx) throw new Error('useClientSelf must be used inside ClientSelfProvider');
   return ctx;
 }
+
+// Même contexte, mais qui rend `null` hors du provider au lieu de lever. Nécessaire
+// pour les composants montés dans LES DEUX espaces : le wizard d'onboarding est
+// partagé entre coach et élève, et seul l'espace élève monte ClientSelfProvider.
+export function useClientSelfSafe() {
+  return useContext(ClientSelfContext);
+}
