@@ -3936,7 +3936,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   // Continuations : les 2e rendez-vous d'un meme prospect, calcules sur TOUS les
   // calls de la fenetre (pas plateforme par plateforme — un prospect ne change pas
   // de plateforme entre deux rendez-vous). Voir lib/callSeries.ts.
-  const continuations = idsDeContinuation(callsInWindow as any);
+  const continuations = idsDeContinuation(callsInWindow);
 
   const calcCalls = (subset: CallRecord[]) => {
     const actifs = subset.filter(c => c.status === 'active');
