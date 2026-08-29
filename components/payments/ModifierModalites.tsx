@@ -4,7 +4,10 @@ import { useMemo, useState } from 'react';
 import ModaleAction, {
   CaseResponsabilite, Encart, Section, LienACopier, Chip, ApercuEcheances,
 } from './ModaleAction';
-import { modeDe, libelleMode, libelleRythme, type Mode } from './etats';
+import {
+  modeDe, moyenDe, moyenDefini, libelleMode, libelleRythme,
+  type Mode, type Moyen,
+} from './etats';
 import { useEcheancesAVenir } from './useEcheances';
 import { fmtEurExact, fmtDateLong, type DealRow, type DealDetail } from './types';
 
@@ -51,15 +54,18 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
   const nbActuel = deal.installmentsCount ?? 1;
   const rythmeActuel = (deal.installmentInterval ?? 'month') as 'month' | 'week';
 
-  // ── Rien n'est présélectionné, et c'est délibéré ────────────────────────
-  // L'écran ne re-représente pas l'état actuel : le sous-titre le dit en toutes
-  // lettres (« aujourd'hui comptant, hors Stripe »). Il pose deux questions
-  // neuves. Présélectionner obligeait à faire tenir un état à DEUX valeurs — un
-  // moyen et un nombre — dans UN seul bouton : « comptant, hors Stripe »
-  // n'entrait nulle part, et la ligne « en combien de fois » restait vide sans
-  // que rien ne l'explique.
-  const [moyen, setMoyen] = useState<Moyen | null>(null);
-  const [nb, setNb] = useState<number | null>(null);
+  // ── Présélectionné SEULEMENT si quelque chose a été mis en place ────────
+  // Une vente qui a un moyen d'encaisser montre ce qui est réglé aujourd'hui :
+  // on vient en ajuster une pièce, pas tout redécider.
+  //
+  // Une vente qui n'a RIEN — ni lien, ni prélèvement, ni échéancier — n'ouvre
+  // sur aucune réponse. Il n'y a rien à représenter, et prétendre le contraire
+  // était précisément le défaut : « hors Stripe » s'allumait tout seul pendant
+  // que « en combien de fois » restait vide, sans que rien ne l'explique.
+  const [moyen, setMoyen] = useState<Moyen | null>(
+    moyenDefini(deal) ? moyenDe(deal) : null);
+  const [nb, setNb] = useState<number | null>(
+    moyenDefini(deal) ? (deal.installmentsCount ?? 1) : null);
   const [rythme, setRythme] = useState(rythmeActuel);
   const [coche, setCoche] = useState(false);
   const [envoi, setEnvoi] = useState(false);
@@ -412,16 +418,6 @@ function libelleAvant(mode: Mode, nb: number, rythme: string): string {
 }
 
 const arrondi = (n: number) => Math.round(n * 100) / 100;
-
-/**
- * Le MOYEN d'encaisser, indépendant du nombre de fois.
- *
- * `payment_plan` mélangeait les deux axes : « comptant » y répond à « combien de
- * fois », les trois autres à « par quel moyen ». Un même bouton devait donc
- * porter deux réponses — et une combinaison parfaitement légitime, le virement
- * unique, n'avait aucun bouton où exister.
- */
-type Moyen = 'lien' | 'auto' | 'offline';
 
 const MOYENS: readonly (readonly [Moyen, string, string])[] = [
   ['lien', 'Lien de paiement',

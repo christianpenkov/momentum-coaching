@@ -26,6 +26,8 @@ export interface DealRow {
   hasFailure: boolean;
   /** Le deal a-t-il au moins un lien de paiement Stripe ? Faux = hors Stripe. */
   hasLinks: boolean;
+  /** Un échéancier existe en base — distingue un hors Stripe choisi d'un vide. */
+  hasSchedule: boolean;
 
   endedBy: 'stripe' | 'user' | null;
   endedAt: string | null;

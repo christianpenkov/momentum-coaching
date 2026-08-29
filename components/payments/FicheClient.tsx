@@ -5,7 +5,7 @@ import Icon from '@/components/ui/Icon';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import Portal from './Portal';
 import { useIsMobile } from '@/lib/useIsMobile';
-import { ETATS, etatDe, precisionEtat, modeDe, libelleModalites, compteDansLesTotaux } from './etats';
+import { ETATS, etatDe, precisionEtat, modeDe, moyenDefini, libelleModalites, compteDansLesTotaux } from './etats';
 import { useEcheancesAVenir } from './useEcheances';
 import { fmtEur, fmtEurExact, fmtDateLong, type DealRow, type DealDetail, type PersonRow } from './types';
 import ModifierMontant from './ModifierMontant';
@@ -504,7 +504,16 @@ function BarreActions({ deal, etat, mode, onAction }: {
     boutons.push(['Annuler', 'annuler', true]);
   } else {
     boutons.push(['Montant', 'montant']);
-    boutons.push(['Modalités', 'modalites']);
+    // ── Le même écran, deux situations, deux noms ──────────────────────────
+    // « Modalités » suppose qu'il y en a : c'est le nom d'un réglage à ajuster.
+    // Sur une vente où rien n'a été mis en place, il n'y a pas de réglage, il y
+    // a une décision à prendre — et rien sur la fiche ne disait qu'elle
+    // attendait. Un second bouton aurait fait doublon : c'est le libellé qui
+    // change, pas l'écran.
+    boutons.push([
+      moyenDefini(deal) ? 'Modalités' : 'Choisir les modalités',
+      'modalites',
+    ]);
     if (mode === 'installments_auto' && deal.stripeSubscriptionId) {
       boutons.push(['Arrêter', 'arreter']);
     }

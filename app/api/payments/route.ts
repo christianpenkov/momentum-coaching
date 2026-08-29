@@ -49,6 +49,15 @@ export interface DealRow {
   hasFailure: boolean;
   /** Le deal a-t-il au moins un lien de paiement Stripe ? Faux = hors Stripe. */
   hasLinks: boolean;
+  /**
+   * Un échéancier existe-t-il en base ?
+   *
+   * C'est ce qui distingue un « hors Stripe » CHOISI — l'élève a posé des
+   * échéances qu'il cochera à la main — d'une vente où personne n'a jamais rien
+   * mis en place. Les deux se ressemblent (ni lien, ni prélèvement) et
+   * n'appellent pourtant pas du tout le même geste.
+   */
+  hasSchedule: boolean;
 
   // ── Fin de vie et incidents ──────────────────────────────────────────────
   /** Qui a arrêté la vente : `stripe` (constaté) ou `user` (déclaré). */
@@ -272,6 +281,7 @@ export async function GET(request: NextRequest) {
       hasLinks: (d.deal_installments ?? []).length > 0
         ? (d.deal_installments ?? []).some((i: any) => !!i.short_url)
         : !!d.short_url,
+      hasSchedule: (d.deal_installments ?? []).length > 0,
 
       endedBy: d.ended_by ?? null,
       endedAt: d.ended_at ?? null,

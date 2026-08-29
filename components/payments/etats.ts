@@ -124,6 +124,38 @@ export function modeDe(d: DealRow): Mode {
     : 'one_shot';
 }
 
+/**
+ * Le MOYEN d'encaisser, indépendant du nombre de fois.
+ *
+ * `payment_plan` mélange les deux axes : « comptant » y répond à « combien de
+ * fois », les autres à « par quel moyen ». Les séparer est ce qui rend le
+ * virement unique représentable — il ne l'était pas.
+ */
+export type Moyen = 'lien' | 'auto' | 'offline';
+
+export function moyenDe(d: DealRow): Moyen {
+  if (d.stripeSubscriptionId) return 'auto';
+  if (d.hasLinks) return 'lien';
+  return 'offline';
+}
+
+/**
+ * Quelque chose a-t-il été MIS EN PLACE pour encaisser cette vente ?
+ *
+ * ── Pourquoi ce n'est pas `moyenDe(d) !== 'offline'` ───────────────────────
+ * « Hors Stripe » est à la fois un choix délibéré — l'élève encaisse par
+ * virement et coche les versements — et ce qu'il reste quand personne n'a rien
+ * décidé. Les deux se ressemblent trait pour trait : ni lien, ni prélèvement.
+ *
+ * Ce qui les sépare est l'échéancier : un hors Stripe choisi en a un, une vente
+ * abandonnée n'a rien. Sans cette distinction, l'écran proposerait « Modalités »
+ * — un réglage à ajuster — là où il faut proposer « Choisir les modalités », une
+ * décision à prendre.
+ */
+export function moyenDefini(d: DealRow): boolean {
+  return !!d.stripeSubscriptionId || d.hasLinks || d.hasSchedule;
+}
+
 export function libelleMode(m: Mode): string {
   return m === 'installments_auto' ? 'prélèvement automatique'
     : m === 'installments_manual' ? 'un lien par échéance'

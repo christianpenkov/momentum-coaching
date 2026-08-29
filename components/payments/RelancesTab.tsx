@@ -226,7 +226,10 @@ function RelanceRow({ item, first, onChange, onOuvrir }: {
         <button className="btn-ghost" onClick={e => { e.stopPropagation(); onOuvrir?.(item.deal.id, 'modalites'); }}
           style={{ fontSize: 12, flexShrink: 0, border: '1px solid var(--border)', borderRadius: 7, padding: '7px 13px', display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
           <Icon name="settings" size={13} color="var(--muted)" />
-          Choisir comment encaisser
+          {/* Même libellé que le bouton de la fiche : c'est le même écran, et
+              deux noms pour une même destination font douter d'être au bon
+              endroit. */}
+          Choisir les modalités
         </button>
       )}
 
