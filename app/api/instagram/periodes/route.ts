@@ -27,7 +27,10 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const profileId = searchParams.get('profileId');
-  const type = searchParams.get('type') === 'semaine' ? 'semaine' : 'mois';
+  // 'all_time' : une seule ligne par profil, jamais figee, dont le debut glisse avec
+  // le plafond de retention Meta. Voir lib/porteeIg.ts.
+  const typeDemande = searchParams.get('type');
+  const type = typeDemande === 'semaine' ? 'semaine' : typeDemande === 'all_time' ? 'all_time' : 'mois';
 
   let targetProfileId = user.id;
   if (profileId && profileId !== user.id) {

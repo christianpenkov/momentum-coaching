@@ -35,6 +35,7 @@ const CATS_DM_LM = new Set<string>(CATEGORY_GROUPS.dmLm);
 const CATS_STORY = new Set<string>(CATEGORY_GROUPS.story);
 import { isCallHonored } from '@/lib/callHonored';
 import { isCallCanceled } from '@/lib/sessionRapport';
+import { usePeriodesIg, porteeDeLaPeriode, typePeriodePour, type TypePeriodeIg } from '@/lib/porteeIg';
 import { bucketCallsByBookedDay, parisDayRange, tauxOuTrou } from '@/lib/callSeries';
 // Icones des en-tetes de colonne — source unique pour les trois tableaux de Business
 // micro. Quatorze colonnes portent le meme nom d'un tableau a l'autre et doivent donc
@@ -1641,7 +1642,11 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
         ))}
       </div>
 
-      <HistoriquePortee profileId={profileId} granularite={period === 7 ? 'semaine' : 'mois'} />
+      <HistoriquePortee
+        profileId={profileId}
+        granularite={typePeriodePour(period, sinceConnection)}
+        debut={parisDateStr(igPeriodStart)}
+      />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
         <Card title="Reach par jour" sub={`${sinceConnection ? 'Depuis la connexion' : period + ' jours'}`}>
@@ -2090,13 +2095,17 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
  * Lit `analytics_ig_periodes`, alimentee par le cron. Aucun calcul ici : les taux
  * viennent de l'API, l'ecran ne fait que les mettre en forme.
  */
-function HistoriquePortee({ profileId, granularite }: { profileId?: string; granularite: 'mois' | 'semaine' }) {
-  const { data, isLoading } = useQuery({
-    queryKey: ['ig-periodes', profileId, granularite],
-    queryFn: () => fetch(`/api/instagram/periodes?type=${granularite}${profileId ? `&profileId=${profileId}` : ''}`).then(r => r.json()),
-    staleTime: 5 * 60 * 1000,
-  });
-  const periodes: any[] = data?.periodes ?? [];
+function HistoriquePortee({ profileId, granularite, debut }: { profileId?: string; granularite: TypePeriodeIg; debut: string }) {
+  // Lecture partagee avec l'entonnoir (lib/porteeIg.ts) : les deux ecrans affichaient
+  // deux portees differentes pour la meme periode, a trois centimetres l'une de
+  // l'autre.
+  const { data, isLoading } = usePeriodesIg(granularite, profileId);
+  // UNE periode : celle que le selecteur de la page a choisie. La carte listait tout
+  // l'historique et ignorait donc le selecteur — le reste de l'onglet montrait aout,
+  // elle montrait aussi juillet et juin. Le defaut ne se voyait pas tant que les mois
+  // anterieurs n'avaient jamais ete mesures ; le rattrapage du cron les a remplis.
+  const laPeriode = porteeDeLaPeriode(data?.periodes, granularite, debut);
+  const periodes: any[] = laPeriode ? [laPeriode] : [];
 
   // Abonnes = audience deja acquise, en ardoise (la couleur de marque).
   // Non-abonnes = personnes atteintes hors de cette audience, en vert : c'est le
@@ -2129,7 +2138,7 @@ function HistoriquePortee({ profileId, granularite }: { profileId?: string; gran
   return (
     <Card
       title="Composition de ton reach"
-      sub="Qui a vu tes contenus — chaque période est comptée séparément, les valeurs ne s'additionnent pas"
+      sub="Qui a vu tes contenus sur la période — des personnes, comptées une seule fois même vues plusieurs jours"
     >
       {isLoading ? (
         <div>
@@ -3848,7 +3857,7 @@ function periodLabel(period: number, index: number): string {
 }
 
 
-function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, onModalChange, leads: leadsFromProp, prospectLinksData, linkClickedByLeadId, clicksByUrl, sinceConnection, allTimeStart }: { msgs: IGMessages | null; calls: CallRecord[]; stripe: StripeStats | null; ig: IGStats | null; yt: YTStats | null; shortio: ShortioStats | null; period: Period; periodIndex: number; onModalChange?: (open: boolean) => void; leads?: MockLead[]; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; sinceConnection?: boolean; allTimeStart?: string | null }) {
+function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, onModalChange, leads: leadsFromProp, prospectLinksData, linkClickedByLeadId, clicksByUrl, sinceConnection, allTimeStart, profileId }: { msgs: IGMessages | null; calls: CallRecord[]; stripe: StripeStats | null; ig: IGStats | null; yt: YTStats | null; shortio: ShortioStats | null; period: Period; periodIndex: number; onModalChange?: (open: boolean) => void; leads?: MockLead[]; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; sinceConnection?: boolean; allTimeStart?: string | null; profileId?: string }) {
   const leads = leadsFromProp && leadsFromProp.length > 0 ? leadsFromProp : [];
   const [callsFilter, setCallsFilter] = useState<'all' | 'ig' | 'yt'>('all');
   // La table coupait à 20 lignes sans le dire : en All-Time sur un élève actif, la
@@ -3930,7 +3939,20 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
     const t = new Date(dateStr + 'T12:00:00Z').getTime();
     return t >= winStart.getTime() && t <= winEnd.getTime();
   };
-  const igReachD  = noData ? 0 : (ig ? ig.chartData.filter(d => inFunnelDateWindow(d.date)).reduce((s, d) => s + d.reach, 0) : 0);
+  // Portee dedupliquee de Meta, la MEME que l'onglet Instagram (lib/porteeIg.ts).
+  //
+  // C'etait une somme de valeurs journalieres. La portee compte des PERSONNES : une
+  // personne touchee trois jours de suite y comptait trois fois. Ecart mesure sur ce
+  // profil — 145 contre 122 sur un mois (18 %), et 502 contre 207 sur l'historique
+  // complet (142 %). Les deux chiffres s'affichaient a trois centimetres l'un de
+  // l'autre, l'entonnoir montrant 145 pendant que l'onglet Instagram montrait 122.
+  //
+  // `null` quand la periode n'a jamais ete mesuree : l'ecran affiche un trou. Pas de
+  // repli sur la somme des jours — ce serait reintroduire l'erreur en silence.
+  const typePortee = typePeriodePour(period, sinceConnection);
+  const { data: periodesIgData } = usePeriodesIg(typePortee, profileId);
+  const porteeIg = porteeDeLaPeriode(periodesIgData?.periodes, typePortee, parisDateStr(winStart));
+  const igReachD: number | null = noData ? null : (porteeIg?.reachTotal ?? null);
   const igBookes  = igCallsLive.bookes;
   const igHonores = igCallsLive.honores;
   const igCloses  = igCallsLive.closes;
@@ -4008,8 +4030,8 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   // couvre tout l'historique. La fenêtre est déjà écrite en toutes lettres dans
   // l'en-tête juste au-dessus (« Funnels & Efficacité — … »), une seule fois.
   const igFunnelSteps = [
-    { label: 'Reach', value: noData ? dash : (igReachD >= 1000 ? `${fmt(igReachD / 1000, 1)}k` : fmt(igReachD)), rawValue: igReachD },
-    { label: 'Clics liens Calendly', value: noData ? dash : fmt(igTotalClicsD), sub: 'bio + descr. + DM', rawValue: igTotalClicsD, rate: noData ? 0 : (igReachD > 0 ? (igTotalClicsD / igReachD) * 100 : 0) },
+    { label: 'Reach', value: igReachD == null ? dash : (igReachD >= 1000 ? `${fmt(igReachD / 1000, 1)}k` : fmt(igReachD)), rawValue: igReachD ?? 0 },
+    { label: 'Clics liens Calendly', value: noData ? dash : fmt(igTotalClicsD), sub: 'bio + descr. + DM', rawValue: igTotalClicsD, rate: igReachD && igReachD > 0 ? (igTotalClicsD / igReachD) * 100 : undefined },
     { label: 'Calls bookés', value: fmt(igBookes), rawValue: igBookes, rate: igTotalClicsD > 0 ? (igBookes / igTotalClicsD) * 100 : 0 },
     { label: 'Calls honorés', value: fmt(igHonores), rawValue: igHonores, rate: igBookes > 0 ? (igHonores / igBookes) * 100 : 0 },
     { label: 'Deals closés', value: fmt(igCloses), rawValue: igCloses, rate: igHonores > 0 ? (igCloses / igHonores) * 100 : 0 },
@@ -4078,14 +4100,14 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
     {
       platform: 'Instagram', color: IG_COLOR, platformCalls: callsIG, reachByDate: igReachByDate,
       metrics: [
-        { label: 'Reach pour 1 call', value: igBookes > 0 ? fmt(Math.round(igReachD / igBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: true },
+        { label: 'Reach pour 1 call', value: igReachD != null && igBookes > 0 ? fmt(Math.round(igReachD / igBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'Calls bookés', value: fmt(igBookes), prevValue: null, delta: null, lowerIsBetter: false },
         { label: 'No-show', value: igBookes > 0 ? fmtRate(igNoShows, igBookes) : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'Close rate', value: igHonores > 0 ? fmtRate(igCloses, igHonores) : '—', prevValue: null, delta: null, lowerIsBetter: false },
         { label: 'Rev / call booké', value: igBookes > 0 ? fmtEur(Math.round(igRev / igBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: false },
         // « Cash / vue » : Instagram mesure une portée, pas des vues — la colonne
         // voisine dit déjà « Reach pour 1 call ».
-        { label: 'Cash / reach', value: igReachD > 0 ? fmtEur(igRev / igReachD) : '—', prevValue: null, delta: null, lowerIsBetter: false },
+        { label: 'Cash / reach', value: igReachD != null && igReachD > 0 ? fmtEur(igRev / igReachD) : '—', prevValue: null, delta: null, lowerIsBetter: false },
         { label: 'Revenue total', value: fmtEur(igRev), prevValue: null, delta: null, lowerIsBetter: false },
       ],
     },
@@ -8834,7 +8856,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
           {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} stripe={stripeEff} msgs={msgsEff} calls={callsEff} callsAllTime={callsAllTimeEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} />}
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.yt?.snapshotError} />}
-          {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} allTimeStart={allTimeStart} />}
+          {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} allTimeStart={allTimeStart} profileId={profileId} />}
           {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={callsAllTimeEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} shortioChartHistoryStory={shortioChartHistoryStory} joursCollectesShortio={joursCollectesShortio} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
           {tab === 5 && <TabRevenues stripe={stripeEff} calls={callsEff} deals={dealsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} />}
         </>
