@@ -1,9 +1,8 @@
 # Handoff — Audit « Mes Stats »
 
-Brief de reprise. YouTube, Instagram et **Business micro** sont clos — pour Business
-micro il ne reste qu'un constat à faire le 31 août, aucune correction en attente.
-Reste **Funnel & Calls** : brief complet dans `docs/handoff-audit-funnel-calls.md`.
-État arrêté au **2026-08-29**.
+Brief de reprise. **Les quatre périmètres sont clos** : YouTube, Instagram, Business
+micro et **Funnel & Calls**. Pour Business micro il ne reste qu'un constat à faire le
+31 août, aucune correction en attente. État arrêté au **2026-08-29**.
 
 ---
 
@@ -59,6 +58,8 @@ valeurs sur **deux jours consécutifs**. C'est ce qui a permis de le voir.
 **Instagram** — `docs/instagram-scalabilite.md`, `docs/instagram-reach-follow-type.md`.
 
 **Business micro** — voir la section suivante.
+
+**Funnel & Calls** — clos le 2026-08-29, voir la section « Funnel & Calls » plus bas.
 
 ---
 
@@ -210,12 +211,9 @@ Ce qui reste non testé, c'est l'écriture `delete + insert` avec `figee = true`
 
 ---
 
-## Le périmètre restant : Funnel & Calls
+## Funnel & Calls — clos le 2026-08-29
 
-**Brief complet : `docs/handoff-audit-funnel-calls.md`** — périmètre, procédure de
-vérification métrique par métrique, et les pistes à vérifier. Ce qui suit n'en est
-que le résumé.
-
+Brief d'origine : `docs/handoff-audit-funnel-calls.md`.
 Sources : `calls`, `deals`, `stripe`, `instagram_leads`, `prospect_links`,
 `prospect_events`.
 
@@ -231,13 +229,106 @@ where ignored is not true
   and call_type = 'calendly'   -- vente ; 'google' = coaching
 ```
 
-> **`deals` est la source du cash.** `calls.revenue` n'est qu'une trace du rapport.
-> Les deux **ont divergé en base** : le deal `4a8dde35` vaut 1 200 € après modification
-> des modalités de vente, `calls.revenue` en dit toujours 3 000. Dans Business micro,
-> tout passe désormais par `callsEff` / `callsAllTimeEff`, qui appliquent la somme des
-> deals rattachés au call. **Vérifier que Funnel & Calls fait pareil.**
+### Ce qui était cassé, et comment on l'a su
 
-Autres pièges déjà documentés :
+| Défaut | Comment il a été établi |
+|---|---|
+| **All-Time : sept fenêtres sur huit restaient bornées au mois en cours.** Carte « Calls bookés 17 » ouvrant une courbe qui n'en totalisait que 9 ; reach d'août (145) divisé par des calls all-time (14), d'où un taux de passage affiché à **175 %** côté Instagram et **300 %** côté YouTube ; en-tête « 1 août – 31 août » sous un bandeau « All-Time depuis le 09/06 » | En basculant sur All-Time et en **ouvrant la modale** de chaque carte. Invisible en SQL : les deux chiffres étaient justes, c'est la fenêtre de l'un qui ne valait pas celle de l'autre. Même défaut que celui corrigé dans Business micro la veille — la correction n'avait pas été propagée |
+| **Deux règles de journée dans le même écran.** Les modales du hero comparaient `new Date('YYYY-MM-DD')` — lu en **UTC** — à des jours produits par `parisDateStr` ; celles du tableau d'efficacité découpaient sur le **préfixe UTC de `scheduled_at`**, la date du rendez-vous, alors que le périmètre filtre sur `booked_at` | Lecture croisée des deux fonctions, puis démonstration par un test : un call réservé à 00:30 heure de Paris tombe la veille en UTC. Aucun cas en base ce jour-là (les 19 calls de vente sont tous réservés entre 06 h et 23 h) — corrigé quand même |
+| **Un taux à dénominateur nul valait `0`.** Sur un mois à cinq jours d'activité, la modale « Close rate » montrait 26 jours plats à « 0 % de closing » | Ouverture de la modale. Le code (`den > 0 ? … : 0`) est correct au sens du typage et passe toutes les relectures |
+| **La modale « Rev / call » affichait une série fabriquée** : la moyenne de toute la période posée sur les jours à honoré, `0` partout ailleurs | Lecture du code après avoir constaté une courbe en créneau parfaitement plate |
+| **Les totaux du hero valaient `igBookes + ytBookes`** alors que leur sous-titre dit « toutes sources », et que le numérateur du taux de no-show, lui, portait sur toutes les sources : le taux pouvait dépasser 100 % | Lecture, puis comptage en base — **0 call hors `ig_*`/`yt_*` sur les 70 lignes**, donc aucun cas aujourd'hui |
+| **La table des calls libellait « Honoré » un call passé sans rapport**, avec un ✓ en colonne No-show, pendant que le compteur juste au-dessus l'excluait : **8 lignes « Honoré » pour un compteur à 7** | Lecture ligne à ligne de la capture d'écran. Le call `fcf5d214` (21 août, `outcome` null) est le cas |
+| Colonne Source affichée « Ig » / « Yt » — la casse machine du champ — trois centimètres sous un filtre qui dit « Instagram » / « YouTube » | Capture d'écran |
+| Table tronquée à 20 lignes sans le dire, sous un résumé qui les compte toutes | Lecture du code, confirmé par le passage en All-Time (19 lignes, à la limite) |
+| Axes : graduation à **−1** sur un compteur de calls, à **−12 %** et **112 %** sur un taux. Les six autres axes du fichier avaient déjà la garde `Math.max(0, …)` | Capture d'écran des deux modales |
+| Avertissements `width(-1) and height(-1)` au montage des deux modales | Console du navigateur après correction — la régression que le skill dit de chercher |
+| **Coach : les calls annulés passés entraient dans `history`**, donc dans « Coachings » ET dans « Annulés ». « Historique (22) » et « Coachings (22) » pour 19 calls réels | Compté à l'écran puis en base : 19 non annulés + 3 annulés = 22. La page élève filtrait déjà les annulés — c'est elle qui avait raison |
+| **Coach : `upcoming.filter(isCallCanceled)` était toujours vide** (`isCallJoinable` rend faux pour un annulé), donc un rendez-vous annulé **avant** d'avoir eu lieu n'apparaissait dans aucun onglet | Lecture. Aucun cas en base |
+| Coach : les demandes en attente d'acceptation étaient affichées deux fois — section dédiée **et** onglet « À venir » | Lecture, l'élève les excluait déjà |
+| Coach : « **J−1 · Demain** » pour un call prévu le soir même. `Math.ceil(diff / 24 h)` contre `daysUntil` côté élève | Deux calculs pour le même badge sur deux écrans |
+| Élève : le bouton « Rapport » testait `no_show === null` alors que le marqueur unique documenté est `outcome` — et que `pendingRapports`, dix lignes plus haut **dans le même fichier**, utilise déjà `outcome` | `docs/rapports-de-call.md` § 3 |
+| **`.neq('ignored', true)` dans 23 lectures de `calls`.** PostgREST le traduit par `ignored <> true`, qui vaut NULL — donc faux — dès que la colonne est NULL : la ligne disparaît de **tous** les écrans, sans erreur | Schéma : la colonne était `nullable`. 0 ligne à NULL au 2026-08-29 |
+
+### Ce qui a été livré
+
+Corrigé dans `PageClientStats.tsx` (TabFunnel), `PageClientCalls.tsx`, `PageCalls.tsx`.
+
+La règle de découpage jour par jour vit désormais **une seule fois**, dans
+`lib/callSeries.ts` (`callDayKey`, `bucketCallsByBookedDay`, `parisDayRange`,
+`tauxOuTrou`), avec `lib/callSeries.test.ts`. Le test qui compte : *la somme des
+seaux jour par jour égale le total sur la fenêtre couvrant les données* — et sa
+contre-épreuve, qui montre que la même courbe bornée au mois en cours n'en rend que
+2 sur 5. C'est l'invariant qui a sauté, c'est lui qui est verrouillé.
+
+`daysUntilLocal` est passé dans `lib/callFormat.ts`, partagé par les deux pages Calls.
+
+**Migration `20260829180000`** : `calls.ignored`, `calls.call_type` et `calls.status`
+passent `NOT NULL`. Les trois avaient un défaut et zéro ligne à NULL. C'est la classe
+d'échec silencieux traitée **à la racine**, une fois, plutôt qu'à chacun des 23
+endroits qui lisent la table — une écriture qui poserait NULL échoue désormais
+bruyamment.
+
+### Deux pistes du brief qui étaient FAUSSES
+
+Le brief prévenait qu'il fallait s'y attendre. Pour mémoire, afin que personne ne les
+rouvre :
+
+- **« Un deal annulé laisse-t-il un revenu périmé ? »** Non. Les deux chemins
+  d'annulation (`payments/deals/[id]/cancel` et `.../declare-refund` avec
+  `finaliserAnnulation`) écrivent déjà `revenue: 0, deal_closed: false,
+  outcome: 'lost'` sur le call. Le repli de `callsEff` sur `calls.revenue` rend donc
+  bien 0.
+- **« `deals` est la source du cash — vérifier que Funnel & Calls fait pareil. »**
+  Il le faisait déjà : `TabFunnel` reçoit `callsEff`, pas `callsRaw`. Le deal
+  `4a8dde35` s'affiche bien à 1 200 € et non 3 000.
+
+### Ce qui reste ouvert volontairement
+
+- **Le reach de l'entonnoir somme les jours (502 en All-Time) au lieu d'utiliser la
+  mesure de période dédupliquée de Meta.** Les deux chiffres coexistent déjà à
+  l'écran dans l'onglet Instagram : « Reach · personnes 30j **145** » (somme des
+  jours) et « du 1 au 31 août — Reach total = **122** » (`analytics_ig_periodes`).
+  L'écart est de 19 % sur un mois et croît avec la durée. Non corrigé parce que
+  `analytics_ig_periodes` ne porte que le mois et la semaine **en cours** : basculer
+  l'entonnoir dessus casserait toutes les périodes antérieures et l'All-Time.
+  Décision produit à prendre.
+- **Un taux de passage supérieur à 100 % reste possible, et légitime** : 14 calls
+  bookés pour 10 clics Calendly tracés en All-Time. Il ne dit pas « super
+  conversion » mais « le suivi de clics rate 4 de mes 14 réservations ». Il s'affiche
+  pourtant en vert, comme un excellent CTR, parce que `FunnelHorizontal` applique le
+  même barème de couleur (`<1 % rouge, <5 % ambre, sinon vert`) à toutes les étapes.
+- **Les modales de taux deviennent des points isolés** sur un mois peu actif,
+  maintenant que les jours sans mesure sont des trous et non des zéros. C'est
+  honnête, mais visuellement pauvre. Relier les points réinventerait les valeurs
+  intermédiaires — d'où le choix de ne pas le faire.
+- **Les calls `call_type = 'manual'` n'existent sur aucun écran.** Deux chemins en
+  créent : `RapportModal` quand on saisit à la main la date d'un appel reporté ou
+  d'un 2ᵉ call (il n'envoie pas de `call_type`, la route retombe sur `'manual'`), et
+  le geste « avancer vers RDV pris » du pipeline. Or **toutes** les lectures de vente
+  filtrent `call_type = 'calendly'` : pipeline, Mes Stats, `salesCallStats`, page
+  Calls élève. Un tel call est écrit en base et n'apparaît nulle part, ne compte
+  nulle part, et ne peut pas recevoir de rapport. **0 ligne en base** — le chemin n'a
+  jamais été exercé. Non corrigé : décider si un call manuel est un call de vente
+  change des chiffres sur toute la plateforme.
+
+### Trouvé au passage, hors périmètre
+
+**`get_ig_posts_history` est cassée en production.** La fonction déclare et
+sélectionne `p.video_duration_sec`, une colonne qui n'existe pas sur
+`analytics_ig_posts_history`. Tout appel échoue :
+
+```
+ERROR: 42703: column p.video_duration_sec does not exist
+```
+
+Aucun fichier du dépôt ne mentionne ce nom, et aucune migration versionnée ne le
+crée : la fonction a été modifiée hors du dépôt. Côté application l'échec est
+silencieux — un `console.error` dans `PageClientStats`, et rien à l'écran. **Non
+touchée** : ressemble à un chantier en cours (fonction déjà modifiée, migration de
+colonne pas encore appliquée).
+
+Autres pièges déjà documentés, à garder en tête :
 - `.maybeSingle()` sur `instagram_leads` sans filtre (`pipeline/advance`,
   `client/calls`) : deux lignes pour un même `ig_username` feraient échouer la requête.
 - Résolution Calendly par `ig_user_id` sans borne de compte.
