@@ -3951,7 +3951,12 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
     // definition du marche, et le no-show garde deliberement l'autre grain — il
     // mesure la fiabilite d'un creneau, pas la capacite a closer une personne.
     const opportunitesHonorees = actifs.filter(c => isCallHonored(c, now) && !continuations.has(c.id)).length;
-    return { bookes, honores, closes, rev, noShows, opportunitesHonorees };
+    // Haut de l'entonnoir : une continuation n'est produite par AUCUN nouveau clic,
+    // donc elle n'y entre pas. Sans cette exclusion, faire heriter le 2e call de
+    // l'origine du premier ferait repasser le taux clics -> calls au-dessus de 100 %,
+    // structurellement et pour toujours.
+    const opportunites = actifs.filter(c => !continuations.has(c.id)).length;
+    return { bookes, honores, closes, rev, noShows, opportunites, opportunitesHonorees };
   };
 
   const igCallsLive = calcCalls(callsIG);
@@ -3982,6 +3987,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const igBookes  = igCallsLive.bookes;
   const igHonores = igCallsLive.honores;
   const igOpportunites = igCallsLive.opportunitesHonorees;
+  const igOpportunitesBookees = igCallsLive.opportunites;
   const igCloses  = igCallsLive.closes;
   const igRev     = igCallsLive.rev;
   const igNoShows = igCallsLive.noShows;
@@ -3990,6 +3996,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const ytBookes  = ytCallsLive.bookes;
   const ytHonores = ytCallsLive.honores;
   const ytOpportunites = ytCallsLive.opportunitesHonorees;
+  const ytOpportunitesBookees = ytCallsLive.opportunites;
   const ytCloses  = ytCallsLive.closes;
   const ytRev     = ytCallsLive.rev;
   const ytNoShows = ytCallsLive.noShows;
@@ -4094,8 +4101,8 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const igFunnelSteps = [
     { label: 'Reach', value: igReachD == null ? dash : (igReachD >= 1000 ? `${fmt(igReachD / 1000, 1)}k` : fmt(igReachD)), rawValue: igReachD ?? 0 },
     { label: 'Clics liens Calendly', value: noData ? dash : fmt(igTotalClicsD), sub: 'bio + descr. + DM', rawValue: igTotalClicsD, rate: igReachD && igReachD > 0 ? (igTotalClicsD / igReachD) * 100 : undefined },
-    { label: 'Calls bookés', value: fmt(igBookes), rawValue: igBookes, rate: igTotalClicsD > 0 ? (bookesDansCouverture(callsIG) / igTotalClicsD) * 100 : undefined, noteTaux: noteCouverture },
-    { label: 'Calls honorés', value: fmt(igHonores), rawValue: igHonores, rate: igBookes > 0 ? (igHonores / igBookes) * 100 : 0 },
+    { label: 'Opportunités', value: fmt(igOpportunitesBookees), rawValue: igOpportunitesBookees, rate: igTotalClicsD > 0 ? (bookesDansCouverture(callsIG.filter(c => !continuations.has(c.id))) / igTotalClicsD) * 100 : undefined, noteTaux: noteCouverture },
+    { label: 'Honorées', value: fmt(igOpportunites), rawValue: igOpportunites, rate: igOpportunitesBookees > 0 ? (igOpportunites / igOpportunitesBookees) * 100 : 0 },
     { label: 'Deals closés', value: fmt(igCloses), rawValue: igCloses, rate: igOpportunites > 0 ? (igCloses / igOpportunites) * 100 : undefined },
     { label: 'Revenue', value: fmtEur(igRev), rawValue: igRev },
   ];
@@ -4103,8 +4110,8 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const ytFunnelSteps = [
     { label: 'Vues', value: noData ? dash : (ytViewsD >= 1000 ? `${fmt(ytViewsD / 1000, 1)}k` : fmt(ytViewsD)), rawValue: ytViewsD },
     { label: 'Clics Calendly', value: noData ? dash : fmt(ytClicsD), sub: 'Bio + Descr.', rawValue: ytClicsD, rate: noData ? 0 : (ytViewsD > 0 ? (ytClicsD / ytViewsD) * 100 : 0) },
-    { label: 'Calls bookés', value: fmt(ytBookes), rawValue: ytBookes, rate: ytClicsD > 0 ? (bookesDansCouverture(callsYT) / ytClicsD) * 100 : undefined, noteTaux: noteCouverture },
-    { label: 'Calls honorés', value: fmt(ytHonores), rawValue: ytHonores, rate: ytBookes > 0 ? (ytHonores / ytBookes) * 100 : 0 },
+    { label: 'Opportunités', value: fmt(ytOpportunitesBookees), rawValue: ytOpportunitesBookees, rate: ytClicsD > 0 ? (bookesDansCouverture(callsYT.filter(c => !continuations.has(c.id))) / ytClicsD) * 100 : undefined, noteTaux: noteCouverture },
+    { label: 'Honorées', value: fmt(ytOpportunites), rawValue: ytOpportunites, rate: ytOpportunitesBookees > 0 ? (ytOpportunites / ytOpportunitesBookees) * 100 : 0 },
     { label: 'Deals closés', value: fmt(ytCloses), rawValue: ytCloses, rate: ytOpportunites > 0 ? (ytCloses / ytOpportunites) * 100 : undefined },
     { label: 'Revenue', value: fmtEur(ytRev), rawValue: ytRev },
   ];
