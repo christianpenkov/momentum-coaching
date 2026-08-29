@@ -1,7 +1,7 @@
 # Handoff — Audit « Mes Stats »
 
 Brief de reprise. YouTube, Instagram et **Business micro** sont clos.
-Reste **Funnel & Calls**. État arrêté au **2026-08-28**.
+Reste **Funnel & Calls**. État arrêté au **2026-08-29**.
 
 ---
 
@@ -140,18 +140,49 @@ n'arrive pas. L'agrégation SQL ne demande aucun entretien.
 
 ### Ce qui reste ouvert sur Business micro
 
-- **Historique de plus de ~40 jours toujours gonflé** sur le SEUL profil de test de
-  Chris (133 clics sur 150). Les élèves réels n'ont rien hors fenêtre. Le flux Short.io
-  ne remonte pas assez loin. Chris a choisi de corriger ses propres lignes en base ;
-  rien n'est prévu dans le produit.
-- **Comptes Short.io partagés.** Chris a confirmé qu'en production chaque élève apporte
-  son propre compte. Reste à **refuser à la connexion un domaine déjà pris par un autre
-  profil** — non fait à ce jour, le partage reste techniquement possible.
-- **Clics de liens de paiement Stripe** exclus de « Clics totaux ». Décision de Chris :
-  les afficher **côté Paiements** (« lien envoyé, cliqué, pas payé » sert à la relance).
-  Non fait à ce jour.
-- Un **taux de conversion supérieur à 100 %** reste possible (un call attribué sans clic
-  tracké). Factuel, mais déroutant à l'écran.
+État au **2026-08-29**. Tout ce qui suit a été trouvé, mesuré, et laissé ouvert
+volontairement — rien n'est en attente par oubli.
+
+- **Un taux de conversion peut dépasser 100 %** — un call attribué sans clic tracké.
+  Le chiffre est factuel, l'affichage déroutant. Pas de correction évidente : plafonner
+  masquerait de l'information.
+- **La colonne « Clics / Liens » du breakdown mélange deux unités** : des clics bruts
+  sur les lignes de contenu, un nombre de liens ou de leads sur les lignes DM. La somme
+  ne réconcilie donc jamais avec « Clics totaux ». Le libellé l'admet à moitié.
+- **Avertissement Recharts `width(-1) and height(-1)`** dans la console. Un graphique se
+  monte un instant dans un conteneur de taille nulle. Rien de visible à l'écran, aucun
+  impact sur les chiffres.
+- **Clics de liens de paiement Stripe** exclus de « Clics totaux » — décision assumée,
+  ce n'est pas de l'acquisition. Décision de Chris : les afficher côté Paiements.
+  Non fait : ce chantier était en cours pendant l'audit.
+- **Ventilations pays / ville / navigateur / OS / UTM** : plus collectées depuis le
+  passage au flux de clics. Personne ne les lit. Le pourquoi, le où toucher et le piège
+  à éviter sont dans `docs/shortio-ventilations-non-collectees.md`.
+
+### Ce qui a été fermé le 2026-08-29
+
+- Historique gonflé du profil de test : lignes antérieures au 19/07 supprimées.
+  All-Time passé de 151 à 17 clics, chacun vérifié contre l'API.
+- Domaine partagé : le sélecteur affiche désormais un avertissement. Vérifié en
+  production — `dc6f6aec` renvoie « 2 autres élèves », `a02e5927` ne renvoie rien, et
+  trois profils partagent bien `ubizenai.s.gy` en base.
+- Noms trompeurs : `total_clicks` des RPC (qui contenait des clics humains) devient
+  `clics_humains` ; `clicks30d` / `humanClicks30d` deviennent `clicsAvecBots` /
+  `clicsHumains`. Le suffixe « 30d » était faux — la fenêtre est celle demandée.
+- Icônes de colonne posées sur les trois tableaux
+  (`components/analytics/IconesColonnes.tsx`).
+
+### Le rendez-vous du 31 août
+
+La toute première clôture de période Instagram tombe le lundi 31 août (semaine du
+24-30), la mensuelle le 1er septembre par le même code. **Une routine cloud est
+programmée** pour vérifier et rapporter :
+https://claude.ai/code/routines/trig_013FSi3fHa8nTV977c8jWxKf
+
+La dépendance critique a été testée le 29 août : l'appel Meta que fera la clôture
+répond correctement pour les trois profils, avec une arithmétique exacte
+(`abonnés + non-abonnés = total`), y compris le cas où Meta omet une catégorie vide.
+Ce qui reste non testé, c'est l'écriture `delete + insert` avec `figee = true`.
 
 ---
 
