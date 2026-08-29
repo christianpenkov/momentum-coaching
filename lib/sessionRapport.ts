@@ -1,4 +1,8 @@
 import type { Call } from '@/lib/supabase/types';
+// Vente ou coaching : la liste vit dans lib/callTypes.ts, chargeable aussi par Deno.
+// Re-exportee ici parce que c'est le module ou l'on vient chercher « quel genre de
+// call est-ce ».
+export { CALL_TYPES_VENTE, estCallDeVente, estCallDeCoaching } from '@/lib/callTypes';
 
 export const SESSION_TOPICS = [
   { value: 'strategie_contenu', label: 'Stratégie contenu' },

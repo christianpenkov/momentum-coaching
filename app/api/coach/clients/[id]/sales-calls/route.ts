@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
 
@@ -51,7 +52,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     .from('calls')
     .select('*')
     .eq('coach_id', clientRow.profile_id)
-    .eq('call_type', 'calendly')
+    .in('call_type', CALL_TYPES_VENTE)
     .neq('ignored', true)
     .order('scheduled_at', { ascending: false });
 

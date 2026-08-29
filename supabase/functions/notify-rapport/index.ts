@@ -1,4 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+// Meme source que le front (lib/callTypes.ts), importable depuis Deno.
+import { CALL_TYPES_VENTE } from '../../../lib/callTypes.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -43,7 +45,7 @@ Deno.serve(async (req: Request) => {
     .eq('rapport_notif_sent', false)
     .eq('rescheduled', false)
     .neq('ignored', true)
-    .eq('call_type', 'calendly')
+    .in('call_type', CALL_TYPES_VENTE)
     .not('scheduled_at', 'is', null)
     .not('duration', 'is', null);
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import InlineLoader from '@/components/ui/InlineLoader';
 import BandeauIntegrations from '@/components/analytics/BandeauIntegrations';
 import { useQuery } from '@tanstack/react-query';
@@ -7375,7 +7376,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     supabase.from('calls').select('*')
       .eq('coach_id', targetId)
       .or(`and(booked_at.gte.${periodStart.toISOString()},booked_at.lte.${periodEnd.toISOString()}),and(booked_at.is.null,scheduled_at.gte.${periodStart.toISOString()},scheduled_at.lte.${periodEnd.toISOString()})`)
-      .eq('call_type', 'calendly')
+      .in('call_type', CALL_TYPES_VENTE)
       .neq('ignored', true)
       .order('scheduled_at', { ascending: false }),
     // Cash collecté = paiements rattachés à un deal, pas l'encaissé Stripe brut :
@@ -8068,7 +8069,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     const q = supabase.from('calls').select('*')
       .eq('coach_id', callsOwnerId)
       .neq('ignored', true)
-      .eq('call_type', 'calendly')
+      .in('call_type', CALL_TYPES_VENTE)
       .order('scheduled_at', { ascending: false });
     // Même borne que la fiche client coach (app/api/coach/clients/[id]/sales-calls)
     // et le pipeline : integrations_ready_at, filtré sur booked_at (date de RÉSERVATION)

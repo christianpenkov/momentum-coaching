@@ -1,6 +1,7 @@
 'use client';
 
 import { type RapportExistant } from '@/lib/rapportPatch';
+import { estCallDeVente } from '@/lib/callTypes';
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useEscapeKey } from '@/lib/useEscapeKey';
@@ -666,7 +667,7 @@ export default function PageCalls() {
             // Calls de vente déjà rapportés : permet de corriger un montant mal saisi ou
             // un deal enregistré sur la mauvaise personne. Même accès que côté élève —
             // chacun corrige ses propres calls (voir docs/tracking-prospect.md).
-            onEditRapport={call.call_type === 'calendly' && call.outcome != null ? () => {
+            onEditRapport={estCallDeVente(call) && call.outcome != null ? () => {
               setInfosModalCall(null);
               setOpenSalesRapportCall({
                 callId: call.id,

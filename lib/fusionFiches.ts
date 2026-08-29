@@ -1,5 +1,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Détecter qu'une même personne occupe DEUX fiches du pipeline
+// Import relatif AVEC extension : `npm test` execute node --test sur les sources,
+// sans resolution de l'alias `@/`. Meme contrainte que lib/callSeries.ts.
+import { estCallDeVente } from './callTypes.ts';
 //
 // Le problème, en une phrase : quelqu'un qui a commenté un post a une fiche
 // Instagram (`instagram_leads`) ; s'il réserve ensuite depuis une bio ou une
@@ -69,13 +72,17 @@ function normaliser(email: string | null | undefined): string | null {
 }
 
 /**
- * Un call compte-t-il ? Règle projet : `ignored is not true` ET `call_type`
- * explicite. Sans ces deux conditions les chiffres sont faux — un call ignoré ou
- * un call de coaching n'a rien à voir avec le parcours de vente d'un prospect.
+ * Un call compte-t-il ? Règle projet : `ignored is not true` ET un `call_type` de
+ * VENTE. Sans ces deux conditions les chiffres sont faux — un call ignoré ou un
+ * call de coaching n'a rien à voir avec le parcours de vente d'un prospect.
+ *
+ * `call_type` null : on retient, faute de mieux — la colonne est desormais NOT NULL
+ * en base (migration 20260829180000), donc ce cas n'existe plus que pour un objet
+ * partiel construit cote ecran.
  */
 function callRetenu(c: CallPourFusion): boolean {
   if (c.ignored === true) return false;
-  if (c.call_type != null && c.call_type !== 'calendly') return false;
+  if (c.call_type != null && !estCallDeVente(c)) return false;
   return true;
 }
 

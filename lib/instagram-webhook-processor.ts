@@ -18,6 +18,7 @@
  * milliers de commentaires peut donc s'étaler sur des heures sans rien perdre.
  */
 import { createClient } from '@supabase/supabase-js';
+import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import { pushEvent } from '@/app/api/instagram/webhook-stream/route';
 
 const serviceSupabase = createClient(
@@ -401,7 +402,7 @@ async function enregistrerRelanceSiClasse(pid: string, recipientIgUserId: string
       .select('outcome')
       .eq('ig_lead_id', lead.id)
       .not('ignored', 'is', true)
-      .eq('call_type', 'calendly')
+      .in('call_type', CALL_TYPES_VENTE)
       .order('scheduled_at', { ascending: false })
       .limit(1)
       .maybeSingle();

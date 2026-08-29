@@ -1,6 +1,8 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
+import { isCoachingCall } from '@/lib/sessionRapport';
+import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import { createClient } from '@/lib/supabase/client';
 import { resolveUser } from '@/lib/waitForSession';
 import { CALL_COLUMNS } from '@/lib/supabase/types';
@@ -176,7 +178,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         // (business = stats PERSONNELLES du coach, cf. requêtes coachSalesCallsRes
         // ci-dessous — le coach vend son propre coaching, distinct de ses élèves).
         profileIds.length > 0
-          ? supabase.from('calls').select(CALL_COLUMNS).in('coach_id', profileIds).eq('call_type', 'calendly').neq('ignored', true)
+          ? supabase.from('calls').select(CALL_COLUMNS).in('coach_id', profileIds).in('call_type', CALL_TYPES_VENTE).neq('ignored', true)
           : { data: [], error: null },
         // Calls manuels par élève (créés via le pipeline élève, drag vers "Call
         // booké") — même remarque, sert à currentStats par-élève uniquement.
@@ -189,7 +191,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         // place — ces requêtes renverront 0 tant que rien n'est connecté, mais
         // fonctionneront automatiquement une fois l'infra branchée.
         supabase.from('calls').select(CALL_COLUMNS).eq('coach_id', user.id)
-          .eq('call_type', 'calendly').neq('ignored', true),
+          .in('call_type', CALL_TYPES_VENTE).neq('ignored', true),
         fetchIgLeadsCount(supabase, user.id, null),
         fetchIgLeadsCount(supabase, user.id, startOfMonth),
         // Intégrations et paiements Stripe PERSO du coach (profile_id = user.id, pas
@@ -316,8 +318,13 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         const allSalesCalls = c.profile_id ? (salesCallsByProfile[c.profile_id] || []) : [];
         const integrationsReadyAt = c.integrations_ready_at ?? null;
         const salesCalls = integrationsReadyAt
+          // `isCoachingCall` et non « tout ce qui n'est pas calendly » : un call
+          // MANUEL est un call de vente, il doit donc etre borne par
+          // integrations_ready_at comme les autres. Avec l'ancienne forme il y
+          // echappait et gonflait les KPI de la carte avec des rendez-vous
+          // anterieurs a la mise en route de l'eleve.
           ? allSalesCalls.filter((call: any) =>
-              call.call_type !== 'calendly'
+              isCoachingCall(call)
               || (call.booked_at ? call.booked_at >= integrationsReadyAt : call.scheduled_at >= integrationsReadyAt))
           : allSalesCalls;
         // Les deals suivent le même périmètre que les calls retenus ci-dessus :

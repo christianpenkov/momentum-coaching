@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import { createClient } from '@/lib/supabase/client';
 import { setBadgeCount, reassertAppBadge } from '@/lib/pwaBadge';
 import { getPendingSessionRapports } from '@/lib/sessionRapport';
@@ -191,7 +192,7 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
         .eq('status', 'active')
         .is('outcome', null)
         .neq('ignored', true)
-        .eq('call_type', 'calendly')
+        .in('call_type', CALL_TYPES_VENTE)
         .lt('scheduled_at', nowIso);
       if (errCoachSales) return;
 
@@ -242,7 +243,7 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       .eq('status', 'active')
       .is('outcome', null)
       .neq('ignored', true)
-      .eq('call_type', 'calendly')
+      .in('call_type', CALL_TYPES_VENTE)
       .lt('scheduled_at', now);
 
     if (integrationsReadyAt) {
@@ -279,7 +280,7 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       .from('calls')
       .select('id, topic, scheduled_at, duration')
       .eq('status', 'pending_acceptance')
-      .neq('call_type', 'calendly');
+      .eq('call_type', 'google');
     if (errPending) return;
 
     const callRequestNotifs: AppNotif[] = (pendingCalls ?? []).map(c => ({

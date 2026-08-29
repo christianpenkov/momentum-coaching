@@ -1,5 +1,7 @@
 'use client';
 import { type RapportExistant } from '@/lib/rapportPatch';
+import { estCallDeVente } from '@/lib/callTypes';
+import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import InlineLoader from '@/components/ui/InlineLoader';
 import { Skeleton } from '@/components/ui/Skeleton';
 
@@ -189,7 +191,7 @@ async function fetchClientCallsData(clientRow: { id: string; integrations_ready_
     .from('calls')
     .select(CALL_COLUMNS)
     .eq('coach_id', user.id)
-    .eq('call_type', 'calendly')
+    .in('call_type', CALL_TYPES_VENTE)
     // `.not('ignored','is',true)` et non `.neq('ignored', true)` : PostgREST traduit
     // `.neq` par `ignored <> true`, qui vaut NULL — donc faux — quand la colonne est
     // NULL, et la ligne disparaît en silence. La colonne est désormais NOT NULL en
@@ -216,7 +218,7 @@ async function fetchClientCallsData(clientRow: { id: string; integrations_ready_
       .from('calls')
       .select(CALL_COLUMNS)
       .eq('client_id', clientRow.id)
-      .neq('call_type', 'calendly')
+      .eq('call_type', 'google')
       .not('ignored', 'is', true)
       .order('scheduled_at', { ascending: false });
     googleCalls = (data as Call[]) || [];
@@ -348,7 +350,7 @@ export default function PageClientCalls() {
     refetchCalls();
   }
 
-  const pendingCalls = calls.filter(c => c.status === 'pending_acceptance' && c.call_type !== 'calendly');
+  const pendingCalls = calls.filter(c => c.status === 'pending_acceptance' && isCoachingCall(c));
   // isCallCanceled (lib/sessionRapport.ts) est la définition unique des trois
   // orthographes présentes en base. La liste était recopiée ici, quatrième copie du
   // même tableau — exactement le motif qui avait fait disparaître un call de tous les
@@ -390,7 +392,7 @@ export default function PageClientCalls() {
   // Rapports en attente : calls Calendly passés sans rapport rempli
   // outcome = source de vérité : null = pas rempli, renseigné = rempli (tous les chemins du formulaire écrivent outcome)
   const pendingRapports = calls.filter(c =>
-    c.call_type === 'calendly' &&
+    estCallDeVente(c) &&
     c.outcome === null &&
     c.status === 'active' &&
     c.scheduled_at !== null &&
@@ -490,7 +492,7 @@ export default function PageClientCalls() {
     // haut, dans ce même fichier. Deux marqueurs pour le même fait, c'est le motif qui
     // finit toujours par diverger : il suffit d'un chemin de rapport qui n'écrive pas
     // `no_show` pour que le bouton « Rapport » reparaisse sur un call déjà rapporté.
-    const rapportPending = call.call_type === 'calendly' && call.outcome === null && call.status === 'active';
+    const rapportPending = estCallDeVente(call) && call.outcome === null && call.status === 'active';
     // La modale est devenue le seul point d'accès aux notes et commentaires, et
     // le seul endroit où l'élève peut SAISIR ses notes perso : le bouton s'affiche
     // donc sur tout call de coaching, et sur tout call de vente ayant du contenu.
@@ -890,16 +892,16 @@ export default function PageClientCalls() {
           topic={(sessionReportsByCall[infosModalCall.id]?.topic ?? null) as never}
           topicCustom={sessionReportsByCall[infosModalCall.id]?.topic_custom ?? null}
           notes={null}
-          leadComment={infosModalCall.call_type === 'calendly' ? infosModalCall.lead_rapport_comment : null}
-          outcome={infosModalCall.call_type === 'calendly' ? infosModalCall.outcome : null}
-          objection={infosModalCall.call_type === 'calendly' ? infosModalCall.objection : null}
-          objectionAutre={infosModalCall.call_type === 'calendly' ? infosModalCall.objection_autre : null}
-          relanceAt={infosModalCall.call_type === 'calendly' ? infosModalCall.relance_at : null}
+          leadComment={estCallDeVente(infosModalCall) ? infosModalCall.lead_rapport_comment : null}
+          outcome={estCallDeVente(infosModalCall) ? infosModalCall.outcome : null}
+          objection={estCallDeVente(infosModalCall) ? infosModalCall.objection : null}
+          objectionAutre={estCallDeVente(infosModalCall) ? infosModalCall.objection_autre : null}
+          relanceAt={estCallDeVente(infosModalCall) ? infosModalCall.relance_at : null}
           // Calls de vente déjà rapportés : permet de corriger un montant mal saisi ou un
           // deal enregistré sur la mauvaise personne. Sans ce chemin, un rapport rempli
           // était définitif (voir docs/tracking-prospect.md). Ferme la modale de lecture
           // et rouvre RapportModal pré-rempli.
-          onEditRapport={infosModalCall.call_type === 'calendly' && infosModalCall.outcome != null ? () => {
+          onEditRapport={estCallDeVente(infosModalCall) && infosModalCall.outcome != null ? () => {
             const call = infosModalCall;
             setInfosModalCall(null);
             setRapportModal({
@@ -918,7 +920,7 @@ export default function PageClientCalls() {
               },
             });
           } : undefined}
-          editableNotes={infosModalCall.call_type !== 'calendly' ? (
+          editableNotes={isCoachingCall(infosModalCall) ? (
             <MyCallNotes
               callId={infosModalCall.id}
               initialNotes={sessionReportsByCall[infosModalCall.id]?.student_notes || ''}

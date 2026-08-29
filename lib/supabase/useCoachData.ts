@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import { createClient } from '@/lib/supabase/client';
 import { CALL_COLUMNS, type Client, type Task, type Call, type SessionReport } from '@/lib/supabase/types';
 import { computeSalesCallStats, fetchAllLeadsCount } from '@/lib/salesCallStats';
@@ -142,7 +143,7 @@ export function useClientSelfData() {
               // connectées n'a pas pu être généré par le pipeline Momentum, même si son
               // scheduled_at tombe après. Fallback sur scheduled_at si booked_at manque.
               let q = supabase.from('calls').select(CALL_COLUMNS).eq('coach_id', clientRow.profile_id)
-                .eq('call_type', 'calendly')
+                .in('call_type', CALL_TYPES_VENTE)
                 .neq('ignored', true);
               if (integrationsReadyAt) {
                 q = q.or(`booked_at.gte.${integrationsReadyAt},and(booked_at.is.null,scheduled_at.gte.${integrationsReadyAt})`);

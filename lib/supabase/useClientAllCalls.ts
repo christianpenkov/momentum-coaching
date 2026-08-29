@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import { createClient } from '@/lib/supabase/client';
 import type { Call } from '@/lib/supabase/types';
 
@@ -22,7 +23,7 @@ export function useClientAllCalls(client: { id: string; profile_id: string } | n
 
       let calendlyQuery = supabase.from('calls').select('*')
         .eq('coach_id', client.profile_id)
-        .eq('call_type', 'calendly')
+        .in('call_type', CALL_TYPES_VENTE)
         .neq('status', 'cancelled')
         .neq('status', 'canceled')
         .order('scheduled_at', { ascending: true });
@@ -39,7 +40,7 @@ export function useClientAllCalls(client: { id: string; profile_id: string } | n
       // Calls Google Calendar : client_id = client.id
       const { data: googleCalls } = await supabase.from('calls').select('*')
         .eq('client_id', client.id)
-        .neq('call_type', 'calendly')
+        .eq('call_type', 'google')
         .neq('status', 'canceled')
         .neq('status', 'cancelled')
         .neq('status', 'declined')

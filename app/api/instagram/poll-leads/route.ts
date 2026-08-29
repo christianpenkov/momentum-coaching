@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import { createClient } from '@supabase/supabase-js';
 import { getIgCreds, fetchIgDayMetrics, upsertIgSnapshot, pollIgComments, pollIgHookReplied } from '@/lib/ig-fetch';
 import { getYtToken, fetchYtDayMetrics, upsertYtSnapshot, syncYtCtr } from '@/lib/yt-fetch';
@@ -98,7 +99,7 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
     .from('calls')
     .select('status, scheduled_at, no_show, deal_closed, revenue')
     .eq('coach_id', profileId)
-    .eq('call_type', 'calendly');
+    .in('call_type', CALL_TYPES_VENTE);
 
   const calls = callsData || [];
   const now = new Date();
@@ -258,7 +259,7 @@ export async function GET(request: Request) {
       .eq('status', 'active')
       .is('no_show', null)
       .eq('rapport_notif_sent', false)
-      .eq('call_type', 'calendly')
+      .in('call_type', CALL_TYPES_VENTE)
       .not('scheduled_at', 'is', null)
       .not('duration', 'is', null)
       .lt('scheduled_at', now.toISOString());

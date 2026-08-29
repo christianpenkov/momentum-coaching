@@ -15,6 +15,7 @@ import { createLinkCategoryResolver, type LinkCategory } from '../../../lib/shor
 // Lecture du flux de clics : même module que le bouton « Rafraîchir » (Node), pour
 // qu'une seule règle de filtrage et de datation existe dans toute la plateforme.
 import { fetchClicsShortio, agregerClics, estVraiClic, cleClic, type ClicShortio } from '../../../lib/shortio-clicks.ts';
+import { CALL_TYPES_VENTE } from '../../../lib/callTypes.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -2353,7 +2354,7 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
   // jour où un historique sera affiché.
   const { data: callsClientRow } = await supa.from('clients').select('integrations_ready_at').eq('profile_id', profileId).maybeSingle();
   const callsFirstConnectedAt: string | null = callsClientRow?.integrations_ready_at ?? null;
-  let callsQuery = supa.from('calls').select('status, scheduled_at, booked_at, no_show, deal_closed, revenue, outcome').eq('coach_id', profileId).eq('call_type', 'calendly').neq('ignored', true);
+  let callsQuery = supa.from('calls').select('status, scheduled_at, booked_at, no_show, deal_closed, revenue, outcome').eq('coach_id', profileId).in('call_type', CALL_TYPES_VENTE).neq('ignored', true);
   if (callsFirstConnectedAt) {
     callsQuery = callsQuery.or(`booked_at.gte.${callsFirstConnectedAt},and(booked_at.is.null,scheduled_at.gte.${callsFirstConnectedAt})`);
   }

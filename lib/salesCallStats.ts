@@ -6,6 +6,7 @@
 // Neuf écarts entre écrans ont été corrigés le 2026-08-19, tous causés par une de
 // ces règles appliquée ici mais pas là. À lire avant de modifier un compteur.
 import { isCallHonored } from '@/lib/callHonored';
+import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import type { Call } from '@/lib/supabase/types';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -145,7 +146,7 @@ export async function fetchIgLeadsCount(supabase: SupabaseClient, profileId: str
   // booked_at manque (anciens calls importés sans cette donnée).
   let directCallsQuery = supabase.from('calls').select('id, invitee_email, invitee_name')
     .eq('coach_id', profileId)
-    .eq('call_type', 'calendly')
+    .in('call_type', CALL_TYPES_VENTE)
     .neq('ignored', true)
     .is('ig_lead_id', null)
     .neq('lead_deleted', true)
@@ -198,7 +199,7 @@ export async function fetchIgLeadsCount(supabase: SupabaseClient, profileId: str
 export async function fetchAllLeadsCount(supabase: SupabaseClient, profileId: string, since: string | null): Promise<number> {
   let ytCallsQuery = supabase.from('calls').select('id, status, invitee_email, invitee_name')
     .eq('coach_id', profileId)
-    .eq('call_type', 'calendly')
+    .in('call_type', CALL_TYPES_VENTE)
     .neq('ignored', true)
     .like('source', 'yt%');
   if (since) ytCallsQuery = ytCallsQuery.or(`booked_at.gte.${since},and(booked_at.is.null,scheduled_at.gte.${since})`);
