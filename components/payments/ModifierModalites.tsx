@@ -255,46 +255,50 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
         </>
       }>
 
-      {/* ── 1. PAR QUEL MOYEN ────────────────────────────────────────────── */}
-      <Section marge={0}>Par quel moyen ton client paie-t-il ?</Section>
+      {/* ── 1. EN COMBIEN DE FOIS ────────────────────────────────────────────
+          Cette question vient EN PREMIER parce qu'elle contraint la suivante :
+          un prélèvement automatique en une fois n'est pas un prélèvement. Dans
+          l'autre ordre, on choisissait un moyen puis on découvrait qu'il
+          interdisait le nombre voulu — une contrainte qui remonte le courant se
+          vit comme un refus. Ici elle descend : on dit combien de fois, et les
+          moyens impossibles s'éteignent d'eux-mêmes. */}
+      <Section marge={0}>En combien de fois ton client paie-t-il ?</Section>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        {[1, 2, 3, 4, 6, 8, 12].map(n => (
+          <Chip key={n} on={nb === n} onClick={() => {
+            setNb(n);
+            // Le moyen déjà choisi peut devenir impossible : on ne le laisse pas
+            // sélectionné en silence.
+            if (n === 1 && moyen === 'auto') setMoyen(null);
+          }}>{n === 1 ? 'En une fois' : `${n}×`}</Chip>
+        ))}
+        {/* Le rappel de l'état actuel n'a de sens que s'il y en a un : sur une
+            vente où rien n'est en place, « aujourd'hui en une fois » barré
+            décrivait un réglage qui n'existe pas. */}
+        {moyenDefini(deal) && (
+          <span style={{ fontSize: 12, color: 'var(--faint)', marginLeft: 4 }}>
+            aujourd’hui {nbActuel > 1 ? `${nbActuel}×` : 'en une fois'}
+          </span>
+        )}
+      </div>
+
+      {/* ── 2. PAR QUEL MOYEN ─────────────────────────────────────────────── */}
+      <Section>Par quel moyen ?</Section>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {MOYENS.map(([m, label]) => (
-          <Chip key={m} on={moyen === m} onClick={() => {
-            setMoyen(m);
-            // Un prélèvement automatique en une fois n'est pas un prélèvement :
-            // on ne laisse pas un choix devenu incohérent survivre au changement.
-            if (m === 'auto' && nb === 1) setNb(null);
-          }}>{label}</Chip>
+          <Chip key={m} on={moyen === m} onClick={() => setMoyen(m)}
+            disabled={m === 'auto' && nb === 1}>{label}</Chip>
         ))}
       </div>
+      {nb === 1 && (
+        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7, lineHeight: 1.6 }}>
+          Le prélèvement automatique demande au moins deux échéances — en une
+          fois, il n’y a rien à prélever ensuite.
+        </div>
+      )}
       {moyen && (
         <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7, lineHeight: 1.6 }}>
           {MOYENS.find(([m]) => m === moyen)?.[2]}
-        </div>
-      )}
-
-      {/* ── 2. EN COMBIEN DE FOIS ────────────────────────────────────────────
-          Question posée à part, et pour TOUS les moyens. Fondue dans la
-          première, elle rendait « hors Stripe en une fois » — un virement
-          unique, le cas le plus courant hors carte — impossible à choisir. */}
-      <Section>En combien de fois ?</Section>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        {[1, 2, 3, 4, 6, 8, 12].map(n => (
-          <Chip key={n} on={nb === n} onClick={() => setNb(n)}
-            disabled={n === 1 && moyen === 'auto'}>
-            {n === 1 ? 'En une fois' : `${n}×`}
-          </Chip>
-        ))}
-        <span style={{ fontSize: 12, color: 'var(--faint)', marginLeft: 4 }}>
-          aujourd’hui <span style={{ textDecoration: 'line-through' }}>
-            {nbActuel > 1 ? `${nbActuel}×` : 'en une fois'}
-          </span>
-        </span>
-      </div>
-      {moyen === 'auto' && (
-        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7, lineHeight: 1.6 }}>
-          Un prélèvement automatique suppose au moins deux échéances — sinon
-          c’est un paiement unique, à encaisser par lien.
         </div>
       )}
 
@@ -356,17 +360,34 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
                 {dejaPayees === 1 ? 'L’échéance déjà payée n’est pas touchée.' : `Les ${dejaPayees} échéances déjà payées ne sont pas touchées.`}
               </div>
             )}
+            {/* ── Ce qui se passe MAINTENANT, selon le moyen ────────────────
+                « Rien n'est prélevé aujourd'hui » rassurait sur un prélèvement
+                — le mot n'a de sens que là. Sur un lien ou un virement, rien
+                n'est prélevé un autre jour non plus : la phrase répondait à une
+                inquiétude que ce moyen ne fait pas naître, et laissait planer
+                l'idée qu'un prélèvement existait quelque part. */}
             <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
-              <strong>Rien n’est prélevé aujourd’hui.</strong>
-              {/* ⚠️ « Les anciens liens cesseront de fonctionner » suppose qu'il
-                  y en avait. Sur une vente encaissée hors Stripe — celle qu'on
-                  vient justement mettre en place — il n'y en a aucun, et la
-                  phrase annonçait la mort de quelque chose qui n'existe pas. */}
-              {mode !== 'installments_auto' && mode !== 'offline' && reste > 0.005 && (
-                deal.hasLinks
-                  ? <> Les anciens liens cesseront de fonctionner, et tu recevras les nouveaux.</>
-                  : <> Tu recevras {aCreer > 1 ? 'les liens' : 'le lien'} à envoyer à {prenom}.</>
-              )}
+              {moyen === 'auto' ? (
+                <>
+                  <strong>Rien n’est prélevé aujourd’hui.</strong> Le premier
+                  prélèvement partira quand {prenom} aura payé le lien de mise en
+                  place — c’est lui qui enregistre sa carte. Les suivants
+                  tomberont à la même date, {libelleRythme(rythme)}s.
+                </>
+              ) : moyen === 'offline' ? (
+                <>Momentum tient l’échéancier, mais n’encaisse rien : c’est toi
+                  qui coches chaque versement à son arrivée. Préviens {prenom} de
+                  ce qui a été décidé — il ne recevra aucune notification.</>
+              ) : reste > 0.005 ? (
+                <>
+                  {deal.hasLinks && <>Les anciens liens cesseront de fonctionner. </>}
+                  {/* « Tu recevras le lien » ne dit pas OÙ : sur un écran qu'on
+                      va fermer, c'est la seule chose qui compte. */}
+                  {aCreer > 1 ? 'Les liens seront prêts' : 'Le lien sera prêt'} sur
+                  cette fiche, sous «&nbsp;les {aCreer > 1 ? 'échéances' : 'échéances'}&nbsp;»,
+                  avec un bouton pour {aCreer > 1 ? 'les' : 'le'} copier.
+                </>
+              ) : null}
             </div>
           </Encart>
 

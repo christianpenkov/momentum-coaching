@@ -8,6 +8,26 @@
 // PagePipeline.tsx, PageAnalytics.tsx, ResourceCardCoach.tsx, PageClients.tsx.
 const AVATAR_COLORS = ['#7C3AED', '#2563EB', '#059669', '#D97706', '#EA580C', '#DB2777', '#0891B2', '#65A30D'];
 
+/**
+ * La graine à utiliser pour UNE PERSONNE.
+ *
+ * ── Pourquoi le nom et pas un identifiant ──────────────────────────────────
+ * La couleur d'un avatar sans photo est une aide à la reconnaissance : on
+ * retrouve quelqu'un à sa pastille avant de lire son nom. Elle ne tient cette
+ * promesse que si elle est la MÊME partout.
+ *
+ * Or chaque écran connaît la personne par un identifiant différent — id de
+ * client ici, id de lead là, id de vente ailleurs — et trois écrans donnaient
+ * donc trois couleurs au même client. Le nom est la seule chose que tous
+ * affichent, par construction : c'est lui la graine.
+ *
+ * Deux homonymes partageront une couleur. C'est le prix, et il est juste : on
+ * ne les distingue pas non plus à l'œil.
+ */
+export function seedForPerson(name: string | null | undefined): string {
+  return (name ?? '').trim().toLowerCase();
+}
+
 function colorFromSeed(seed: string): string {
   let h = 0;
   for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) & 0xffffffff;

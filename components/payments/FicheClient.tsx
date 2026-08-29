@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Icon from '@/components/ui/Icon';
-import Avatar, { getInitials } from '@/components/ui/Avatar';
+import Avatar, { getInitials, seedForPerson } from '@/components/ui/Avatar';
 import Portal from './Portal';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { ETATS, etatDe, precisionEtat, modeDe, moyenDefini, libelleModalites, compteDansLesTotaux } from './etats';
@@ -94,7 +94,7 @@ export default function FicheClient({
             <span style={{ transform: 'none' }}>Clients</span>
           </button>
         ) : (
-          <Avatar initials={getInitials(person.name)} avatarUrl={person.avatarUrl} size={38} seed={person.key} />
+          <Avatar initials={getInitials(person.name)} avatarUrl={person.avatarUrl} size={38} seed={seedForPerson(person.name)} />
         )}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-0.1px' }}>{person.name}</div>
@@ -511,7 +511,7 @@ function BarreActions({ deal, etat, mode, onAction }: {
     // attendait. Un second bouton aurait fait doublon : c'est le libellé qui
     // change, pas l'écran.
     boutons.push([
-      moyenDefini(deal) ? 'Modalités' : 'Choisir les modalités',
+      moyenDefini(deal) ? 'Modalités' : 'Choisir les modalités de paiement',
       'modalites',
     ]);
     if (mode === 'installments_auto' && deal.stripeSubscriptionId) {

@@ -1,7 +1,7 @@
 'use client';
 
 import Icon from '@/components/ui/Icon';
-import Avatar, { getInitials } from '@/components/ui/Avatar';
+import Avatar, { getInitials, seedForPerson } from '@/components/ui/Avatar';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { ETATS, type EtatVente } from './etats';
 import { Barre } from './FicheClient';
@@ -98,7 +98,7 @@ function LigneClient({ person, deals, isMobile, isCoach, onOuvrir }: {
         display: 'flex', alignItems: 'center', gap: 13, minWidth: 0,
         ...(isMobile ? { gridColumn: 1, gridRow: 1 } : null),
       }}>
-        <Avatar initials={getInitials(person.name)} avatarUrl={person.avatarUrl} size={34} seed={person.key} />
+        <Avatar initials={getInitials(person.name)} avatarUrl={person.avatarUrl} size={34} seed={seedForPerson(person.name)} />
         <span style={{ minWidth: 0 }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
             <span style={{ fontSize: 13.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

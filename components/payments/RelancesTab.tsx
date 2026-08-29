@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Icon from '@/components/ui/Icon';
-import Avatar, { getInitials } from '@/components/ui/Avatar';
+import Avatar, { getInitials, seedForPerson } from '@/components/ui/Avatar';
 import { estEnvoye } from './etats';
 import type { DealRow, DealDetail } from './types';
 import { fmtEur, fmtDateLong, fmtRelative } from './types';
@@ -165,7 +165,7 @@ function RelanceRow({ item, first, onChange, onOuvrir }: {
       flexWrap: 'wrap',
       cursor: onOuvrir ? 'pointer' : undefined,
     }}>
-      <Avatar initials={getInitials(item.deal.buyerName)} avatarUrl={item.deal.avatarUrl} size={30} seed={item.deal.id} />
+      <Avatar initials={getInitials(item.deal.buyerName)} avatarUrl={item.deal.avatarUrl} size={30} seed={seedForPerson(item.deal.buyerName)} />
       <span style={{ flex: 1, minWidth: 140 }}>
         <span style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>{item.deal.buyerName}</span>
         <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
@@ -229,7 +229,7 @@ function RelanceRow({ item, first, onChange, onOuvrir }: {
           {/* Même libellé que le bouton de la fiche : c'est le même écran, et
               deux noms pour une même destination font douter d'être au bon
               endroit. */}
-          Choisir les modalités
+          Choisir les modalités de paiement
         </button>
       )}
 
