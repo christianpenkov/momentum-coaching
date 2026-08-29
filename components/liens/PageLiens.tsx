@@ -5120,7 +5120,14 @@ export default function PageLiens() {
     // disparait retroactivement du compte.
     const callsActifs = calls.filter((c: any) => c.status === 'active');
     const callsBookes = callsActifs.length;
-    const callsViaDm = callsActifs.filter((c: any) => c.ig_lead_id).length;
+    // « via DM » se lit sur `source`, PAS sur `ig_lead_id`. Les deux disaient la
+    // meme chose jusqu'a la fusion de fiches (2026-08-29) : fusionner deux fiches
+    // pose `ig_lead_id` sur les calls de la fiche e-mail, y compris un call venu
+    // d'une bio ou d'une description YouTube. Ce call resterait « direct » dans la
+    // realite mais basculerait ici en « via DM » — un chiffre faux, invisible.
+    // `source` ne bouge jamais : elle dit d'ou la reservation vient, pas a quelle
+    // fiche elle est rattachee.
+    const callsViaDm = callsActifs.filter((c: any) => c.source === 'ig_dm').length;
     const callsDirects = callsBookes - callsViaDm;
 
     const taux = (num: number, den: number) => (den > 0 ? Math.round((num / den) * 100) : null);
