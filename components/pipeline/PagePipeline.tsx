@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 import PipelineFunnelMobile from './PipelineFunnelMobile';
 import PipelineListView from './PipelineListView';
-import PipelineFilters, { FILTRES_VIDES, type EtatsFiltres, type EtatFiltre, type FiltreKey } from './PipelineFilters';
+import PipelineFilters, { FILTRES_VIDES, FILTRES_SANS_LM, type EtatsFiltres, type EtatFiltre, type FiltreKey } from './PipelineFilters';
 import Icon from '@/components/ui/Icon';
 import { mutate } from '@/lib/mutate';
 import Image from 'next/image';
@@ -769,18 +769,27 @@ function PipelineCard({
             e.stopPropagation();
             onRapportClick?.(card.callId!, card.name, card.callScheduledAt!, card.callIsFollowUp ?? false, hasRapport ? { revenue: card.callRevenue, comment: card.callComment } : null);
           }}
-          // Rapport à remplir = action attendue, en bleu. Rapport déjà rempli = simple
-          // correction possible, en gris discret pour ne pas réclamer l'attention.
+          // Rapport à remplir = AMBRE, la couleur de l'attente dans ce produit —
+          // celle du fond de la carte juste derrière ce bouton. Il était bleu, la
+          // couleur d'une action neutre : le seul élément de la carte qui réclame
+          // quelque chose ne partageait sa couleur avec rien d'autre du signal.
+          //
+          // `--amber-ink` et non `--amber` : sur fond clair, --amber ne donne que
+          // 3,4:1, sous le seuil pour du texte de 10 px. Celui-ci monte à 7,1:1,
+          // et 7,1:1 aussi en blanc sur fond plein au survol.
+          //
+          // Rapport déjà rempli = simple correction possible, en gris discret pour
+          // ne pas réclamer l'attention.
           style={{
             display: 'block', width: '100%', textAlign: 'center', fontSize: 10, fontWeight: 600,
             padding: '5px 8px', borderRadius: 6,
-            background: hasRapport ? 'var(--surface-2)' : '#EFF6FF',
-            color: hasRapport ? 'var(--muted)' : '#2563EB',
-            border: `1px solid ${hasRapport ? 'var(--border)' : '#BFDBFE'}`,
+            background: hasRapport ? 'var(--surface-2)' : 'var(--amber-soft, #b5802518)',
+            color: hasRapport ? 'var(--muted)' : 'var(--amber-ink, #92400e)',
+            border: `1px solid ${hasRapport ? 'var(--border)' : '#e8cf9a'}`,
             cursor: 'pointer', transition: 'all .12s',
           }}
-          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = hasRapport ? 'var(--border)' : '#2563EB'; (e.currentTarget as HTMLElement).style.color = hasRapport ? 'var(--ink)' : '#fff'; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = hasRapport ? 'var(--surface-2)' : '#EFF6FF'; (e.currentTarget as HTMLElement).style.color = hasRapport ? 'var(--muted)' : '#2563EB'; }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = hasRapport ? 'var(--border)' : 'var(--amber-ink, #92400e)'; (e.currentTarget as HTMLElement).style.color = hasRapport ? 'var(--ink)' : '#fff'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = hasRapport ? 'var(--surface-2)' : 'var(--amber-soft, #b5802518)'; (e.currentTarget as HTMLElement).style.color = hasRapport ? 'var(--muted)' : 'var(--amber-ink, #92400e)'; }}
         >
           {hasRapport ? 'Modifier le rapport' : "Remplir le rapport d'appel"}
         </button>
@@ -1617,10 +1626,8 @@ function KanbanColumn({
       background: 'var(--surface)', border: '1px solid var(--border)',
       borderRadius: 10, overflow: 'hidden',
     }}>
-      {/* Pas de bandeau gris : l'en-tête vit sur le fond de la colonne, un simple
-          trait le sépare des fiches. Un bandeau plein ajoutait une troisième
-          surface (page → colonne → en-tête) au-dessus des fiches, qui en sont
-          une quatrième. */}
+      {/* Bandeau beige mat : l'en-tête se détache du blanc de la colonne et des
+          fiches, et la rangée d'en-têtes se lit d'un trait en haut du board. */}
       <div
         role="button"
         tabIndex={0}
@@ -1629,8 +1636,8 @@ function KanbanColumn({
         title={`Plier « ${stage.label} »`}
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '10px 11px 8px', cursor: 'pointer', userSelect: 'none',
-          background: isDropTarget ? stage.lightBg : 'transparent',
+          padding: '10px 11px', cursor: 'pointer', userSelect: 'none',
+          background: isDropTarget ? stage.lightBg : 'var(--surface-2, #f7f4ec)',
           borderBottom: '1px solid var(--border)',
           transition: 'background .12s', flexShrink: 0,
         }}
@@ -2849,6 +2856,18 @@ export default function PagePipeline() {
 
   const filteredOtherCards = otherCards;
 
+  /**
+   * Les cartes de l'onglet AFFICHÉ, avant les filtres réglables.
+   *
+   * Tout ce qui décrit « la page » se calcule là-dessus : le compteur de chaque
+   * filtre, le nombre de rapports à remplir, et la liste finale. Ces trois-là
+   * partaient de `igCards` en dur — Instagram, quel que soit l'onglet ouvert.
+   * Le défaut était invisible tant que les filtres ne s'affichaient que sur
+   * Instagram ; dès qu'ils apparaissent sur YouTube, ils y annoncent les
+   * chiffres d'Instagram, et les filtres de YouTube ne filtraient rien du tout.
+   */
+  const cartesOnglet = tab === 'ig' ? igCards : tab === 'yt' ? filteredYtCards : filteredOtherCards;
+
   const stages = tab === 'ig' ? IG_STAGES : YT_STAGES;
   // Les colonnes affichées = les étapes, puis les issues. Deux natures sur une
   // seule rangée, mais deux axes distincts : `stages` reste la progression
@@ -2909,7 +2928,7 @@ export default function PagePipeline() {
     }
   };
 
-  const rapportsARemplir = igCards.filter(c => c.rapportEnRetard).length;
+  const rapportsARemplir = cartesOnglet.filter(c => c.rapportEnRetard).length;
 
   const filtresActifs: ((c: CardData) => boolean)[] = [];
   if (vue === 'liste' && filtreRapport) filtresActifs.push(c => !!c.rapportEnRetard);
@@ -2923,9 +2942,12 @@ export default function PagePipeline() {
     }
   }
 
-  const filteredIgCards = filtresActifs.length === 0
-    ? igCards
-    : igCards.filter(c => filtresActifs.some(f => f(c)));
+  // Les filtres s'appliquent à l'onglet ouvert. Ils ne touchaient que les cartes
+  // Instagram : sur YouTube, cliquer un filtre ne changeait rien — pire qu'un
+  // filtre absent, puisque le bouton s'allumait quand même.
+  const cartesFiltrees = filtresActifs.length === 0
+    ? cartesOnglet
+    : cartesOnglet.filter(c => filtresActifs.some(f => f(c)));
 
   // Ce que chaque filtre garderait, SEUL. Le compte doit rester lisible quand
   // plusieurs filtres sont actifs : afficher le résultat cumulé sur chaque
@@ -2933,11 +2955,11 @@ export default function PagePipeline() {
   // lequel a bougé pourquoi.
   const comptesFiltres = Object.fromEntries(
     (Object.keys(filtresReglables) as FiltreKey[]).map(key =>
-      [key, igCards.filter(testeFiltre(key, filtresReglables[key])).length],
+      [key, cartesOnglet.filter(testeFiltre(key, filtresReglables[key])).length],
     ),
   ) as Record<FiltreKey, number>;
 
-  const cards = tab === 'ig' ? filteredIgCards : tab === 'yt' ? filteredYtCards : filteredOtherCards;
+  const cards = cartesFiltrees;
 
   // ── Suppression lead ────────────────────────────────────────────────────────
 
@@ -3294,7 +3316,10 @@ export default function PagePipeline() {
   // Total toutes plateformes confondues, affiché en sous-titre : le chiffre ne doit pas
   // changer quand on passe d'un onglet à l'autre, sinon il se lit comme un total alors
   // qu'il ne compte que l'onglet courant (demande Chris, 2026-08-19).
-  const totalProspects = filteredIgCards.length + filteredYtCards.length + filteredOtherCards.length;
+  // Les trois onglets AVANT filtrage. Il partait de la liste Instagram déjà
+  // filtrée : le total annoncé baissait dès qu'un filtre était actif, ce qui le
+  // faisait lire comme un résultat de recherche alors que c'est un inventaire.
+  const totalProspects = igCards.length + filteredYtCards.length + filteredOtherCards.length;
   // Le compteur du bouton mobile porte TOUS les filtres actifs, réglables
   // compris : n'en compter qu'une partie ferait replier la barre en annonçant
   // « 0 » alors que la liste est bel et bien filtrée.
@@ -3467,8 +3492,14 @@ export default function PagePipeline() {
           l'entonnoir, pas filtrer. D'ou le repli, avec le nombre de filtres
           actifs sur le bouton pour qu'un filtrage en cours reste visible meme
           replie. Le desktop les affiche toujours (.pipeline-desktop). */}
-      {tab === 'ig' && (
-        <button
+      {/* Sur TOUTES les plateformes. Les etapes et les filtres etaient reserves a
+          Instagram : YouTube et « Autres » avaient une liste sans aucun moyen
+          d'isoler une issue ni de retrouver un rapport a remplir. Ils ont moins
+          d'etapes — une seule, « RDV pris » — mais les cinq issues et les etats
+          du rendez-vous sont les memes partout. Seul « Lead magnets » disparait :
+          un lead YouTube arrive par un lien en description, il n'en reclame
+          jamais. */}
+      <button
           type="button"
           className="pipeline-filters-toggle"
           onClick={() => setFiltersOpen(o => !o)}
@@ -3479,12 +3510,11 @@ export default function PagePipeline() {
             <span className="pipeline-filters-count">{activeFilterCount}</span>
           )}
           <Icon name="chevR" size={13} style={{ transform: filtersOpen ? 'rotate(90deg)' : 'none', transition: 'transform .15s', marginLeft: 'auto' }} />
-        </button>
-      )}
+      </button>
       {/* L'ORDRE COMPTE : les étapes d'abord, les filtres ensuite. Les étapes
           disent OÙ on regarde, les filtres QUOI on garde dedans — l'inverse
           obligeait à filtrer avant de savoir sur quoi. */}
-      {tab === 'ig' && vue === 'liste' && (
+      {vue === 'liste' && (
         <div className="pipeline-desktop" style={{ flexShrink: 0, marginBottom: 4 }}>
           {/* Les boutons d'étapes et d'issues PASSENT À LA LIGNE : tout est
               visible d'un coup, sans défilement horizontal. Une barre qui
@@ -3522,8 +3552,7 @@ export default function PagePipeline() {
           </div>
         </div>
       )}
-      {tab === 'ig' && (
-        <div
+      <div
           className={`pipeline-filters${filtersOpen ? ' is-open' : ''}`}
           style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}
         >
@@ -3559,6 +3588,7 @@ export default function PagePipeline() {
           {vue === 'liste' && (
             <PipelineFilters
               etats={filtresReglables}
+              cles={tab === 'ig' ? undefined : FILTRES_SANS_LM}
               onChange={changerFiltre}
               comptes={comptesFiltres}
               tactile={tactile}
@@ -3605,7 +3635,6 @@ export default function PagePipeline() {
           )}
 
         </div>
-      )}
         </div>
 
       </div>

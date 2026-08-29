@@ -87,8 +87,18 @@ const NOMS: Record<FiltreKey, string> = {
   lead_magnets:   'Lead magnets',
 };
 
+/**
+ * Les filtres qui ont un sens sur une plateforme SANS lead magnet — YouTube et
+ * « Autres ». Un lead YouTube arrive par un lien Calendly en description : il n'a
+ * jamais réclamé de lead magnet, et le filtre resterait à zéro pour toujours.
+ * Les trois autres sont des faits du lead, valables partout.
+ */
+export const FILTRES_SANS_LM: readonly FiltreKey[] = ['sans_mouvement', 'nb_rdv', 'rendez_vous'];
+
 interface Props {
   etats: EtatsFiltres;
+  /** Les filtres à afficher. Tous par défaut. */
+  cles?: readonly FiltreKey[];
   onChange: (key: FiltreKey, e: EtatFiltre) => void;
   /** Le nombre de leads que chaque filtre garderait, seul. */
   comptes: Record<FiltreKey, number>;
@@ -96,7 +106,7 @@ interface Props {
   tactile: boolean;
 }
 
-export default function PipelineFilters({ etats, onChange, comptes, tactile }: Props) {
+export default function PipelineFilters({ etats, cles, onChange, comptes, tactile }: Props) {
   const [ouvert, setOuvert] = useState<FiltreKey | null>(null);
   const zone = useRef<HTMLDivElement>(null);
 
@@ -131,7 +141,7 @@ export default function PipelineFilters({ etats, onChange, comptes, tactile }: P
 
   return (
     <div ref={zone} style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-      {(Object.keys(NOMS) as FiltreKey[]).map(key => {
+      {(cles ?? (Object.keys(NOMS) as FiltreKey[])).map(key => {
         const e = etats[key];
         const on = e.actif;
         return (

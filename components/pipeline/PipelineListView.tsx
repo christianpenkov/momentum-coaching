@@ -287,11 +287,17 @@ export default function PipelineListView({
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(col.key); } }}
                 className="pipeline-list-header"
                 style={{
-                  // 30 px exactement : la hauteur de l'en-tête de colonnes, qui
-                  // colle déjà en haut. À zéro les deux se superposaient ; à une
-                  // valeur approchée, une bande blanche laissait voir les lignes
-                  // défiler entre les deux.
-                  position: 'sticky', top: 30, zIndex: 2,
+                  // 29 et non 30 : l'en-tête de colonnes fait 30 px, et coller
+                  // pile dessous laissait passer un filet d'un pixel — les lignes
+                  // s'y voyaient défiler. La cause est l'arrondi sous-pixel : deux
+                  // bords calculés séparément ne tombent pas toujours sur le même
+                  // pixel physique, selon le zoom et la position de la page.
+                  //
+                  // Un pixel de CHEVAUCHEMENT supprime la classe entière de ce
+                  // défaut : l'en-tête de section glisse sous celui des colonnes,
+                  // dont le fond est opaque. Il n'y a plus d'écart où quelque chose
+                  // pourrait apparaître, quel que soit l'arrondi.
+                  position: 'sticky', top: 29, zIndex: 2,
                   display: 'flex', alignItems: 'center', gap: 10,
                   padding: '8px 14px', background: 'var(--surface-2, #f7f4ec)',
                   borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)',
@@ -444,10 +450,18 @@ export default function PipelineListView({
                           if (c.rapportEnRetard && c.callId) onRapportClick(c);
                           else onCardClick(c.key);
                         }}
+                        // « Remplir » en AMBRE, pas en ardoise : l'ardoise est la
+                        // couleur d'une action ordinaire de l'application, et ce
+                        // bouton est le seul de la ligne qui bloque un chiffre tant
+                        // qu'on ne le touche pas. Il porte donc la couleur du signal,
+                        // la même que le fond de la carte correspondante au board.
+                        //
+                        // `--amber-ink` en fond plein : blanc dessus vaut 7,1:1.
+                        // `--amber` n'aurait donné que 2,1:1, illisible.
                         style={{
                           fontSize: 9.5, fontWeight: 600, padding: '5px 9px', borderRadius: 6,
-                          border: `1px solid ${c.rapportEnRetard ? 'var(--accent-brand, #3a6a86)' : 'var(--border)'}`,
-                          background: c.rapportEnRetard ? 'var(--accent-brand, #3a6a86)' : 'var(--surface)',
+                          border: `1px solid ${c.rapportEnRetard ? 'var(--amber-ink, #92400e)' : 'var(--border)'}`,
+                          background: c.rapportEnRetard ? 'var(--amber-ink, #92400e)' : 'var(--surface)',
                           color: c.rapportEnRetard ? '#fff' : 'var(--ink-2, #3d3a33)',
                           cursor: 'pointer', whiteSpace: 'nowrap',
                         }}
