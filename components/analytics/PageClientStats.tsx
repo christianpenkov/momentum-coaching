@@ -4227,26 +4227,31 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                           de largeur mesurée, et Recharts émet « width(-1) and
                           height(-1) » dans la console. Même correctif que sur les trois
                           graphiques de Business micro. */}
+                      {/* Des barres, pas une courbe. Ces séries sont des comptages
+                          journaliers discrets, souvent creux : une ligne devait relier
+                          des jours sans mesure, et le faisait en inventant les valeurs
+                          intermédiaires. Une barre absente EST le trou — rien à
+                          interpréter, et un vrai zéro reste visible au ras de l'axe. */}
                       <ResponsiveContainer width="100%" height={220} initialDimension={{ width: 700, height: 220 }}>
-                        <ReAreaChart data={chart.data} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
-                          <defs>
-                            <linearGradient id="grad-hero-modal" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor={chart.color} stopOpacity={0.2} />
-                              <stop offset="95%" stopColor={chart.color} stopOpacity={0} />
-                            </linearGradient>
-                          </defs>
+                        <ComposedChart data={chart.data} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                           <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(chart.data.length, period)} />
                           {/* Borne basse jamais négative : un compteur de calls ne peut pas
                               valoir −1, et l'axe en affichait pourtant la graduation.
                               Même garde que les six autres axes de ce fichier — c'étaient
                               les deux seuls à ne pas l'avoir. */}
                           <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = Math.max(1, Math.ceil(range * 0.12)); const lo = dataMin - margin; return [dataMin >= 0 ? Math.max(0, lo) : lo, dataMax + margin]; }} />
-                          <Tooltip content={({ active, payload, label }) => {
+                          <Tooltip cursor={{ fill: 'var(--surface-2)' }} content={({ active, payload, label }) => {
                             if (!active || !payload?.length) return null;
                             return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{chart.fmtV(payload[0].value as number)}</strong></div></div>;
                           }} />
-                          <Area type="monotone" dataKey="v" stroke={chart.color} strokeWidth={2} fill="url(#grad-hero-modal)" dot={todayDotFactory(chart.color, 'date', lastRealPointKey(chart.data, 'date', 'v'))} activeDot={{ r: 4, strokeWidth: 0, fill: chart.color }} isAnimationActive={false} />
-                        </ReAreaChart>
+                          {/* minPointSize : une barre de valeur 0 ne dessine rien, donc
+                              un jour mesuré à zéro serait indistinguable d'un jour sans
+                              mesure — exactement la confusion que les barres servent à
+                              lever. Un talon de 3 px au ras de l'axe dit « mesuré, et
+                              c'était zéro ». Les jours sans mesure valent null et ne
+                              dessinent toujours rien. */}
+                          <Bar dataKey="v" fill={chart.color} radius={[2, 2, 0, 0]} minPointSize={(v: number | null | undefined) => (v === 0 ? 3 : 0)} isAnimationActive={false} />
+                        </ComposedChart>
                       </ResponsiveContainer>
                     </>);
                   })()}
@@ -4333,21 +4338,23 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
             </div>
             <div style={{ fontSize: 36, fontWeight: 800, color: 'var(--ink)', marginBottom: 20 }}>{expandedEff.value}</div>
             <ResponsiveContainer width="100%" height={220} initialDimension={{ width: 660, height: 220 }}>
-              <ReAreaChart data={expandedEff.data} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
-                <defs>
-                  <linearGradient id="grad-eff-modal" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={expandedEff.color} stopOpacity={0.2} />
-                    <stop offset="95%" stopColor={expandedEff.color} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
+              {/* Des barres, pas une courbe — voir la modale du hero. C'est ici que ça
+                  compte le plus : sur un mois à cinq jours d'activité, la courbe de
+                  « Close rate » traçait vingt-six jours plats à 0 %, et une fois ces
+                  jours devenus des trous elle laissait trois points orphelins qui
+                  ressemblaient à un graphique cassé. */}
+              <ComposedChart data={expandedEff.data} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                 <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(expandedEff.data.length, period)} />
                 <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={40} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = Math.max(1, Math.ceil(range * 0.12)); const lo = dataMin - margin; const hi = dataMax + margin; return [dataMin >= 0 ? Math.max(0, lo) : lo, expandedEff.estPct ? Math.min(100, hi) : hi]; }} />
-                <Tooltip content={({ active, payload, label }) => {
+                <Tooltip cursor={{ fill: 'var(--surface-2)' }} content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null;
-                  return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{Math.round(payload[0].value as number)}</strong></div></div>;
+                  return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{Math.round(payload[0].value as number)}{expandedEff.estPct ? ' %' : ''}</strong></div></div>;
                 }} />
-                <Area type="monotone" dataKey="v" stroke={expandedEff.color} strokeWidth={2} fill="url(#grad-eff-modal)" dot={todayDotFactory(expandedEff.color, 'date', lastRealPointKey(expandedEff.data, 'date', 'v'))} activeDot={{ r: 4, strokeWidth: 0, fill: expandedEff.color }} isAnimationActive={false} />
-              </ReAreaChart>
+                {/* Talon de 3 px sur un zéro mesuré — voir la modale du hero. C'est ce
+                    qui distingue « ce jour-là je n'ai rien closé » de « ce jour-là je
+                    n'avais aucun appel ». */}
+                <Bar dataKey="v" fill={expandedEff.color} radius={[2, 2, 0, 0]} minPointSize={(v: number | null | undefined) => (v === 0 ? 3 : 0)} isAnimationActive={false} />
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         </div>
