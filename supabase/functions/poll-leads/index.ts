@@ -41,6 +41,35 @@ const shortio = (domainId: string | number) => limiteurShortio(domainId);
 const FENETRE_REPARATION_DEFAUT = 7;
 const FENETRE_REPARATION_MAX = 60;
 
+// ─── Budget de temps du rattrapage des journees manquantes ──────────────────
+//
+// Le rattrapage se rationnait a l'avance : 3 journees par profil, une fois par
+// jour. Sur un trou frais de 1 a 3 jours, c'est parfait. Sur un retard accumule
+// — un eleve qui reconnecte apres une coupure, ou une base construite par
+// a-coups — il fallait des SEMAINES : 70 journees a combler prenaient 24 jours
+// sur le profil de test, pendant lesquels le bandeau de sante annoncait un trou
+// a chaque ouverture de Mes Stats.
+//
+// Il s'arrete desormais a l'HORLOGE, pas au compteur : il comble autant de
+// journees qu'il peut jusqu'a ce seuil, puis rend la main pour que le reste du
+// passage se termine. Ce qui n'a pas ete fait reprend au passage suivant,
+// exactement la ou il s'est arrete — la requete ne selectionne que ce qui manque
+// encore, donc aucun etat a memoriser.
+//
+// Cout sur une base saine : une requete indexee par profil, et la fonction sort
+// avant le moindre appel reseau. Le cout est proportionnel au retard, et nul
+// quand il n'y en a pas.
+//
+// ⚠️ `let` remis a zero a CHAQUE invocation, jamais un `const` de module : le Edge
+// Runtime reutilise l'instance entre deux passages (demarrage a chaud). Fige au
+// chargement, le chronometre aurait continue de courir entre les invocations et le
+// budget aurait ete epuise pour toujours au bout de 100 s d'existence de
+// l'instance — le rattrapage se serait arrete definitivement, en silence, sur une
+// fonction qui a l'air de tourner.
+let debutInvocation = Date.now();
+const BUDGET_RATTRAPAGE_MS = 100_000;   // sur les 150 s du Edge Runtime
+const resteDuTempsPourRattraper = () => Date.now() - debutInvocation < BUDGET_RATTRAPAGE_MS;
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Utils
@@ -998,7 +1027,46 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
   // approche (`period=yesterday`, calendrier Short.io) écrivait les clics de J-2 sur la
   // ligne de J-1 à chaque passage tombant entre minuit Paris et minuit UTC — mesuré le
   // 2026-08-28 : 13 liens sur 18 portaient leurs clics sur deux jours consécutifs.
-  const FENETRE_REPARATION_JOURS = joursReparation;
+  // ─── Fenetre adaptative ───────────────────────────────────────────────────
+  //
+  // La fenetre etait FIXE a 7 jours. Une panne de moins d'une semaine se soignait
+  // donc seule, mais entre 7 et 30 jours la donnee etait encore chez Short.io sans
+  // que rien n'aille la chercher : il fallait qu'un humain s'apercoive du retard et
+  // lance `{"jours_reparation": 40}` a la main. Au-dela de 30 jours l'API ne la sert
+  // plus — perdue definitivement. C'etait le seul endroit de la plateforme ou une
+  // panne detruisait de la donnee sans retour possible : Instagram (retention Meta
+  // 2 ans) et YouTube se rattrapent toujours.
+  //
+  // Cas reel, cron_runs du 2026-08-28, sur quatre profils a la fois :
+  //   shortio_link: last_clicks: last_clicks HTTP 500
+  //   shortio_link: flux_clics_tronque_reparation_reportee
+  //
+  // La valeur recue devient donc un PLANCHER : on elargit jusqu'a couvrir le retard
+  // reellement constate, plafonne a FENETRE_REPARATION_MAX. Sur une base a jour, le
+  // retard vaut 0 et la fenetre reste a 7 — le cout ne bouge pas. Il n'augmente que
+  // pour rattraper, et seulement le temps de rattraper.
+  //
+  // Elargir est sans risque pour les donnees : `jourLePlusAncienVu` (plus bas)
+  // empeche deja de reecrire une journee que le flux n'a pas couverte, donc une
+  // fenetre plus large que la retention de Short.io ne peut pas remettre a zero des
+  // journees reelles.
+  const { data: derniereLigne } = await supa
+    .from('shortio_link_daily_snapshots')
+    .select('date')
+    .eq('profile_id', profileId)
+    .order('date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const retardJours = derniereLigne?.date
+    ? Math.max(0, Math.round((Date.parse(`${isoDate(0)}T00:00:00Z`) - Date.parse(`${derniereLigne.date}T00:00:00Z`)) / 86_400_000))
+    : 0;
+  const FENETRE_REPARATION_JOURS = Math.min(
+    FENETRE_REPARATION_MAX,
+    Math.max(joursReparation, retardJours + 1),
+  );
+  if (retardJours >= joursReparation) {
+    console.log(`[poll-leads] shortio fenetre elargie profile=${profileId}: retard=${retardJours}j -> fenetre=${FENETRE_REPARATION_JOURS}j`);
+  }
   const clicsParPathEtJour = new Map<string, { human: number; total: number }>();
   const cle = (path: string, jour: string) => `${path} ${jour}`;
   let rawClicks: { path: string; dt: string; human: boolean }[] = [];
@@ -1723,12 +1791,15 @@ async function majPeriodesIg(profileId: string, token: string, igAccountId: stri
 
 async function rattraperTrousIg(profileId: string, token: string, igAccountId: string): Promise<string[]> {
   const errors: string[] = [];
-  // 3 et non 5 : le rattrapage est SEQUENTIEL (5 appels par journee) et tourne pour
-  // chaque profil. A 40 eleves ayant tous des trous le meme jour, 5 journees mettaient
-  // le passage a ~112 s sur un budget de 150 — marge trop mince. A 3, on redescend a
-  // ~75 s dans ce meme pire cas, et les trous se comblent en quelques jours au lieu de
-  // quelques heures, ce qui est sans consequence sur des donnees anciennes.
-  const MAX_JOURS_PAR_PASSAGE = 3;
+  // Plafond haut : c'est l'horloge qui borne le travail desormais
+  // (resteDuTempsPourRattraper, voir en tete de fichier), pas ce compteur. Il ne
+  // reste ici que pour empecher un seul profil de monopoliser le budget au
+  // detriment des quatre autres traites en parallele.
+  //
+  // L'ancienne valeur etait 3, calee sur un pire cas mesure a ~75 s pour 40 eleves
+  // ayant tous des trous le meme jour. Ce pire cas est maintenant borne par le
+  // budget lui-meme, quel que soit le nombre de journees a combler.
+  const MAX_JOURS_PAR_PASSAGE = 30;
   try {
     const { data: premier } = await supa
       .from('analytics_daily_snapshots')
@@ -1785,6 +1856,9 @@ async function rattraperTrousIg(profileId: string, token: string, igAccountId: s
     if (!trous?.length) return [];
 
     for (const t of trous) {
+      // Rendre la main des que le budget est epuise : le reste du passage doit
+      // pouvoir se terminer. Ces journees seront reprises au passage suivant.
+      if (!resteDuTempsPourRattraper()) break;
       try {
         const metrics = await fetchIgDayMetrics(token, igAccountId, t.date);
         // Ne pas ecrire une ligne vide : si Meta ne renvoie rien pour ce jour, mieux
@@ -1902,10 +1976,11 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
     .maybeSingle();
   const igDernierSync = igIntegration?.last_synced_at ? new Date(igIntegration.last_synced_at).getTime() : 0;
   const igDoitSync = Date.now() - igDernierSync >= IG_INTERVALLE_MS;
-  // Le rattrapage des trous ne tourne qu'une fois par JOUR : un trou vieux de deux
-  // semaines peut attendre quelques heures. Meme regle que les repartitions YouTube.
-  const igRattrapageAFaire = igDernierSync === 0
-    || new Date(igDernierSync).toISOString().split('T')[0] !== new Date().toISOString().split('T')[0];
+  // Le rattrapage n'a plus de garde « une fois par jour » : il se limite lui-meme
+  // dans le temps (BUDGET_RATTRAPAGE_MS) et sort sans le moindre appel reseau quand
+  // il n'y a rien a combler. Le gater une fois par jour ne protegeait plus rien et
+  // faisait trainer un retard accumule pendant des semaines. Il reste borne par
+  // `igDoitSync` (une fois par heure), qui conditionne tout le bloc Instagram.
 
   const igCreds = igDoitSync ? await getIgCreds(profileId) : null;
 
@@ -1967,7 +2042,7 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
       // Rattrapage des journees anciennes manquantes — une fois par jour, comme cote
       // YouTube. Ajoute EN DERNIER pour ne pas decaler les deux resultats deja
       // destructures. Sur une base sans trou, la fonction sort avant tout appel reseau.
-      igRattrapageAFaire ? rattraperTrousIg(profileId, igCreds.token, igCreds.igAccountId) : Promise.resolve([] as string[]),
+      rattraperTrousIg(profileId, igCreds.token, igCreds.igAccountId),
       // Portee dedupliquee de la semaine et du mois en cours.
       //
       // Appelee a CHAQUE passage horaire, et non une fois par jour : la fonction
@@ -2275,6 +2350,8 @@ const estIncidentPassager = (e: string) =>
 // ─────────────────────────────────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
+  // Depart du chronometre du rattrapage — voir BUDGET_RATTRAPAGE_MS en tete.
+  debutInvocation = Date.now();
   const authHeader = req.headers.get('authorization');
   if (authHeader !== `Bearer ${CRON_SECRET}`) {
     return new Response(JSON.stringify({ error: 'Non autorisé' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
