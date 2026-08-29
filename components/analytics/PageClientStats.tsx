@@ -6172,7 +6172,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                             // somme de cette colonne ne tombe jamais sur « Clics totaux ».
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                               <span style={{ fontWeight: 700 }}>{fmt(row.clics)}</span>
-                              <span style={{ fontSize: 10, color: 'var(--muted)' }}>clics</span>
+                              {/* En francais, 0 et 1 prennent le singulier. */}
+                              <span style={{ fontSize: 10, color: 'var(--muted)' }}>{row.clics > 1 ? 'clics' : 'clic'}</span>
                             </span>
                           ) : (
                             <span style={{ color: 'var(--faint)' }}>—</span>
