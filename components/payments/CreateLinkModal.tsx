@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import Icon from '@/components/ui/Icon';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import Portal from './Portal';
 import { useIsMobile } from '@/lib/useIsMobile';
+import { useHauteurClavier } from '@/lib/useHauteurClavier';
 import { fmtEur } from './types';
 
 /**
@@ -53,25 +54,13 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, submitting]);
 
-  // Une feuille ancrée en bas est recouverte par le clavier iOS/Android : 88vh
-  // ne rétrécit pas quand il s'ouvre (contrairement à visualViewport), donc le
-  // champ actif se retrouve dessous. On borne la hauteur à la zone réellement
-  // visible tant que le clavier est là. Même problème que ModalShell résout
-  // pour ses modales centrées.
-  const sheetRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!isMobile) return;
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const update = () => {
-      if (!sheetRef.current) return;
-      const keyboardOpen = window.screen.height - vv.height > 100;
-      sheetRef.current.style.maxHeight = keyboardOpen ? `${vv.height - 16}px` : '';
-    };
-    update();
-    vv.addEventListener('resize', update);
-    return () => vv.removeEventListener('resize', update);
-  }, [isMobile]);
+  // ── Le clavier recouvre le bas de la feuille ──────────────────────────────
+  // Une première version bornait seulement la hauteur à `visualViewport`. Ça ne
+  // suffit pas : la feuille reste ancrée à `bottom: 0`, c'est-à-dire au bas du
+  // viewport de mise en page, que le clavier recouvre. La rétrécir la vide par
+  // le haut sans jamais dégager son bord bas — le champ actif et les boutons
+  // restaient dessous. Il faut la DÉCOLLER, ce que fait le hook partagé.
+  const clavier = useHauteurClavier();
 
   // Liste chargée dès l'ouverture, sans attendre une saisie : chercher suppose de
   // savoir qui on cherche, alors qu'on veut souvent juste « le prospect d'hier ».
@@ -144,8 +133,11 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
     // teinte ou de rayon entre elles se voit immédiatement.
     <Portal>
       <div onClick={() => !submitting && onClose()} style={{ position: 'fixed', inset: 0, background: 'rgba(26,24,21,.42)', zIndex: 9998 }} />
-      <div ref={sheetRef} style={isMobile ? {
-        position: 'fixed', left: 0, right: 0, bottom: 0, maxHeight: '88vh', zIndex: 9999,
+      {/* Même recalage que ModaleAction : cette feuille porte trois champs de
+          saisie, dont une recherche — tous sous le clavier sans ça. */}
+      <div style={isMobile ? {
+        position: 'fixed', left: 0, right: 0, bottom: clavier, zIndex: 9999,
+        maxHeight: clavier > 0 ? `calc(100vh - ${clavier + 24}px)` : '88vh',
         background: 'var(--surface)', boxShadow: 'var(--shadow-modal)',
         borderTopLeftRadius: 18, borderTopRightRadius: 18,
         display: 'flex', flexDirection: 'column', overflow: 'hidden',

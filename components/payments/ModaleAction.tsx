@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Icon from '@/components/ui/Icon';
 import Portal from './Portal';
 import { useIsMobile } from '@/lib/useIsMobile';
+import { useHauteurClavier } from '@/lib/useHauteurClavier';
 
 /**
  * La coquille commune à toutes les modales qui corrigent une vente.
@@ -32,6 +33,7 @@ export default function ModaleAction({
   largeur?: number;
 }) {
   const isMobile = useIsMobile();
+  const clavier = useHauteurClavier();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !bloque) onClose(); };
@@ -43,8 +45,14 @@ export default function ModaleAction({
     <Portal>
       <div onClick={() => !bloque && onClose()}
         style={{ position: 'fixed', inset: 0, background: 'rgba(26,24,21,.42)', zIndex: 10008 }} />
+      {/* ── La feuille se décolle du clavier ──────────────────────────────
+          Ancrée à `bottom: 0`, elle se colle au bas du viewport de mise en page,
+          que le clavier recouvre : le champ qu'on vient de toucher et les
+          boutons de validation passaient dessous. Elle se pose donc sur le
+          clavier, et se contente de la hauteur qui reste. */}
       <div style={isMobile ? {
-        position: 'fixed', left: 0, right: 0, bottom: 0, maxHeight: '90vh', zIndex: 10009,
+        position: 'fixed', left: 0, right: 0, bottom: clavier, zIndex: 10009,
+        maxHeight: clavier > 0 ? `calc(100vh - ${clavier + 24}px)` : '90vh',
         background: 'var(--surface)', boxShadow: 'var(--shadow-modal)',
         borderTopLeftRadius: 18, borderTopRightRadius: 18,
         display: 'flex', flexDirection: 'column', overflow: 'hidden',

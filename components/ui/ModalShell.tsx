@@ -40,8 +40,15 @@ export default function ModalShell({
   // lui reflète la vraie zone visible. Sans ce recalage, un champ en bas de la boîte
   // centrée (ex. textarea de notes) se retrouve caché sous le clavier, et aucun
   // scrollIntoView() interne ne peut compenser puisque l'overlay lui-même déborde de la
-  // zone réellement visible. Le variant 'sheet' n'a pas ce problème : ancré en bas
-  // (alignItems: 'flex-end'), il reste naturellement au-dessus du clavier.
+  // zone réellement visible.
+  //
+  // ⚠️ Le variant 'sheet' N'EST PAS épargné, contrairement à ce que disait cette
+  // note. Être ancré en bas ne protège de rien : `flex-end` colle la feuille au bas
+  // du viewport de MISE EN PAGE, celui-là même que le clavier recouvre. Un champ
+  // situé en bas d'un sheet passe donc dessous — constaté le 2026-08-30 sur
+  // l'objection « Autre » du rapport de vente. Deux remèdes selon la coquille :
+  // ici `fullScreen` (la feuille prend tout l'écran et devient défilable) ; pour
+  // les feuilles qui n'utilisent pas ModalShell, le hook `lib/useHauteurClavier`.
   //
   // Quand le clavier est ouvert, on passe aussi de 'center' à 'flex-start' (+ un padding
   // haut réduit) : centrer la boîte dans le peu d'espace restant au-dessus du clavier la
