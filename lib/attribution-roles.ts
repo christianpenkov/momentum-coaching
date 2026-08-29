@@ -64,6 +64,17 @@ export interface ReponseAccroche {
 export interface CallPourConversion {
   /** Le contenu porté par le lien Calendly cliqué. Vide pour un lien de bio. */
   utm_content?: string | null;
+  /**
+   * Repli LÉGITIME : le contenu du lien prospect par lequel ce call est arrivé,
+   * c'est-à-dire `prospect_links.content_id`, résolu par le chemin du lien court.
+   *
+   * À ne pas confondre avec le repli INTERDIT sur `instagram_leads.media_id`, qui est
+   * écrasé par le dernier post commenté. Celui-ci est posé à la création du lien et
+   * n'est jamais réécrit : il décrit le contenu d'où vient CE lien-là, définitivement.
+   *
+   * L'appelant fait la jointure ; cette fonction reste pure.
+   */
+  prospect_link_content_id?: string | null;
 }
 
 /** Clé des évènements qui ne se rattachent à AUCUN contenu.
@@ -197,15 +208,25 @@ export function activationParContenu(
  * 1 call sur 19. Supprimé — un contenu de juin ne doit pas récolter une vente d'août
  * qu'il n'a pas déclenchée.
  *
- * `null` est un cas NORMAL et fréquent : un lien de bio ne vient d'aucun contenu, donc
- * `utm_content` est vide par nature (5 calls sur 19). Ces calls vont dans la ligne
- * « sans contenu » — l'appelant ne doit jamais les faire disparaître, sinon le
- * total par contenu se lira comme une perte.
+ * Un repli reste légitime, et un seul : `prospect_links.content_id`. Mesuré le
+ * 2026-08-29, l'unique call DM sans `utm_content` (`af9d5898`, 15/08) portait bien
+ * `utm_medium`, `utm_campaign` et `utm_term` — seul le contenu manquait, parce que son
+ * lien datait du 7 juin, avant le correctif du 19/08. Son contenu n'était pas perdu
+ * pour autant : `prospect_links.content_id` valait GUIDE.
+ *
+ * Après ce repli, `null` ne concerne plus que les liens de BIO, qui ne viennent
+ * d'aucun contenu par nature (5 calls sur 19). Ces calls ne doivent pas disparaître :
+ * ils ont leur ligne dans « Breakdown par source », et une note de bas de tableau
+ * réconcilie le total de « Performance par contenu ».
  */
 export function contenuConversion(call: CallPourConversion): string | null {
-  const brut = call.utm_content;
-  if (typeof brut !== 'string') return null;
-  const propre = brut.trim();
+  return nettoyer(call.utm_content) ?? nettoyer(call.prospect_link_content_id);
+}
+
+/** Une chaîne exploitable, ou `null`. Une chaîne d'espaces ne vaut pas un contenu. */
+function nettoyer(valeur: string | null | undefined): string | null {
+  if (typeof valeur !== 'string') return null;
+  const propre = valeur.trim();
   return propre.length > 0 ? propre : null;
 }
 

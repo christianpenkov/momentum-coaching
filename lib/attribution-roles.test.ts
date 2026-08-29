@@ -168,6 +168,30 @@ test('conversion : utm_content et rien d autre, aucun repli sur le lead', () => 
   assert.equal(contenuConversion({ utm_content: GUIDE }), GUIDE);
 });
 
+test('conversion : repli LEGITIME sur le contenu du lien prospect', () => {
+  // Cas reel af9d5898 du 15/08 : le lien datait du 7 juin, avant le correctif du 19/08
+  // qui a impose l identifiant de post dans utm_content. Le contenu n etait pas perdu,
+  // prospect_links.content_id valait GUIDE.
+  assert.equal(
+    contenuConversion({ utm_content: null, prospect_link_content_id: GUIDE }),
+    GUIDE,
+  );
+});
+
+test('conversion : utm_content prime toujours sur le repli', () => {
+  // Le lien reellement clique fait autorite sur le lien par lequel le prospect est
+  // arrive : c est lui qui a produit la reservation.
+  assert.equal(
+    contenuConversion({ utm_content: A, prospect_link_content_id: GUIDE }),
+    A,
+  );
+});
+
+test('conversion : un repli vide ou blanc ne vaut pas un contenu', () => {
+  assert.equal(contenuConversion({ utm_content: null, prospect_link_content_id: '  ' }), null);
+  assert.equal(contenuConversion({ utm_content: '  ', prospect_link_content_id: null }), null);
+});
+
 test('conversion : un lien de bio n a aucun contenu, et c est normal', () => {
   // 5 calls sur 19 au 2026-08-29. Un trou, jamais un zero, jamais un repli.
   assert.equal(contenuConversion({ utm_content: null }), null);
