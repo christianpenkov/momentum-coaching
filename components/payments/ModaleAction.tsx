@@ -409,7 +409,11 @@ const eur = (n: number) =>
   new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 }).format(n);
 
 const jourDe = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }) : 'date à définir';
+  iso ? new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })
+      // « date à définir » sonnait comme un oubli à réparer. En prélèvement
+      // automatique non démarré, la date n'est pas oubliée : elle dépend du jour
+      // où le client règle le lien, et personne ne peut la fixer d'avance.
+      : 'au rythme du premier paiement';
 
 export const champStyle: React.CSSProperties = {
   width: '100%', padding: '9px 12px', border: '1px solid var(--border)', borderRadius: 8,

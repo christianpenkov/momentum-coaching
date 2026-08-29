@@ -90,7 +90,17 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
   const changeMode = complet && mode !== modeActuel;
   const changeRythme = complet && nbEffectif > 1 && rythme !== rythmeActuel;
   const changeNb = complet && nbEffectif !== nbActuel;
-  const changed = changeMode || changeRythme || changeNb;
+
+  // ── Mettre en place N'EST PAS ne rien changer ────────────────────────────
+  // Une vente sans aucun moyen de paiement porte quand même un `payment_plan`
+  // en base : `one_shot`, et `modeDe` la lit « hors Stripe » faute de lien. Un
+  // élève qui choisit « en une fois, hors Stripe » retombait donc exactement sur
+  // les valeurs stockées — `changed` restait faux, le bouton restait grisé, et
+  // fermer ne demandait même pas confirmation puisque rien n'avait « changé ».
+  //
+  // Or il y avait tout à faire : créer l'échéancier qui n'existe pas. Quand rien
+  // n'est en place, tout choix complet est un changement.
+  const changed = complet && (!moyenDefini(deal) || changeMode || changeRythme || changeNb);
 
   // Ce qui rend le choix courant impossible en place — calculé pendant la
   // sélection, pas au moment de valider.
@@ -121,14 +131,25 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
       // écrit (`depart + i * pas`, donc i=0 = aujourd'hui). Avec un `+ 1`
       // inconditionnel, l'aperçu décalait tout d'un cran et promettait des dates
       // que la validation ne produisait pas.
+    // ── En prélèvement automatique NON DÉMARRÉ, aucune date n'est connue ────
+    // Le compte à rebours part du jour où le client règle le lien — un jour que
+    // personne ne peut fixer à l'avance (`billing_cycle_anchor` n'existe pas sur
+    // un Payment Link, vérifié dans la doc Stripe). Dater la première échéance
+    // d'aujourd'hui contredisait la phrase juste au-dessus, qui promet que rien
+    // n'est prélevé aujourd'hui. On préfère ne rien dater.
+    const datesInconnues = moyen === 'auto' && !deal.stripeSubscriptionId;
+
     return Array.from({ length: aCreer }, (_, i) => ({
       rang: dejaPayees + i + 1,
       date: (!changeRythme && echeancierAvant[i]?.date)
         ? echeancierAvant[i].date
-        : new Date(base + (i - offset + (offset > 0 ? 1 : 0)) * pas * 86400_000).toISOString(),
+        : datesInconnues
+          ? null
+          : new Date(base + (i - offset + (offset > 0 ? 1 : 0)) * pas * 86400_000).toISOString(),
       montant: i === 0 ? premiere : parEcheance,
     }));
-  }, [reste, aCreer, parEcheance, echeancierAvant, dejaPayees, rythme, changeRythme]);
+  }, [reste, aCreer, parEcheance, echeancierAvant, dejaPayees, rythme, changeRythme,
+      moyen, deal.stripeSubscriptionId]);
 
   async function valider() {
     if (!changed || envoi) return;
@@ -281,6 +302,15 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
           </span>
         )}
       </div>
+      {/* L'explication vit sous la question qui PRODUIT la contrainte, pas sous
+          celle qui la subit : c'est « en une fois » qui grise le prélèvement, et
+          c'est là qu'on regarde en se demandant pourquoi. */}
+      {nb === 1 && (
+        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7, lineHeight: 1.6 }}>
+          En une fois, le prélèvement automatique n’a plus lieu d’être : il n’y a
+          rien à prélever après le premier paiement.
+        </div>
+      )}
 
       {/* ── 2. PAR QUEL MOYEN ─────────────────────────────────────────────── */}
       <Section>Par quel moyen ?</Section>
@@ -290,12 +320,6 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
             disabled={m === 'auto' && nb === 1}>{label}</Chip>
         ))}
       </div>
-      {nb === 1 && (
-        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7, lineHeight: 1.6 }}>
-          Le prélèvement automatique demande au moins deux échéances — en une
-          fois, il n’y a rien à prélever ensuite.
-        </div>
-      )}
       {moyen && (
         <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7, lineHeight: 1.6 }}>
           {MOYENS.find(([m]) => m === moyen)?.[2]}
@@ -366,26 +390,38 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
                 n'est prélevé un autre jour non plus : la phrase répondait à une
                 inquiétude que ce moyen ne fait pas naître, et laissait planer
                 l'idée qu'un prélèvement existait quelque part. */}
+            {/* ⚠️ Tous les espaces entre une accolade et du texte sont écrits
+                `{' '}` : JSX supprime l'espace en fin de ligne, et « prêts » se
+                collait à « sur ». Une phrase soignée se casse sur ce détail. */}
             <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
               {moyen === 'auto' ? (
                 <>
-                  <strong>Rien n’est prélevé aujourd’hui.</strong> Le premier
-                  prélèvement partira quand {prenom} aura payé le lien de mise en
-                  place — c’est lui qui enregistre sa carte. Les suivants
-                  tomberont à la même date, {libelleRythme(rythme)}s.
+                  {/* ── Ce premier paiement N'EST PAS un frais de mise en place ──
+                      « payer le lien de mise en place » laissait entendre une
+                      étape payante en plus des trois échéances. C'est le
+                      contraire : ce paiement EST la première échéance, et c'est
+                      lui qui enregistre la carte pour les suivantes. */}
+                  <strong>Rien n’est prélevé aujourd’hui.</strong> Tu envoies un
+                  lien à {prenom} ; le jour où il le règle, ce paiement compte
+                  comme la <strong>première des {nbEffectif} échéances</strong> et
+                  enregistre sa carte. Stripe prélève les suivantes tout seul,
+                  {' '}{libelleRythme(rythme) === 'mensuel' ? 'chaque mois' : 'chaque semaine'} à
+                  {' '}partir de ce jour-là, puis s’arrête.
                 </>
               ) : moyen === 'offline' ? (
-                <>Momentum tient l’échéancier, mais n’encaisse rien : c’est toi
+                <>
+                  Momentum tient l’échéancier, mais n’encaisse rien : c’est toi
                   qui coches chaque versement à son arrivée. Préviens {prenom} de
-                  ce qui a été décidé — il ne recevra aucune notification.</>
+                  ce qui a été décidé — il ne recevra aucune notification.
+                </>
               ) : reste > 0.005 ? (
                 <>
-                  {deal.hasLinks && <>Les anciens liens cesseront de fonctionner. </>}
+                  {deal.hasLinks && <>Les anciens liens cesseront de fonctionner.{' '}</>}
                   {/* « Tu recevras le lien » ne dit pas OÙ : sur un écran qu'on
                       va fermer, c'est la seule chose qui compte. */}
-                  {aCreer > 1 ? 'Les liens seront prêts' : 'Le lien sera prêt'} sur
-                  cette fiche, sous «&nbsp;les {aCreer > 1 ? 'échéances' : 'échéances'}&nbsp;»,
-                  avec un bouton pour {aCreer > 1 ? 'les' : 'le'} copier.
+                  {aCreer > 1 ? 'Les liens seront prêts' : 'Le lien sera prêt'}
+                  {' '}sur cette fiche, sous «&nbsp;les échéances&nbsp;», avec un
+                  bouton pour {aCreer > 1 ? 'les' : 'le'} copier.
                 </>
               ) : null}
             </div>
