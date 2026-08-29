@@ -72,6 +72,11 @@ export interface RapportAnswers {
   manualDate: string;
   manualTimeStart: string;
   manualTimeEnd: string;
+  /** Lien de visio du prochain call, saisi a la main. Vit sur le CALL une fois
+   *  cree (`join_url`), pas dans le rapport : il doit rester trouvable apres la
+   *  fermeture du modal, et c'est aussi lui qui permet a Fathom de rattacher
+   *  l'enregistrement par URL exacte. */
+  manualJoinUrl: string;
   /** Créneau détecté automatiquement par Calendly. */
   foundCall: { id: string; scheduledAt: string; inviteeName: string | null } | null;
   /**
@@ -128,6 +133,7 @@ export const EMPTY_ANSWERS: RapportAnswers = {
   manualDate: '',
   manualTimeStart: '',
   manualTimeEnd: '',
+  manualJoinUrl: '',
   foundCall: null,
   objection: null,
   objectionAutre: '',

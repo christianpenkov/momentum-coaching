@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
 
-  const { ig_username, scheduled_at, duration, invitee_name, invitee_email, call_type, manual_override, source, is_follow_up, parent_call_id } = body;
+  const { ig_username, scheduled_at, duration, invitee_name, invitee_email, call_type, manual_override, source, is_follow_up, parent_call_id, join_url } = body;
   if (!scheduled_at) return NextResponse.json({ error: 'scheduled_at requis' }, { status: 400 });
 
   // Un 2e call herite de l'IDENTITE ET DE L'ORIGINE de son parent.
@@ -98,6 +98,10 @@ export async function POST(request: Request) {
     utm_content: parent?.utm_content ?? null,
     utm_term: parent?.utm_term ?? null,
     scheduled_at,
+    // Sans lien de visio, le prospect n'a rien a rejoindre, aucun ecran n'affiche
+    // de bouton « Rejoindre », et Fathom perd son rattachement le plus sur (URL
+    // exacte) — il ne lui reste que « e-mail + creneau a 30 min pres ».
+    join_url: typeof join_url === 'string' && join_url.trim() ? join_url.trim() : null,
     duration: duration ?? '60 min',
     status: 'active',
     call_type: call_type ?? 'manual',

@@ -208,7 +208,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
 
   // Accesseurs : le reste du composant continue de lire `revenue`, `comment`…
   // comme avant, sans avoir à connaître la forme de `answers`.
-  const { revenue, comment, foundCall, manualDate, manualTimeStart, manualTimeEnd } = answers;
+  const { revenue, comment, foundCall, manualDate, manualTimeStart, manualTimeEnd, manualJoinUrl } = answers;
   const offlineReceived = answers.offlineReceived ?? null;
   const setOfflineReceived = (v: boolean | null) => patch({ offlineReceived: v });
   const manualValid = manualDate && manualTimeStart && manualTimeEnd;
@@ -497,6 +497,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
           scheduled_at: new Date(startMs).toISOString(),
           duration: `${Math.round((endMs - startMs) / 60000)} min`,
           invitee_name: inviteeName,
+          join_url: a.manualJoinUrl?.trim() || null,
           // La route y lit l'e-mail du prospect : c'est la meme personne, et le
           // modal ne recoit pas l'e-mail en props.
           parent_call_id: callId,
@@ -1085,6 +1086,29 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               </div>
               <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20, lineHeight: 1.6 }}>Renseigne les horaires du prochain appel.</div>
               <ManualDateForm date={manualDate} setDate={setManualDate} timeStart={manualTimeStart} setTimeStart={setManualTimeStart} timeEnd={manualTimeEnd} setTimeEnd={setManualTimeEnd} />
+              {/* Le lien n'est PAS une donnee du rapport : il est ecrit sur le call
+                  (`join_url`), donc il reste trouvable une fois ce modal ferme —
+                  bandeau « Rejoindre » de la page Calls, Calendrier, Accueil,
+                  Prochains calls. C'est aussi le seul moyen pour Fathom de
+                  rattacher l'enregistrement par URL exacte ; sans lui il ne lui
+                  reste que le repli « e-mail + creneau a 30 min pres ». */}
+              <div style={{ marginTop: 16 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 6 }}>
+                  Lien de visio <span style={{ fontWeight: 500 }}>— facultatif</span>
+                </label>
+                <input
+                  type="url"
+                  inputMode="url"
+                  value={manualJoinUrl}
+                  onChange={e => patch({ manualJoinUrl: e.target.value })}
+                  placeholder="https://meet.google.com/..."
+                  style={{ width: '100%', padding: '12px 14px', fontSize: 14, borderRadius: 10,
+                           border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--ink)' }}
+                />
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6, lineHeight: 1.5 }}>
+                  Il apparaîtra sur ta page Calls et ton calendrier. Sans lui, Fathom aura plus de mal à rattacher l&apos;enregistrement au bon call.
+                </div>
+              </div>
               <button className="btn-primary-brand" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700, marginTop: 20 }} disabled={saving || !manualValid}
                 onClick={confirmSecondCallManual}>
                 {saving ? 'Enregistrement…' : 'Enregistrer'}
