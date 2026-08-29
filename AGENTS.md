@@ -20,7 +20,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
   sans maintenance ; chaque point de la liste a trouvé un vrai défaut. L'audit
   YouTube qui l'a produite est dans `docs/youtube-scalabilite.md`.
 - **Toucher la pastille de notification, le service worker ou un squelette de
-  chargement** → `docs/pastille-et-sauts-accueil.md`. Neuf bugs, un seul
+  chargement** → `docs/pastille-et-sauts-accueil.md`. Dix bugs, un seul
   mécanisme : une valeur inconnue lue comme une valeur connue. Contient aussi
   les requêtes de diagnostic de la chaîne push.
 - **Auditer des chiffres affichés** → skill `audit-metrique-bout-en-bout`

@@ -1,12 +1,13 @@
 # Pastille de notification et sauts de mise en page
 
-Journal des défauts corrigés les 25–27 août 2026 sur la pastille PWA et sur les
-sursauts des deux accueils (coach et élève). Neuf bugs, **un seul mécanisme** : une valeur
+Journal des défauts corrigés les 25–29 août 2026 sur la pastille PWA et sur les
+sursauts des deux accueils (coach et élève). Dix bugs, **un seul mécanisme** : une valeur
 inconnue traitée comme une valeur connue.
 
 > À lire avant de toucher : `lib/pwaBadge.ts`, `public/sw.js` (bloc pastille),
 > `lib/usePushNotifications.ts`, `app/api/push/subscribe/route.ts`,
-> `lib/useNotifications.ts`, le squelette de `PageToday.tsx`.
+> `lib/useNotifications.ts`, `lib/useUnreadMessagesCount.ts`, le squelette de
+> `PageToday.tsx`.
 
 ---
 
@@ -25,11 +26,12 @@ lue comme une information**.
 | `loading` du contexte | « premier chargement » | tout rafraîchissement effaçait la page |
 | Squelette dessinant un bandeau conditionnel | « il y aura un bandeau » | saut dans les deux cas |
 | État local d'un hook sans cache | « il n'y a rien, donc on charge » | écran élève vidé à chaque navigation |
+| `data: null` d'une requête en échec | « rien en attente » | pastille effacée toute seule, revenue à l'ouverture |
 
 **Règle qui en découle** : avant qu'une valeur ne déclenche une action
 destructrice (effacer, supprimer, masquer), vérifier qu'elle a été *réellement
 observée*, et pas seulement initialisée. Un drapeau « cette source a parlé »
-coûte trois lignes ; les neuf bugs ci-dessous en découlent tous.
+coûte trois lignes ; les dix bugs ci-dessous en découlent tous.
 
 ---
 
@@ -175,6 +177,35 @@ immédiatement puis remplacé sur place.
 
 ---
 
+## 10. Une requête en échec valait zéro
+
+**La variante la plus insidieuse des dix.** Signalée ainsi côté élève : « j'ai un
+rapport à terminer, j'avais la pastille, au bout d'un moment elle a disparu, et
+quand j'ai ouvert l'app elle est réapparue ».
+
+`useNotifications` ne récupérait que `data` sur ses onze requêtes, jamais
+`error`. En cas d'échec — jeton expiré au réveil de la PWA, coupure réseau
+brève, RLS momentanément en défaut — Supabase renvoie `data: null`. Le code en
+faisait une liste vide, écrivait `setBadgeCount('notifs', 0)`, et la pastille
+s'effaçait : le rapport en attente semblait traité.
+
+Elle revenait à l'ouverture suivante, quand le jeton se rafraîchissait et que
+les requêtes repassaient. **C'est ce qui rendait le défaut si trompeur : il se
+corrigeait tout seul, donc tout accusait iOS.** Deux enquêtes ont porté sur la
+plateforme et sur les abonnements push avant que le symptôme exact — disparue
+seule, revenue à l'ouverture — ne désigne le vrai coupable.
+
+**Corrigé** : les sept requêtes PORTEUSES sortent sans rien écrire si elles
+échouent. L'état précédent reste affiché, le passage suivant (60 s, Realtime,
+retour au premier plan) corrige. Même correctif dans `useUnreadMessagesCount`,
+où `count: null` devenait 0 et effaçait la part « messages ».
+
+> 🔑 Les requêtes ANNEXES (noms d'élèves) n'ont volontairement pas ce garde :
+> leur échec ne retire aucune ligne, il laisse seulement un libellé de repli.
+> Le garde protège ce qui DÉCIDE d'un affichage, pas ce qui l'enrichit.
+
+---
+
 ## Le motif à réutiliser
 
 Quatre sources alimentaient l'accueil, **quatre repartaient de zéro** à chaque
@@ -183,13 +214,38 @@ forme du squelette. À chaque fois le même correctif — garder la dernière va
 connue, la réafficher tout de suite, la remplacer sur place.
 
 Avant d'ajouter un hook qui alimente un bloc **conditionnel** (un badge, une
-carte qui disparaît quand elle est vide), se demander : *que vaut-il au premier
-rendu après une navigation ?* Si la réponse est « vide », le bloc surgira et
-poussera ce qui le suit.
+carte qui disparaît quand elle est vide), se poser **deux** questions :
+
+1. *Que vaut-il au premier rendu après une navigation ?* Si la réponse est
+   « vide », le bloc surgira et poussera ce qui le suit.
+2. *Que vaut-il quand la requête échoue ?* Si la réponse est « vide », il
+   effacera un état vrai et se réparera tout seul au chargement suivant — le
+   pire des cas, parce que le défaut devient impossible à attribuer.
 
 > ⚠️ On ne mémorise **que des formes**, jamais du contenu. Réafficher un nom ou
 > une heure du lancement précédent afficherait un call annulé comme s'il tenait
 > toujours. Une place vide ne ment pas ; une donnée périmée, si.
+
+### Le test de la destructuration
+
+`const { data } = await supabase…` est la signature du défaut. Écarter `error`
+n'est pas une simplification : c'est décider que l'échec produira la même chose
+que le vide.
+
+```ts
+// ❌ un échec devient « rien en attente »
+const { data } = await requete;
+setBadgeCount('notifs', (data ?? []).length);
+
+// ✅ un échec ne dit rien, donc on n'écrit rien
+const { data, error } = await requete;
+if (error) return;
+setBadgeCount('notifs', (data ?? []).length);
+```
+
+Le garde protège ce qui **décide** d'un affichage. Une requête qui ne fait
+qu'**enrichir** (résoudre un nom, une photo) peut échouer sans garde : elle
+laisse un libellé de repli, elle ne retire aucune ligne.
 
 ---
 
