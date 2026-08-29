@@ -103,58 +103,68 @@ type CallPourContinuation = DatedCall & {
   invitee_name?: string | null;
 };
 
-/** Les identites que porte un call : jusqu'a deux, l'e-mail et le nom. */
-function identites(c: CallPourContinuation): string[] {
-  const ids: string[] = [];
-  const e = (c.invitee_email || '').trim().toLowerCase();
-  if (e) ids.push(`e:${e}`);
-  const n = (c.invitee_name || '').trim().toLowerCase();
-  if (n) ids.push(`n:${n}`);
-  return ids;
-}
+const email = (c: CallPourContinuation) => (c.invitee_email || '').trim().toLowerCase();
+const nom = (c: CallPourContinuation) => (c.invitee_name || '').trim().toLowerCase();
 
 /**
- * Regroupe les calls par PERSONNE — deux calls appartiennent au meme prospect
- * s'ils partagent l'e-mail OU le nom.
+ * Regroupe les calls par PERSONNE.
  *
- * Une cle unique « l'e-mail, repli sur le nom » ne suffit pas, et ce n'est pas
- * theorique : le 2e call saisi a la main par RapportModal ne portait QUE le nom,
- * quand le premier portait un e-mail. Les deux tombaient donc dans deux groupes
- * distincts — `e:...` d'un cote, `n:...` de l'autre — et la continuation ne se
- * declenchait jamais. Le repli doit se faire au niveau de la PAIRE, pas de chaque
- * call pris isolement.
+ * ── La regle est ASYMETRIQUE, et c'est le coeur du sujet ─────────────────────
+ * L'e-mail IDENTIFIE : deux e-mails differents, ce sont deux personnes, quoi que
+ * disent les noms. Deux « Jean Dupont » avec deux adresses ne doivent JAMAIS
+ * fusionner — sinon le 2e verrait son opportunite absorbee par celle du premier,
+ * et le denominateur du close rate retrecirait a tort.
  *
- * Union-find sur les deux espaces de cles : un call sans e-mail rejoint par son
- * nom le groupe d'un call qui en a un.
+ * Le nom, lui, ne fait que RAPPROCHER un call qui n'a pas d'e-mail. Il ne peut
+ * jamais separer ni fusionner deux calls qui en ont un.
+ *
+ * ── Pourquoi ne pas se contenter de l'e-mail ────────────────────────────────
+ * Parce que le 2e call n'en a pas toujours un. RapportModal le cree avec le seul
+ * `invitee_name` quand la date est saisie a la main. Sans passerelle par le nom,
+ * ce call ne rejoindrait jamais le premier et la continuation ne se declencherait
+ * pas — le defaut trouve le 2026-08-30 en preparant le test end-to-end. La route
+ * lui fait desormais heriter de l'e-mail du parent, mais les lignes deja ecrites
+ * n'en ont pas, et un import futur pourrait recommencer.
+ *
+ * ── L'ambiguite ne fusionne pas ─────────────────────────────────────────────
+ * Si un call sans e-mail porte un nom que se partagent DEUX e-mails distincts, on
+ * ne peut pas trancher. Il reste alors seul : il compte pour une opportunite de
+ * plus. C'est le choix conservateur — se tromper en gonflant le denominateur
+ * sous-estime la performance, se tromper en le retrecissant la surestime.
  */
 function groupesDeProspects(calls: CallPourContinuation[]): CallPourContinuation[][] {
-  const parent = new Map<string, string>();
-  const racine = (k: string): string => {
-    let r = k;
-    while (parent.get(r) !== r) r = parent.get(r)!;
-    // Compression de chemin : sans elle, une longue chaine de fusions degenere.
-    let cur = k;
-    while (parent.get(cur) !== r) { const suiv = parent.get(cur)!; parent.set(cur, r); cur = suiv; }
-    return r;
-  };
-  const ajoute = (k: string) => { if (!parent.has(k)) parent.set(k, k); };
+  const parEmail = new Map<string, CallPourContinuation[]>();
+  const sansEmail: CallPourContinuation[] = [];
+  // nom -> e-mails distincts portant ce nom. Un seul candidat = rapprochement sur.
+  const emailsDuNom = new Map<string, Set<string>>();
 
   for (const c of calls) {
-    const ids = identites(c);
-    ids.forEach(ajoute);
-    // Les identites d'un MEME call designent la meme personne : on les fusionne.
-    for (let i = 1; i < ids.length; i++) parent.set(racine(ids[i]), racine(ids[0]));
+    const e = email(c);
+    if (!e) { sansEmail.push(c); continue; }
+    const arr = parEmail.get(e);
+    if (arr) arr.push(c); else parEmail.set(e, [c]);
+    const n = nom(c);
+    if (n) {
+      const s = emailsDuNom.get(n);
+      if (s) s.add(e); else emailsDuNom.set(n, new Set([e]));
+    }
   }
 
-  const groupes = new Map<string, CallPourContinuation[]>();
-  for (const c of calls) {
-    const ids = identites(c);
-    if (!ids.length) continue;   // sans identite, aucun regroupement possible
-    const r = racine(ids[0]);
-    const arr = groupes.get(r);
-    if (arr) arr.push(c); else groupes.set(r, [c]);
+  const parNomSeul = new Map<string, CallPourContinuation[]>();
+  for (const c of sansEmail) {
+    const n = nom(c);
+    if (!n) continue;                       // aucune identite : jamais regroupe
+    const candidats = emailsDuNom.get(n);
+    if (candidats?.size === 1) {
+      parEmail.get([...candidats][0])!.push(c);
+    } else if (!candidats) {
+      const arr = parNomSeul.get(n);
+      if (arr) arr.push(c); else parNomSeul.set(n, [c]);
+    }
+    // candidats.size > 1 : ambigu, on laisse le call seul.
   }
-  return [...groupes.values()];
+
+  return [...parEmail.values(), ...parNomSeul.values()];
 }
 
 /** Identifiants des calls qui CONTINUENT une opportunite deja ouverte. */

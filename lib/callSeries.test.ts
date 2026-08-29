@@ -170,9 +170,9 @@ test('le rapprochement par le nom marche dans les deux sens', () => {
   assert.deepEqual([...ids], ['b']);
 });
 
-// Transitivite : trois calls relies par des identites qui ne se recouvrent que
-// deux a deux doivent former UN seul groupe (a--nom--b--email--c).
-test('trois calls se rejoignent par transitivite des identites', () => {
+// Un call sans e-mail rejoint le groupe de l'e-mail qui porte son nom, et la
+// chaine se poursuit normalement a l'interieur de ce groupe.
+test('un call sans e-mail rejoint le groupe puis la chaine se poursuit', () => {
   const ids = idsDeContinuation([
     { id: 'a', booked_at: '2026-08-05T10:00:00.000Z', outcome: 'second_call', invitee_name: 'Marie L' },
     { id: 'b', booked_at: '2026-08-12T10:00:00.000Z', outcome: 'second_call',
@@ -180,6 +180,35 @@ test('trois calls se rejoignent par transitivite des identites', () => {
     { id: 'c', booked_at: '2026-08-19T10:00:00.000Z', outcome: 'closed', invitee_email: 'marie@x.fr' },
   ]);
   assert.deepEqual([...ids].sort(), ['b', 'c']);
+});
+
+// ── L'E-MAIL IDENTIFIE, LE NOM NE FAIT QUE RAPPROCHER ───────────────────────
+// Deux homonymes avec deux adresses sont deux personnes. Les fusionner ferait
+// disparaitre une opportunite du denominateur et SURESTIMERAIT le close rate.
+test('deux homonymes avec des e-mails differents ne fusionnent jamais', () => {
+  const ids = idsDeContinuation([
+    { id: 'a', booked_at: '2026-08-10T10:00:00.000Z', outcome: 'second_call',
+      invitee_name: 'Jean Dupont', invitee_email: 'jean.dupont@a.fr' },
+    { id: 'b', booked_at: '2026-08-20T10:00:00.000Z', outcome: 'closed',
+      invitee_name: 'Jean Dupont', invitee_email: 'jean.dupont@b.fr' },
+  ]);
+  assert.equal(ids.size, 0);
+});
+
+// Le nom ne peut pas non plus servir de pont entre deux personnes distinctes via
+// un troisieme call sans e-mail : l'ambiguite ne fusionne pas, elle isole.
+test('un nom porte par deux e-mails distincts n absorbe pas le call anonyme', () => {
+  const ids = idsDeContinuation([
+    { id: 'a', booked_at: '2026-08-01T10:00:00.000Z', outcome: 'second_call',
+      invitee_name: 'Jean Dupont', invitee_email: 'jean@a.fr' },
+    { id: 'b', booked_at: '2026-08-02T10:00:00.000Z', outcome: 'second_call',
+      invitee_name: 'Jean Dupont', invitee_email: 'jean@b.fr' },
+    { id: 'anonyme', booked_at: '2026-08-20T10:00:00.000Z', outcome: 'closed',
+      invitee_name: 'Jean Dupont' },
+  ]);
+  // 'anonyme' reste seul : il compte pour une opportunite de plus, jamais pour
+  // une continuation devinee.
+  assert.equal(ids.has('anonyme'), false);
 });
 
 // La contrepartie a ne pas franchir : deux personnes differentes restent separees
