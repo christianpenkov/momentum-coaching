@@ -6013,9 +6013,18 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             const pct = Math.round((num / den) * 100);
             // Au-dessus de 100 %, le chiffre est exact mais il ne mesure plus une
             // conversion : il dit qu'il y a eu PLUS de calls que de clics enregistres.
-            // C'est possible et frequent — un prospect qui ouvre le lien hors
-            // navigateur, ou qui reserve depuis un lien transmis a la main, ne laisse
-            // aucun clic dans Short.io.
+            //
+            // Pourquoi c'est possible alors que le lien EST un lien Short.io : la source
+            // d'un call ne vient pas du clic, elle vient des UTM que porte l'adresse de
+            // DESTINATION. Le lien court redirige vers
+            // calendly.com/...?utm_source=ig&utm_medium=bio, et le webhook Calendly lit
+            // ces UTM (resource.tracking). Une fois la redirection faite, cette adresse
+            // complete est dans la barre du navigateur : la rouvrir depuis l'historique,
+            // ou la transmettre a quelqu'un, produit une reservation attribuee a la
+            // source SANS repasser par Short.io.
+            //
+            // Seconde cause, sans aucune defaillance de suivi : le clic et la
+            // reservation peuvent tomber de part et d'autre d'une frontiere de periode.
             //
             // Sans explication, « 150 % » se lit comme un bug de la plateforme. On le
             // sort donc de l'echelle de couleur (vert = bien, rouge = mal n'a plus de
@@ -6025,7 +6034,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             if (horsEchelle) {
               return {
                 pct, color: 'var(--muted)',
-                titre: 'Plus de rendez-vous que de clics enregistrés : certains prospects ont ouvert le lien sans que le clic soit tracé (hors navigateur, ou lien transmis à la main).',
+                titre: "Plus de rendez-vous que de clics sur cette période. C'est normal : le lien court redirige vers une adresse Calendly qui porte déjà la source. La rouvrir depuis l'historique du navigateur, ou la transmettre à quelqu'un, réserve un rendez-vous attribué à cette source sans repasser par le lien court. Un clic de fin de période peut aussi donner un rendez-vous pris la période suivante.",
               };
             }
             const color = isContent
