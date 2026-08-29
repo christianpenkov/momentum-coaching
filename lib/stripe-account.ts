@@ -97,6 +97,20 @@ export async function getStripeAccess(profileId: string): Promise<StripeAccess |
  *
  *     const lien = await appelStripe(access, () =>
  *       access.stripe.paymentLinks.create({ … }, access.opts));
+ *
+ * ── ⚠️ POURQUOI CES `await` SONT INDISPENSABLES ⚠️ ────────────────────────
+ * La première version lançait l'écriture sans l'attendre (`void noterEtat…`),
+ * pour ne pas ralentir l'appel. Testé en réel le 2026-08-29 avec une clé
+ * volontairement invalide : le ping a bien vu la panne et l'a comptée, et
+ * `integrations` n'a JAMAIS été mise à jour.
+ *
+ * Sur Vercel, la fonction est gelée dès la réponse renvoyée. Une promesse non
+ * attendue meurt avec elle — silencieusement, sans erreur, sans trace. Tout le
+ * mécanisme de détection était donc décoratif.
+ *
+ * Le coût réel est une lecture indexée sur une table de quelques lignes.
+ * `noterEtatStripe` sort d'ailleurs immédiatement quand l'état ne change pas,
+ * ce qui est le cas de la quasi-totalité des appels.
  */
 export async function appelStripe<T>(
   access: StripeAccess,
@@ -106,10 +120,10 @@ export async function appelStripe<T>(
     const r = await fn();
     // Le succès lève une panne déclarée : sans ça, un élève qui reconnecte
     // Stripe garderait un bandeau rouge jusqu'au prochain passage du cron.
-    void noterEtatStripe(access.profileId, { ok: true });
+    await noterEtatStripe(access.profileId, { ok: true });
     return r;
   } catch (err) {
-    void noterEtatStripe(access.profileId, { ok: false, err });
+    await noterEtatStripe(access.profileId, { ok: false, err });
     throw err;
   }
 }
