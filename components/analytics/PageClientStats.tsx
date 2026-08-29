@@ -91,6 +91,10 @@ interface IGPost {
   totalInteractions: number | null; follows: number | null; profileVisits: number | null;
   avgWatchTimeMs: number | null;
   totalWatchTimeMs: number | null; skipRate: number | null;
+  /** Duree du fichier video, en secondes. `null` quand elle n'a pas encore ete
+   *  mesuree, ou quand Meta ne sert pas le fichier (musique protegee) — un trou,
+   *  jamais un zero. Elle ne vient d'aucun champ d'API : voir mesurerDureePost. */
+  dureeSec: number | null;
 }
 interface YTStats {
   channelName: string; channelThumbnail: string; subscribers: number;
@@ -1971,6 +1975,19 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
               {(selectedPost.type === 'VIDEO' || selectedPost.type === 'REEL' || selectedPost.type === 'REELS') && <>
                 {[
                   ['⏱ Watch time moyen', selectedPost.avgWatchTimeMs !== null ? fmtMs(selectedPost.avgWatchTimeMs!) : null],
+                  // `!= null` (lache) et non `!== null` : une source qui ne transporte
+                  // pas le champ rend `undefined`, que `!== null` laisse passer — et
+                  // `undefined * 1000` vaut NaN, affiche « NaNs » a l'ecran.
+                  ['⏳ Durée', selectedPost.dureeSec != null ? fmtMs(selectedPost.dureeSec * 1000) : null],
+                  // Le temps de visionnage seul ne dit rien : « 17 s regardées » est
+                  // excellent sur un Reel de 20 s et médiocre sur un de 60 s. C'est ce
+                  // rapport-là qui compare deux contenus de longueurs différentes.
+                  // Mesuré sur le compte de test : le Reel le PLUS regardé en secondes
+                  // brutes (17,0 s) tombe à 48 % de rétention parce qu'il dure 35 s,
+                  // derrière un Reel de 9 s retenu à 80 %.
+                  ['📊 Rétention', selectedPost.dureeSec != null && selectedPost.dureeSec > 0 && selectedPost.avgWatchTimeMs != null
+                    ? fmtPct(Math.round((selectedPost.avgWatchTimeMs / 1000) / selectedPost.dureeSec * 100))
+                    : null],
                   ['⏩ Skip rate', selectedPost.skipRate !== null ? fmtPct(selectedPost.skipRate!) : null],
                 ].map(([label, value], i) => (
                   <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -7508,6 +7525,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     avgWatchTimeMs: row.avg_watch_time_ms ?? null,
     totalWatchTimeMs: row.total_watch_time_ms ?? null,
     skipRate: row.skip_rate ?? null,
+    dureeSec: row.duree_sec != null ? Number(row.duree_sec) : null,
   // Trié explicitement par date de publication décroissante — l'ordre du Map
   // (insertion = ordre de igPostsRows, trié par snapshot_date pas published_at)
   // ne coïncide avec l'ordre de publication qu'en période actuelle (tous les

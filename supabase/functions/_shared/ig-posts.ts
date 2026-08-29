@@ -39,6 +39,99 @@ export async function getIgCreds(supa: SupabaseClient, profileId: string): Promi
   return { token, igAccountId };
 }
 
+// ── Duree d'un post video, lue dans l'en-tete du fichier ────────────────────
+//
+// Meta ne sert AUCUN champ de duree sur l'objet media Instagram : `video_data`,
+// `duration`, `video_duration` et `length` repondent tous « Tried accessing
+// nonexisting field » sur graph.instagram.com (teste contre l'API reelle le
+// 2026-08-29). `video_data` existe sur l'objet VIDEO de la Facebook Graph API,
+// pas ici — c'est la confusion qui fait croire que la duree est inaccessible.
+//
+// Elle l'est par le fichier. `media_url` pointe le MP4 sur le CDN, et les fichiers
+// Instagram sont en faststart : la boite `moov` (donc `mvhd`, qui porte l'echelle
+// de temps et la duree) est au DEBUT. Une requete `Range` sur les premiers 400 Ko
+// suffit — mesure : 390 Ko et ~1,1 s par post, duree exacte a la milliseconde.
+//
+// RIEN N'EST STOCKE. Les octets transitent en memoire, on lit un nombre, le reste
+// est jete. Aucun fichier ne touche la base ni le stockage.
+//
+// Mesuree UNE SEULE FOIS par post (table ig_post_durees) : une duree ne change
+// jamais. C'est le profil « donnee immuable » de docs/checklist-scalabilite.md.
+const OCTETS_ENTETE_MP4 = 400_000;
+
+export function dureeDepuisEnteteMp4(octets: Uint8Array): number | null {
+  // Recherche de la signature `mvhd`. Elle est suivie d'un octet de version : 0 =
+  // champs 32 bits, 1 = champs 64 bits. L'echelle de temps et la duree ne sont pas
+  // au meme decalage dans les deux cas.
+  for (let i = 0; i + 36 < octets.length; i++) {
+    if (octets[i] !== 0x6d || octets[i + 1] !== 0x76 || octets[i + 2] !== 0x68 || octets[i + 3] !== 0x64) continue;
+    const vue = new DataView(octets.buffer, octets.byteOffset + i, Math.min(48, octets.length - i));
+    const version = vue.getUint8(4);
+    let echelle: number, duree: number;
+    if (version === 0) {
+      echelle = vue.getUint32(16);
+      duree = vue.getUint32(20);
+    } else {
+      echelle = vue.getUint32(24);
+      // Les durees Instagram tiennent tres largement dans 53 bits : Number suffit.
+      duree = Number(vue.getBigUint64(28));
+    }
+    if (!echelle || !duree) return null;
+    const secondes = duree / echelle;
+    // Garde-fou : une valeur absurde signifie qu'on est tombe sur une suite d'octets
+    // qui ressemblait a `mvhd` sans en etre un. Mieux vaut ne rien ecrire.
+    if (!Number.isFinite(secondes) || secondes <= 0 || secondes > 24 * 3600) return null;
+    return Math.round(secondes * 100) / 100;
+  }
+  return null;
+}
+
+/** Mesure et enregistre la duree d'un post, si elle n'est pas deja connue.
+ *  Rend `true` si un appel reseau a ete emis (pour que l'appelant compte son budget). */
+export async function mesurerDureePost(
+  supa: SupabaseClient,
+  profileId: string,
+  postId: string,
+  mediaUrl: string | null,
+): Promise<boolean> {
+  const { data: deja } = await supa
+    .from('ig_post_durees')
+    .select('post_id')
+    .eq('post_id', postId)
+    .maybeSingle();
+  if (deja) return false;
+
+  // Pas d'URL : Meta ne sert pas le fichier (observe sur les posts a musique
+  // protegee — un sur douze). On le marque pour ne pas reessayer indefiniment.
+  if (!mediaUrl) {
+    await supa.from('ig_post_durees').upsert(
+      { post_id: postId, profile_id: profileId, duree_sec: null, indisponible: true },
+      { onConflict: 'post_id' },
+    );
+    return false;
+  }
+
+  try {
+    const res = await fetch(mediaUrl, { headers: { Range: `bytes=0-${OCTETS_ENTETE_MP4 - 1}` } });
+    // Pas de `if (res.ok)` muet : un echec doit rester distinguable d'une absence.
+    // On ne marque PAS `indisponible` ici — l'URL du CDN expire, un 403 peut n'etre
+    // que cela, et le post sera reessaye au prochain passage.
+    if (!res.ok) return true;
+    const octets = new Uint8Array(await res.arrayBuffer());
+    const duree = dureeDepuisEnteteMp4(octets);
+    await supa.from('ig_post_durees').upsert(
+      duree != null
+        ? { post_id: postId, profile_id: profileId, duree_sec: duree, indisponible: false }
+        : { post_id: postId, profile_id: profileId, duree_sec: null, indisponible: true },
+      { onConflict: 'post_id' },
+    );
+    return true;
+  } catch {
+    // Reseau : on ne conclut rien, on reessaiera.
+    return true;
+  }
+}
+
 const permanentThumbnailCache = new Map<string, string | null>();
 export async function getPermanentThumbnail(supa: SupabaseClient, postId: string, metaUrl: string | null): Promise<string | null> {
   if (!metaUrl) return null;
@@ -203,6 +296,20 @@ export async function snapshotIgPosts(
 
         const metaThumbnailUrl = post.thumbnail_url || post.media_url || null;
         const permanentThumbnail = await getPermanentThumbnail(supa, post.id, metaThumbnailUrl);
+
+        // Duree du fichier, mesuree UNE SEULE FOIS par post et jamais rafraichie.
+        // Elle n'existe dans aucun champ de l'API (verifie contre Meta), elle se lit
+        // dans l'en-tete du MP4 — voir mesurerDureePost. Sans elle, `avg_watch_time_ms`
+        // ne dit rien : « 11,3 s regardees » n'a de sens que rapporte a la longueur du
+        // Reel. Best-effort : un echec ne doit jamais faire tomber le snapshot, qui
+        // porte toutes les autres metriques du post.
+        if (isReel) {
+          try {
+            await mesurerDureePost(supa, profileId, post.id, post.media_url || null);
+          } catch (e: any) {
+            console.log(`[snapshotIgPosts] ${post.id} duree ignoree: ${e?.message || 'unknown'}`);
+          }
+        }
 
         const row: Record<string, any> = {
           profile_id: profileId,
