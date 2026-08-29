@@ -1,7 +1,9 @@
 # Handoff — Audit « Mes Stats »
 
-Brief de reprise. YouTube, Instagram et **Business micro** sont clos.
-Reste **Funnel & Calls**. État arrêté au **2026-08-29**.
+Brief de reprise. YouTube, Instagram et **Business micro** sont clos — pour Business
+micro il ne reste qu'un constat à faire le 31 août, aucune correction en attente.
+Reste **Funnel & Calls** : brief complet dans `docs/handoff-audit-funnel-calls.md`.
+État arrêté au **2026-08-29**.
 
 ---
 
@@ -140,24 +142,41 @@ n'arrive pas. L'agrégation SQL ne demande aucun entretien.
 
 ### Ce qui reste ouvert sur Business micro
 
-État au **2026-08-29**. Tout ce qui suit a été trouvé, mesuré, et laissé ouvert
-volontairement — rien n'est en attente par oubli.
+État au **2026-08-29, fin de chantier**. Une seule chose, et ce n'est pas une
+correction en attente.
 
-- **Un taux de conversion peut dépasser 100 %** — un call attribué sans clic tracké.
-  Le chiffre est factuel, l'affichage déroutant. Pas de correction évidente : plafonner
-  masquerait de l'information.
-- **La colonne « Clics / Liens » du breakdown mélange deux unités** : des clics bruts
-  sur les lignes de contenu, un nombre de liens ou de leads sur les lignes DM. La somme
-  ne réconcilie donc jamais avec « Clics totaux ». Le libellé l'admet à moitié.
-- **Avertissement Recharts `width(-1) and height(-1)`** dans la console. Un graphique se
-  monte un instant dans un conteneur de taille nulle. Rien de visible à l'écran, aucun
-  impact sur les chiffres.
-- **Clics de liens de paiement Stripe** exclus de « Clics totaux » — décision assumée,
-  ce n'est pas de l'acquisition. Décision de Chris : les afficher côté Paiements.
-  Non fait : ce chantier était en cours pendant l'audit.
-- **Ventilations pays / ville / navigateur / OS / UTM** : plus collectées depuis le
-  passage au flux de clics. Personne ne les lit. Le pourquoi, le où toucher et le piège
-  à éviter sont dans `docs/shortio-pays-ville-navigateur-des-clics.md`.
+- **La première clôture de période Instagram n'a jamais tourné** — voir « Le rendez-vous
+  du 31 août » plus bas. C'est le seul point qui exige encore une action : constater.
+
+Et une chose qui n'est pas un défaut mais qu'il faut savoir :
+
+- **Le détail des clics (pays, ville, navigateur, OS, réseau) n'est plus collecté**
+  depuis le passage au flux de clics. Aucun écran ne le lit. Décision de Chris :
+  documenter plutôt que relancer. Le pourquoi, le où toucher et le piège à éviter sont
+  dans `docs/shortio-pays-ville-navigateur-des-clics.md`. **Rien à faire tant que
+  personne ne le demande.**
+
+### Trois points d'affichage traités le 2026-08-29
+
+Ils figuraient comme ouverts jusqu'à ce jour. Ce qui a été corrigé, c'est la
+**lisibilité** ; les deux premiers faits sous-jacents, eux, restent vrais et sont
+normaux.
+
+- **Un taux de conversion peut dépasser 100 %** — un call attribué sans clic tracké
+  (lien ouvert hors navigateur, ou transmis à la main). Le chiffre n'est pas plafonné :
+  plafonner masquerait de l'information. Au-dessus de 100 % le badge **sort de l'échelle
+  de couleur** (« vert = bien, rouge = mal » n'a plus de sens) et porte une infobulle
+  qui explique le phénomène.
+- **La colonne « Clics / Liens » mélange deux unités** — des clics sur les lignes de
+  contenu, des liens envoyés ou des leads uniques sur les lignes DM. Les deux unités
+  restent différentes, c'est inhérent au tableau ; **chaque ligne écrit désormais la
+  sienne**. C'est aussi ce qui explique que cette colonne ne réconcilie jamais avec
+  « Clics totaux ».
+- **Avertissement Recharts `width(-1) and height(-1)`** — isolé à la mesure : 0 sur
+  l'onglet par défaut, exactement 1 au clic sur Business micro. `ResponsiveContainer`
+  mesurait son parent avant que l'observateur de taille n'ait livré ses dimensions.
+  Corrigé par `initialDimension` (Recharts 3.8). **Vérifié après déploiement : 0
+  occurrence.**
 
 ### Ce qui a été fermé le 2026-08-29
 
@@ -171,6 +190,11 @@ volontairement — rien n'est en attente par oubli.
   `clicsHumains`. Le suffixe « 30d » était faux — la fenêtre est celle demandée.
 - Icônes de colonne posées sur les trois tableaux
   (`components/analytics/IconesColonnes.tsx`).
+- **Clics des liens de paiement Stripe** : traité par le chantier Paiements. Les trois
+  états sont sur la fiche client, l'onglet Relances et l'écran de modification du
+  montant — avec la **date de première ouverture**, que ni le handoff ni le plan
+  n'avaient obtenue. Vérifié en base : 5 liens, 5 suivis, `link_category` à `null`
+  partout. Voir `docs/handoff-clics-liens-paiement.md`.
 
 ### Le rendez-vous du 31 août
 
