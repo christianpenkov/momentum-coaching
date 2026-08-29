@@ -351,9 +351,35 @@ function buildGroups(deals: DealRow[], details: Record<string, DealDetail>): Gro
       items: dueNow,
     },
     {
+      key: 'retard', title: 'Paiement en retard', tone: 'red',
+      help: 'Le lien est parti — ouvert, parfois — mais la date est passée et l\'argent n\'est pas arrivé. Un message personnel vaut mieux qu\'un rappel automatique.',
+      items: enRetard,
+    },
+    {
       key: 'waiting', title: 'En attente de paiement', tone: 'amber',
-      help: 'Le lien est parti, le paiement n\'est pas arrivé. Un message personnel vaut souvent mieux qu\'un rappel.',
+      help: 'Le lien est parti, la date n\'est pas encore là. Rien à faire pour l\'instant.',
       items: waiting,
     },
+    {
+      key: 'sans-lien', title: 'Aucun moyen de paiement', tone: 'taupe',
+      help: 'Ces ventes sont signées mais rien n\'a été mis en place pour les encaisser — ni lien, ni échéancier. Ouvre la fiche pour choisir comment.',
+      items: sansLien,
+    },
   ];
+}
+
+/**
+ * Le nombre affiché sur l'onglet.
+ *
+ * ── Pourquoi ça passe par `buildGroups` ────────────────────────────────────
+ * La pastille comptait « toutes les ventes ni soldées ni annulées », un calcul
+ * qui n'avait rien de commun avec ce que l'onglet affiche vraiment. Les deux
+ * ont fini par se contredire à voix haute : « 6 » sur l'onglet, « Rien à
+ * relancer » à l'intérieur.
+ *
+ * Un compteur qui ne compte pas ce qu'il annonce est pire qu'absent : il envoie
+ * chercher un travail qui n'existe pas.
+ */
+export function compterRelances(deals: DealRow[], details: Record<string, DealDetail>): number {
+  return buildGroups(deals, details).reduce((s, g) => s + g.items.length, 0);
 }

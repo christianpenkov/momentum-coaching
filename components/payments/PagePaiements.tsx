@@ -6,7 +6,7 @@ import Icon from '@/components/ui/Icon';
 import FicheClient from './FicheClient';
 import ListeClients from './ListeClients';
 import ReconcileTab from './ReconcileTab';
-import RelancesTab from './RelancesTab';
+import RelancesTab, { compterRelances } from './RelancesTab';
 import CreateLinkModal from './CreateLinkModal';
 import { useIsMobile } from '@/lib/useIsMobile';
 import type { PaymentsData, DealRow, PersonRow } from './types';
@@ -110,7 +110,10 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
 
   const k = data?.kpis;
   const orphanCount = data?.orphans.length ?? 0;
-  const relanceCount = useMemo(() => countRelances(deals), [deals]);
+  const relanceCount = useMemo(
+    () => compterRelances(deals, data?.details ?? {}),
+    [deals, data?.details],
+  );
 
   return (
     <div className="page-content" style={{ paddingBottom: 40 }}>
@@ -616,6 +619,4 @@ function subtitleFor(tab: Tab, clients: number, deals: number, orphans: number, 
 }
 
 /** Un deal appelle une relance dès qu'il reste de l'argent à aller chercher. */
-function countRelances(deals: DealRow[]): number {
-  return deals.filter(d => d.status !== 'paid' && d.status !== 'canceled').length;
-}
+
