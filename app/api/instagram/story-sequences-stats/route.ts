@@ -134,6 +134,27 @@ export async function GET(request: Request) {
       .eq('coach_id', targetProfileId)
       .eq('utm_content', sequenceId)
       .neq('ignored', true);
+    // ── LE REPLI PAR LEAD NE VAUT QUE POUR LES CALLS VENUS D'UN DM ──────────
+    //
+    // Le repli ci-dessous attribue à cette séquence les calls de ses leads quand
+    // `utm_content` est nul. L'hypothèse : « un call de ce lead sans contenu
+    // identifié vient de cette séquence ».
+    //
+    // Fusionner deux fiches casse cette hypothèse. La fusion pose `ig_lead_id`
+    // sur les rendez-vous d'une fiche e-mail — quelqu'un venu d'une bio ou d'une
+    // description YouTube. Et en base, les 5 calls `ig_bio` n'ont AUCUN
+    // `utm_content` : fusionné dans un lead qui appartient à une séquence
+    // stories, un de ces calls lui serait crédité, avec son chiffre d'affaires,
+    // alors que la personne n'a jamais vu la story.
+    //
+    // Le garde porte sur la SOURCE, pas sur une liste de calls fusionnés. Une
+    // séquence stories se joue en DM : seul un call `ig_dm` peut en venir. La
+    // source dit d'où la personne arrive, `ig_lead_id` ne dit que chez qui elle
+    // est rangée — et la fusion change le second sans toucher au premier.
+    //
+    // Mesuré avant d'écrire : les 4 calls porteurs d'un `ig_lead_id` sont
+    // exactement les 4 calls `ig_dm`. Zéro chiffre ne bouge aujourd'hui. C'est
+    // demain, après la première fusion, que les deux auraient divergé.
     let byLeadQuery = leadIds.length
       ? serviceSupabase
           .from('calls')
@@ -141,6 +162,7 @@ export async function GET(request: Request) {
           .eq('coach_id', targetProfileId)
           .in('ig_lead_id', leadIds)
           .is('utm_content', null)
+          .eq('source', 'ig_dm')
           .neq('ignored', true)
       : null;
     if (firstConnectedAt) {

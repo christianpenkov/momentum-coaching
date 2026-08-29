@@ -958,7 +958,13 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
     ...igPosts.map(p => {
       const postCalls = igCallsAll.filter(c => {
         if (c.utm_content) return c.utm_content === p.id;
-        return c.ig_lead_id ? leadIdToMediaId.get(c.ig_lead_id) === p.id : false;
+        // Le repli par lead ne vaut que pour un call venu d'un DM. Fusionner deux
+        // fiches pose `ig_lead_id` sur les rendez-vous d'une fiche e-mail — une
+        // bio, une description YouTube — qui n'ont pas d'`utm_content` : ils
+        // seraient crédités au post dont le lead vient, sans l'avoir jamais vu.
+        // `source` dit d'où la réservation arrive, `ig_lead_id` seulement chez
+        // qui elle est rangée, et la fusion change le second sans toucher au premier.
+        return c.source === 'ig_dm' && c.ig_lead_id ? leadIdToMediaId.get(c.ig_lead_id) === p.id : false;
       });
       const callsBooked = postCalls.filter(c => c.status === 'active').length;
       const noShowCount = postCalls.filter(c => c.no_show).length;
@@ -5312,7 +5318,9 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     // de la même personne — un call booké en janvier depuis un post se retrouverait
     // attribué à tort à une story réclamée par la même personne en juillet). Fallback
     // sur ig_lead_id seulement si utm_content est absent (ex: cold DM sans lien traqué).
-    const matchesContent = (c: CallRecord) => c.utm_content ? c.utm_content === postId : (c.ig_lead_id ? leadIdToMediaId?.get(c.ig_lead_id) === postId : false);
+    // `source === 'ig_dm'` : même garde que la vue des posts. Sans elle, un call
+    // fusionné venu d'une bio serait attribué au contenu dont le lead vient.
+    const matchesContent = (c: CallRecord) => c.utm_content ? c.utm_content === postId : (c.source === 'ig_dm' && c.ig_lead_id ? leadIdToMediaId?.get(c.ig_lead_id) === postId : false);
     const postCalls = (calls && leadIdToMediaId)
       ? calls.filter(c => matchesContent(c) && isInPeriod(callPeriodDate(c)))
       : [];
@@ -5329,7 +5337,9 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const callsHonoredDesc = postCallsDesc.filter(c => isCallHonored(c, now)).length;
     const closedDesc = postCallsDesc.filter(c => c.deal_closed).length;
     const revenueDesc = postCallsDesc.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
-    const postCallsLm = postCalls.filter(c => !!c.ig_lead_id);
+    // « via lead magnet » se lit sur la source, pas sur le rattachement — même
+    // correction que le tunnel de l'accueil (commit 4a7a792).
+    const postCallsLm = postCalls.filter(c => c.source === 'ig_dm');
     const callsBookedLm = postCallsLm.filter(c => c.status === 'active').length;
     const callsHonoredLm = postCallsLm.filter(c => isCallHonored(c, now)).length;
     const closedLm = postCallsLm.filter(c => c.deal_closed).length;
