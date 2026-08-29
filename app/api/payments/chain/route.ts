@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
 
   const { data: deal } = await supa
     .from('deals')
-    .select('profile_id, ig_lead_id, call_id, signed_at, first_touch_content_id, attribution_source, short_url, stripe_payment_link_id, status')
+    .select('profile_id, ig_lead_id, call_id, signed_at, first_touch_content_id, attribution_source, short_url, stripe_payment_link_id, stripe_subscription_id, status')
     .eq('id', dealId)
     .maybeSingle();
 
@@ -108,14 +108,25 @@ export async function GET(request: NextRequest) {
     .eq('deal_id', dealId)
     .eq('status', 'succeeded');
 
-  steps.push({
-    label: !hasLink
-      ? 'Deal signé (aucun lien de paiement)'
+  // ⚠️ LE PRÉLÈVEMENT AUTOMATIQUE D'ABORD.
+  //
+  // Cette étape ne regardait que les liens. Or en prélèvement automatique, le
+  // lien de mise en place a fait son travail puis disparaît de la vente : la
+  // ligne annonçait donc « aucun lien de paiement » — soit « rien n'est en
+  // place » — sur une vente que Stripe prélève tous les mois. L'exact contraire.
+  //
+  // L'abonnement est le fait le plus fort de la chaîne : il prime sur tout.
+  const label = deal.stripe_subscription_id
+    ? 'Deal signé, prélèvements en place'
+    : !hasLink
+      // Même vocabulaire que le groupe de relances : ce n'est pas un lien qui
+      // manque, c'est un moyen d'encaisser.
+      ? 'Deal signé, sans moyen de paiement'
       : (paidCount ?? 0) > 0
         ? 'Deal signé, lien de paiement payé'
-        : 'Deal signé, lien de paiement créé',
-    date: fmtDate(deal.signed_at),
-  });
+        : 'Deal signé, lien de paiement créé';
+
+  steps.push({ label, date: fmtDate(deal.signed_at) });
 
   return NextResponse.json({ steps });
 }
