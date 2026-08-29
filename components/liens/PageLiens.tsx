@@ -67,6 +67,11 @@ interface SeqDm {
 // réellement envoyé si on ne remplit rien — s'ils divergent, il ment.
 const DM2_DEFAULT_MESSAGE = 'Voici ton lien 👇';
 const DM2_DEFAULT_BUTTON = '📖 Accéder au lien';
+// Mêmes valeurs pour le DM1. Elles étaient écrites en dur à cinq endroits, et les
+// stories en avaient d'autres — d'où deux propositions de départ différentes pour
+// la même séquence selon l'écran d'où on partait.
+const DM1_DEFAULT_MESSAGE = '👋 Voici le lien comme promis !';
+const DM1_DEFAULT_BUTTON = '🚀 Je veux le lien !';
 const AMBER_SOFT = 'var(--amber-soft)';
 // Ardoise du design system (DESIGN.md) — remplace l'ancien bleu-violet #6b7cde qui
 // n'appartenait pas à la palette Momentum. BLUE/BLUE_SOFT gardés comme alias pour
@@ -1096,7 +1101,7 @@ function Dm1Editor({ value, onChange, saved, border, amber, bg, ink }: {
     <textarea
       value={value}
       onChange={e => onChange(e.target.value)}
-      placeholder="Ex : 👋 Voici le lien comme promis !"
+      placeholder={`Ex : ${DM1_DEFAULT_MESSAGE}`}
       rows={3}
       style={{
         width: '100%', padding: '10px 12px', fontSize: 12, lineHeight: 1.8,
@@ -1220,7 +1225,7 @@ function SequenceDm({
                 value={seq.accrocheBtn}
                 onChange={e => setChamp('accrocheBtn', e.target.value.slice(0, 20))}
                 maxLength={20}
-                placeholder="🚀 Je veux le lien !"
+                placeholder={DM1_DEFAULT_BUTTON}
                 style={{
                   padding: '8px 16px', fontSize: 13, fontWeight: 600,
                   borderRadius: 18, border: `1.5px solid ${seq.accrocheBtn === seqRef.accrocheBtn ? 'var(--accent-brand-soft)' : AMBER}`,
@@ -1447,8 +1452,8 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
   // laissés vides : un champ vide ne montrerait pas ce qui part réellement. Effacer
   // tout fait réapparaître la même valeur en placeholder gris.
   const [seq, setSeq] = useState({
-    accroche: post.dmLmMessage || `👋 Voici le lien comme promis !`,
-    accrocheBtn: post.dmButtonText || '🚀 Je veux le lien !',
+    accroche: post.dmLmMessage || DM1_DEFAULT_MESSAGE,
+    accrocheBtn: post.dmButtonText || DM1_DEFAULT_BUTTON,
     lien: post.dmLinkMessage || DM2_DEFAULT_MESSAGE,
     lienBtn: post.dmLinkButtonText || DM2_DEFAULT_BUTTON,
     relance: post.dmOpenerMessage || '',
@@ -1472,8 +1477,8 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
     // finissaient toujours par en laisser un derrière, qui gardait alors la valeur
     // du contenu précédent.
     const depuisPost = {
-      accroche: post.dmLmMessage || `👋 Voici le lien comme promis !`,
-      accrocheBtn: post.dmButtonText || '🚀 Je veux le lien !',
+      accroche: post.dmLmMessage || DM1_DEFAULT_MESSAGE,
+      accrocheBtn: post.dmButtonText || DM1_DEFAULT_BUTTON,
       lien: post.dmLinkMessage || DM2_DEFAULT_MESSAGE,
       lienBtn: post.dmLinkButtonText || DM2_DEFAULT_BUTTON,
       relance: post.dmOpenerMessage || '',
@@ -1713,8 +1718,8 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
             // Séquence remise à ses valeurs par défaut, référence comprise : après
             // une dissociation il n'y a plus rien à enregistrer.
             const parDefaut = {
-              accroche: `👋 Voici le lien comme promis !`,
-              accrocheBtn: '🚀 Je veux le lien !',
+              accroche: DM1_DEFAULT_MESSAGE,
+              accrocheBtn: DM1_DEFAULT_BUTTON,
               lien: DM2_DEFAULT_MESSAGE,
               lienBtn: DM2_DEFAULT_BUTTON,
               relance: '',
@@ -1825,7 +1830,7 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
               value={seq.accrocheBtn}
               onChange={e => setChamp('accrocheBtn', e.target.value.slice(0, 20))}
               maxLength={20}
-              placeholder="🚀 Je veux le lien !"
+              placeholder={DM1_DEFAULT_BUTTON}
               style={{
                 alignSelf: 'flex-start', padding: '8px 16px', fontSize: 13, fontWeight: 600,
                 borderRadius: 18, border: `1.5px solid ${BLUE_SOFT}`,
@@ -3085,11 +3090,16 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
   // est le message du lien et `dm2_story_message` la relance (voir la migration
   // d'unification). La traduction se fait ici, au bord, pour que l'éditeur
   // partagé ne connaisse qu'une seule forme.
+  // Les MÊMES textes par défaut que les posts. Les stories en avaient d'autres,
+  // qui affichaient « {{username}} » et « {{lien_lm}} » en clair dans le champ :
+  // les deux variables sont bien remplacées à l'envoi, mais à l'écran elles se
+  // lisent comme des trous. Un coach qui ouvre les deux écrans doit y trouver la
+  // même proposition de départ.
   const depuisStory = (p: Post): SeqDm => ({
-    accroche:    p.dmLmMessage || "Salut {{username}} ! Je t'envoie ça tout de suite 👇",
-    accrocheBtn: p.dmButtonText || '🚀 Je veux le lien !',
-    lien:        p.dm1Message || '👋 {{username}} voici ton lien : {{lien_lm}}',
-    lienBtn:     p.dmLinkButtonText || '📖 Accéder au lien',
+    accroche:    p.dmLmMessage || DM1_DEFAULT_MESSAGE,
+    accrocheBtn: p.dmButtonText || DM1_DEFAULT_BUTTON,
+    lien:        p.dm1Message || DM2_DEFAULT_MESSAGE,
+    lienBtn:     p.dmLinkButtonText || DM2_DEFAULT_BUTTON,
     relance:     p.dm2StoryMessage || '',
   });
   const [seq, setSeq] = useState<SeqDm>(() => depuisStory(primary));

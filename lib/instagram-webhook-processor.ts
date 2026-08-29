@@ -224,6 +224,10 @@ const DM3_DELAY_MS = 2 * 60 * 1000;
  */
 const DM2_DEFAULT_MESSAGE = 'Voici ton lien 👇';
 const DM2_DEFAULT_BUTTON = '📖 Accéder au lien';
+// Repli du DM1, commun aux posts ET aux stories. Le chemin story lisait
+// `seq.dm_lm_message || ''` : une accroche absente partait donc VIDE, alors que le
+// chemin post retombait sur ce texte. Deux comportements pour la même panne.
+const DM1_DEFAULT_MESSAGE = '👋 Clique sur le bouton pour recevoir le lien !';
 
 async function attemptShortioCreate(apiKey: string, payload: object): Promise<Response> {
   const opts: RequestInit = {
@@ -1026,7 +1030,7 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
             // pour le detail du quota).
             const shortLink: string | null = null;
 
-            const accrocheText = (seq.dm_lm_message || '')
+            const accrocheText = (seq.dm_lm_message || DM1_DEFAULT_MESSAGE)
               .replace(/{{username}}/gi, `@${senderUsername || 'toi'}`)
               .replace(/\s{2,}/g, ' ')
               .trim();
@@ -1337,7 +1341,7 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
       const shortLink = cl.lm_short_url;
 
       // DM1 : accroche SANS le lien — on retire {{lien_lm}} et on nettoie les espaces doubles
-      const rawDm1 = cl.dm_lm_message || `👋 Clique sur le bouton pour recevoir le lien !`;
+      const rawDm1 = cl.dm_lm_message || DM1_DEFAULT_MESSAGE;
       const dm1Text = rawDm1
         .replace(/\{\{lien_lm\}\}/gi, '')
         .replace(/{{username}}/gi, `@${commenterUsername || 'toi'}`)
