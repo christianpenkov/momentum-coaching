@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { callDayKey, bucketCallsByBookedDay, parisDayRange, tauxOuTrou } from './callSeries.ts';
+import { callDayKey, bucketCallsByBookedDay, parisDayRange, tauxOuTrou, idsDeContinuation } from './callSeries.ts';
 
 // Cas qui a motivé la fonction : un call réservé entre minuit et 2 h heure de Paris
 // tombe la VEILLE en UTC. Le découpage précédent (`new Date('YYYY-MM-DD')`, donc
@@ -72,4 +72,75 @@ test('un taux à dénominateur nul est un trou, pas un zéro', () => {
   assert.equal(tauxOuTrou(3, 0), null);
   assert.equal(tauxOuTrou(0, 4), 0);
   assert.equal(tauxOuTrou(1, 2), 50);
+});
+
+// ─── Close rate par opportunite ──────────────────────────────────────────────
+
+const c = (id: string, jour: string, extra: { outcome?: string } = {}) => ({
+  id,
+  booked_at: `2026-08-${jour}T14:00:00.000Z`,
+  invitee_email: 'prospect@exemple.fr',
+  outcome: undefined as string | undefined,
+  ...extra,
+});
+
+test('un 2e call declare continue l opportunite : c est le SECOND qui est exclu', () => {
+  const ids = idsDeContinuation([
+    c('a', '10', { outcome: 'second_call' }),
+    c('b', '20', { outcome: 'closed' }),
+  ]);
+  assert.deepEqual([...ids], ['b']);
+});
+
+// C'est le cas que Chris a souleve : deux rendez-vous eloignes ne sont pas une
+// continuation, meme pour le meme prospect. Ce n'est pas le DELAI qui les separe,
+// c'est l'absence de declaration.
+test('un rebooking spontane compte pour deux opportunites, quel que soit le delai', () => {
+  const ids = idsDeContinuation([
+    { id: 'a', booked_at: '2026-05-01T14:00:00.000Z', outcome: 'to_recontact', invitee_email: 'p@x.fr' },
+    { id: 'b', booked_at: '2026-08-20T14:00:00.000Z', outcome: 'closed', invitee_email: 'p@x.fr' },
+  ]);
+  assert.equal(ids.size, 0);
+});
+
+test('trois calls chaines : les deux suivants sont des continuations', () => {
+  const ids = idsDeContinuation([
+    c('a', '05', { outcome: 'second_call' }),
+    c('b', '12', { outcome: 'second_call' }),
+    c('c', '19', { outcome: 'closed' }),
+  ]);
+  assert.deepEqual([...ids].sort(), ['b', 'c']);
+});
+
+test('deux prospects distincts ne se melangent jamais', () => {
+  const ids = idsDeContinuation([
+    { id: 'a', booked_at: '2026-08-10T14:00:00.000Z', outcome: 'second_call', invitee_email: 'un@x.fr' },
+    { id: 'b', booked_at: '2026-08-20T14:00:00.000Z', outcome: 'closed', invitee_email: 'deux@x.fr' },
+  ]);
+  assert.equal(ids.size, 0);
+});
+
+// Repli sur le nom quand l'e-mail manque, et jamais de regroupement sans identite :
+// sinon tous les calls anonymes formeraient un seul « prospect » geant.
+test('repli sur le nom, et aucun regroupement sans identite', () => {
+  assert.deepEqual([...idsDeContinuation([
+    { id: 'a', booked_at: '2026-08-10T14:00:00.000Z', outcome: 'second_call', invitee_name: 'Jean Dupont' },
+    { id: 'b', booked_at: '2026-08-20T14:00:00.000Z', outcome: 'closed', invitee_name: 'jean dupont' },
+  ])], ['b']);
+  assert.equal(idsDeContinuation([
+    { id: 'a', booked_at: '2026-08-10T14:00:00.000Z', outcome: 'second_call' },
+    { id: 'b', booked_at: '2026-08-20T14:00:00.000Z', outcome: 'closed' },
+  ]).size, 0);
+});
+
+// L'INVARIANT metier : un prospect qui fait deux rendez-vous et signe au second
+// vaut 1 deal pour 1 opportunite, pas pour 2 rendez-vous.
+test('close rate par opportunite : 100 % la ou le comptage par rendez-vous disait 50 %', () => {
+  const calls = [c('a', '10', { outcome: 'second_call' }), c('b', '20', { outcome: 'closed' })];
+  const continuations = idsDeContinuation(calls);
+  const honores = calls.length;
+  const closes = calls.filter(x => x.outcome === 'closed').length;
+  const opportunites = calls.filter(x => !continuations.has(x.id)).length;
+  assert.equal(Math.round((closes / honores) * 100), 50);
+  assert.equal(Math.round((closes / opportunites) * 100), 100);
 });

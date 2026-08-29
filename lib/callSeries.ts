@@ -62,3 +62,72 @@ export function tauxOuTrou(numerateur: number, denominateur: number): number | n
   if (denominateur <= 0) return null;
   return (numerateur / denominateur) * 100;
 }
+
+// ─── Continuation : le 2e rendez-vous d'un MEME prospect ─────────────────────
+//
+// Le close rate se calcule par OPPORTUNITE, pas par rendez-vous. C'est la reponse
+// unanime du marche (Guideflow, Trellus) : une opportunite compte UNE fois au
+// denominateur, quel que soit le nombre de rendez-vous qu'elle contient. Le
+// no-show, lui, reste par REUNION — chez HubSpot c'est une propriete de l'objet
+// meeting (`outcome no show count`, 1 ou 0 par reunion), jamais du contact. Les
+// deux metriques n'ont deliberement pas le meme grain : l'une mesure la capacite a
+// closer une personne, l'autre la fiabilite d'un creneau.
+//
+// ── Pourquoi la declaration, et pas un delai ─────────────────────────────────
+// Un seuil de temps (« moins d'un mois = meme opportunite ») couperait en deux un
+// 2e call cale a cinq semaines, fusionnerait a tort deux vraies opportunites
+// rapprochees, et imposerait un nombre magique indefendable. La continuation est
+// DECLAREE : le vendeur repond « 2eme call » dans son rapport, ce qui pose
+// `outcome = 'second_call'` sur le call precedent. Un prospect qui rebooke
+// spontanement trois mois plus tard ne passe jamais par la — son call precedent
+// porte `to_recontact` ou `lost`.
+//
+// ── Pourquoi on ne lit PAS le drapeau is_follow_up ───────────────────────────
+// Il est pose par un PATCH dont le code TOLERE l'echec (« la seule consequence est
+// un call non marque suivi, un ecart de comptage »). S'y fier heriterait de ce
+// trou. On relit donc l'outcome du call precedent, qui est ecrit dans le meme
+// patch que le rapport lui-meme et ne peut pas manquer. Meme principe que la
+// refonte du pipeline du 2026-08-27 : l'issue se calcule a l'affichage, jamais
+// stockee deux fois.
+//
+// ── Quel call est exclu ──────────────────────────────────────────────────────
+// Le SECOND, pas le premier. L'opportunite est representee par son premier
+// rendez-vous ; le deal, lui, est compte la ou il a ete signe. Un prospect qui fait
+// deux calls et signe au second donne donc 1 deal / 1 opportunite = 100 %, la ou le
+// comptage par rendez-vous disait 50 %.
+
+type CallPourContinuation = DatedCall & {
+  id: string;
+  outcome?: string | null;
+  invitee_email?: string | null;
+  invitee_name?: string | null;
+};
+
+/** Cle d'identite d'un prospect : l'e-mail, repli sur le nom.
+ *  docs/perimetre-stats-referentiel.md, regle 3 — un prospect est une PERSONNE. */
+function clefProspect(c: CallPourContinuation): string | null {
+  const e = (c.invitee_email || '').trim().toLowerCase();
+  if (e) return `e:${e}`;
+  const n = (c.invitee_name || '').trim().toLowerCase();
+  return n ? `n:${n}` : null;
+}
+
+/** Identifiants des calls qui CONTINUENT une opportunite deja ouverte. */
+export function idsDeContinuation(calls: CallPourContinuation[]): Set<string> {
+  const parProspect = new Map<string, CallPourContinuation[]>();
+  for (const c of calls) {
+    const k = clefProspect(c);
+    if (!k) continue;
+    const arr = parProspect.get(k);
+    if (arr) arr.push(c); else parProspect.set(k, [c]);
+  }
+  const ids = new Set<string>();
+  for (const groupe of parProspect.values()) {
+    if (groupe.length < 2) continue;
+    const ordonne = [...groupe].sort((a, b) => (callDayKey(a) ?? '').localeCompare(callDayKey(b) ?? ''));
+    for (let i = 1; i < ordonne.length; i++) {
+      if (ordonne[i - 1].outcome === 'second_call') ids.add(ordonne[i].id);
+    }
+  }
+  return ids;
+}

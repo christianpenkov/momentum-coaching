@@ -37,7 +37,7 @@ const CATS_STORY = new Set<string>(CATEGORY_GROUPS.story);
 import { isCallHonored } from '@/lib/callHonored';
 import { isCallCanceled } from '@/lib/sessionRapport';
 import { usePeriodesIg, porteeDeLaPeriode, typePeriodePour, type TypePeriodeIg } from '@/lib/porteeIg';
-import { bucketCallsByBookedDay, parisDayRange, tauxOuTrou } from '@/lib/callSeries';
+import { bucketCallsByBookedDay, parisDayRange, tauxOuTrou, idsDeContinuation } from '@/lib/callSeries';
 // Icones des en-tetes de colonne — source unique pour les trois tableaux de Business
 // micro. Quatorze colonnes portent le meme nom d'un tableau a l'autre et doivent donc
 // porter le meme symbole.
@@ -3933,6 +3933,11 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   // alors que `bookes` et `honores` (isCallHonored) excluent les annulés — un taux
   // de no-show pouvait donc avoir plus de no-shows au numérateur que de calls au
   // dénominateur (docs/perimetre-stats-referentiel.md, règle 4).
+  // Continuations : les 2e rendez-vous d'un meme prospect, calcules sur TOUS les
+  // calls de la fenetre (pas plateforme par plateforme — un prospect ne change pas
+  // de plateforme entre deux rendez-vous). Voir lib/callSeries.ts.
+  const continuations = idsDeContinuation(callsInWindow as any);
+
   const calcCalls = (subset: CallRecord[]) => {
     const actifs = subset.filter(c => c.status === 'active');
     const bookes = actifs.length;
@@ -3940,7 +3945,13 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
     const closes = actifs.filter(c => c.deal_closed).length;
     const rev = actifs.reduce((acc, c) => acc + (c.revenue || 0), 0);
     const noShows = actifs.filter(c => c.no_show).length;
-    return { bookes, honores, closes, rev, noShows };
+    // Denominateur du CLOSE RATE : des opportunites, pas des rendez-vous. Un
+    // prospect qui fait deux calls et signe au second vaut 1 deal pour 1
+    // opportunite (100 %), la ou le comptage par rendez-vous disait 50 %. C'est la
+    // definition du marche, et le no-show garde deliberement l'autre grain — il
+    // mesure la fiabilite d'un creneau, pas la capacite a closer une personne.
+    const opportunitesHonorees = actifs.filter(c => isCallHonored(c, now) && !continuations.has(c.id)).length;
+    return { bookes, honores, closes, rev, noShows, opportunitesHonorees };
   };
 
   const igCallsLive = calcCalls(callsIG);
@@ -3970,6 +3981,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const igReachD: number | null = noData ? null : (porteeIg?.reachTotal ?? null);
   const igBookes  = igCallsLive.bookes;
   const igHonores = igCallsLive.honores;
+  const igOpportunites = igCallsLive.opportunitesHonorees;
   const igCloses  = igCallsLive.closes;
   const igRev     = igCallsLive.rev;
   const igNoShows = igCallsLive.noShows;
@@ -3977,6 +3989,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const ytViewsD  = noData ? 0 : (yt ? yt.chartData.filter(d => inFunnelDateWindow(d.date)).reduce((s, d) => s + d.views, 0) : 0);
   const ytBookes  = ytCallsLive.bookes;
   const ytHonores = ytCallsLive.honores;
+  const ytOpportunites = ytCallsLive.opportunitesHonorees;
   const ytCloses  = ytCallsLive.closes;
   const ytRev     = ytCallsLive.rev;
   const ytNoShows = ytCallsLive.noShows;
@@ -4083,7 +4096,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
     { label: 'Clics liens Calendly', value: noData ? dash : fmt(igTotalClicsD), sub: 'bio + descr. + DM', rawValue: igTotalClicsD, rate: igReachD && igReachD > 0 ? (igTotalClicsD / igReachD) * 100 : undefined },
     { label: 'Calls bookés', value: fmt(igBookes), rawValue: igBookes, rate: igTotalClicsD > 0 ? (bookesDansCouverture(callsIG) / igTotalClicsD) * 100 : undefined, noteTaux: noteCouverture },
     { label: 'Calls honorés', value: fmt(igHonores), rawValue: igHonores, rate: igBookes > 0 ? (igHonores / igBookes) * 100 : 0 },
-    { label: 'Deals closés', value: fmt(igCloses), rawValue: igCloses, rate: igHonores > 0 ? (igCloses / igHonores) * 100 : 0 },
+    { label: 'Deals closés', value: fmt(igCloses), rawValue: igCloses, rate: igOpportunites > 0 ? (igCloses / igOpportunites) * 100 : undefined },
     { label: 'Revenue', value: fmtEur(igRev), rawValue: igRev },
   ];
 
@@ -4092,7 +4105,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
     { label: 'Clics Calendly', value: noData ? dash : fmt(ytClicsD), sub: 'Bio + Descr.', rawValue: ytClicsD, rate: noData ? 0 : (ytViewsD > 0 ? (ytClicsD / ytViewsD) * 100 : 0) },
     { label: 'Calls bookés', value: fmt(ytBookes), rawValue: ytBookes, rate: ytClicsD > 0 ? (bookesDansCouverture(callsYT) / ytClicsD) * 100 : undefined, noteTaux: noteCouverture },
     { label: 'Calls honorés', value: fmt(ytHonores), rawValue: ytHonores, rate: ytBookes > 0 ? (ytHonores / ytBookes) * 100 : 0 },
-    { label: 'Deals closés', value: fmt(ytCloses), rawValue: ytCloses, rate: ytHonores > 0 ? (ytCloses / ytHonores) * 100 : 0 },
+    { label: 'Deals closés', value: fmt(ytCloses), rawValue: ytCloses, rate: ytOpportunites > 0 ? (ytCloses / ytOpportunites) * 100 : undefined },
     { label: 'Revenue', value: fmtEur(ytRev), rawValue: ytRev },
   ];
 
@@ -4129,7 +4142,9 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
       if (metricIdx === 0) return booked > 0 && reachDay != null ? { date: iso, v: Math.round(reachDay / booked) } : trou;
       if (metricIdx === 1) return { date: iso, v: booked };
       if (metricIdx === 2) return taux(noShows, booked);
-      if (metricIdx === 3) return taux(closed, honored);
+      // Meme grain que la carte : des opportunites au denominateur.
+      const opportunites = cs.filter(c => isCallHonored(c, now) && !continuations.has(c.id)).length;
+      if (metricIdx === 3) return taux(closed, opportunites);
       if (metricIdx === 4) return booked > 0 ? { date: iso, v: Math.round(rev / booked) } : trou;
       if (metricIdx === 5) return reachDay ? { date: iso, v: rev / reachDay } : trou;
       return { date: iso, v: rev };
@@ -4152,7 +4167,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
         { label: 'Reach pour 1 call', value: igReachD != null && igBookes > 0 ? fmt(Math.round(igReachD / igBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'Calls bookés', value: fmt(igBookes), prevValue: null, delta: null, lowerIsBetter: false },
         { label: 'No-show', value: igBookes > 0 ? fmtRate(igNoShows, igBookes) : '—', prevValue: null, delta: null, lowerIsBetter: true },
-        { label: 'Close rate', value: igHonores > 0 ? fmtRate(igCloses, igHonores) : '—', prevValue: null, delta: null, lowerIsBetter: false },
+        { label: 'Close rate', value: igOpportunites > 0 ? fmtRate(igCloses, igOpportunites) : '—', prevValue: null, delta: null, lowerIsBetter: false },
         { label: 'Rev / call booké', value: igBookes > 0 ? fmtEur(Math.round(igRev / igBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: false },
         // « Cash / vue » : Instagram mesure une portée, pas des vues — la colonne
         // voisine dit déjà « Reach pour 1 call ».
@@ -4166,7 +4181,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
         { label: 'Vues pour 1 call', value: ytBookes > 0 ? fmt(Math.round(ytViewsD / ytBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'Calls bookés', value: fmt(ytBookes), prevValue: null, delta: null, lowerIsBetter: false },
         { label: 'No-show', value: ytBookes > 0 ? fmtRate(ytNoShows, ytBookes) : '—', prevValue: null, delta: null, lowerIsBetter: true },
-        { label: 'Close rate', value: ytHonores > 0 ? fmtRate(ytCloses, ytHonores) : '—', prevValue: null, delta: null, lowerIsBetter: false },
+        { label: 'Close rate', value: ytOpportunites > 0 ? fmtRate(ytCloses, ytOpportunites) : '—', prevValue: null, delta: null, lowerIsBetter: false },
         { label: 'Rev / call booké', value: ytBookes > 0 ? fmtEur(Math.round(ytRev / ytBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: false },
         { label: 'Cash / vue', value: ytViewsD > 0 ? fmtEur(ytRev / ytViewsD) : '—', prevValue: null, delta: null, lowerIsBetter: false },
         { label: 'Revenue total', value: fmtEur(ytRev), prevValue: null, delta: null, lowerIsBetter: false },
@@ -4188,10 +4203,11 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const callsActifs  = callsInWindow.filter(c => c.status === 'active');
   const totalBookes  = callsActifs.length;
   const totalHonores = callsActifs.filter(c => isCallHonored(c, now)).length;
+  const totalOpportunites = callsActifs.filter(c => isCallHonored(c, now) && !continuations.has(c.id)).length;
   const totalCloses  = callsActifs.filter(c => c.deal_closed).length;
   const totalRev     = callsActifs.reduce((acc, c) => acc + (c.revenue || 0), 0);
   const noShowCount  = callsActifs.filter(c => c.no_show).length;
-  const closingRate  = totalHonores > 0 ? pct(totalCloses, totalHonores) : 0;
+  const closingRate  = totalOpportunites > 0 ? pct(totalCloses, totalOpportunites) : 0;
   const noShowRate   = totalBookes > 0 ? pct(noShowCount, totalBookes) : 0;
 
   return (
