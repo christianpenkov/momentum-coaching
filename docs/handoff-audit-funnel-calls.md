@@ -252,6 +252,30 @@ quelle qu'elle soit. **À vérifier** : le repli `if (periodIndex === 0 && perio
 donne-t-il encore le bon chiffre, ou compte-t-il une fenêtre différente de celle
 affichée ?
 
+### Le taux de conversion compare deux périodes différentes
+
+Le badge « Calls bookés » du breakdown vaut `bookés ÷ clics de la période`. Or un clic
+du 30 août peut donner une réservation le 1er septembre : le dénominateur est dans une
+période, le numérateur dans la suivante. Sur une vue hebdomadaire et de petits volumes,
+l'effet de bord est proportionnellement énorme.
+
+Ce que fait l'industrie : attribuer la conversion à la **date du clic**, pas à celle de
+la réservation (Google Ads et Meta Ads le font par défaut, via `gclid` / `fbclid` — un
+**identifiant de clic** transporté jusqu'à la conversion). Le prix accepté : les
+périodes passées continuent de bouger pendant la fenêtre d'attribution.
+
+**Mesuré le 2026-08-29 : ce n'est pas implémentable en l'état.** Sur 19 calls de vente,
+**0** portent un `prospect_link_id`, et les clics bio/contenu sont anonymes dans le flux
+Short.io (chemin + horodatage, aucune identité). Il n'existe donc aujourd'hui aucun
+moyen de relier une réservation au clic qui l'a produite, ni même de mesurer le délai
+entre les deux.
+
+**À vérifier** : ce `0 / 19` est-il normal (les liens par prospect sont peu utilisés,
+3 lignes seulement dans `prospect_links`) ou révèle-t-il que la résolution
+`prospect_link_id` du webhook Calendly — par `short_link_path` — ne marche jamais ?
+C'est la première chose à trancher, parce que toute la question de l'attribution en
+dépend.
+
 ### Pièges déjà documentés ailleurs, à re-vérifier ici
 
 - `.maybeSingle()` sur `instagram_leads` sans filtre (`pipeline/advance`,
