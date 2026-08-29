@@ -3936,7 +3936,12 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   // Continuations : les 2e rendez-vous d'un meme prospect, calcules sur TOUS les
   // calls de la fenetre (pas plateforme par plateforme — un prospect ne change pas
   // de plateforme entre deux rendez-vous). Voir lib/callSeries.ts.
-  const continuations = idsDeContinuation(callsInWindow);
+  // Apparie sur `calls` (le jeu complet recu) et NON sur `callsInWindow` : une paire
+  // a cheval sur deux periodes serait invisible depuis la fenetre, et le 2e call
+  // recompterait comme une opportunite neuve — precisement ce que la regle evite.
+  // Le resultat n'est qu'un ensemble d'identifiants ; le filtrage par periode reste
+  // fait par les appelants.
+  const continuations = idsDeContinuation(calls);
 
   const calcCalls = (subset: CallRecord[]) => {
     const actifs = subset.filter(c => c.status === 'active');
@@ -5113,6 +5118,11 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const ytVideos = (yt?.videos?.length ? yt.videos : ytLive?.videos) || [];
   // Vues lifetime "à jour" pour Cash/Vue — toujours depuis igLive/ytLive (jamais l'historique figé
   // d'une période passée, qui capture un instantané des vues à cette date-là, pas le total actuel)
+  // Apparie sur le jeu le PLUS LARGE disponible : une paire dont le 1er call sort de
+  // la periode affichee doit rester reconnue, sinon le 2e recompte comme une
+  // opportunite neuve sur le contenu.
+  const continuationsContenu = idsDeContinuation(callsAllTime ?? calls ?? []);
+
   const igLiveViewsById = new Map<string, number>((igLive?.posts ?? []).map((p: any) => [p.id, p.views || p.reach || 0]));
   const ytLiveViewsById = new Map<string, number>((ytLive?.videos ?? []).map((v: any) => [v.id, v.views || 0]));
 
@@ -5557,8 +5567,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     // filtré sur la fenêtre de la période affichée dès que periodIndex > 0 — cf. callsHist/fetchSnapshot).
     const postCallsLifetime = (callsAllTime && leadIdToMediaId) ? callsAllTime.filter(matchesContent) : [];
     const postCallsDesc = postCalls.filter(c => c.utm_medium === 'description' || (!c.ig_lead_id && c.utm_content === postId));
-    const callsBooked = postCalls.filter(c => c.status === 'active').length;
-    const callsHonored = postCalls.filter(c => isCallHonored(c, now)).length;
+    // Un 2e rendez-vous herite du utm_content de son parent (commit 7da4b53) : sans
+    // cette exclusion, un contenu se verrait crediter DEUX calls pour un seul
+    // prospect — le double comptage que l'heritage devait justement eviter.
+    // `closed` et `revenue` gardent l'autre grain : un deal se compte la ou il a
+    // ete signe, meme si c'est au 2e rendez-vous.
+    const postOpportunites = postCalls.filter(c => !continuationsContenu.has(c.id));
+    const callsBooked = postOpportunites.filter(c => c.status === 'active').length;
+    const callsHonored = postOpportunites.filter(c => isCallHonored(c, now)).length;
     const closed = postCalls.filter(c => c.deal_closed).length;
     const revenue = postCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
     const callsBookedDesc = postCallsDesc.filter(c => c.status === 'active').length;
