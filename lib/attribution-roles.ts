@@ -66,8 +66,22 @@ export interface CallPourConversion {
   utm_content?: string | null;
 }
 
-/** Clé des lignes qui n'ont aucun contenu identifiable. */
-export const ORIGINE_INCONNUE = '__origine_inconnue__';
+/** Clé des évènements qui ne se rattachent à AUCUN contenu.
+
+ * Ne PAS lire « origine inconnue » : l'origine est toujours connue. Mesuré le
+ * 2026-08-29 sur les 19 calls de vente — zéro call sans `source`. Ce qui manque est
+ * le CONTENU, ce qui est très différent, et le gros du lot est parfaitement normal :
+ *
+ *   5 calls depuis la BIO — un lien en bio ne vient d'aucun contenu, par nature,
+ *     donc `utm_content` est vide par construction. Ces calls ont deja leur ligne
+ *     dans « Breakdown par source », ou ils sont correctement comptes.
+ *   1 call en DM dont le lien Calendly n'etait pas trace — le seul vrai orphelin.
+ *
+ * Consequence pour l'affichage : « Performance par contenu » est un tableau PAR
+ * CONTENU. Un call de bio n'y a pas sa place et ne doit pas y creer une ligne
+ * mysterieuse. Une note de bas de tableau suffit a reconcilier le total, en renvoyant
+ * vers le tableau qui, lui, les porte. */
+export const SANS_CONTENU = '__sans_contenu__';
 
 /**
  * ACQUISITION — combien de PERSONNES chaque contenu a fait entrer.
@@ -103,7 +117,7 @@ export function acquisitionParContenu(historique: PriseDeLeadMagnet[]): Map<stri
   let anonymes = 0;
   for (const prise of historique) {
     if (prise.lead_magnet_sent === false) continue;
-    const cle = prise.media_id ?? ORIGINE_INCONNUE;
+    const cle = prise.media_id ?? SANS_CONTENU;
     const personne = prise.ig_user_id ?? `__anonyme_${anonymes++}__`;
     let personnes = personnesParContenu.get(cle);
     if (!personnes) { personnes = new Set<string>(); personnesParContenu.set(cle, personnes); }
@@ -166,7 +180,7 @@ export function activationParContenu(
 ): Map<string, number> {
   const parContenu = new Map<string, number>();
   for (const reponse of reponses) {
-    const cle = contenuActivation(historique, reponse.occurred_at) ?? ORIGINE_INCONNUE;
+    const cle = contenuActivation(historique, reponse.occurred_at) ?? SANS_CONTENU;
     parContenu.set(cle, (parContenu.get(cle) ?? 0) + 1);
   }
   return parContenu;
@@ -185,7 +199,7 @@ export function activationParContenu(
  *
  * `null` est un cas NORMAL et fréquent : un lien de bio ne vient d'aucun contenu, donc
  * `utm_content` est vide par nature (5 calls sur 19). Ces calls vont dans la ligne
- * « origine inconnue » — l'appelant ne doit jamais les faire disparaître, sinon le
+ * « sans contenu » — l'appelant ne doit jamais les faire disparaître, sinon le
  * total par contenu se lira comme une perte.
  */
 export function contenuConversion(call: CallPourConversion): string | null {
@@ -209,7 +223,7 @@ export function contenusOuActivationDepasseAcquisition(
 ): string[] {
   const sortie: string[] = [];
   for (const [contenu, n] of activation) {
-    if (contenu === ORIGINE_INCONNUE) continue;
+    if (contenu === SANS_CONTENU) continue;
     if (n > (acquisition.get(contenu) ?? 0)) sortie.push(contenu);
   }
   return sortie.sort();

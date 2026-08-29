@@ -6,7 +6,7 @@ import {
   activationParContenu,
   contenuConversion,
   contenusOuActivationDepasseAcquisition,
-  ORIGINE_INCONNUE,
+  SANS_CONTENU,
 } from './attribution-roles.ts';
 
 /**
@@ -106,11 +106,11 @@ test('acquisition : sans ig_user_id, chaque ligne est une personne distincte', (
   assert.equal(acq.get(A), 2);
 });
 
-test('acquisition : une prise sans contenu tombe en origine inconnue, jamais ailleurs', () => {
+test('acquisition : une prise sans contenu tombe en sans contenu, jamais ailleurs', () => {
   const acq = acquisitionParContenu([
     { media_id: null, detected_at: '2026-07-01 10:00:00+00', lead_magnet_sent: true, ig_user_id: RDJ },
   ]);
-  assert.equal(acq.get(ORIGINE_INCONNUE), 1);
+  assert.equal(acq.get(SANS_CONTENU), 1);
   assert.equal(acq.size, 1);
 });
 
@@ -158,10 +158,10 @@ test('activation : on compte les CONVERSATIONS, pas les personnes', () => {
   assert.equal([...act.values()].reduce((s, n) => s + n, 0), 3);
 });
 
-test('activation : une reponse sans contenu rattachable va en origine inconnue', () => {
+test('activation : une reponse sans contenu rattachable va en sans contenu', () => {
   // Cas reels : adrian.aubdm et clarouchka_p, deux reponses sans aucun contenu.
   const act = activationParContenu([], [{ occurred_at: '2026-07-27 10:00:00+00' }]);
-  assert.equal(act.get(ORIGINE_INCONNUE), 1);
+  assert.equal(act.get(SANS_CONTENU), 1);
 });
 
 test('conversion : utm_content et rien d autre, aucun repli sur le lead', () => {
@@ -197,9 +197,9 @@ test('invariant : l activation PEUT depasser l acquisition, et c est le signal r
   );
 });
 
-test('invariant : origine inconnue n entre jamais dans la comparaison des roles', () => {
+test('invariant : sans contenu n entre jamais dans la comparaison des roles', () => {
   assert.deepEqual(
-    contenusOuActivationDepasseAcquisition(new Map([[A, 5]]), new Map([[ORIGINE_INCONNUE, 99]])),
+    contenusOuActivationDepasseAcquisition(new Map([[A, 5]]), new Map([[SANS_CONTENU, 99]])),
     [],
   );
 });
