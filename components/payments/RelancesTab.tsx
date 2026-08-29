@@ -42,8 +42,12 @@ export default function RelancesTab({ deals, details, onChange, onOuvrir }: {
   deals: DealRow[];
   details: Record<string, DealDetail>;
   onChange?: () => void;
-  /** Ouvre la fiche du client concerné — une relance se prépare en la lisant. */
-  onOuvrir?: (dealId: string) => void;
+  /**
+   * Ouvre la fiche du client concerné — une relance se prépare en la lisant.
+   * `action` ouvre en plus l'écran voulu : un bouton qui annonce un choix doit
+   * mener au choix, pas à un panneau où il faut le retrouver.
+   */
+  onOuvrir?: (dealId: string, action?: 'modalites') => void;
 }) {
   const groups = buildGroups(deals, details);
   const total = groups.reduce((s, g) => s + g.items.length, 0);
@@ -86,7 +90,8 @@ export default function RelancesTab({ deals, details, onChange, onOuvrir }: {
 }
 
 function RelanceRow({ item, first, onChange, onOuvrir }: {
-  item: Item; first: boolean; onChange?: () => void; onOuvrir?: (dealId: string) => void;
+  item: Item; first: boolean; onChange?: () => void;
+  onOuvrir?: (dealId: string, action?: 'modalites') => void;
 }) {
   const [copied, setCopied] = useState(false);
   // Optimiste : la case répond au clic sans attendre le serveur, sinon le geste
@@ -218,7 +223,7 @@ function RelanceRow({ item, first, onChange, onOuvrir }: {
         // chemin sur une vente qui n'a jamais rien encaissé.
         //
         // On nomme donc l'action qui reste à faire, et non un état qui n'existe pas.
-        <button className="btn-ghost" onClick={e => { e.stopPropagation(); onOuvrir?.(item.deal.id); }}
+        <button className="btn-ghost" onClick={e => { e.stopPropagation(); onOuvrir?.(item.deal.id, 'modalites'); }}
           style={{ fontSize: 12, flexShrink: 0, border: '1px solid var(--border)', borderRadius: 7, padding: '7px 13px', display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
           <Icon name="settings" size={13} color="var(--muted)" />
           Choisir comment encaisser

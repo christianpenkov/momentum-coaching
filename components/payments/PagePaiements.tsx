@@ -38,6 +38,12 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
   const [openDeal, setOpenDeal] = useState<string | null>(null);
   /** Personne ouverte dans la fiche — la fiche porte un client, pas une vente. */
   const [openPerson, setOpenPerson] = useState<string | null>(null);
+  /**
+   * L'écran à ouvrir EN MÊME TEMPS que la fiche, quand on y arrive par un bouton
+   * qui promet une action précise. Sans ça, « Choisir comment encaisser »
+   * livrait un panneau où il fallait retrouver soi-même le bon bouton.
+   */
+  const [actionInitiale, setActionInitiale] = useState<'modalites' | null>(null);
 
   // ?deal=<id> ouvre directement le panneau de détail : une notification de
   // rappel doit mener à la personne concernée, pas à une liste où il faut la
@@ -116,7 +122,7 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
     return null;
   }, [openPerson, openDeal, people]);
 
-  function fermerFiche() { setOpenPerson(null); setOpenDeal(null); }
+  function fermerFiche() { setOpenPerson(null); setOpenDeal(null); setActionInitiale(null); }
 
   const k = data?.kpis;
   const orphanCount = data?.orphans.length ?? 0;
@@ -289,12 +295,12 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
             ? <StripeDisconnected isCoach={isCoach} />
             : deals.length === 0
               ? <EmptyDeals onCreate={() => setCreating(true)} />
-              : <ListeClients people={filtered} deals={deals} onOuvrir={setOpenPerson} isCoach={isCoach} />}
+              : <ListeClients people={filtered} deals={deals} onOuvrir={k => { setOpenPerson(k); setActionInitiale(null); }} isCoach={isCoach} />}
         </>
       ) : tab === 'reconcile' ? (
         <ReconcileTab orphans={data?.orphans ?? []} onDone={refetch} />
       ) : (
-        <RelancesTab deals={deals} details={data?.details ?? {}} onChange={refetch} onOuvrir={setOpenDeal} />
+        <RelancesTab deals={deals} details={data?.details ?? {}} onChange={refetch} onOuvrir={(id, a) => { setOpenDeal(id); setActionInitiale(a ?? null); }} />
       )}
 
       </>}
@@ -311,6 +317,9 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
           onClose={fermerFiche}
           onChange={refetch}
           isCoach={isCoach}
+          actionInitiale={actionInitiale && openDeal
+            ? { quoi: actionInitiale, dealId: openDeal }
+            : null}
         />
       )}
 

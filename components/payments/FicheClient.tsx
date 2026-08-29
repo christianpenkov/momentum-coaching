@@ -39,7 +39,7 @@ type Action =
   | { quoi: 'rembourser'; dealId: string; motif: MotifRemboursement; montant: number; arret: boolean };
 
 export default function FicheClient({
-  person, deals, details, onClose, onChange, isCoach,
+  person, deals, details, onClose, onChange, isCoach, actionInitiale,
 }: {
   person: PersonRow;
   /** Les ventes de cette personne, la plus récente en premier. */
@@ -48,9 +48,16 @@ export default function FicheClient({
   onClose: () => void;
   onChange: () => Promise<unknown> | void;
   isCoach?: boolean;
+  /**
+   * L'écran à ouvrir en même temps que la fiche.
+   *
+   * Lu une seule fois, au montage : ensuite l'état local prime, sinon fermer
+   * l'écran le rouvrirait au rendu suivant.
+   */
+  actionInitiale?: Action | null;
 }) {
   const isMobile = useIsMobile();
-  const [action, setAction] = useState<Action | null>(null);
+  const [action, setAction] = useState<Action | null>(actionInitiale ?? null);
   const [terminéesOuvertes, setTerminéesOuvertes] = useState(false);
 
   useEffect(() => {
