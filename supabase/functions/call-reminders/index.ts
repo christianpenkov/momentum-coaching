@@ -57,10 +57,13 @@ async function sendPushToProfile(
     )
   );
 
-  // Nettoyer les subscriptions expirées (410 Gone)
+  // Nettoyer les abonnements morts — 404 ET 410 (RFC 8030). Ne traiter que le
+  // 410 laissait s'accumuler les endpoints repondant 404, reessayes a chaque
+  // passage du cron.
   const expiredEndpoints = results
     .map((r, i) => ({ r, sub: subs[i] }))
-    .filter(({ r }) => r && typeof r === 'object' && 'statusCode' in r && r.statusCode === 410)
+    .filter(({ r }) => r && typeof r === 'object' && 'statusCode' in r
+      && [404, 410].includes(r.statusCode as number))
     .map(({ sub }) => sub.endpoint);
 
   if (expiredEndpoints.length > 0) {

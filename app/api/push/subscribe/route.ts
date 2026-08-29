@@ -12,12 +12,23 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await serverSupabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
-  const { subscription } = await req.json();
+  const { subscription, ancienEndpoint } = await req.json();
   if (!subscription?.endpoint) {
     return NextResponse.json({ error: 'invalid' }, { status: 400 });
   }
 
   const userId = user.id;
+
+  // Rotation signalée par le service worker (`pushsubscriptionchange`) :
+  // l'ancien endpoint est mort par définition, le navigateur vient de le
+  // remplacer. C'est la SEULE suppression fondée sur autre chose qu'un 404/410,
+  // et elle est légitime — le navigateur lui-même nous dit qu'il est périmé.
+  if (typeof ancienEndpoint === 'string' && ancienEndpoint && ancienEndpoint !== subscription.endpoint) {
+    await supabase.from('push_subscriptions')
+      .delete()
+      .eq('profile_id', userId)
+      .eq('endpoint', ancienEndpoint);
+  }
 
   // ⚠️ NE PAS purger ici les autres subscriptions du profil sur un critère d'âge.
   //

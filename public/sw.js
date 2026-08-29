@@ -1,4 +1,4 @@
-// SW v14 — push + coquille hors ligne + pastille persistante
+// SW v15 — push + coquille hors ligne + pastille persistante
 //
 // Strategie volontairement minimale, alignee sur les recommandations courantes :
 //   - navigations : RESEAU D'ABORD, repli sur /offline.html si le reseau echoue.
@@ -92,7 +92,7 @@ function swLog(event, data) {
 }
 
 self.addEventListener('install', e => {
-  swLog('install', { msg: 'SW v14 installing', ts: Date.now() });
+  swLog('install', { msg: 'SW v15 installing', ts: Date.now() });
   e.waitUntil(
     // L'ecran hors ligne doit etre en cache AVANT d'en avoir besoin : au moment
     // ou le reseau manque, il est trop tard pour le telecharger.
@@ -291,6 +291,61 @@ self.addEventListener('message', e => {
       });
   }
 });
+
+// ── Rotation de l'abonnement par le navigateur ──────────────────────────────
+//
+// Le navigateur peut remplacer un abonnement de sa propre initiative (rotation
+// de cle, expiration interne). Sans cet ecouteur, l'ancien endpoint reste seul
+// connu du serveur : les envois partent dans le vide jusqu'a la prochaine
+// ouverture de l'app, ou `registerPush` finit par renvoyer le nouveau.
+//
+// C'est le mecanisme standard pour eviter ce trou (RFC 8030 / spec Push API).
+// iOS ne declenche PAS encore cet evenement — la revalidation a chaque
+// ouverture reste donc le filet de securite la-bas — mais Chrome et Firefox
+// Android le font, et la base contient des endpoints FCM et Mozilla.
+self.addEventListener('pushsubscriptionchange', e => {
+  e.waitUntil((async () => {
+    try {
+      const ancien = e.oldSubscription?.endpoint || null;
+
+      // La cle de l'ancien abonnement quand elle est disponible, sinon celle du
+      // serveur : `oldSubscription` est absent dans plusieurs implementations.
+      let cle = e.oldSubscription?.options?.applicationServerKey || null;
+      if (!cle) {
+        const rep = await fetch('/api/push/vapid');
+        if (!rep.ok) throw new Error('vapid indisponible');
+        cle = urlBase64ToUint8Array((await rep.json()).cle);
+      }
+
+      const nouveau = e.newSubscription || await self.registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: cle,
+      });
+
+      // `credentials: 'include'` : la route identifie le profil par le cookie de
+      // session. Sans lui, la requete arrive anonyme et se fait refuser.
+      const res = await fetch('/api/push/subscribe', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription: nouveau.toJSON(), ancienEndpoint: ancien }),
+      });
+      swLog('subscription_rotee', { ok: res.ok, statut: res.status });
+    } catch (err) {
+      // Journalise sans relancer : l'app rattrapera a la prochaine ouverture.
+      swLog('subscription_rotation_echec', String(err));
+    }
+  })());
+});
+
+// Conversion de la cle publique VAPID (base64 URL-safe) en octets, attendue par
+// `pushManager.subscribe`. Meme fonction que cote application.
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
 
 self.addEventListener('notificationclick', e => {
   swLog('notification_clicked', e.notification.title);

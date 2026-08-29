@@ -137,10 +137,13 @@ export async function POST(req: NextRequest) {
       }
     });
 
+    // 404 ET 410 : les deux désignent un abonnement à jeter (RFC 8030). Ne
+    // traiter que le 410 laissait s'accumuler les endpoints répondant 404,
+    // réessayés à chaque envoi.
     const expired = results
       .map((r, i) => ({ r, sub: subs[i] }))
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .filter(({ r }) => r.status === 'rejected' && (r.reason as any)?.statusCode === 410);
+      .filter(({ r }) => r.status === 'rejected' && [404, 410].includes((r.reason as any)?.statusCode));
     if (expired.length) {
       await supabase.from('push_subscriptions').delete()
         .in('endpoint', expired.map(({ sub }) => sub.endpoint));

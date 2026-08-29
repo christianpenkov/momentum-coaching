@@ -49,10 +49,11 @@ async function sendPushToProfile(profileId: string, title: string, body: string,
     )
   );
 
-  // 410 Gone = abonnement révoqué côté navigateur : le purger évite de
-  // réessayer indéfiniment à chaque passage du cron.
+  // 404 et 410 = abonnement mort (RFC 8030) : le purger évite de réessayer
+  // indéfiniment à chaque passage du cron. Le 404 manquait, donc ces
+  // endpoints-là restaient en base pour toujours.
   const dead = results
-    .map((r: any, i: number) => (r?.statusCode === 410 ? subs[i].endpoint : null))
+    .map((r: any, i: number) => ([404, 410].includes(r?.statusCode) ? subs[i].endpoint : null))
     .filter(Boolean) as string[];
   if (dead.length) {
     await sb.from('push_subscriptions').delete().in('endpoint', dead);

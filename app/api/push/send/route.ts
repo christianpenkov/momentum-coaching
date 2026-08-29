@@ -47,10 +47,17 @@ export async function POST(req: NextRequest) {
     )
   );
 
-  // Nettoyer les subscriptions expirées (410 Gone)
+  // Nettoyer les abonnements morts — 404 ET 410.
+  //
+  // Seul le 410 était traité. Or les deux codes désignent un abonnement à
+  // jeter : 404 « cet abonnement n'existe pas », 410 « le service a renoncé à
+  // le joindre » (RFC 8030). Les endpoints répondant 404 restaient donc en base
+  // indéfiniment, réessayés à chaque envoi — un profil de test en avait
+  // accumulé treize, tous morts depuis des jours.
   const expired = results
     .map((r, i) => ({ r, sub: subs[i] }))
-    .filter(({ r }) => r.status === 'rejected' && (r as PromiseRejectedResult).reason?.statusCode === 410);
+    .filter(({ r }) => r.status === 'rejected'
+      && [404, 410].includes((r as PromiseRejectedResult).reason?.statusCode));
 
   if (expired.length > 0) {
     await supabase.from('push_subscriptions')
