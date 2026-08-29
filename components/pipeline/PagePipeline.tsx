@@ -3537,10 +3537,22 @@ export default function PagePipeline() {
                 onClick={() => setCaseIsolee(k => k === s.key ? null : s.key)}
               />
             ))}
-            {/* Retour à la ligne forcé : les issues ne sont pas la suite des
-                étapes, et les aligner à la queue leur donnerait l'air d'en
-                être. */}
-            <div style={{ flexBasis: '100%', height: 0 }} />
+            {/* Les issues ne sont pas la suite des étapes : les aligner à la
+                queue leur donnerait l'air d'en être. Deux façons de le dire,
+                selon la place.
+
+                Instagram a sept étapes : elles remplissent la rangée, et le
+                retour à la ligne sépare naturellement les deux natures.
+
+                YouTube et « Autres » n'en ont qu'une. Forcer le retour laissait
+                une rangée presque vide au-dessus d'une rangée d'issues — une
+                rangée entière de page pour deux boutons. Un trait vertical dit
+                la même chose sur la même ligne. */}
+            {stages.length >= 4 ? (
+              <div style={{ flexBasis: '100%', height: 0 }} />
+            ) : (
+              <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)', margin: '0 5px', flexShrink: 0 }} />
+            )}
             {ISSUES.map(i => (
               <BoutonCase
                 key={i.key} label={i.label} couleur={i.color} forme="carre" issueKey={i.key}
