@@ -2679,6 +2679,7 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
   onNavigateToSequencesTab: (sequenceId: string) => void;
 }) {
   const isMobile = useIsMobile();
+  const unsavedGuard = useUnsavedGuard();
   const isGroup = !story && !!stories?.length;
   const groupStories = stories ?? [];
   const primary = story ?? groupStories[0];
@@ -2779,29 +2780,47 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Header */}
-      <div style={{ padding: isMobile ? '14px' : '14px 20px', borderBottom: `1px solid ${BORDER}` }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 38, height: 38, borderRadius: 7, background: SURFACE2, flexShrink: 0, overflow: 'hidden' }}>
-            {primary.thumbnail
-              ? <img loading="lazy" decoding="async" src={primary.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={MUTED} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
-                </div>
-            }
-          </div>
+      {/* En-tête — MÊME identité visuelle que les posts : même vignette, même
+          ligne de méta, même pastille verte, mêmes tailles. Une story et un post
+          sont deux contenus du même écran ; les distinguer par la forme de leur
+          en-tête n'apprenait rien et obligeait à relire pour savoir où l'on
+          était. Ce panneau avait été écrit séparément, avant que les stories
+          gagnent des onglets, et il avait gardé sa propre mise en page.
+
+          Ce qui n'existe QUE pour les stories reste dessous : le ruban de la
+          séquence, l'ajout de stories, les confirmations de retrait. Un post n'a
+          aucun équivalent, donc rien à aligner de ce côté. */}
+      <div style={{ padding: isMobile ? '14px' : '15px 24px', borderBottom: `1px solid ${BORDER}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+          <VignetteContenu post={primary} size={36} hauteur={36} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: INK }}>
+            <div style={{
+              fontSize: 15, fontWeight: 600, color: INK, lineHeight: 1.3,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
               {isGroup ? `Regrouper ${groupStories.length} stories` : isExistingSequence ? (
                 <span onClick={() => onNavigateToSequencesTab(primary.sequenceId!)} style={{ cursor: 'pointer', textDecoration: 'underline', textDecorationColor: FAINT }}>
                   Fait partie de « {primary.sequenceName} »{(primary.sequenceStoryCount ?? 0) > 1 ? ` (${primary.sequenceStoryCount} stories)` : ''}
                 </span>
               ) : 'Story'}
             </div>
-            {retentionPct != null && (
-              <div style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>{retentionPct}% ont vu la séquence jusqu'au bout</div>
-            )}
+            {/* « Séquence Stories du 23 août · 12 clics · mot-clé GUIDE · 62 %
+                jusqu'au bout ». La rétention rejoint cette ligne au lieu d'en
+                occuper une à elle : c'est une méta de plus, pas un titre. */}
+            <div style={{ fontSize: 11.5, color: MUTED, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {metaContenu(primary, false)}
+              {primary.lmKeyword ? ` · mot-clé ${primary.lmKeyword.toUpperCase()}` : ''}
+              {retentionPct != null ? ` · ${retentionPct} % jusqu'au bout` : ''}
+            </div>
           </div>
+          {primary.hasLeadMagnet && (
+            <span style={{
+              flexShrink: 0, fontSize: 11, fontWeight: 700, borderRadius: 999, padding: '4px 11px',
+              color: 'var(--green)', background: 'var(--green-soft)',
+            }}>
+              {primary.lmKeyword ? `Lead magnet · ${primary.lmKeyword.toUpperCase()}` : 'Lead magnet actif'}
+            </span>
+          )}
         </div>
         {isExistingSequence && (
           <div style={{ display: 'flex', gap: isMobile ? 10 : 6, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -2871,20 +2890,34 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
         </div>
       )}
 
-      {/* Onglets internes Lead Magnet / Calendly */}
-      <div style={{ display: 'flex', borderBottom: `1px solid ${BORDER}`, margin: isMobile ? '10px 14px 0' : '10px 24px 0' }}>
+      {/* Onglets — mêmes règles que les posts : largeur du texte (pas étirés sur
+          toute la barre), gras réservé à l'onglet actif, et le SOULIGNEMENT seul
+          porte l'accent bleu.
+
+          « Lead magnet » passe en premier : c'est l'onglet ouvert par défaut, et
+          un onglet actif au milieu d'une barre à l'ouverture se lit comme une
+          anomalie. Côté post, le premier onglet est aussi celui qui s'ouvre.
+
+          Le garde de navigation manquait ici : changer d'onglet avec des DM non
+          enregistrés les perdait sans un mot, alors que la même action côté post
+          ouvrait la fenêtre de confirmation. */}
+      <div style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${BORDER}`, background: BG, padding: isMobile ? '0 14px' : '0 24px' }}>
         {([
+          { key: 'lm' as const, label: `Lead magnet${primary.lmKeyword ? ' ✓' : ''}` },
           { key: 'calendly' as const, label: `Calendly${primary.calendlyShortUrl ? ' ✓' : ''}` },
-          { key: 'lm' as const, label: `Lead Magnet${primary.lmKeyword ? ' ✓' : ''}` },
           // Stats sur une séquence enregistrée comme sur une story seule — pas
           // pendant un groupement en cours, où il n'y a encore ni séquence à
           // interroger ni story unique à décrire.
           ...(!isGroup ? [{ key: 'stats' as const, label: 'Stats' }] : []),
         ]).map(tab => (
-          <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{
-            flex: 1, minHeight: 44, padding: '0', fontSize: 13, fontWeight: 600, border: 'none', cursor: 'pointer',
-            background: 'transparent', color: activeTab === tab.key ? INK : MUTED,
+          <button key={tab.key} onClick={() => unsavedGuard?.guard(() => setActiveTab(tab.key))} style={{
+            minHeight: 44, padding: '0 15px', fontSize: 13,
+            fontWeight: activeTab === tab.key ? 600 : 400,
+            border: 'none', cursor: 'pointer', background: 'transparent',
+            color: activeTab === tab.key ? INK : MUTED,
+            marginBottom: -1,
             borderBottom: activeTab === tab.key ? `2px solid ${BLUE}` : '2px solid transparent',
+            transition: 'all .15s',
           }}>{tab.label}</button>
         ))}
       </div>
@@ -2955,11 +2988,55 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
   const [saved, setSaved] = useState(false);
   const lmName = leadMagnets.find(l => l.id === primary.lmId)?.name;
 
-  const submit = async () => {
+  // ── Suivi des modifications non enregistrées ───────────────────────────────
+  //
+  // Le garde de navigation existait déjà pour les posts, pas ici : on pouvait
+  // écrire cinq messages, changer d'onglet, et tout perdre sans un mot. Le garde
+  // ne sert à rien tant que personne ne lui dit que le formulaire est sale.
+  //
+  // La référence est comparée AVEC les mêmes valeurs par défaut que les champs,
+  // sinon une séquence neuve — dont les colonnes sont nulles alors que les
+  // champs affichent leur proposition — se déclarerait modifiée à l'ouverture.
+  const valeurs = { lmKeyword, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage };
+  const [ref, setRef] = useState(valeurs);
+
+  // Réinitialisation au changement de story — le panneau n'est pas remonté, donc
+  // les `useState` ci-dessus ne rejouent PAS. Sans ce passage, ouvrir la séquence
+  // A puis la séquence B laissait les cinq messages de A dans les champs de B, et
+  // un « Mettre à jour » les écrivait sur B. Même correctif que TabLm côté posts.
+  useEffect(() => {
+    const depuisStory = {
+      lmKeyword:        primary.lmKeyword || leadMagnets[0]?.keyword || '',
+      dmLmMessage:      primary.dmLmMessage || "Salut {{username}} ! Je t'envoie ça tout de suite 👇",
+      dmButtonText:     primary.dmButtonText || '🚀 Je veux le lien !',
+      dm1Message:       primary.dm1Message || '👋 {{username}} voici ton lien : {{lien_lm}}',
+      dmLinkButtonText: primary.dmLinkButtonText || '📖 Accéder au lien',
+      dm2StoryMessage:  primary.dm2StoryMessage || '',
+    };
+    setLmKeyword(depuisStory.lmKeyword);
+    setDmLmMessage(depuisStory.dmLmMessage);
+    setDmButtonText(depuisStory.dmButtonText);
+    setDm1Message(depuisStory.dm1Message);
+    setDmLinkButtonText(depuisStory.dmLinkButtonText);
+    setDm2StoryMessage(depuisStory.dm2StoryMessage);
+    setRef(depuisStory);
+    setError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [primary.id]);
+
+  const nbModifs = (Object.keys(valeurs) as (keyof typeof valeurs)[]).filter(k => valeurs[k] !== ref[k]).length;
+
+  const unsavedGuard = useUnsavedGuard();
+  useEffect(() => { unsavedGuard?.setHasUnsaved(nbModifs > 0); }, [nbModifs, unsavedGuard]);
+  useEffect(() => () => { unsavedGuard?.setHasUnsaved(false); },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [primary.id]);
+
+  const submit = async (): Promise<string | null> => {
     // Même règle que les posts, depuis l'unification des séquences : ces trois
     // champs ne peuvent pas être vides. Voir `refusSequence`.
     const refus = refusSequence({ accroche: dmLmMessage, accrocheBtn: dmButtonText, lienBtn: dmLinkButtonText });
-    if (refus) { setError(refus); return; }
+    if (refus) { setError(refus); return refus; }
     setSaving(true); setError(null);
     try {
       if (isExistingSequence) {
@@ -2968,10 +3045,11 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
           body: JSON.stringify({ id: primary.sequenceId, lmKeyword, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage }),
         });
         const data = await res.json();
-        if (!res.ok) { setError(data.error || 'Erreur'); return; }
+        if (!res.ok) { setError(data.error || 'Erreur'); return data.error || 'Erreur'; }
         onSaved([primary.id], { lmKeyword, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage, hasLeadMagnet: true });
+        setRef(valeurs);
         setSaved(true); setTimeout(() => setSaved(false), 2000);
-        return;
+        return null;
       }
 
       const lm = leadMagnets.find(l => l.id === lmId);
@@ -2980,12 +3058,24 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
         body: JSON.stringify({ profileId, name, ctaStoryId, storyIds, lmId, lmKeyword, lmUrl: lm?.url, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage }),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data.error || 'Erreur'); return; }
+      if (!res.ok) { setError(data.error || 'Erreur'); return data.error || 'Erreur'; }
       onSaved(storyIds, { sequenceId: data.id, sequenceName: name, sequenceStoryCount: storyIds.length, ctaStoryId, lmId, lmKeyword, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage, hasLeadMagnet: true });
+      setRef(valeurs);
+      return null;
     } catch (e: any) {
-      setError(e.message || 'Erreur réseau');
+      const message = e.message || 'Erreur réseau';
+      setError(message);
+      return message;
     } finally { setSaving(false); }
   };
+
+  // Le bouton « Enregistrer » de la fenêtre de départ doit sauver CE formulaire
+  // quand c'est lui qui est ouvert, comme il le fait pour les posts.
+  useEffect(() => {
+    unsavedGuard?.registerSaveAll(submit);
+    return () => { unsavedGuard?.registerSaveAll(null); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [valeurs.lmKeyword, valeurs.dmLmMessage, valeurs.dmButtonText, valeurs.dm1Message, valeurs.dmLinkButtonText, valeurs.dm2StoryMessage, ref, isExistingSequence]);
 
   return (
     <>
@@ -3079,6 +3169,16 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
       </div>
 
       {error && <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 10 }}>{error}</div>}
+
+      {/* Le compte des modifications en attente, comme au pied du formulaire des
+          posts : c'est lui qui rend l'oubli rare, le garde de navigation n'étant
+          qu'un filet. Il ne s'affiche que sur une séquence déjà enregistrée —
+          pendant une création, tout est « en attente » par définition. */}
+      {isExistingSequence && nbModifs > 0 && (
+        <div style={{ fontSize: 11.5, fontWeight: 600, color: AMBER, marginBottom: 8 }}>
+          {nbModifs} modification{nbModifs > 1 ? 's' : ''} non enregistrée{nbModifs > 1 ? 's' : ''}
+        </div>
+      )}
 
       <button onClick={submit} disabled={saving || !name || !lmKeyword || (!isExistingSequence && !isGroup && !ctaStoryId)} style={{ width: '100%', padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: saved ? 'var(--green)' : BLUE, color: '#fff', cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.7 : 1 }}>
         {saving ? 'Enregistrement...' : saved ? 'Enregistré ✓' : isConfigured ? 'Mettre à jour' : isExistingSequence ? 'Configurer le Lead Magnet' : 'Créer le CTA'}
