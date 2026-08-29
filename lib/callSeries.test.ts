@@ -144,3 +144,50 @@ test('close rate par opportunite : 100 % la ou le comptage par rendez-vous disai
   assert.equal(Math.round((closes / honores) * 100), 50);
   assert.equal(Math.round((closes / opportunites) * 100), 100);
 });
+
+// LE CAS REEL, celui qui a failli faire echouer le test end-to-end : RapportModal
+// cree le 2e call avec `invitee_name` mais SANS `invitee_email`, alors que le
+// premier call vient de Calendly et porte les deux. Avec une cle unique
+// « e-mail, repli sur le nom », les deux tombaient dans deux groupes distincts et
+// la continuation ne se declenchait jamais.
+test('un 2e call sans e-mail rejoint le premier par le nom', () => {
+  const ids = idsDeContinuation([
+    { id: 'premier', booked_at: '2026-08-21T04:59:00.000Z', outcome: 'second_call',
+      invitee_name: 'Testrapportpasse', invitee_email: 'rapporttestpass@gmail.com' },
+    { id: 'second', booked_at: '2026-08-29T18:00:00.000Z', outcome: null,
+      invitee_name: 'Testrapportpasse', invitee_email: null },
+  ]);
+  assert.deepEqual([...ids], ['second']);
+});
+
+// Symetrique : le call SANS e-mail arrive en premier.
+test('le rapprochement par le nom marche dans les deux sens', () => {
+  const ids = idsDeContinuation([
+    { id: 'a', booked_at: '2026-08-10T10:00:00.000Z', outcome: 'second_call', invitee_name: 'Jean Dupont' },
+    { id: 'b', booked_at: '2026-08-20T10:00:00.000Z', outcome: 'closed',
+      invitee_name: 'Jean Dupont', invitee_email: 'jean@x.fr' },
+  ]);
+  assert.deepEqual([...ids], ['b']);
+});
+
+// Transitivite : trois calls relies par des identites qui ne se recouvrent que
+// deux a deux doivent former UN seul groupe (a--nom--b--email--c).
+test('trois calls se rejoignent par transitivite des identites', () => {
+  const ids = idsDeContinuation([
+    { id: 'a', booked_at: '2026-08-05T10:00:00.000Z', outcome: 'second_call', invitee_name: 'Marie L' },
+    { id: 'b', booked_at: '2026-08-12T10:00:00.000Z', outcome: 'second_call',
+      invitee_name: 'Marie L', invitee_email: 'marie@x.fr' },
+    { id: 'c', booked_at: '2026-08-19T10:00:00.000Z', outcome: 'closed', invitee_email: 'marie@x.fr' },
+  ]);
+  assert.deepEqual([...ids].sort(), ['b', 'c']);
+});
+
+// La contrepartie a ne pas franchir : deux personnes differentes restent separees
+// des lors qu'elles ne partagent NI e-mail NI nom.
+test('deux prospects sans identite commune ne fusionnent jamais', () => {
+  const ids = idsDeContinuation([
+    { id: 'a', booked_at: '2026-08-10T10:00:00.000Z', outcome: 'second_call', invitee_name: 'Paul', invitee_email: 'paul@x.fr' },
+    { id: 'b', booked_at: '2026-08-20T10:00:00.000Z', outcome: 'closed', invitee_name: 'Sophie', invitee_email: 'sophie@x.fr' },
+  ]);
+  assert.equal(ids.size, 0);
+});

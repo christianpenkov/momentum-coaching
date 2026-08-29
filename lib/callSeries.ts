@@ -103,26 +103,65 @@ type CallPourContinuation = DatedCall & {
   invitee_name?: string | null;
 };
 
-/** Cle d'identite d'un prospect : l'e-mail, repli sur le nom.
- *  docs/perimetre-stats-referentiel.md, regle 3 — un prospect est une PERSONNE. */
-function clefProspect(c: CallPourContinuation): string | null {
+/** Les identites que porte un call : jusqu'a deux, l'e-mail et le nom. */
+function identites(c: CallPourContinuation): string[] {
+  const ids: string[] = [];
   const e = (c.invitee_email || '').trim().toLowerCase();
-  if (e) return `e:${e}`;
+  if (e) ids.push(`e:${e}`);
   const n = (c.invitee_name || '').trim().toLowerCase();
-  return n ? `n:${n}` : null;
+  if (n) ids.push(`n:${n}`);
+  return ids;
+}
+
+/**
+ * Regroupe les calls par PERSONNE — deux calls appartiennent au meme prospect
+ * s'ils partagent l'e-mail OU le nom.
+ *
+ * Une cle unique « l'e-mail, repli sur le nom » ne suffit pas, et ce n'est pas
+ * theorique : le 2e call saisi a la main par RapportModal ne portait QUE le nom,
+ * quand le premier portait un e-mail. Les deux tombaient donc dans deux groupes
+ * distincts — `e:...` d'un cote, `n:...` de l'autre — et la continuation ne se
+ * declenchait jamais. Le repli doit se faire au niveau de la PAIRE, pas de chaque
+ * call pris isolement.
+ *
+ * Union-find sur les deux espaces de cles : un call sans e-mail rejoint par son
+ * nom le groupe d'un call qui en a un.
+ */
+function groupesDeProspects(calls: CallPourContinuation[]): CallPourContinuation[][] {
+  const parent = new Map<string, string>();
+  const racine = (k: string): string => {
+    let r = k;
+    while (parent.get(r) !== r) r = parent.get(r)!;
+    // Compression de chemin : sans elle, une longue chaine de fusions degenere.
+    let cur = k;
+    while (parent.get(cur) !== r) { const suiv = parent.get(cur)!; parent.set(cur, r); cur = suiv; }
+    return r;
+  };
+  const ajoute = (k: string) => { if (!parent.has(k)) parent.set(k, k); };
+
+  for (const c of calls) {
+    const ids = identites(c);
+    ids.forEach(ajoute);
+    // Les identites d'un MEME call designent la meme personne : on les fusionne.
+    for (let i = 1; i < ids.length; i++) parent.set(racine(ids[i]), racine(ids[0]));
+  }
+
+  const groupes = new Map<string, CallPourContinuation[]>();
+  for (const c of calls) {
+    const ids = identites(c);
+    if (!ids.length) continue;   // sans identite, aucun regroupement possible
+    const r = racine(ids[0]);
+    const arr = groupes.get(r);
+    if (arr) arr.push(c); else groupes.set(r, [c]);
+  }
+  return [...groupes.values()];
 }
 
 /** Identifiants des calls qui CONTINUENT une opportunite deja ouverte. */
 export function idsDeContinuation(calls: CallPourContinuation[]): Set<string> {
-  const parProspect = new Map<string, CallPourContinuation[]>();
-  for (const c of calls) {
-    const k = clefProspect(c);
-    if (!k) continue;
-    const arr = parProspect.get(k);
-    if (arr) arr.push(c); else parProspect.set(k, [c]);
-  }
+  const parProspect = groupesDeProspects(calls);
   const ids = new Set<string>();
-  for (const groupe of parProspect.values()) {
+  for (const groupe of parProspect) {
     if (groupe.length < 2) continue;
     const ordonne = [...groupe].sort((a, b) => (callDayKey(a) ?? '').localeCompare(callDayKey(b) ?? ''));
     for (let i = 1; i < ordonne.length; i++) {

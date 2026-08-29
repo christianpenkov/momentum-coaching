@@ -497,6 +497,9 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
           scheduled_at: new Date(startMs).toISOString(),
           duration: `${Math.round((endMs - startMs) / 60000)} min`,
           invitee_name: inviteeName,
+          // La route y lit l'e-mail du prospect : c'est la meme personne, et le
+          // modal ne recoit pas l'e-mail en props.
+          parent_call_id: callId,
           is_follow_up: true,
           source: 'manual',
         }),
@@ -700,12 +703,21 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
         />
       )}
 
+      {/* ── Les étapes où l'on SAISIT passent en plein écran ────────────────
+          Une feuille courte est ancrée en bas de l'écran, donc exactement là où
+          le clavier s'ouvre : le champ se retrouve dessous. En plein écran, la
+          feuille devient défilante et le navigateur peut amener le champ dans la
+          zone visible.
+          `objection` a rejoint la liste le jour où « Autre » y a ajouté un champ
+          de texte : cette liste décrit ce que l'étape CONTIENT, elle se met donc
+          à jour avec elle. */}
       {step !== 'celebration' && (
         <ModalShell
           onClose={onClose}
           onOverlayClick={requestClose}
           variant="sheet"
-          fullScreen={step === 'revenue' || step === 'payment' || step === 'offline' || step === 'comment'}
+          fullScreen={step === 'revenue' || step === 'payment' || step === 'offline'
+            || step === 'comment' || step === 'objection'}
           width={520}
         >
         <div style={{ padding: '48px 24px 32px', overflowY: 'auto' }}>
@@ -938,6 +950,13 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                 placeholder="Par exemple : il déménage à l'étranger"
                 disabled={saving}
                 autoFocus
+                // Le plein écran rend la feuille défilante ; encore faut-il
+                // qu'elle défile. Sur la branche « à recontacter », sept choix
+                // précèdent ce champ : `autoFocus` seul le laissait sous la
+                // ligne de flottaison, visible seulement après un geste manuel.
+                // `block: 'center'` le place au milieu, donc au-dessus du
+                // clavier quelle que soit sa hauteur.
+                ref={el => { el?.scrollIntoView({ block: 'center', behavior: 'smooth' }); }}
                 style={{
                   width: '100%', padding: '12px 14px', fontSize: 14,
                   borderRadius: 10, border: '1px solid var(--border)',
