@@ -144,7 +144,7 @@ async function fetchFromShortio(creds: { apiKey: string; domain: string; domainI
   type LinkAgg = {
     path: string; shortUrl: string; originalUrl: string;
     linkType: string | null; linkCategory: string | null;
-    clicks30d: number; humanClicks30d: number;
+    clicsAvecBots: number; clicsHumains: number;
     chart: Map<string, number>;
   };
   const aggByLinkId = new Map<string, LinkAgg>();
@@ -153,7 +153,7 @@ async function fetchFromShortio(creds: { apiKey: string; domain: string; domainI
     if (!agg) {
       agg = {
         path: row.path || '', shortUrl: row.short_url || '', originalUrl: row.original_url || '',
-        linkType: null, linkCategory: null, clicks30d: 0, humanClicks30d: 0, chart: new Map(),
+        linkType: null, linkCategory: null, clicsAvecBots: 0, clicsHumains: 0, chart: new Map(),
       };
       aggByLinkId.set(row.link_id, agg);
     }
@@ -164,8 +164,8 @@ async function fetchFromShortio(creds: { apiKey: string; domain: string; domainI
     if (!agg.path && row.path) agg.path = row.path;
     const human = row.human_clicks ?? 0;
     const total = row.total_clicks ?? 0;
-    agg.humanClicks30d += human;
-    agg.clicks30d += total;
+    agg.clicsHumains += human;
+    agg.clicsAvecBots += total;
     agg.chart.set(row.date, (agg.chart.get(row.date) ?? 0) + human);
   }
 
@@ -183,8 +183,8 @@ async function fetchFromShortio(creds: { apiKey: string; domain: string; domainI
       originalUrl: agg.originalUrl || apiLink?.originalURL || '',
       title: apiLink?.title || agg.path || '',
       createdAt: apiLink?.createdAt || null,
-      clicks30d: agg.clicks30d,
-      humanClicks30d: agg.humanClicks30d,
+      clicsAvecBots: agg.clicsAvecBots,
+      clicsHumains: agg.clicsHumains,
       clicksChange: null,
       chartData: [...agg.chart.entries()]
         .sort((a, b) => a[0].localeCompare(b[0]))
@@ -196,14 +196,14 @@ async function fetchFromShortio(creds: { apiKey: string; domain: string; domainI
     };
   });
 
-  enrichedLinks.sort((a, b) => b.clicks30d - a.clicks30d);
+  enrichedLinks.sort((a, b) => b.clicsAvecBots - a.clicsAvecBots);
 
   return {
     domain, totalLinks,
-    clicks30d: Number(domainStats.clicks ?? 0),
-    humanClicks30d: Number(domainStats.humanClicks ?? 0),
+    clicsAvecBots: Number(domainStats.clicks ?? 0),
+    clicsHumains: Number(domainStats.humanClicks ?? 0),
     clicksChange: domainStats.prevClicksChange !== undefined ? Number(domainStats.prevClicksChange) : null,
-    clicksPerLink30d: parseFloat(domainStats.clicksPerLink ?? '0') || 0,
+    clicsHumainsParLien: parseFloat(domainStats.clicksPerLink ?? '0') || 0,
     chartData: domainChartData,
     topCountries, topReferrers, topBrowsers, topOs, topSocial, topCities,
     links: enrichedLinks,

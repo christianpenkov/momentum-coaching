@@ -141,8 +141,8 @@ interface IGMessages {
   threads: { threadId: string; updatedAt: string; messageCount: number; hasReply: boolean; participant: string; preview: string; isLead: boolean }[];
 }
 interface ShortioStats {
-  domain: string; totalLinks: number; clicks30d: number; humanClicks30d: number;
-  clicksChange: number | null; clicksPerLink30d: number;
+  domain: string; totalLinks: number; clicsAvecBots: number; clicsHumains: number;
+  clicksChange: number | null; clicsHumainsParLien: number;
   chartData: { date: string; clicks: number }[];
   topCountries: { label: string; value: number }[];
   topReferrers: { label: string; value: number }[];
@@ -154,7 +154,7 @@ interface ShortioStats {
 }
 interface ShortioLink {
   id: number; path: string; shortUrl: string; originalUrl: string; title: string;
-  createdAt: string; clicks30d: number; humanClicks30d: number; clicksChange: number | null;
+  createdAt: string; clicsAvecBots: number; clicsHumains: number; clicksChange: number | null;
   chartData: { date: string; clicks: number }[];
   countries: { label: string; value: number }[];
   referrers: { label: string; value: number }[];
@@ -3883,13 +3883,13 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const ytRev     = ytCallsLive.rev;
   const ytNoShows = ytCallsLive.noShows;
   const isCalendlyUrl = (l: any) => (l.originalUrl || '').toLowerCase().includes('calendly');
-  // Clics Short.io filtrés par période : clicksByUrl (DB) prioritaire, fallback humanClicks30d en S-0/30j uniquement
+  // Clics Short.io filtrés par période : clicksByUrl (DB) prioritaire, fallback clicsHumains en S-0/30j uniquement
   const resolveClics = (l: any): number => {
     const urlKey = (l.shortUrl || '').toLowerCase();
     const dbClics = clicksByUrl?.get(urlKey);
     if (dbClics !== undefined) return dbClics;
-    // humanClicks30d est all-time 30j — ne l'utiliser qu'en S-0 période 30j
-    if (periodIndex === 0 && period === 30) return l.humanClicks30d || 0;
+    // clicsHumains est all-time 30j — ne l'utiliser qu'en S-0 période 30j
+    if (periodIndex === 0 && period === 30) return l.clicsHumains || 0;
     return 0;
   };
   // link_category est la source de vérité non-ambiguë pour IG vs YT bio/description
@@ -4930,7 +4930,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     if (_pIdx > 0) return dbClics ?? 0;
     // S-0 : DB prioritaire ; fallback API seulement si aucun snapshot en DB (undefined)
     if (dbClics !== undefined) return dbClics;
-    if (sPeriod === 30) return l.humanClicks30d || 0;
+    if (sPeriod === 30) return l.clicsHumains || 0;
     const pts: { date?: string; clicks: number }[] = l.chartData || [];
     if (sinceConnection) return pts.reduce((s, p) => s + (p.clicks || 0), 0);
     return pts.filter(p => p.date && new Date(p.date).getTime() >= periodStart.getTime() && new Date(p.date).getTime() <= periodEnd.getTime())
@@ -5409,7 +5409,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     if (l.dealClosed === true) return 'closed';
     if (l.no_show) return 'noshow';
     if (l.callBooked) return 'booked';
-    if ((l.humanClicks30d || 0) > 0) return 'pending';
+    if ((l.clicsHumains || 0) > 0) return 'pending';
     return 'pending';
   };
 
@@ -7172,8 +7172,8 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   const snapClicksByUrl = new Map<string, number>();
   const snapClicksByPath = new Map<string, number>();
   let snapBusinessClicsFromDb = 0;
-  for (const row of shortioClickRows as { short_url: string | null; path: string | null; link_category: string | null; total_clicks: number }[]) {
-    const clicks = row.total_clicks ?? 0;
+  for (const row of shortioClickRows as { short_url: string | null; path: string | null; link_category: string | null; clics_humains: number }[]) {
+    const clicks = row.clics_humains ?? 0;
     if (row.short_url) {
       const u = row.short_url.toLowerCase();
       snapClicksByUrl.set(u, (snapClicksByUrl.get(u) ?? 0) + clicks);
@@ -7217,10 +7217,10 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     p_end_date: endDateStr,
   });
   if (snapChartRpcError) console.error('[PageClientStats] get_shortio_clicks_by_day (fetchSnapshot, période courante) a échoué:', snapChartRpcError.message);
-  for (const row of (snapChartRpcData ?? []) as { date: string; link_category: string; total_clicks: number }[]) {
+  for (const row of (snapChartRpcData ?? []) as { date: string; link_category: string; clics_humains: number }[]) {
     if (row.date) snapJoursCollectes.add(row.date);
     if (!row.date || !row.link_category) continue;
-    const clicks = row.total_clicks ?? 0;
+    const clicks = row.clics_humains ?? 0;
     if (CATS_BUSINESS.has(row.link_category)) {
       snapChartByDate.set(row.date, (snapChartByDate.get(row.date) ?? 0) + clicks);
     }
@@ -7244,8 +7244,8 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   });
   if (snapPrevChartRpcError) console.error('[PageClientStats] get_shortio_clicks_by_day (fetchSnapshot, période précédente) a échoué:', snapPrevChartRpcError.message);
   let snapPrevBusinessClics = 0;
-  for (const row of (snapPrevChartRpcData ?? []) as { date: string; link_category: string; total_clicks: number }[]) {
-    if (row.link_category && CATS_BUSINESS.has(row.link_category)) snapPrevBusinessClics += (row.total_clicks ?? 0);
+  for (const row of (snapPrevChartRpcData ?? []) as { date: string; link_category: string; clics_humains: number }[]) {
+    if (row.link_category && CATS_BUSINESS.has(row.link_category)) snapPrevBusinessClics += (row.clics_humains ?? 0);
   }
   // Même convention que fetchSupabaseStats (voir commentaire là-bas) : 0/0 → 0%,
   // 0 → X → +100%, sinon vraie variation. Jamais null.
@@ -7471,7 +7471,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   } as any as YTStats : null;
 
   // ── Shortio ─────────────────────────────────────────────────────────────────
-  const shortioHist: ShortioStats | null = shortioData?.humanClicks30d != null
+  const shortioHist: ShortioStats | null = shortioData?.clicsHumains != null
     ? (shortioData as ShortioStats)
     : null;
 
@@ -7890,8 +7890,8 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     p_end_date: until30d,
   });
   if (clicksByUrlRpcError) console.error('[PageClientStats] get_shortio_clicks_by_url (fetchSupabaseStats) a échoué:', clicksByUrlRpcError.message);
-  for (const row of (clicksByUrlRpcData ?? []) as { short_url: string | null; path: string | null; link_category: string | null; total_clicks: number }[]) {
-    const clicks = row.total_clicks ?? 0;
+  for (const row of (clicksByUrlRpcData ?? []) as { short_url: string | null; path: string | null; link_category: string | null; clics_humains: number }[]) {
+    const clicks = row.clics_humains ?? 0;
     if (row.short_url) {
       const url = row.short_url.toLowerCase();
       clicksByUrl.set(url, (clicksByUrl.get(url) ?? 0) + clicks);
@@ -7935,7 +7935,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     }
   }
 
-  // prospect_links enrichis avec callBooked/callHonored/dealClosed/revenue/qualified/humanClicks30d/post_id via DB
+  // prospect_links enrichis avec callBooked/callHonored/dealClosed/revenue/qualified/clicsHumains/post_id via DB
   const prospectLinksData = prospectLinksRows.map((pl: any) => {
     const callData = pl.ig_lead_id ? callByLeadId.get(pl.ig_lead_id) : undefined;
     const urlKey = (pl.short_url || '').toLowerCase();
@@ -7946,7 +7946,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
       dealClosed:      callData?.dealClosed  ?? false,
       revenue:         callData?.revenue     ?? 0,
       qualified:       callData?.qualified   ?? null,
-      humanClicks30d:  clicksByUrl.get(urlKey) ?? 0,
+      clicsHumains:  clicksByUrl.get(urlKey) ?? 0,
       post_id:         pl.ig_lead_id ? (leadIdToMediaId.get(pl.ig_lead_id) ?? null) : null,
     };
   });
@@ -7993,10 +7993,10 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
   // dépasser 1000 lignes sur un mois chargé — voir commentaire sur clicksByUrl.
   let calendlyStaticClicsFromDb = 0;
   let businessClicsFromDb = 0;
-  for (const row of (shortioChartHistoryRpc.data ?? []) as { date: string; link_category: string; total_clicks: number }[]) {
+  for (const row of (shortioChartHistoryRpc.data ?? []) as { date: string; link_category: string; clics_humains: number }[]) {
     if (row.date) joursCollectesShortio.add(row.date);
     if (!row.date || !row.link_category) continue;
-    const clicks = row.total_clicks ?? 0;
+    const clicks = row.clics_humains ?? 0;
     if (CATS_BUSINESS.has(row.link_category)) {
       chartByDate.set(row.date, (chartByDate.get(row.date) ?? 0) + clicks);
       // businessClicsFromDb/calendlyStaticClicsFromDb représentent uniquement la

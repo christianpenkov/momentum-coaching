@@ -4926,13 +4926,13 @@ export default function PageLiens() {
       // Clics cumulés des liens du contenu (description + lead magnet) : c'est
       // le trafic que ce contenu a généré, quel que soit le lien cliqué.
       //
-      // /api/shortio/stats expose `humanClicks30d`, PAS `humanClicks` : la
+      // /api/shortio/stats expose `clicsHumains`, PAS `humanClicks` : la
       // lecture précédente portait sur un champ inexistant et rendait `clics`
       // toujours null — la ligne de contenu n'a donc jamais affiché de clics.
       // Ces valeurs restent bornées à 30 jours ; l'all-time arrive juste après
       // par content_links, et l'écrase.
-      const clicsDesc = descLink?.humanClicks30d ?? null;
-      const clicsLm = lmLink?.humanClicks30d ?? null;
+      const clicsDesc = descLink?.clicsHumains ?? null;
+      const clicsLm = lmLink?.clicsHumains ?? null;
       const clics = clicsDesc === null && clicsLm === null
         ? null
         : (clicsDesc ?? 0) + (clicsLm ?? 0);

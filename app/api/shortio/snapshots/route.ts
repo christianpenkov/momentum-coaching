@@ -16,6 +16,16 @@ type TopEntry = { label: string; value: number };
 // privé suffisent à absorber les remontages de composant sans figer les chiffres.
 const CACHE_CONTROL = 'private, max-age=60, must-revalidate';
 
+// Noms des champs de sortie : `clicsAvecBots` et `clicsHumains`, jamais `clicks30d` /
+// `humanClicks30d`.
+//
+// Les anciens noms mentaient deux fois. Le suffixe « 30d » d'abord : la fenêtre est
+// celle demandée par l'appelant, qui vaut aussi bien une semaine que tout l'historique.
+// Et surtout `clicks30d` incluait les BOTS sans le dire, à côté d'un `humanClicks30d`
+// qui, lui, les excluait — sur le profil de test, 499 contre 169, soit trois fois plus.
+// Un nom qui ment survit à la correction de son symptôme et reproduit le bug ailleurs :
+// c'est exactement ce mécanisme qui a produit les 39 % de clics fantômes.
+
 /** Une ligne par lien, agrégée côté base par get_shortio_links_agreges. */
 interface LigneAgregee {
   link_id: string;
@@ -30,8 +40,8 @@ interface LigneAgregee {
 }
 
 const EMPTY_STATS = {
-  domain: '', totalLinks: 0, clicks30d: 0, humanClicks30d: 0,
-  clicksChange: null as number | null, clicksPerLink30d: 0,
+  domain: '', totalLinks: 0, clicsAvecBots: 0, clicsHumains: 0,
+  clicksChange: null as number | null, clicsHumainsParLien: 0,
   chartData: [] as { date: string; clicks: number }[],
   topCountries: [] as TopEntry[], topReferrers: [] as TopEntry[],
   topBrowsers: [] as TopEntry[], topOs: [] as TopEntry[],
@@ -80,8 +90,8 @@ function construireReponse(
       linkType,
       linkCategory: l.link_category ?? null,
       postPlatform: utmSourceVal === 'yt' ? 'YT' : utmSourceVal === 'ig' ? 'IG' : null,
-      clicks30d: Number(l.total_clicks) || 0,
-      humanClicks30d: Number(l.human_clicks) || 0,
+      clicsAvecBots: Number(l.total_clicks) || 0,
+      clicsHumains: Number(l.human_clicks) || 0,
       clicksChange: null as number | null,
       chartData: l.chart_data ?? [],
       // Ventilations (pays, villes, navigateurs, OS, réseaux, référents, UTM) :
@@ -105,10 +115,10 @@ function construireReponse(
   return {
     domain,
     totalLinks: links.length,
-    clicks30d: totalAvecBots,
-    humanClicks30d: totalHumain,
+    clicsAvecBots: totalAvecBots,
+    clicsHumains: totalHumain,
     clicksChange: null,
-    clicksPerLink30d: links.length > 0 ? Math.round(totalHumain / links.length) : 0,
+    clicsHumainsParLien: links.length > 0 ? Math.round(totalHumain / links.length) : 0,
     chartData,
     topCountries: [] as TopEntry[], topReferrers: [] as TopEntry[],
     topBrowsers: [] as TopEntry[], topOs: [] as TopEntry[],

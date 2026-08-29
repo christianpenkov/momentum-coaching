@@ -30,6 +30,7 @@ interface Props {
 export default function ShortioDomainPicker({ open, onClose, profileId, currentDomainId, onSelected }: Props) {
   const [domains, setDomains] = useState<ShortioDomainOption[]>([]);
   const [selected, setSelected] = useState<string>(currentDomainId != null ? String(currentDomainId) : '');
+  const [partage, setPartage] = useState<{ domaine: string; nbAutresProfils: number } | null>(null);
   const [affectedLm, setAffectedLm] = useState<AffectedLm[]>([]);
   const [confirmed, setConfirmed] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -47,18 +48,20 @@ export default function ShortioDomainPicker({ open, onClose, profileId, currentD
     setError(null);
     setDomains([]);
     setAffectedLm([]);
+    setPartage(null);
     setLoading(true);
 
-    const fetches: Promise<any>[] = [
+    // Le GET n'etait appele que lors d'un CHANGEMENT de domaine, parce qu'il ne
+    // servait qu'a lister les liens bio a regenerer. Il porte desormais aussi le
+    // signal « ce domaine est deja utilise par un autre eleve », qui doit s'afficher
+    // des la PREMIERE selection — c'est justement la que le probleme se cree.
+    Promise.all([
       fetch(`/api/shortio/domains?profileId=${profileId}`).then(r => r.json()).catch(() => null),
-    ];
-    if (isChange) {
-      fetches.push(fetch(`/api/shortio/domain-select?profileId=${profileId}`).then(r => r.json()).catch(() => null));
-    }
-
-    Promise.all(fetches).then(([domainsRes, affectedRes]) => {
+      fetch(`/api/shortio/domain-select?profileId=${profileId}`).then(r => r.json()).catch(() => null),
+    ]).then(([domainsRes, infoRes]) => {
       if (domainsRes?.domains?.length) setDomains(domainsRes.domains);
-      if (affectedRes?.affected) setAffectedLm(affectedRes.affected);
+      if (isChange && infoRes?.affected) setAffectedLm(infoRes.affected);
+      if (infoRes?.partage) setPartage(infoRes.partage);
     }).finally(() => setLoading(false));
   }, [open, profileId, currentDomainId, isChange]);
 
@@ -131,6 +134,24 @@ export default function ShortioDomainPicker({ open, onClose, profileId, currentD
         <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>
           {isChange ? 'Changer de domaine Short.io' : 'Choisis ton domaine Short.io'}
         </div>
+
+        {/* Deux eleves sur le meme compte Short.io comptent chacun les clics de
+            l'autre : le cron ramene TOUS les liens du domaine interroge, sans savoir a
+            qui ils appartiennent. Mesure sur les profils de test : 65 a 76 liens
+            « empruntes » par profil. On avertit plutot que de refuser — le partage est
+            une configuration legitime en test, et un refus dur la casserait. */}
+        {partage && (
+          <div style={{
+            marginTop: 10, marginBottom: 4, padding: '10px 12px', borderRadius: 8,
+            background: 'var(--amber-soft)', border: '1px solid var(--amber)',
+            fontSize: 11.5, lineHeight: 1.5, color: 'var(--amber-ink)',
+          }}>
+            <b>Ce domaine est déjà utilisé par {partage.nbAutresProfils} autre{partage.nbAutresProfils > 1 ? 's' : ''} élève{partage.nbAutresProfils > 1 ? 's' : ''}.</b>{' '}
+            Tant que c'est le cas, chacun voit les clics de l'autre dans ses statistiques :
+            le suivi ne sait pas à qui appartient chaque lien. Pour des chiffres justes,
+            chaque élève doit connecter son propre compte Short.io.
+          </div>
+        )}
 
         {loading ? (
           <div style={{ fontSize: 12, color: 'var(--muted)', margin: '14px 0' }}>Chargement…</div>
