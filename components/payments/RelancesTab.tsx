@@ -33,7 +33,7 @@ type Item = {
 type Group = {
   key: string;
   title: string;
-  tone: 'red' | 'amber';
+  tone: 'red' | 'amber' | 'taupe';
   help: string;
   items: Item[];
 };
@@ -234,7 +234,9 @@ function RelanceRow({ item, first, onChange, onOuvrir }: {
 function buildGroups(deals: DealRow[], details: Record<string, DealDetail>): Group[] {
   const failed: Group['items'] = [];
   const dueNow: Group['items'] = [];
+  const enRetard: Group['items'] = [];
   const waiting: Group['items'] = [];
+  const sansLien: Group['items'] = [];
 
   const today = new Date().toISOString().slice(0, 10);
 
@@ -290,11 +292,17 @@ function buildGroups(deals: DealRow[], details: Record<string, DealDetail>): Gro
         sentAt: next.sent_at,
         dejaOuvert: ouvert,
       };
-      // Une échéance déjà marquée envoyée n'est plus une action à faire : elle
-      // passe en attente de paiement, même si sa date est dépassée. En mode
-      // hors Stripe il n'y a pas d'envoi, donc `sent_at` ne s'applique pas :
-      // seule la date compte.
-      ((late && (offline || !envoye)) ? dueNow : waiting).push(item);
+      // ── Trois situations, trois gestes différents ─────────────────────────
+      // La date est passée et le lien n'est pas parti  → l'envoyer.
+      // La date est passée et le lien est parti/ouvert → relancer le paiement.
+      // La date n'est pas passée                       → ne rien faire.
+      //
+      // Les deux premières se confondaient dans « en attente de paiement », qui
+      // décrivait une attente sereine sur une échéance en retard — pendant que
+      // la fiche de la même vente affichait « Impayée » en rouge.
+      if (late && (offline || !envoye)) dueNow.push(item);
+      else if (late) enRetard.push(item);
+      else waiting.push(item);
       continue;
     }
 
@@ -302,14 +310,19 @@ function buildGroups(deals: DealRow[], details: Record<string, DealDetail>): Gro
     // du backfill (anciens calls closés) n'en ont jamais eu, et « lien envoyé »
     // décrirait une action qui n'a pas eu lieu.
     if (d.collected === 0) {
-      waiting.push({
+      const item: Item = {
         deal: d,
         sub: d.shortUrl
           ? `Lien créé ${fmtRelative(d.signedAt)} · aucun paiement`
-          : `Signé ${fmtRelative(d.signedAt)} · aucun lien de paiement`,
+          : `Signé ${fmtRelative(d.signedAt)} · aucun moyen de paiement enregistré`,
         url: d.shortUrl,
         amount: d.amountTotal,
-      });
+      };
+      // Une vente SANS lien n'attend pas un paiement : elle attend qu'on décide
+      // comment l'encaisser. La ranger sous « le lien est parti, le paiement
+      // n'est pas arrivé » faisait mentir le groupe sur la plupart de ses
+      // lignes — et laissait croire qu'il n'y avait qu'à patienter.
+      (d.shortUrl ? waiting : sansLien).push(item);
     }
   }
 
