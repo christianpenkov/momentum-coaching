@@ -278,6 +278,7 @@ export async function syncCalendlyEleve(
         reminder_sent: false,
       };
       if (utmCampaign)          upsertData.utm_campaign    = utmCampaign;
+      let contenuValide: string | undefined;
       if (utmContent) {
         // Garde anti-écrasement : voir commentaire équivalent dans
         // app/api/webhooks/calendly/route.ts — ne jamais remplacer un utm_content déjà
@@ -289,15 +290,22 @@ export async function syncCalendlyEleve(
         // produit 40 anomalies après la migration UTM du 2026-08-19.
         const { data: existingUtm } = await serviceSupabase.from('calls')
           .select('utm_content').eq('calendly_event_uuid', eventUuid).maybeSingle();
-        const resolvedUtm = resolveUtmContent(utmContent, existingUtm?.utm_content);
+        contenuValide = resolveUtmContent(utmContent, existingUtm?.utm_content);
         // undefined = ne rien écrire (omettre la clé, pas poser null).
-        if (resolvedUtm !== undefined) upsertData.utm_content = resolvedUtm;
+        if (contenuValide !== undefined) upsertData.utm_content = contenuValide;
       }
       // Regle partagee : un canal hors nomenclature n'est jamais recopie.
       const resolvedMedium = resolveUtmMedium(utmMedium);
       if (resolvedMedium)       upsertData.utm_medium      = resolvedMedium;
       if (utmTerm)              upsertData.utm_term        = utmTerm;
-      if (shortLinkPath)        upsertData.short_link_path = shortLinkPath;
+      // ⚠️ short_link_path porte la MEME valeur qu'utm_content — c'est litteralement
+      // `utmContent` (voir sa definition plus haut). Il recevait pourtant la valeur
+      // BRUTE quand utm_content recevait la valeur VALIDEE : la garde ne protegeait
+      // qu'une des deux copies, et l'autre accueillait exactement ce que la garde
+      // existe pour recaler (le pseudo fige par Calendly, cf. les 40 anomalies du
+      // 2026-08-19). Les deux colonnes suivent desormais la meme valeur, donc elles
+      // ne peuvent plus diverger.
+      if (contenuValide !== undefined) upsertData.short_link_path = contenuValide;
       if (finalProspectLinkId)  upsertData.prospect_link_id = finalProspectLinkId;
       if (bookedAt)             upsertData.booked_at       = bookedAt;
 

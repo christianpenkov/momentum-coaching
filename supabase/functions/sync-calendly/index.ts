@@ -408,6 +408,7 @@ async function syncCalendlyEleve(
     if (canceledBy) upsertData.canceled_by = canceledBy;
     if (isCanceled && cancellation?.reason) upsertData.cancellation_reason = cancellation.reason;
     if (utmCampaign)         upsertData.utm_campaign    = utmCampaign;
+    let contenuValide: string | undefined;
     if (utmContent) {
       // ⚠️ Équivalent Deno de `resolveUtmContent` (lib/contentId.ts). Cette Edge
       // Function ne peut pas importer depuis lib/ (pas d'import cross-runtime),
@@ -424,17 +425,24 @@ async function syncCalendlyEleve(
         // 15 anomalies après la migration UTM du 2026-08-19, qui avait justement vidé ces
         // champs. Le pseudo a son propre champ : utm_term, écrit juste en dessous.
         if (existingUtm?.utm_content && isValidContentId(existingUtm.utm_content)) {
-          upsertData.utm_content = existingUtm.utm_content;
+          contenuValide = existingUtm.utm_content;
         }
       } else {
-        upsertData.utm_content = utmContent;
+        contenuValide = utmContent;
       }
+      if (contenuValide !== undefined) upsertData.utm_content = contenuValide;
     }
     // Règle partagée : un canal hors nomenclature n'est jamais recopié.
     const resolvedMedium = resolveUtmMedium(utmMedium);
     if (resolvedMedium)      upsertData.utm_medium      = resolvedMedium;
     if (utmTerm)             upsertData.utm_term        = utmTerm;
-    if (shortLinkPath)       upsertData.short_link_path = shortLinkPath;
+    // ⚠️ short_link_path porte la MEME valeur qu'utm_content — c'est litteralement
+    // `utmContent` (voir sa definition plus haut). Il recevait pourtant la valeur
+    // BRUTE quand utm_content recevait la valeur VALIDEE : la garde ne protegeait
+    // qu'une des deux copies, et l'autre accueillait exactement ce que la garde
+    // existe pour recaler (le pseudo fige par Calendly, cf. les anomalies du
+    // 2026-08-19). Les deux colonnes suivent desormais la meme valeur.
+    if (contenuValide !== undefined) upsertData.short_link_path = contenuValide;
     if (finalProspectLinkId) upsertData.prospect_link_id = finalProspectLinkId;
     if (bookedAt)            upsertData.booked_at       = bookedAt;
 

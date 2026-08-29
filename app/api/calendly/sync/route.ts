@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { getCalendlyToken } from '@/lib/calendly-fetch';
 import { upsertProspect } from '@/lib/prospects';
-import { isValidContentId } from '@/lib/contentId';
+import { isValidContentId, resolveUtmContent } from '@/lib/contentId';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -253,12 +253,21 @@ export async function POST() {
     // app/api/webhooks/calendly/route.ts — un resync périodique ne doit jamais remplacer
     // un utm_content déjà valide (vrai ID de contenu) par la valeur figée côté Calendly
     // au moment du clic initial (qui peut être un pseudo, cf. bug PageLiens.tsx corrigé).
-    if (newUtmContentSync && !isValidContentId(newUtmContentSync) && existingCall?.utm_content && isValidContentId(existingCall.utm_content)) {
-      baseUpsert.utm_content = existingCall.utm_content;
-    } else if (newUtmContentSync) {
-      baseUpsert.utm_content = newUtmContentSync;
-    }
-    if (shortLinkPath || inheritedUtmContent)  baseUpsert.short_link_path = shortLinkPath ?? inheritedUtmContent;
+    // Recopiee a la main, cette garde avait DIVERGE de la regle partagee : la
+    // branche « sinon j'ecris quand meme » reinscrivait une valeur invalide des
+    // lors que la base etait vide — exactement ce que resolveUtmContent refuse, et
+    // ce que le commentaire ci-dessus pretendait empecher. On appelle desormais la
+    // fonction partagee, comme les trois autres appelants.
+    const contenuValideSync = resolveUtmContent(newUtmContentSync, existingCall?.utm_content);
+    if (contenuValideSync !== undefined) baseUpsert.utm_content = contenuValideSync;
+    // ⚠️ short_link_path porte la MEME valeur qu'utm_content — c'est litteralement
+    // `utmContent` (voir sa definition plus haut). Il recevait pourtant la valeur
+    // BRUTE quand utm_content recevait la valeur VALIDEE : la garde ne protegeait
+    // qu'une des deux copies, et l'autre accueillait exactement ce que la garde
+    // existe pour recaler (le pseudo fige par Calendly, cf. les 40 anomalies du
+    // 2026-08-19). Les deux colonnes suivent desormais la meme valeur, donc elles
+    // ne peuvent plus diverger.
+    if (contenuValideSync !== undefined) baseUpsert.short_link_path = contenuValideSync;
     if (igLeadId)        baseUpsert.ig_lead_id = igLeadId;
     if (prospectLinkId)  baseUpsert.prospect_link_id = prospectLinkId;
     if (prospectId)      baseUpsert.prospect_id = prospectId;

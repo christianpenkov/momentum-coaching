@@ -278,6 +278,7 @@ export async function POST(request: NextRequest) {
     // pas, on garde l'ancienne — sinon chaque resync réécraserait silencieusement le
     // backfill par la valeur figée au moment du clic initial du prospect (comportement
     // UTM Calendly standard : capturée une fois pour toutes, jamais réévaluée).
+    let contenuValide: string | undefined;
     if (newUtmContent) {
       // Règle partagée (lib/contentId.ts) : une valeur invalide n'est JAMAIS
       // écrite, même quand la base est vide. Auparavant la branche « sinon
@@ -286,12 +287,19 @@ export async function POST(request: NextRequest) {
       // Le pseudo a son propre champ : utm_term, écrit plus bas.
       const { data: existing } = await serviceSupabase.from('calls')
         .select('utm_content').eq('calendly_event_uuid', eventUuid).maybeSingle();
-      const resolved = resolveUtmContent(newUtmContent, existing?.utm_content);
+      contenuValide = resolveUtmContent(newUtmContent, existing?.utm_content);
       // undefined = ne rien écrire (omettre la clé, surtout pas poser null qui
       // écraserait une valeur correcte).
-      if (resolved !== undefined) baseUpsert.utm_content = resolved;
+      if (contenuValide !== undefined) baseUpsert.utm_content = contenuValide;
     }
-    if (shortLinkPath || inheritedUtmContent) baseUpsert.short_link_path = shortLinkPath ?? inheritedUtmContent;
+    // ⚠️ short_link_path porte la MEME valeur qu'utm_content — c'est litteralement
+    // `utmContent` (voir sa definition plus haut). Il recevait pourtant la valeur
+    // BRUTE quand utm_content recevait la valeur VALIDEE : la garde ne protegeait
+    // qu'une des deux copies, et l'autre accueillait exactement ce que la garde
+    // existe pour recaler (le pseudo fige par Calendly, cf. les 40 anomalies du
+    // 2026-08-19). Les deux colonnes suivent desormais la meme valeur, donc elles
+    // ne peuvent plus diverger.
+    if (contenuValide !== undefined) baseUpsert.short_link_path = contenuValide;
     if (igLeadId)      baseUpsert.ig_lead_id = igLeadId;
     if (prospectLinkId) baseUpsert.prospect_link_id = prospectLinkId;
     if (prospectId)    baseUpsert.prospect_id = prospectId;
