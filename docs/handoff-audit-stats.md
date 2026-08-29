@@ -186,7 +186,11 @@ Ce qui reste non testé, c'est l'écriture `delete + insert` avec `figee = true`
 
 ---
 
-## Le périmètre restant : Funnel & Calls — `TabFunnel`, ligne ~3805
+## Le périmètre restant : Funnel & Calls
+
+**Brief complet : `docs/handoff-audit-funnel-calls.md`** — périmètre, procédure de
+vérification métrique par métrique, et les pistes à vérifier. Ce qui suit n'en est
+que le résumé.
 
 Sources : `calls`, `deals`, `stripe`, `instagram_leads`, `prospect_links`,
 `prospect_events`.
