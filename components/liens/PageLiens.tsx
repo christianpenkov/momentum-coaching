@@ -43,6 +43,24 @@ const GREEN_SOFT = 'var(--green-soft)';
 const RED = 'var(--red)';
 const AMBER = 'var(--amber)';
 
+/**
+ * Les cinq messages d'une séquence, dans l'ordre où le prospect les reçoit.
+ * Une seule forme pour les posts et les stories — les colonnes en base portent
+ * des noms décalés de part et d'autre, la traduction se fait au bord.
+ */
+interface SeqDm {
+  /** DM1 — premier message, sans lien. */
+  accroche: string;
+  /** Libellé du bouton du DM1. Son clic est le postback qui ouvre les 24 h. */
+  accrocheBtn: string;
+  /** DM2 — le texte qui accompagne le bouton du lien. Peut être vide. */
+  lien: string;
+  /** Libellé du bouton du DM2, celui qui porte l'URL. */
+  lienBtn: string;
+  /** DM3 — relance envoyée 2 min après. Vide = pas de relance. */
+  relance: string;
+}
+
 // Valeurs par défaut du DM2, affichées en placeholder quand le champ est vide.
 // DOIVENT rester identiques à DM2_DEFAULT_MESSAGE / DM2_DEFAULT_BUTTON dans
 // app/api/webhooks/instagram/route.ts : le placeholder montre ce qui sera
@@ -1093,6 +1111,237 @@ function Dm1Editor({ value, onChange, saved, border, amber, bg, ink }: {
 
 // ─── DissociateButton ────────────────────────────────────────────────────────
 
+/**
+ * L'éditeur de séquence de DM — le SEUL, partagé par les posts et les stories.
+ *
+ * Les deux écrans en avaient chacun une version : même parcours à cinq messages,
+ * mais l'un avec ses libellés Instagram, ses bordures ambre sur champ modifié et
+ * son cadre de téléphone, l'autre avec une pile de `<label>` gris où l'on
+ * lisait `{{username}}` et `{{lien_lm}}` en clair dans le titre du champ. Deux
+ * copies, donc deux endroits à corriger et une divergence qui se creusait à
+ * chaque passage.
+ *
+ * Ce qui reste légitimement différent entre un post et une story est passé en
+ * props, pas dupliqué : le déclencheur (un commentaire ou une réponse à la
+ * story) et le libellé du bouton d'enregistrement. Tout le reste — l'ordre des
+ * champs, les couleurs, le téléphone, le compte des modifications — est ici et
+ * ne peut plus diverger.
+ */
+function SequenceDm({
+  seq, seqRef, setChamp, declencheur, lmUrl, nbModifs, saving, error, onSave,
+  libelleBouton = 'Enregistrer la séquence', boutonActif, igCompte, vue, setVue,
+}: {
+  seq: SeqDm; seqRef: SeqDm;
+  setChamp: (k: keyof SeqDm, v: string) => void;
+  declencheur: 'commentaire' | 'story';
+  lmUrl: string | null;
+  nbModifs: number; saving: boolean; error: string | null;
+  onSave: () => void;
+  libelleBouton?: string;
+  /** Force l'activation du bouton — une création n'a encore rien à comparer. */
+  boutonActif?: boolean;
+  igCompte: { username?: string; name?: string; profilePicture?: string | null } | undefined;
+  vue: 'modifier' | 'apercu'; setVue: (v: 'modifier' | 'apercu') => void;
+}) {
+  const isMobile = useIsMobile();
+  const igNom = igCompte?.name || 'Ton compte';
+  const igPseudo = igCompte?.username || 'ton_compte';
+  const igPhoto: string | null = igCompte?.profilePicture ?? null;
+  const actif = boutonActif ?? nbModifs > 0;
+
+  return (
+    <>
+      {/* Bascule Modifier / Aperçu — mobile seulement. Sur 390 px, empiler cinq
+          champs puis un fil de conversation fait un écran interminable où l'on
+          ne voit jamais les deux. */}
+      {isMobile && (
+        <div style={{ display: 'flex', gap: 7, marginBottom: 14 }}>
+          {([['modifier', 'Modifier'], ['apercu', 'Aperçu']] as const).map(([cle, libelle]) => (
+            <button key={cle} onClick={() => setVue(cle)} style={{
+              flex: 1, minHeight: 44, borderRadius: 999, cursor: 'pointer',
+              fontSize: 12.5, fontWeight: 600, fontFamily: 'inherit',
+              // Actif en encre pleine, comme les chips du hi-fi : sur un fond
+              // déjà clair, une pastille blanche sur gris ne se voit pas assez
+              // pour dire dans quelle vue on se trouve.
+              border: `1px solid ${vue === cle ? INK : BORDER}`,
+              background: vue === cle ? INK : SURFACE,
+              color: vue === cle ? 'var(--bg)' : MUTED,
+              transition: `all var(--dur-quick) var(--ease-out)`,
+            }}>{libelle}</button>
+          ))}
+        </div>
+      )}
+
+      {/* Aperçu mobile — plein écran, sans cadre de téléphone : l'appareil du
+          coach fait le cadre, l'échelle est donc 1:1. */}
+      {isMobile && vue === 'apercu' && (
+        <div style={{
+          border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden',
+          background: '#fff', display: 'flex', flexDirection: 'column',
+          height: 'min(72vh, 620px)', marginBottom: 14,
+        }}>
+          <IgFil seq={seq} pseudo={igPseudo} avatarUrl={igPhoto} nom={igNom} sc={1} sansCadre />
+        </div>
+      )}
+      {isMobile && vue === 'apercu' && !igCompte?.username && (
+        <span style={{ display: 'block', fontSize: 11.5, color: FAINT, textAlign: 'center', lineHeight: 1.4, marginBottom: 14 }}>
+          Connecte ton compte Instagram pour voir ta photo et ton pseudo ici.
+        </span>
+      )}
+
+      {/* Séquence + aperçu, côte à côte en desktop */}
+      <div style={{ display: isMobile && vue === 'apercu' ? 'none' : 'flex', gap: 16, alignItems: 'flex-start' }}>
+        <div style={{ flex: 1, minWidth: 0, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden' }}>
+          <div style={{ padding: '10px 14px', borderBottom: `1px solid ${BORDER}`, background: BG }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: INK }}>Séquence de messages automatique</span>
+            <span style={{ fontSize: 11, color: MUTED, marginLeft: 6 }}>envoyés dans cet ordre, sans action de ta part</span>
+          </div>
+
+          <div style={{ padding: isMobile ? '14px' : '20px 16px', background: 'var(--surface-2)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {/* Accroche — 1er message, sans lien */}
+            <div>
+              <ChampSeqLabel
+                libelle="Accroche"
+                precision={declencheur === 'commentaire' ? 'envoyée avec le commentaire' : 'envoyée en réponse à la story'}
+                modifie={seq.accroche !== seqRef.accroche}
+              />
+              <Dm1Editor
+                value={seq.accroche}
+                onChange={v => setChamp('accroche', v)}
+                saved={seq.accroche === seqRef.accroche}
+                blue={BLUE} blueSoft={BLUE_SOFT} border={BORDER} amber={AMBER} bg={BG} ink={INK}
+              />
+            </div>
+
+            {/* Bouton de l'accroche — rendu comme sur Instagram, sous la bulle */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8, marginBottom: 10 }}>
+              <ChampSeqLabel libelle="Bouton de l'accroche" precision="demande le lien · 20 car. max" modifie={seq.accrocheBtn !== seqRef.accrocheBtn} />
+              <input
+                value={seq.accrocheBtn}
+                onChange={e => setChamp('accrocheBtn', e.target.value.slice(0, 20))}
+                maxLength={20}
+                placeholder="🚀 Je veux le lien !"
+                style={{
+                  padding: '8px 16px', fontSize: 13, fontWeight: 600,
+                  borderRadius: 18, border: `1.5px solid ${seq.accrocheBtn === seqRef.accrocheBtn ? 'var(--accent-brand-soft)' : AMBER}`,
+                  background: '#fff', color: BLUE, outline: 'none', textAlign: 'center',
+                  width: `${Math.max(seq.accrocheBtn.length, 10) + 4}ch`, maxWidth: '100%',
+                }}
+              />
+            </div>
+
+            {/* Message du lien — envoyé après le clic. Le lien lui-même reste dérivé
+                du lead magnet (non modifiable), mais le texte et le libellé du bouton
+                qui l'entourent sont configurables. */}
+            <div style={{ marginTop: 2 }}>
+              <ChampSeqLabel libelle="Message du lien" precision="envoyé quand le prospect clique le bouton" modifie={seq.lien !== seqRef.lien} />
+              <textarea
+                value={seq.lien}
+                onChange={e => setChamp('lien', e.target.value)}
+                placeholder={DM2_DEFAULT_MESSAGE}
+                rows={2}
+                style={{ width: '100%', padding: '10px 12px', fontSize: 12, lineHeight: 1.8, borderRadius: 8, border: `1px solid ${seq.lien === seqRef.lien ? BORDER : AMBER}`, background: BG, color: INK, outline: 'none', boxShadow: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit' }}
+              />
+            </div>
+
+            {/* Bouton du lien — celui qui OUVRE le lien (celui de l'accroche le demande) */}
+            <div style={{ marginTop: 8 }}>
+              <ChampSeqLabel libelle="Bouton du lien" precision="ouvre le lien · 20 car. max" modifie={seq.lienBtn !== seqRef.lienBtn} />
+              <div style={{
+                border: `1px solid ${seq.lienBtn === seqRef.lienBtn ? BORDER : AMBER}`, borderRadius: 18,
+                padding: '7px 14px', background: '#fff', display: 'flex', alignItems: 'center', gap: 6,
+              }}>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={FAINT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                <input
+                  value={seq.lienBtn}
+                  onChange={e => setChamp('lienBtn', e.target.value.slice(0, 20))}
+                  placeholder={DM2_DEFAULT_BUTTON}
+                  maxLength={20}
+                  style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 12.5, fontWeight: 600, color: INK, fontFamily: 'inherit', minWidth: 0 }}
+                />
+              </div>
+              <div style={{ fontSize: 9.5, color: FAINT, marginLeft: 4, marginTop: 3 }}>
+                Le lien est caché derrière ce bouton
+              </div>
+            </div>
+
+            <div style={{ fontSize: 9.5, color: FAINT, marginLeft: 8, marginTop: 6, marginBottom: 4 }}>
+              Lien envoyé dans le DM : {lmUrl || '(généré après association du lead magnet)'} — non modifiable
+            </div>
+
+            {/* Relance — question d'ouverture, envoyée 2 min après le lien */}
+            <div style={{ marginTop: 2 }}>
+              <ChampSeqLabel libelle="Relance" precision="2 min après le lien" modifie={seq.relance !== seqRef.relance} />
+              <textarea
+                value={seq.relance}
+                onChange={e => setChamp('relance', e.target.value)}
+                placeholder={`Ex : "C'est quoi ton objectif principal en ce moment ?"`}
+                rows={3}
+                style={{ width: '100%', padding: '10px 12px', fontSize: 12, lineHeight: 1.8, borderRadius: 8, border: `1px solid ${seq.relance === seqRef.relance ? BORDER : AMBER}`, background: BG, color: INK, outline: 'none', boxShadow: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit' }}
+              />
+              <div style={{ fontSize: 9.5, color: FAINT, marginLeft: 4, marginTop: 3, lineHeight: 1.5 }}>
+                Le délai de 2 minutes évite que les deux messages arrivent dans la même seconde — la relance paraît écrite après coup, pas automatique.
+              </div>
+            </div>
+
+            {error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px', marginLeft: 8, marginTop: 8 }}>{error}</div>}
+
+            {/* Un seul enregistrement pour toute la séquence, avec le compte des
+                modifications en attente — cinq boutons indépendants laissaient
+                publier une séquence à moitié enregistrée. */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+              marginTop: 10, paddingTop: 10, borderTop: `1px solid ${BORDER}`,
+            }}>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 11.5, fontWeight: 600, color: nbModifs ? AMBER : FAINT }}>
+                {nbModifs
+                  ? `${nbModifs} modification${nbModifs > 1 ? 's' : ''} non enregistrée${nbModifs > 1 ? 's' : ''}`
+                  : 'Séquence à jour'}
+              </span>
+              <button onClick={onSave} disabled={!actif || saving}
+                style={{
+                  padding: isMobile ? '0 18px' : '9px 16px', minHeight: isMobile ? 48 : undefined,
+                  fontSize: isMobile ? 13 : 12.5, fontWeight: 600, borderRadius: 8, border: 'none',
+                  background: actif ? BLUE : SURFACE2, color: actif ? '#fff' : MUTED,
+                  cursor: actif && !saving ? 'pointer' : 'default',
+                  transition: `all var(--dur-quick) var(--ease-out)`,
+                }}>
+                {saving ? 'Enregistrement…' : libelleBouton}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Aperçu — ce que voit le prospect. Masqué en mobile : il y a là-bas une
+            bascule Modifier / Aperçu, le fil occupant alors tout l'écran. */}
+        {!isMobile && (
+          <div style={{ flex: 'none', width: 314, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+            <span style={{
+              alignSelf: 'flex-start',
+              font: "600 10px 'IBM Plex Mono', monospace", letterSpacing: '.07em',
+              textTransform: 'uppercase', color: MUTED,
+            }}>Ce que voit le prospect</span>
+            {/* Cadre de téléphone, comme le hi-fi. Hauteur fixe pour que le fil
+                défile à l'intérieur au lieu d'allonger la page. */}
+            <div style={{
+              width: 314, height: 498, maxHeight: 498, border: '8px solid #2f2c26', borderRadius: 32,
+              overflow: 'hidden', background: '#fff', flexShrink: 0,
+              display: 'flex', flexDirection: 'column', boxSizing: 'content-box',
+            }}>
+              <IgFil seq={seq} pseudo={igPseudo} avatarUrl={igPhoto} nom={igNom} sc={314 / 390} />
+            </div>
+            {!igCompte?.username && (
+              <span style={{ fontSize: 10.5, color: FAINT, textAlign: 'center', lineHeight: 1.4 }}>
+                Connecte ton compte Instagram pour voir ta photo et ton pseudo ici.
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 function DissociateButton({ postId, platform, onPostUpdated, onDissociated }: {
   postId: string; platform: string;
   onPostUpdated: (postId: string, patch: Partial<Post>) => void;
@@ -1173,10 +1422,6 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
     enabled: !!profileId,
     staleTime: 5 * 60 * 1000,
   });
-  const igNom = igCompte?.name || 'Ton compte';
-  const igPseudo = igCompte?.username ? igCompte.username : 'ton_compte';
-  const igPhoto: string | null = igCompte?.profilePicture ?? null;
-
   // Bascule Modifier / Aperçu — mobile seulement. Sur 390px, formulaire et fil
   // côte à côte ne tiennent pas, et empiler l'aperçu sous le formulaire le rend
   // invisible : on écrit un message sans jamais voir ce qu'il donne. La bascule
@@ -1439,190 +1684,13 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
         </div>
       </div>
 
-      {/* Bascule Modifier / Aperçu — mobile seulement */}
-      {isMobile && (
-        <div style={{ display: 'flex', gap: 7 }}>
-          {([['modifier', 'Modifier'], ['apercu', 'Aperçu']] as const).map(([cle, libelle]) => (
-            <button key={cle} onClick={() => setVueMobile(cle)} style={{
-              flex: 1, minHeight: 44, borderRadius: 999, cursor: 'pointer',
-              fontSize: 12.5, fontWeight: 600, fontFamily: 'inherit',
-              // Actif en encre pleine, comme les chips du hi-fi : sur un fond
-              // déjà clair, une pastille blanche sur gris ne se voit pas assez
-              // pour dire dans quelle vue on se trouve.
-              border: `1px solid ${vueMobile === cle ? INK : BORDER}`,
-              background: vueMobile === cle ? INK : SURFACE,
-              color: vueMobile === cle ? 'var(--bg)' : MUTED,
-              transition: `all var(--dur-quick) var(--ease-out)`,
-            }}>{libelle}</button>
-          ))}
-        </div>
-      )}
-
-      {/* Aperçu mobile — plein écran, sans cadre de téléphone : l'appareil du
-          coach fait le cadre, l'échelle est donc 1:1. */}
-      {isMobile && vueMobile === 'apercu' && (
-        <div style={{
-          border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden',
-          background: '#fff', display: 'flex', flexDirection: 'column',
-          height: 'min(72vh, 620px)',
-        }}>
-          <IgFil seq={seq} pseudo={igPseudo} avatarUrl={igPhoto} nom={igNom} sc={1} sansCadre />
-        </div>
-      )}
-      {isMobile && vueMobile === 'apercu' && !igCompte?.username && (
-        <span style={{ fontSize: 11.5, color: FAINT, textAlign: 'center', lineHeight: 1.4 }}>
-          Connecte ton compte Instagram pour voir ta photo et ton pseudo ici.
-        </span>
-      )}
-
-      {/* Séquence DM + aperçu, côte à côte en desktop */}
-      <div style={{ display: isMobile && vueMobile === 'apercu' ? 'none' : 'flex', gap: 16, alignItems: 'flex-start' }}>
-      <div style={{ flex: 1, minWidth: 0, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden' }}>
-        <div style={{ padding: '10px 14px', borderBottom: `1px solid ${BORDER}`, background: BG }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: INK }}>Séquence de messages automatique</span>
-          <span style={{ fontSize: 11, color: MUTED, marginLeft: 6 }}>envoyés dans cet ordre, sans action de ta part</span>
-        </div>
-
-        <div style={{ padding: isMobile ? '14px' : '20px 16px', background: 'var(--surface-2)', display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {/* Accroche — 1er message, sans lien */}
-          <div>
-            <ChampSeqLabel libelle="Accroche" precision="envoyée avec le commentaire" modifie={seq.accroche !== seqRef.accroche} />
-            <Dm1Editor
-              value={seq.accroche}
-              onChange={v => setChamp('accroche', v)}
-              saved={seq.accroche === seqRef.accroche}
-              blue={BLUE} blueSoft={BLUE_SOFT} border={BORDER} amber={AMBER} bg={BG} ink={INK}
-            />
-          </div>
-
-          {/* Bouton de l'accroche — rendu comme sur Instagram, sous la bulle */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8, marginBottom: 10 }}>
-            <ChampSeqLabel libelle="Bouton de l'accroche" precision="demande le lien · 20 car. max" modifie={seq.accrocheBtn !== seqRef.accrocheBtn} />
-            <input
-              value={seq.accrocheBtn}
-              onChange={e => setChamp('accrocheBtn', e.target.value.slice(0, 20))}
-              maxLength={20}
-              placeholder="🚀 Je veux le lien !"
-              style={{
-                padding: '8px 16px', fontSize: 13, fontWeight: 600,
-                borderRadius: 18, border: `1.5px solid ${seq.accrocheBtn === seqRef.accrocheBtn ? 'var(--accent-brand-soft)' : AMBER}`,
-                background: '#fff', color: BLUE, outline: 'none', textAlign: 'center',
-                width: `${Math.max(seq.accrocheBtn.length, 10) + 4}ch`, maxWidth: '100%',
-              }}
-            />
-          </div>
-
-          {/* Message du lien — envoyé après le clic. Le lien lui-même reste dérivé
-              du lead magnet (non modifiable), mais le texte et le libellé du bouton
-              qui l'entourent sont configurables. */}
-          <div style={{ marginTop: 2 }}>
-            <ChampSeqLabel libelle="Message du lien" precision="envoyé quand le prospect clique le bouton" modifie={seq.lien !== seqRef.lien} />
-            <textarea
-              value={seq.lien}
-              onChange={e => setChamp('lien', e.target.value)}
-              placeholder={DM2_DEFAULT_MESSAGE}
-              rows={2}
-              style={{ width: '100%', padding: '10px 12px', fontSize: 12, lineHeight: 1.8, borderRadius: 8, border: `1px solid ${seq.lien === seqRef.lien ? BORDER : AMBER}`, background: BG, color: INK, outline: 'none', boxShadow: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit' }}
-            />
-          </div>
-
-          {/* Bouton du lien — celui qui OUVRE le lien (celui de l'accroche le demande) */}
-          <div style={{ marginTop: 8 }}>
-            <ChampSeqLabel libelle="Bouton du lien" precision="ouvre le lien · 20 car. max" modifie={seq.lienBtn !== seqRef.lienBtn} />
-            <div style={{
-              border: `1px solid ${seq.lienBtn === seqRef.lienBtn ? BORDER : AMBER}`, borderRadius: 18,
-              padding: '7px 14px', background: '#fff', display: 'flex', alignItems: 'center', gap: 6,
-            }}>
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={FAINT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-              <input
-                value={seq.lienBtn}
-                onChange={e => setChamp('lienBtn', e.target.value.slice(0, 20))}
-                placeholder={DM2_DEFAULT_BUTTON}
-                maxLength={20}
-                style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 12.5, fontWeight: 600, color: INK, fontFamily: 'inherit', minWidth: 0 }}
-              />
-            </div>
-            <div style={{ fontSize: 9.5, color: FAINT, marginLeft: 4, marginTop: 3 }}>
-              Le lien est caché derrière ce bouton
-            </div>
-          </div>
-
-          <div style={{ fontSize: 9.5, color: FAINT, marginLeft: 8, marginTop: 6, marginBottom: 4 }}>
-            Lien envoyé dans le DM : {lmUrl || '(généré après association du lead magnet)'} — non modifiable
-          </div>
-
-          {/* Relance — question d'ouverture, envoyée 2 min après le lien */}
-          <div style={{ marginTop: 2 }}>
-            <ChampSeqLabel libelle="Relance" precision="2 min après le lien" modifie={seq.relance !== seqRef.relance} />
-            <textarea
-              value={seq.relance}
-              onChange={e => setChamp('relance', e.target.value)}
-              placeholder={`Ex : "C'est quoi ton objectif principal en ce moment ?"`}
-              rows={3}
-              style={{ width: '100%', padding: '10px 12px', fontSize: 12, lineHeight: 1.8, borderRadius: 8, border: `1px solid ${seq.relance === seqRef.relance ? BORDER : AMBER}`, background: BG, color: INK, outline: 'none', boxShadow: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit' }}
-            />
-            <div style={{ fontSize: 9.5, color: FAINT, marginLeft: 4, marginTop: 3, lineHeight: 1.5 }}>
-              Le délai de 2 minutes évite que les deux messages arrivent dans la même seconde — la relance paraît écrite après coup, pas automatique.
-            </div>
-          </div>
-
-          {seqError && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px', marginLeft: 8, marginTop: 8 }}>{seqError}</div>}
-
-          {/* Un seul enregistrement pour toute la séquence, avec le compte des
-              modifications en attente — cinq boutons indépendants laissaient
-              publier une séquence à moitié enregistrée. */}
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-            marginTop: 10, paddingTop: 10, borderTop: `1px solid ${BORDER}`,
-          }}>
-            <span style={{ flex: 1, minWidth: 0, fontSize: 11.5, fontWeight: 600, color: nbModifs ? AMBER : FAINT }}>
-              {nbModifs
-                ? `${nbModifs} modification${nbModifs > 1 ? 's' : ''} non enregistrée${nbModifs > 1 ? 's' : ''}`
-                : 'Séquence à jour'}
-            </span>
-            <button onClick={enregistrerSequence} disabled={!nbModifs || seqSaving}
-              style={{
-                padding: isMobile ? '0 18px' : '9px 16px', minHeight: isMobile ? 48 : undefined,
-                fontSize: isMobile ? 13 : 12.5, fontWeight: 600, borderRadius: 8, border: 'none',
-                background: nbModifs ? BLUE : SURFACE2, color: nbModifs ? '#fff' : MUTED,
-                cursor: nbModifs && !seqSaving ? 'pointer' : 'default',
-                transition: `all var(--dur-quick) var(--ease-out)`,
-              }}>
-              {seqSaving ? 'Enregistrement…' : 'Enregistrer la séquence'}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Aperçu — ce que voit le prospect. Masqué en mobile : il y a là-bas une
-          bascule Modifier / Aperçu, le fil occupant alors tout l'écran. */}
-      {!isMobile && (
-        <div style={{ flex: 'none', width: 314, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center', flexShrink: 0 }}>
-          <span style={{
-            alignSelf: 'flex-start',
-            font: "600 10px 'IBM Plex Mono', monospace", letterSpacing: '.07em',
-            textTransform: 'uppercase', color: MUTED,
-          }}>Ce que voit le prospect</span>
-          {/* Cadre de téléphone, comme le hi-fi. Hauteur fixe pour que le fil
-              défile à l'intérieur au lieu d'allonger la page. */}
-          <div style={{
-            width: 314, height: 498, maxHeight: 498, border: '8px solid #2f2c26', borderRadius: 32,
-            overflow: 'hidden', background: '#fff', flexShrink: 0,
-            display: 'flex', flexDirection: 'column', boxSizing: 'content-box',
-          }}>
-            <IgFil
-              seq={seq} pseudo={igPseudo} avatarUrl={igPhoto} nom={igNom}
-              sc={314 / 390}
-            />
-          </div>
-          {!igCompte?.username && (
-            <span style={{ fontSize: 10.5, color: FAINT, textAlign: 'center', lineHeight: 1.4 }}>
-              Connecte ton compte Instagram pour voir ta photo et ton pseudo ici.
-            </span>
-          )}
-        </div>
-      )}
-      </div>
+      <SequenceDm
+        seq={seq} seqRef={seqRef} setChamp={setChamp}
+        declencheur="commentaire" lmUrl={lmUrl || null}
+        nbModifs={nbModifs} saving={seqSaving} error={seqError}
+        onSave={enregistrerSequence}
+        igCompte={igCompte} vue={vueMobile} setVue={setVueMobile}
+      />
 
       {/* Lien LM */}
       {lmUrl && <GeneratedUrlRow url={lmUrl} label="Lien lead magnet" />}
@@ -2701,6 +2769,7 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
   const [addingStories, setAddingStories] = useState(false);
   const [confirmRemoveLast, setConfirmRemoveLast] = useState(false);
   const [blockedRemoveMsg, setBlockedRemoveMsg] = useState<string | null>(null);
+  const [deplacementCta, setDeplacementCta] = useState(false);
 
   useEffect(() => {
     setActiveTab('lm');
@@ -2747,6 +2816,25 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
     } else {
       onSequenceSaved([storyId], { sequenceId: null, sequenceStoryCount: 0 });
     }
+  };
+
+  // Le CTA change de story. Toutes les stories de la séquence sont patchées,
+  // pas seulement les deux concernées : `ctaStoryId` est une propriété de la
+  // SÉQUENCE, et chaque story en porte une copie côté écran.
+  const deplacerCta = async (nouvelleStoryId: string) => {
+    if (!nouvelleStoryId || nouvelleStoryId === primary.ctaStoryId) return;
+    setDeplacementCta(true);
+    try {
+      const res = await fetch('/api/client/story-sequences', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: primary.sequenceId, ctaStoryId: nouvelleStoryId }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setBlockedRemoveMsg(data.error || 'Erreur'); return; }
+      onSequenceSaved(sequenceMates.map(s => s.id), { ctaStoryId: nouvelleStoryId });
+    } catch (e: any) {
+      setBlockedRemoveMsg(e.message || 'Erreur réseau');
+    } finally { setDeplacementCta(false); }
   };
 
   const addStoriesToSequence = async (storyIds: string[]) => {
@@ -2837,6 +2925,26 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
               );
             })}
             <button onClick={() => setAddingStories(v => !v)} style={{ width: isMobile ? 40 : 28, height: isMobile ? 40 : 28, borderRadius: 5, border: `1px dashed ${BORDER}`, background: 'transparent', color: MUTED, fontSize: 14, cursor: 'pointer', flexShrink: 0 }}>+</button>
+          </div>
+        )}
+        {/* Déplacement du CTA — la seule chose qu'une séquence a de plus qu'un
+            post, avec le choix des stories qui la composent.
+
+            Il n'existait qu'à la CRÉATION. Ensuite, retirer la story porteuse du
+            CTA répondait « Déplace d'abord le CTA sur une autre story » — une
+            action qu'aucun écran ne proposait. Cette story ne pouvait donc plus
+            jamais quitter sa séquence. */}
+        {isExistingSequence && sequenceMates.length > 1 && (
+          <div style={{ marginTop: 10 }}>
+            <label style={{ fontSize: 11.5, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Story qui porte le CTA</label>
+            <select
+              value={primary.ctaStoryId || ''}
+              onChange={e => deplacerCta(e.target.value)}
+              disabled={deplacementCta}
+              style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, boxSizing: 'border-box' }}
+            >
+              {sequenceMates.map((s, i) => <option key={s.id} value={s.id}>Story {i + 1} — {s.caption}</option>)}
+            </select>
           </div>
         )}
         {addingStories && (
@@ -2966,66 +3074,52 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
     enabled: !!profileId,
     staleTime: 5 * 60 * 1000,
   });
-  const igNom = igCompte?.name || 'Ton compte';
-  const igPseudo = igCompte?.username || 'ton_compte';
-  const igPhoto: string | null = igCompte?.profilePicture ?? null;
-  const isMobileApercu = useIsMobile();
-  // Même bascule que les posts : sur 390px, empiler cinq champs puis un fil de
-  // conversation fait un écran interminable où l'on ne voit jamais les deux.
   const [vueMobileStory, setVueMobileStory] = useState<'modifier' | 'apercu'>('modifier');
   const [lmId, setLmId] = useState(leadMagnets[0]?.id || '');
-  const [lmKeyword, setLmKeyword] = useState(primary.lmKeyword || leadMagnets[0]?.keyword || '');
-  // Les cinq messages du parcours, dans l'ordre où le prospect les reçoit. Les
-  // noms d'état gardent ceux des colonnes : `dm1Message` est le message du lien
-  // et `dm2StoryMessage` la relance (voir la migration d'unification).
-  const [dmLmMessage, setDmLmMessage] = useState(primary.dmLmMessage || "Salut {{username}} ! Je t'envoie ça tout de suite 👇");
-  const [dmButtonText, setDmButtonText] = useState(primary.dmButtonText || '🚀 Je veux le lien !');
-  const [dm1Message, setDm1Message] = useState(primary.dm1Message || '👋 {{username}} voici ton lien : {{lien_lm}}');
-  const [dmLinkButtonText, setDmLinkButtonText] = useState(primary.dmLinkButtonText || '📖 Accéder au lien');
-  const [dm2StoryMessage, setDm2StoryMessage] = useState(primary.dm2StoryMessage || '');
+  const motCleRef = primary.lmKeyword || leadMagnets[0]?.keyword || '';
+  const [lmKeyword, setLmKeyword] = useState(motCleRef);
+
+  // ── Les cinq messages, dans la MÊME forme que les posts ────────────────────
+  //
+  // Les colonnes de `story_sequences` portent des noms décalés : `dm1_message`
+  // est le message du lien et `dm2_story_message` la relance (voir la migration
+  // d'unification). La traduction se fait ici, au bord, pour que l'éditeur
+  // partagé ne connaisse qu'une seule forme.
+  const depuisStory = (p: Post): SeqDm => ({
+    accroche:    p.dmLmMessage || "Salut {{username}} ! Je t'envoie ça tout de suite 👇",
+    accrocheBtn: p.dmButtonText || '🚀 Je veux le lien !',
+    lien:        p.dm1Message || '👋 {{username}} voici ton lien : {{lien_lm}}',
+    lienBtn:     p.dmLinkButtonText || '📖 Accéder au lien',
+    relance:     p.dm2StoryMessage || '',
+  });
+  const [seq, setSeq] = useState<SeqDm>(() => depuisStory(primary));
+  const [seqRef, setSeqRef] = useState<SeqDm>(seq);
+  const setChamp = (k: keyof SeqDm, v: string) => setSeq(s => ({ ...s, [k]: v }));
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const lmName = leadMagnets.find(l => l.id === primary.lmId)?.name;
 
-  // ── Suivi des modifications non enregistrées ───────────────────────────────
-  //
-  // Le garde de navigation existait déjà pour les posts, pas ici : on pouvait
-  // écrire cinq messages, changer d'onglet, et tout perdre sans un mot. Le garde
-  // ne sert à rien tant que personne ne lui dit que le formulaire est sale.
-  //
-  // La référence est comparée AVEC les mêmes valeurs par défaut que les champs,
-  // sinon une séquence neuve — dont les colonnes sont nulles alors que les
-  // champs affichent leur proposition — se déclarerait modifiée à l'ouverture.
-  const valeurs = { lmKeyword, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage };
-  const [ref, setRef] = useState(valeurs);
+  const nbModifs = (Object.keys(seq) as (keyof SeqDm)[]).filter(k => seq[k] !== seqRef[k]).length
+    + (lmKeyword !== motCleRef ? 1 : 0);
 
   // Réinitialisation au changement de story — le panneau n'est pas remonté, donc
   // les `useState` ci-dessus ne rejouent PAS. Sans ce passage, ouvrir la séquence
   // A puis la séquence B laissait les cinq messages de A dans les champs de B, et
   // un « Mettre à jour » les écrivait sur B. Même correctif que TabLm côté posts.
   useEffect(() => {
-    const depuisStory = {
-      lmKeyword:        primary.lmKeyword || leadMagnets[0]?.keyword || '',
-      dmLmMessage:      primary.dmLmMessage || "Salut {{username}} ! Je t'envoie ça tout de suite 👇",
-      dmButtonText:     primary.dmButtonText || '🚀 Je veux le lien !',
-      dm1Message:       primary.dm1Message || '👋 {{username}} voici ton lien : {{lien_lm}}',
-      dmLinkButtonText: primary.dmLinkButtonText || '📖 Accéder au lien',
-      dm2StoryMessage:  primary.dm2StoryMessage || '',
-    };
-    setLmKeyword(depuisStory.lmKeyword);
-    setDmLmMessage(depuisStory.dmLmMessage);
-    setDmButtonText(depuisStory.dmButtonText);
-    setDm1Message(depuisStory.dm1Message);
-    setDmLinkButtonText(depuisStory.dmLinkButtonText);
-    setDm2StoryMessage(depuisStory.dm2StoryMessage);
-    setRef(depuisStory);
+    const depuis = depuisStory(primary);
+    setSeq(depuis);
+    setSeqRef(depuis);
+    setLmKeyword(primary.lmKeyword || leadMagnets[0]?.keyword || '');
     setError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [primary.id]);
 
-  const nbModifs = (Object.keys(valeurs) as (keyof typeof valeurs)[]).filter(k => valeurs[k] !== ref[k]).length;
-
+  // Le garde de navigation ne couvrait pas les stories : changer d'onglet avec
+  // cinq messages non enregistrés les perdait sans un mot, là où la même action
+  // côté post ouvrait la confirmation.
   const unsavedGuard = useUnsavedGuard();
   useEffect(() => { unsavedGuard?.setHasUnsaved(nbModifs > 0); }, [nbModifs, unsavedGuard]);
   useEffect(() => () => { unsavedGuard?.setHasUnsaved(false); },
@@ -3033,21 +3127,27 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
     [primary.id]);
 
   const submit = async (): Promise<string | null> => {
-    // Même règle que les posts, depuis l'unification des séquences : ces trois
-    // champs ne peuvent pas être vides. Voir `refusSequence`.
-    const refus = refusSequence({ accroche: dmLmMessage, accrocheBtn: dmButtonText, lienBtn: dmLinkButtonText });
+    // Même règle que les posts, depuis l'unification des séquences. Voir `refusSequence`.
+    const refus = refusSequence(seq);
     if (refus) { setError(refus); return refus; }
     setSaving(true); setError(null);
+    // Les noms de colonnes, retraduits au moment de l'envoi.
+    const corps = {
+      lmKeyword,
+      dmLmMessage: seq.accroche, dmButtonText: seq.accrocheBtn,
+      dm1Message: seq.lien, dmLinkButtonText: seq.lienBtn,
+      dm2StoryMessage: seq.relance,
+    };
     try {
       if (isExistingSequence) {
         const res = await fetch('/api/client/story-sequences', {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: primary.sequenceId, lmKeyword, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage }),
+          body: JSON.stringify({ id: primary.sequenceId, ...corps }),
         });
         const data = await res.json();
         if (!res.ok) { setError(data.error || 'Erreur'); return data.error || 'Erreur'; }
-        onSaved([primary.id], { lmKeyword, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage, hasLeadMagnet: true });
-        setRef(valeurs);
+        onSaved([primary.id], { ...corps, hasLeadMagnet: true });
+        setSeqRef(seq);
         setSaved(true); setTimeout(() => setSaved(false), 2000);
         return null;
       }
@@ -3055,12 +3155,15 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
       const lm = leadMagnets.find(l => l.id === lmId);
       const res = await fetch('/api/client/story-sequences', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profileId, name, ctaStoryId, storyIds, lmId, lmKeyword, lmUrl: lm?.url, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage }),
+        body: JSON.stringify({ profileId, name, ctaStoryId, storyIds, lmId, lmUrl: lm?.url, ...corps }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || 'Erreur'); return data.error || 'Erreur'; }
-      onSaved(storyIds, { sequenceId: data.id, sequenceName: name, sequenceStoryCount: storyIds.length, ctaStoryId, lmId, lmKeyword, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage, hasLeadMagnet: true });
-      setRef(valeurs);
+      onSaved(storyIds, {
+        sequenceId: data.id, sequenceName: name, sequenceStoryCount: storyIds.length,
+        ctaStoryId, lmId, ...corps, hasLeadMagnet: true,
+      });
+      setSeqRef(seq);
       return null;
     } catch (e: any) {
       const message = e.message || 'Erreur réseau';
@@ -3075,7 +3178,12 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
     unsavedGuard?.registerSaveAll(submit);
     return () => { unsavedGuard?.registerSaveAll(null); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [valeurs.lmKeyword, valeurs.dmLmMessage, valeurs.dmButtonText, valeurs.dm1Message, valeurs.dmLinkButtonText, valeurs.dm2StoryMessage, ref, isExistingSequence]);
+  }, [seq, seqRef, lmKeyword, isExistingSequence, name, ctaStoryId]);
+
+  // Une création n'a rien à comparer : le bouton reste actif tant que les champs
+  // propres à la séquence — nom, mot-clé, story porteuse du CTA — sont remplis.
+  const pretACreer = !!name && !!lmKeyword && (isExistingSequence || isGroup || !!ctaStoryId);
+  const boutonActif = isExistingSequence ? (nbModifs > 0 && !!lmKeyword) : pretACreer;
 
   return (
     <>
@@ -3097,95 +3205,26 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
         </div>
       )}
 
-      {/* Bascule Modifier / Aperçu — mobile seulement, comme les posts. */}
-      {isMobileApercu && (
-        <div style={{ display: 'flex', gap: 7, marginBottom: 14 }}>
-          {([['modifier', 'Modifier'], ['apercu', 'Aperçu']] as const).map(([cle, libelle]) => (
-            <button key={cle} onClick={() => setVueMobileStory(cle)} style={{
-              flex: 1, minHeight: 44, borderRadius: 999, cursor: 'pointer',
-              fontSize: 12.5, fontWeight: 600, fontFamily: 'inherit',
-              border: `1px solid ${vueMobileStory === cle ? INK : BORDER}`,
-              background: vueMobileStory === cle ? INK : SURFACE,
-              color: vueMobileStory === cle ? '#fff' : MUTED,
-              transition: `all var(--dur-quick) var(--ease-out)`,
-            }}>{libelle}</button>
-          ))}
-        </div>
-      )}
+      {/* Le mot-clé reste hors de l'éditeur partagé : il ne se déclenche pas de
+          la même façon des deux côtés. Un post attend un commentaire, une story
+          attend une réponse — c'est la seule chose qui doit se lire autrement. */}
+      <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Mot-clé — attendu en réponse à la story</label>
+      <input value={lmKeyword} onChange={e => setLmKeyword(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${lmKeyword !== motCleRef ? AMBER : BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box' }} />
 
-      {/* Deux colonnes en desktop, comme la sequence d'un post : les champs a
-          gauche, le telephone a droite. Empiler l'apercu sous le formulaire
-          obligeait a faire defiler pour voir l'effet de ce qu'on venait de
-          taper — or c'est precisement en tapant qu'on veut le voir. */}
-      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-      <div style={{ flex: 1, minWidth: 0, display: isMobileApercu && vueMobileStory === 'apercu' ? 'none' : 'block' }}>
-      <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Mot-clé (reply à la story)</label>
-      <input value={lmKeyword} onChange={e => setLmKeyword(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box' }} />
-
-      {/* Le parcours complet, dans l'ordre où le prospect le reçoit — le même que
-          celui des posts depuis l'unification. Les deux champs du milieu
-          existaient déjà : `dm1Message` porte le lien, `dm2StoryMessage` relance.
-          S'ajoutent l'accroche et les deux boutons, l'étape qui manquait aux
-          stories. */}
-      <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Accroche — 1ᵉʳ message, sans lien ({'{{username}}'})</label>
-      <textarea value={dmLmMessage} onChange={e => setDmLmMessage(e.target.value)} rows={2} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box', resize: 'vertical' }} />
-
-      <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Bouton de l’accroche — demande le lien · 20 car. max</label>
-      <input value={dmButtonText} onChange={e => setDmButtonText(e.target.value.slice(0, 20))} maxLength={20} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box' }} />
-
-      <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Message du lien ({'{{username}}'}, {'{{lien_lm}}'})</label>
-      <textarea value={dm1Message} onChange={e => setDm1Message(e.target.value)} rows={2} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box', resize: 'vertical' }} />
-
-      <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Bouton du lien — l’ouvre · 20 car. max</label>
-      <input value={dmLinkButtonText} onChange={e => setDmLinkButtonText(e.target.value.slice(0, 20))} maxLength={20} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box' }} />
-
-      <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Relance — message libre, envoyé juste après</label>
-      <textarea value={dm2StoryMessage} onChange={e => setDm2StoryMessage(e.target.value)} rows={2} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box', resize: 'vertical' }} />
-
-      </div>
-
-      {/* Le même aperçu que les posts, alimenté par les mêmes cinq champs — c'est
-          la contrepartie visible de l'unification : une séquence de stories se
-          relit désormais comme une conversation, pas comme un formulaire.
-          Sur mobile il occupe tout l'écran quand la bascule est sur Aperçu, et
-          disparaît le reste du temps. */}
-      <div style={{
-        marginBottom: 14,
-        flex: isMobileApercu ? undefined : 'none', width: isMobileApercu ? undefined : 314,
-        display: isMobileApercu && vueMobileStory !== 'apercu' ? 'none' : 'block',
-      }}>
-        <span style={{ display: 'block', font: "600 10px 'IBM Plex Mono', monospace", letterSpacing: '.07em', textTransform: 'uppercase', color: MUTED, marginBottom: 8 }}>
-          Ce que le prospect verra
-        </span>
-        <div style={{ display: 'flex', justifyContent: 'center' }}>
-          <IgFil
-            seq={{ accroche: dmLmMessage, accrocheBtn: dmButtonText, lien: dm1Message, lienBtn: dmLinkButtonText, relance: dm2StoryMessage }}
-            pseudo={igPseudo} avatarUrl={igPhoto} nom={igNom}
-            sc={isMobileApercu ? 1 : 314 / 390}
-            sansCadre={isMobileApercu}
-          />
-        </div>
-      </div>
-      </div>
-
-      {error && <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 10 }}>{error}</div>}
-
-      {/* Le compte des modifications en attente, comme au pied du formulaire des
-          posts : c'est lui qui rend l'oubli rare, le garde de navigation n'étant
-          qu'un filet. Il ne s'affiche que sur une séquence déjà enregistrée —
-          pendant une création, tout est « en attente » par définition. */}
-      {isExistingSequence && nbModifs > 0 && (
-        <div style={{ fontSize: 11.5, fontWeight: 600, color: AMBER, marginBottom: 8 }}>
-          {nbModifs} modification{nbModifs > 1 ? 's' : ''} non enregistrée{nbModifs > 1 ? 's' : ''}
-        </div>
-      )}
-
-      <button onClick={submit} disabled={saving || !name || !lmKeyword || (!isExistingSequence && !isGroup && !ctaStoryId)} style={{ width: '100%', padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: saved ? 'var(--green)' : BLUE, color: '#fff', cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.7 : 1 }}>
-        {saving ? 'Enregistrement...' : saved ? 'Enregistré ✓' : isConfigured ? 'Mettre à jour' : isExistingSequence ? 'Configurer le Lead Magnet' : 'Créer le CTA'}
-      </button>
+      {/* Exactement le même éditeur que les posts — mêmes champs, mêmes couleurs,
+          même téléphone. Seuls le déclencheur et le libellé du bouton changent. */}
+      <SequenceDm
+        seq={seq} seqRef={seqRef} setChamp={setChamp}
+        declencheur="story" lmUrl={primary.lmShortUrl || null}
+        nbModifs={nbModifs} saving={saving} error={error}
+        onSave={submit} boutonActif={boutonActif}
+        libelleBouton={saved ? 'Enregistré ✓' : isConfigured ? 'Mettre à jour' : isExistingSequence ? 'Configurer le Lead Magnet' : 'Créer le CTA'}
+        igCompte={igCompte} vue={vueMobileStory} setVue={setVueMobileStory}
+      />
     </>
   );
 }
+
 
 // Onglet Calendly du panneau séquence — bouton de génération si non configuré (peut
 // être fait à tout moment, même après coup), lien figé en lecture seule sinon.

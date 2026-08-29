@@ -222,7 +222,7 @@ export async function PATCH(request: Request) {
 
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
-  const { id, name, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage, lmKeyword, generateCalendly, addStoryIds, removeStoryIds } = body;
+  const { id, name, ctaStoryId, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage, lmKeyword, generateCalendly, addStoryIds, removeStoryIds } = body;
   if (!id) return NextResponse.json({ error: 'id requis' }, { status: 400 });
 
   const { data: seq, error: seqFetchErr } = await serviceSupabase
@@ -302,6 +302,30 @@ export async function PATCH(request: Request) {
   if (dmLinkButtonText !== undefined) patch.dm_link_button_text = dmLinkButtonText;
   if (dm2StoryMessage !== undefined) patch.dm2_story_message = dm2StoryMessage;
   if (lmKeyword !== undefined) patch.lm_keyword = (lmKeyword || '').toUpperCase().trim();
+
+  // ── Déplacement du CTA ──────────────────────────────────────────────────
+  //
+  // Le retrait d'une story refusait déjà de partir avec le CTA : « Déplace
+  // d'abord le CTA sur une autre story avant de la retirer ». Sauf que rien ne
+  // permettait de le déplacer — ni ici, ni dans l'écran. Le message envoyait
+  // vers une action qui n'existait pas, et la story portant le CTA ne pouvait
+  // plus jamais quitter sa séquence.
+  //
+  // La story visée est relue APRÈS les ajouts/retraits ci-dessus : on veut son
+  // appartenance finale, pas celle d'avant l'opération.
+  if (ctaStoryId !== undefined) {
+    const { data: cible } = await serviceSupabase
+      .from('ig_stories')
+      .select('id')
+      .eq('profile_id', user.id)
+      .eq('sequence_id', id)
+      .eq('id', ctaStoryId)
+      .maybeSingle();
+    if (!cible) {
+      return NextResponse.json({ error: 'Cette story ne fait pas partie de la séquence' }, { status: 409 });
+    }
+    patch.cta_story_id = ctaStoryId;
+  }
 
   if (Object.keys(patch).length > 1) {
     const { error } = await serviceSupabase.from('story_sequences').update(patch).eq('id', id).eq('profile_id', user.id);
