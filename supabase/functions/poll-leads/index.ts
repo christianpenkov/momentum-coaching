@@ -1708,7 +1708,7 @@ async function majPeriodesIg(profileId: string, token: string, igAccountId: stri
     return null;
   }
 
-  async function ecrire(type: 'semaine' | 'mois', debut: string, fin: string, figee: boolean) {
+  async function ecrire(type: 'semaine' | 'mois' | 'all_time', debut: string, fin: string, figee: boolean) {
     const m = await mesurer(debut, fin);
 
     // delete + insert, et NON upsert.
@@ -1722,10 +1722,16 @@ async function majPeriodesIg(profileId: string, token: string, igAccountId: stri
     //
     // Le delete est borne a `archived_at is null` : les lignes d'un ancien compte
     // sont conservees, jamais ecrasees.
-    const { error: errSuppr } = await supa.from('analytics_ig_periodes')
+    //
+    // ⚠️ `all_time` se supprime EN ENTIER, sans viser un `debut` : le sien glisse des
+    // que le plafond de 12 mois se deplace, donc cibler un `debut` precis laisserait
+    // une ligne orpheline de plus chaque jour. Il n'y a qu'une ligne all_time par
+    // profil, par construction.
+    const suppression = supa.from('analytics_ig_periodes')
       .delete()
-      .eq('profile_id', profileId).eq('type', type).eq('debut', debut)
+      .eq('profile_id', profileId).eq('type', type)
       .is('archived_at', null);
+    const { error: errSuppr } = await (type === 'all_time' ? suppression : suppression.eq('debut', debut));
     if (errSuppr) throw new Error(errSuppr.message);
 
     const { error } = await supa.from('analytics_ig_periodes').insert({
@@ -1783,6 +1789,89 @@ async function majPeriodesIg(profileId: string, token: string, igAccountId: stri
       await ecrire(type, debut, fin, false);
     } catch (e: any) {
       errors.push(`ig_periode_${type}: ${e?.message || 'unknown'}`);
+    }
+  }
+
+  // ── Bornes de l'historique, lues une seule fois pour les deux etapes suivantes ──
+  // Debut : la mise en route de l'eleve (integrations_ready_at, regle 1 du
+  // referentiel de perimetre), jamais avant — et jamais au-dela de la retention
+  // Meta, qui cesse de servir la ventilation par type d'audience passe ~12 mois.
+  let departHistorique: string | null = null;
+  try {
+    const { data: cli } = await supa.from('clients')
+      .select('integrations_ready_at').eq('profile_id', profileId).maybeSingle();
+    const retention = new Date(Date.now() - 366 * 86400000).toISOString().slice(0, 10);
+    const arrivee = cli?.integrations_ready_at ? cli.integrations_ready_at.slice(0, 10) : null;
+    departHistorique = arrivee && arrivee > retention ? arrivee : retention;
+  } catch (e: any) {
+    errors.push(`ig_periode_bornes: ${e?.message || 'unknown'}`);
+  }
+
+  // 3. Rattraper les MOIS jamais ecrits.
+  //
+  // L'etape 1 ne fige que les periodes DEJA presentes en base : un mois qu'aucun
+  // passage n'a jamais mesure — cron en panne, eleve arrive avant que ce mecanisme
+  // n'existe, jeton mort quelques jours — n'etait jamais recupere. La carte
+  // « Composition de ton reach » y montrait un trou definitif, alors que Meta sert
+  // encore la donnee pendant environ 12 mois.
+  //
+  // ⚠️ Lecture DEDIEE, et non `existantes` : celle-ci filtre `figee = false` et ne
+  // voit donc AUCUN mois deja clos. S'en servir ici ferait croire que tous les mois
+  // passes manquent, et en reecrirait un a chaque passage, indefiniment — un appel
+  // Meta par heure et par profil, pour rien.
+  //
+  // Un mois par passage : le rattrapage n'est pas urgent, et la retention laisse des
+  // semaines. On part du plus recent, celui qui interesse le plus.
+  if (departHistorique) {
+    try {
+      const { data: moisPresents } = await supa.from('analytics_ig_periodes')
+        .select('debut')
+        .eq('profile_id', profileId).eq('type', 'mois')
+        .is('archived_at', null);
+      const connus = new Set((moisPresents || []).map((m: { debut: string }) => m.debut));
+
+      const [ay, am] = aujourdhui.split('-').map(Number);
+      let aEcrire: { debut: string; fin: string } | null = null;
+      let restants = 0;
+      for (let recul = 1; recul <= 12; recul++) {
+        const d = new Date(Date.UTC(ay, am - 1 - recul, 1));
+        const debut = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-01`;
+        // Le mois de l'arrivee compte : l'eleve a pu produire de la portee des son
+        // premier jour. On s'arrete au mois PRECEDENT son arrivee.
+        if (debut < departHistorique.slice(0, 7) + '-01') break;
+        if (connus.has(debut)) continue;
+        const dernier = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+        const fin = `${debut.slice(0, 8)}${String(dernier).padStart(2, '0')}`;
+        if (!aEcrire) aEcrire = { debut, fin }; else restants++;
+      }
+      if (aEcrire) {
+        await ecrire('mois', aEcrire.debut, aEcrire.fin, true);
+        console.log(`[poll-leads] ig_periode_mois rattrape profile=${profileId}: ${aEcrire.debut} (${restants} restant(s))`);
+      }
+    } catch (e: any) {
+      errors.push(`ig_periode_rattrapage: ${e?.message || 'unknown'}`);
+    }
+  }
+
+  // 4. Portee dedupliquee sur TOUT l'historique.
+  //
+  // Elle ne se deduit d'aucune autre ligne : la deduplication de Meta ne s'additionne
+  // pas. Mesure sur le profil de test — juin 120 + juillet 143 + aout 122 = 385,
+  // contre 207 reellement mesures sur la fenetre complete. Une somme de mois
+  // surestime donc de 86 %, une somme de JOURS de 142 % (502 contre 207), et c'est
+  // cette derniere que l'entonnoir affichait.
+  //
+  // Jamais figee : elle grandit tant que le compte vit. `existantes` suffit ici,
+  // justement parce qu'une ligne all_time n'est jamais figee.
+  if (departHistorique && departHistorique <= aujourdhui) {
+    try {
+      const dejaLa = existantes.find((p) => p.type === 'all_time');
+      const fraiche = !!dejaLa
+        && dejaLa.debut === departHistorique
+        && Date.now() - new Date(dejaLa.mesure_le).getTime() < FRAICHEUR_MS;
+      if (!fraiche) await ecrire('all_time', departHistorique, aujourdhui, false);
+    } catch (e: any) {
+      errors.push(`ig_periode_all_time: ${e?.message || 'unknown'}`);
     }
   }
 
