@@ -48,6 +48,29 @@ npx supabase functions deploy poll-leads --project-ref nvjgwtetyuatnkjihmtw --no
 
 Une Edge Function ne part **pas** avec `git push` — déploiement séparé obligatoire.
 
+## Vérifier qu'une Edge Function tourne bien le code du dépôt
+
+Trois étapes, dans cet ordre. Aucune ne suffit seule (établi le 2026-08-29, après deux
+diagnostics faux dans les deux sens).
+
+1. **Dépister par les dates — des CANDIDATS, jamais une conclusion.** Comparer en epoch
+   UTC des deux côtés (`git log --format=%ct`), et **dater aussi les fichiers `_shared/`
+   et `lib/` importés** : chaque déploiement fige sa propre copie des modules partagés,
+   donc une fonction périme sans que son dossier bouge. C'est cette étape, et elle seule,
+   qui a désigné le seul vrai retard (`sync-stripe-payments`, `dealCash.ts` d'avant les
+   statuts `ended` / `disputed`).
+2. **Filtrer : la fonction utilise-t-elle la partie qui a changé ?** Une copie périmée
+   sur du code jamais exécuté n'est pas une dette. `poll-stories` et `send-pending-dm3`
+   n'importent que `mapWithConcurrency`, inchangé — zéro action.
+3. **Prouver par le contenu du bundle** (`get_edge_function`, chercher un marqueur du
+   commit). Seule étape qui démontre quelque chose.
+
+⚠️ **`updated_at` ment.** Prouvé sur `refresh-ig-posts` : `updated_at` au 02/08, contenu
+déployé contenant les filtres du 20/08. `version` et `entrypoint_path` se contredisent
+même entre eux (version 16, chemin `_14`). Et un écart de quelques minutes entre commit
+et déploiement n'est jamais concluant — le schéma normal est « je déploie, puis je
+commite ».
+
 # Santé de la plateforme
 
 ```sql
