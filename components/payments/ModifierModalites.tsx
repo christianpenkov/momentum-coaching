@@ -51,8 +51,15 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
   const nbActuel = deal.installmentsCount ?? 1;
   const rythmeActuel = (deal.installmentInterval ?? 'month') as 'month' | 'week';
 
-  const [mode, setMode] = useState<Mode>(modeActuel);
-  const [nb, setNb] = useState(nbActuel);
+  // ── Rien n'est présélectionné, et c'est délibéré ────────────────────────
+  // L'écran ne re-représente pas l'état actuel : le sous-titre le dit en toutes
+  // lettres (« aujourd'hui comptant, hors Stripe »). Il pose deux questions
+  // neuves. Présélectionner obligeait à faire tenir un état à DEUX valeurs — un
+  // moyen et un nombre — dans UN seul bouton : « comptant, hors Stripe »
+  // n'entrait nulle part, et la ligne « en combien de fois » restait vide sans
+  // que rien ne l'explique.
+  const [moyen, setMoyen] = useState<Moyen | null>(null);
+  const [nb, setNb] = useState<number | null>(null);
   const [rythme, setRythme] = useState(rythmeActuel);
   const [coche, setCoche] = useState(false);
   const [envoi, setEnvoi] = useState(false);
@@ -64,10 +71,19 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
   const encaisse = deal.collected;
   const reste = Math.max(0, arrondi(deal.amountTotal - encaisse));
 
-  const nbEffectif = mode === 'one_shot' ? 1 : nb;
-  const changeMode = mode !== modeActuel;
-  const changeRythme = nbEffectif > 1 && rythme !== rythmeActuel;
-  const changeNb = nbEffectif !== nbActuel;
+  // ── Du choix de l'élève au vocabulaire de la base ───────────────────────
+  // `payment_plan` mélange les deux axes ; l'écran ne le fait plus, et la
+  // traduction se fait ici, en un seul endroit.
+  const nbEffectif = nb ?? 0;
+  const mode: Mode = moyen === 'offline' ? 'offline'
+    : moyen === 'auto' ? 'installments_auto'
+    : nbEffectif > 1 ? 'installments_manual'
+    : 'one_shot';
+
+  const complet = moyen !== null && nb !== null;
+  const changeMode = complet && mode !== modeActuel;
+  const changeRythme = complet && nbEffectif > 1 && rythme !== rythmeActuel;
+  const changeNb = complet && nbEffectif !== nbActuel;
   const changed = changeMode || changeRythme || changeNb;
 
   // Ce qui rend le choix courant impossible en place — calculé pendant la
@@ -233,32 +249,51 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
         </>
       }>
 
-      <Section marge={0}>Comment ton client paie-t-il ?</Section>
+      {/* ── 1. PAR QUEL MOYEN ────────────────────────────────────────────── */}
+      <Section marge={0}>Par quel moyen ton client paie-t-il ?</Section>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        {(['one_shot', 'installments_auto', 'installments_manual', 'offline'] as Mode[]).map(m => (
-          <Chip key={m} on={mode === m} onClick={() => setMode(m)}>
-            {/* `libelleMode` est écrit pour le milieu d'une phrase (« … en 3 fois
-                mensuel, prélèvement automatique »). Sur un bouton, une minuscule
-                à côté de « Comptant » se lit comme une faute. */}
-            {majuscule(m === 'one_shot' ? 'Comptant' : libelleMode(m))}
-          </Chip>
+        {MOYENS.map(([m, label]) => (
+          <Chip key={m} on={moyen === m} onClick={() => {
+            setMoyen(m);
+            // Un prélèvement automatique en une fois n'est pas un prélèvement :
+            // on ne laisse pas un choix devenu incohérent survivre au changement.
+            if (m === 'auto' && nb === 1) setNb(null);
+          }}>{label}</Chip>
         ))}
       </div>
+      {moyen && (
+        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7, lineHeight: 1.6 }}>
+          {MOYENS.find(([m]) => m === moyen)?.[2]}
+        </div>
+      )}
 
-      {mode !== 'one_shot' && (
+      {/* ── 2. EN COMBIEN DE FOIS ────────────────────────────────────────────
+          Question posée à part, et pour TOUS les moyens. Fondue dans la
+          première, elle rendait « hors Stripe en une fois » — un virement
+          unique, le cas le plus courant hors carte — impossible à choisir. */}
+      <Section>En combien de fois ?</Section>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        {[1, 2, 3, 4, 6, 8, 12].map(n => (
+          <Chip key={n} on={nb === n} onClick={() => setNb(n)}
+            disabled={n === 1 && moyen === 'auto'}>
+            {n === 1 ? 'En une fois' : `${n}×`}
+          </Chip>
+        ))}
+        <span style={{ fontSize: 12, color: 'var(--faint)', marginLeft: 4 }}>
+          aujourd’hui <span style={{ textDecoration: 'line-through' }}>
+            {nbActuel > 1 ? `${nbActuel}×` : 'en une fois'}
+          </span>
+        </span>
+      </div>
+      {moyen === 'auto' && (
+        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7, lineHeight: 1.6 }}>
+          Un prélèvement automatique suppose au moins deux échéances — sinon
+          c’est un paiement unique, à encaisser par lien.
+        </div>
+      )}
+
+      {nbEffectif > 1 && (
         <>
-          <Section>En combien de fois ?</Section>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            {[2, 3, 4, 6, 8, 12].map(n => (
-              <Chip key={n} on={nb === n} onClick={() => setNb(n)}>{n}×</Chip>
-            ))}
-            {nbActuel > 1 && (
-              <span style={{ fontSize: 12, color: 'var(--faint)', marginLeft: 4 }}>
-                au lieu de <span style={{ textDecoration: 'line-through' }}>{nbActuel}×</span>
-              </span>
-            )}
-          </div>
-
           <Section>Tous les combien ?</Section>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <Chip on={rythme === 'month'} onClick={() => setRythme('month')}>Mensuel</Chip>
@@ -378,4 +413,21 @@ function libelleAvant(mode: Mode, nb: number, rythme: string): string {
 
 const arrondi = (n: number) => Math.round(n * 100) / 100;
 
-const majuscule = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+/**
+ * Le MOYEN d'encaisser, indépendant du nombre de fois.
+ *
+ * `payment_plan` mélangeait les deux axes : « comptant » y répond à « combien de
+ * fois », les trois autres à « par quel moyen ». Un même bouton devait donc
+ * porter deux réponses — et une combinaison parfaitement légitime, le virement
+ * unique, n'avait aucun bouton où exister.
+ */
+type Moyen = 'lien' | 'auto' | 'offline';
+
+const MOYENS: readonly (readonly [Moyen, string, string])[] = [
+  ['lien', 'Lien de paiement',
+   'Ton client paie par carte, sur un lien Stripe que tu lui envoies.'],
+  ['auto', 'Prélèvement automatique',
+   'Il saisit sa carte une fois, Stripe prélève le reste et s’arrête tout seul à la dernière échéance.'],
+  ['offline', 'Hors Stripe',
+   'Virement, espèces, ce que tu veux — Momentum tient l’échéancier, et c’est toi qui coches les versements reçus.'],
+];

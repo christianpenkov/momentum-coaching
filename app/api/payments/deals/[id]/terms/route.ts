@@ -57,8 +57,18 @@ export async function PATCH(
   if (!['one_shot', 'installments_auto', 'installments_manual', 'offline'].includes(plan)) {
     return NextResponse.json({ error: 'Mode de paiement inconnu' }, { status: 400 });
   }
-  if (plan !== 'one_shot' && (!count || count < 2)) {
-    return NextResponse.json({ error: "Nombre d'échéances invalide" }, { status: 400 });
+  // ⚠️ `offline` échappe au minimum de deux échéances : un virement UNIQUE est
+  // parfaitement légitime, et c'est même le cas le plus courant hors carte. La
+  // règle valait pour les plans Stripe, où une « échéance sur une » n'a pas de
+  // sens ; appliquée à tout, elle rendait le virement unique impossible à
+  // enregistrer.
+  const minimum = plan === 'one_shot' || plan === 'offline' ? 1 : 2;
+  if (!count || count < minimum) {
+    return NextResponse.json({
+      error: minimum === 1
+        ? "Nombre d'échéances invalide"
+        : 'Un prélèvement automatique suppose au moins deux échéances.',
+    }, { status: 400 });
   }
 
   const { data: deal } = await supa
