@@ -33,6 +33,8 @@ const CATS_DM_CALENDLY = new Set<string>(CATEGORY_GROUPS.dmCalendly);
 const CATS_DM_LM = new Set<string>(CATEGORY_GROUPS.dmLm);
 const CATS_STORY = new Set<string>(CATEGORY_GROUPS.story);
 import { isCallHonored } from '@/lib/callHonored';
+import { isCallCanceled } from '@/lib/sessionRapport';
+import { bucketCallsByBookedDay, parisDayRange, tauxOuTrou } from '@/lib/callSeries';
 // Icones des en-tetes de colonne — source unique pour les trois tableaux de Business
 // micro. Quatorze colonnes portent le meme nom d'un tableau a l'autre et doivent donc
 // porter le meme symbole.
@@ -3828,20 +3830,40 @@ function periodLabel(period: number, index: number): string {
 }
 
 
-function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, onModalChange, leads: leadsFromProp, prospectLinksData, linkClickedByLeadId, clicksByUrl, sinceConnection }: { msgs: IGMessages | null; calls: CallRecord[]; stripe: StripeStats | null; ig: IGStats | null; yt: YTStats | null; shortio: ShortioStats | null; period: Period; periodIndex: number; onModalChange?: (open: boolean) => void; leads?: MockLead[]; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; sinceConnection?: boolean }) {
+function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, onModalChange, leads: leadsFromProp, prospectLinksData, linkClickedByLeadId, clicksByUrl, sinceConnection, allTimeStart }: { msgs: IGMessages | null; calls: CallRecord[]; stripe: StripeStats | null; ig: IGStats | null; yt: YTStats | null; shortio: ShortioStats | null; period: Period; periodIndex: number; onModalChange?: (open: boolean) => void; leads?: MockLead[]; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; sinceConnection?: boolean; allTimeStart?: string | null }) {
   const leads = leadsFromProp && leadsFromProp.length > 0 ? leadsFromProp : [];
   const [callsFilter, setCallsFilter] = useState<'all' | 'ig' | 'yt'>('all');
+  // La table coupait à 20 lignes sans le dire : en All-Time sur un élève actif, la
+  // moitié des calls disparaissait sous un résumé qui, lui, les comptait tous.
+  const CALLS_PAGE = 20;
+  const [callsShown, setCallsShown] = useState(CALLS_PAGE);
   const [expandedHero, setExpandedHero] = useState<number | null>(null);
   const [heroSnapshot, setHeroSnapshot] = useState<{ label: string; value: string; sub: string } | null>(null);
   // Valeurs jamais relues : la modale hérite période et index au moment de l'ouverture
   // (setters appelés plus bas), mais son rendu utilise `period`/`periodIndex` du parent.
   const [, setModalPeriod] = useState<Period>(30);
   const [, setModalPeriodIndex] = useState(0);
-  const [expandedEff, setExpandedEff] = useState<{ label: string; value: string; color: string; data: { date: string; v: number }[] } | null>(null);
+  // `estPct` : les colonnes No-show et Close rate sont des pourcentages. Sans cette
+  // information, l'axe calculait sa borne haute en ajoutant 12 % de marge au maximum
+  // et affichait une graduation à « 112 » sur un taux qui ne peut pas dépasser 100.
+  const [expandedEff, setExpandedEff] = useState<{ label: string; value: string; color: string; estPct: boolean; data: { date: string; v: number }[] } | null>(null);
   const now = new Date();
 
   // ── Fenêtre temporelle de la période sélectionnée (bornes calendaires réelles) ──
   const { periodStart, periodEnd } = getPeriodWindow(periodIndex, period === 7 ? 'week' : 'month');
+  // ⚠️ En All-Time, periodStart/periodEnd valent le MOIS EN COURS : getPeriodWindow
+  // ignore sinceConnection. Sept endroits de cet onglet s'en servaient encore — les
+  // deux boucles jour par jour des modales, les filtres de reach/vues/clics et les
+  // libellés — d'où une carte « Calls bookés 17 » ouvrant une courbe qui n'en
+  // totalisait que 9, et un taux de passage affiché à 300 % (numérateur all-time,
+  // dénominateur borné au mois). Constaté à l'écran le 2026-08-29 ; même défaut que
+  // celui corrigé dans TabShortioB le 2026-08-28. La fenêtre d'affichage doit être
+  // celle du FETCH, pas celle du mois.
+  const winStart = sinceConnection && allTimeStart ? new Date(allTimeStart) : periodStart;
+  const winEnd = sinceConnection ? new Date() : periodEnd;
+  const windowLabel = sinceConnection
+    ? `All-Time${allTimeStart ? ` · depuis le ${new Date(allTimeStart).toLocaleDateString('fr-FR')}` : ''}`
+    : periodLabel(period, periodIndex);
   const todayUTCStrFunnel = parisDateStr(new Date());
   const isFutureDayFunnel = (date: string) => date > todayUTCStrFunnel;
   // En mode "depuis connexion", calls est déjà borné [connectedAt, aujourd'hui] par le
@@ -3855,12 +3877,27 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const callsIG = callsInWindow.filter(isIGCall);
   const callsYT = callsInWindow.filter(isYTCall);
 
+  // Jours de la fenêtre et index « jour de Paris → calls réservés ce jour-là » :
+  // règle unique, dans lib/callSeries.ts, testée par lib/callSeries.test.ts. Les deux
+  // découpages qu'elle remplace divergeaient — `new Date('YYYY-MM-DD')` (lu en UTC)
+  // dans les modales du hero, `scheduled_at.startsWith(iso)` dans celles du tableau
+  // d'efficacité — et aucun des deux ne suivait booked_at, la date sur laquelle le
+  // périmètre global filtre (docs/perimetre-stats-referentiel.md, règle 2).
+  const windowDays = parisDayRange(winStart, winEnd);
+  const callsByBookedDay = (subset: CallRecord[]) => bucketCallsByBookedDay(subset);
+
+  // Toutes les mesures portent sur la MÊME population : les calls actifs. `closes`,
+  // `rev` et `noShows` la prenaient sur le sous-ensemble entier, annulés compris,
+  // alors que `bookes` et `honores` (isCallHonored) excluent les annulés — un taux
+  // de no-show pouvait donc avoir plus de no-shows au numérateur que de calls au
+  // dénominateur (docs/perimetre-stats-referentiel.md, règle 4).
   const calcCalls = (subset: CallRecord[]) => {
-    const bookes = subset.filter(c => c.status === 'active').length;
-    const honores = subset.filter(c => isCallHonored(c, now)).length;
-    const closes = subset.filter(c => c.deal_closed).length;
-    const rev = subset.reduce((acc, c) => acc + (c.revenue || 0), 0);
-    const noShows = subset.filter(c => c.no_show).length;
+    const actifs = subset.filter(c => c.status === 'active');
+    const bookes = actifs.length;
+    const honores = actifs.filter(c => isCallHonored(c, now)).length;
+    const closes = actifs.filter(c => c.deal_closed).length;
+    const rev = actifs.reduce((acc, c) => acc + (c.revenue || 0), 0);
+    const noShows = actifs.filter(c => c.no_show).length;
     return { bookes, honores, closes, rev, noShows };
   };
 
@@ -3873,7 +3910,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
 
   const inFunnelDateWindow = (dateStr: string) => {
     const t = new Date(dateStr + 'T12:00:00Z').getTime();
-    return t >= periodStart.getTime() && t <= periodEnd.getTime();
+    return t >= winStart.getTime() && t <= winEnd.getTime();
   };
   const igReachD  = noData ? 0 : (ig ? ig.chartData.filter(d => inFunnelDateWindow(d.date)).reduce((s, d) => s + d.reach, 0) : 0);
   const igBookes  = igCallsLive.bookes;
@@ -3889,13 +3926,18 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const ytRev     = ytCallsLive.rev;
   const ytNoShows = ytCallsLive.noShows;
   const isCalendlyUrl = (l: any) => (l.originalUrl || '').toLowerCase().includes('calendly');
-  // Clics Short.io filtrés par période : clicksByUrl (DB) prioritaire, fallback clicsHumains en S-0/30j uniquement
+  // Clics Short.io filtrés par période : clicksByUrl (DB) prioritaire, repli sur le
+  // chiffre d'API seulement quand les deux fenêtres coïncident.
   const resolveClics = (l: any): number => {
     const urlKey = (l.shortUrl || '').toLowerCase();
     const dbClics = clicksByUrl?.get(urlKey);
     if (dbClics !== undefined) return dbClics;
-    // clicsHumains est all-time 30j — ne l'utiliser qu'en S-0 période 30j
-    if (periodIndex === 0 && period === 30) return l.clicsHumains || 0;
+    // `clicsHumains` porte la fenêtre par défaut de l'API Short.io (30 jours). Le repli
+    // n'est donc légitime que sur la période courante de 30 jours. `!sinceConnection`
+    // manquait : en All-Time (qui laisse period=30 et periodIndex=0) un lien sans
+    // aucun instantané en base rendait un chiffre de 30 jours sous un en-tête
+    // « depuis le 09/06 ».
+    if (!sinceConnection && periodIndex === 0 && period === 30) return l.clicsHumains || 0;
     return 0;
   };
   // link_category est la source de vérité non-ambiguë pour IG vs YT bio/description
@@ -3914,7 +3956,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   ).reduce((s: number, l: any) => s + resolveClics(l), 0) : 0);
   const isTsInFunnelWindow = (ts: string) => {
     const t = new Date(ts).getTime();
-    return t >= periodStart.getTime() && t <= periodEnd.getTime();
+    return t >= winStart.getTime() && t <= winEnd.getTime();
   };
   const igProspectClics = noData ? 0 : (() => {
     if (!prospectLinksData || !linkClickedByLeadId) return 0;
@@ -3943,8 +3985,12 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const igTotalClicsD = igBioClics + igPostClics + igProspectClics;
 
   const dash = '—';
+  // Libellé sans durée : « Reach 30j » mentait sur les trois modes — un mois calendaire
+  // n'a pas 30 jours, un mois passé n'est pas « les 30 derniers », et l'All-Time
+  // couvre tout l'historique. La fenêtre est déjà écrite en toutes lettres dans
+  // l'en-tête juste au-dessus (« Funnels & Efficacité — … »), une seule fois.
   const igFunnelSteps = [
-    { label: period === 7 ? 'Reach 7j' : 'Reach 30j', value: noData ? dash : (igReachD >= 1000 ? `${fmt(igReachD / 1000, 1)}k` : fmt(igReachD)), rawValue: igReachD },
+    { label: 'Reach', value: noData ? dash : (igReachD >= 1000 ? `${fmt(igReachD / 1000, 1)}k` : fmt(igReachD)), rawValue: igReachD },
     { label: 'Clics liens Calendly', value: noData ? dash : fmt(igTotalClicsD), sub: 'bio + descr. + DM', rawValue: igTotalClicsD, rate: noData ? 0 : (igReachD > 0 ? (igTotalClicsD / igReachD) * 100 : 0) },
     { label: 'Calls bookés', value: fmt(igBookes), rawValue: igBookes, rate: igTotalClicsD > 0 ? (igBookes / igTotalClicsD) * 100 : 0 },
     { label: 'Calls honorés', value: fmt(igHonores), rawValue: igHonores, rate: igBookes > 0 ? (igHonores / igBookes) * 100 : 0 },
@@ -3953,7 +3999,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   ];
 
   const ytFunnelSteps = [
-    { label: period === 7 ? 'Vues 7j' : 'Vues 30j', value: noData ? dash : (ytViewsD >= 1000 ? `${fmt(ytViewsD / 1000, 1)}k` : fmt(ytViewsD)), rawValue: ytViewsD },
+    { label: 'Vues', value: noData ? dash : (ytViewsD >= 1000 ? `${fmt(ytViewsD / 1000, 1)}k` : fmt(ytViewsD)), rawValue: ytViewsD },
     { label: 'Clics Calendly', value: noData ? dash : fmt(ytClicsD), sub: 'Bio + Descr.', rawValue: ytClicsD, rate: noData ? 0 : (ytViewsD > 0 ? (ytClicsD / ytViewsD) * 100 : 0) },
     { label: 'Calls bookés', value: fmt(ytBookes), rawValue: ytBookes, rate: ytClicsD > 0 ? (ytBookes / ytClicsD) * 100 : 0 },
     { label: 'Calls honorés', value: fmt(ytHonores), rawValue: ytHonores, rate: ytBookes > 0 ? (ytHonores / ytBookes) * 100 : 0 },
@@ -3961,40 +4007,50 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
     { label: 'Revenue', value: fmtEur(ytRev), rawValue: ytRev },
   ];
 
-  const igNoShowRate = igBookes > 0 ? pct(igNoShows, igBookes) : 0;
-  const ytNoShowRate = ytBookes > 0 ? pct(ytNoShows, ytBookes) : 0;
 
-  // Données jour par jour pour les modals d'efficacité par plateforme
+  // Données jour par jour pour les modals d'efficacité par plateforme.
+  //
+  // Deux règles, toutes deux issues de l'audit du 2026-08-29 :
+  //  1. La journée se découpe sur la date de RÉSERVATION (callsByBookedDay), comme le
+  //     total qu'elle détaille. Elle se découpait sur le préfixe UTC de scheduled_at,
+  //     ce qui rattachait à un autre jour tout rendez-vous réservé un jour et tenu le
+  //     lendemain — et faisait diverger cette modale de celles du hero.
+  //  2. Un TAUX dont le dénominateur est nul vaut `null`, jamais `0`. Écrire 0 %
+  //     affirmait « ce jour-là, aucun deal n'a été closé » pour un jour où aucun
+  //     appel n'avait eu lieu : sur un mois à cinq jours d'activité, la courbe
+  //     « Close rate » montrait 26 jours plats à 0 %.
   function buildEffDayData(platformCalls: CallRecord[], metricIdx: number, reachByDate?: Map<string, number>): { date: string; v: number }[] {
-    const days: string[] = [];
-    let d = periodStart;
-    while (d.getTime() <= periodEnd.getTime()) {
-      days.push(parisDateStr(d));
-      d = parisAddDays(d, 1);
-    }
-    return days.map(iso => {
-      if (isFutureDayFunnel(iso)) return { date: iso, v: null as any };
-      const cs = platformCalls.filter(c => c.scheduled_at?.startsWith(iso));
+    const byDay = callsByBookedDay(platformCalls);
+    return windowDays.map(iso => {
+      const trou = { date: iso, v: null as any };
+      if (isFutureDayFunnel(iso)) return trou;
+      const cs = byDay.get(iso) ?? [];
       const booked = cs.filter(c => c.status === 'active').length;
       const honored = cs.filter(c => isCallHonored(c, now)).length;
       const closed = cs.filter(c => c.deal_closed).length;
       const rev = cs.reduce((s, c) => s + (c.revenue || 0), 0);
-      const noShows = cs.filter(c => c.no_show).length;
+      const noShows = cs.filter(c => c.status === 'active' && c.no_show).length;
       // metricIdx correspond à l'index dans row.metrics : 0=reach/vues pour 1 call, 1=bookés,
       // 2=no-show, 3=close rate, 4=rev/call booké, 5=cash/vue, 6=revenue total.
-      const reachDay = reachByDate?.get(iso) ?? 0;
-      let v = 0;
-      if (metricIdx === 0) v = booked > 0 ? Math.round(reachDay / booked) : 0;
-      else if (metricIdx === 1) v = booked;
-      else if (metricIdx === 2) v = booked > 0 ? Math.round((noShows / booked) * 100) : 0;
-      else if (metricIdx === 3) v = honored > 0 ? Math.round((closed / honored) * 100) : 0;
-      else if (metricIdx === 4) v = booked > 0 ? Math.round(rev / booked) : 0;
-      else if (metricIdx === 5) v = reachDay > 0 ? rev / reachDay : 0;
-      else if (metricIdx === 6) v = rev;
-      return { date: iso, v };
+      const reachDay = reachByDate?.get(iso);
+      const taux = (num: number, den: number) => {
+        const t = tauxOuTrou(num, den);
+        return t === null ? trou : { date: iso, v: Math.round(t) };
+      };
+      if (metricIdx === 0) return booked > 0 && reachDay != null ? { date: iso, v: Math.round(reachDay / booked) } : trou;
+      if (metricIdx === 1) return { date: iso, v: booked };
+      if (metricIdx === 2) return taux(noShows, booked);
+      if (metricIdx === 3) return taux(closed, honored);
+      if (metricIdx === 4) return booked > 0 ? { date: iso, v: Math.round(rev / booked) } : trou;
+      if (metricIdx === 5) return reachDay ? { date: iso, v: rev / reachDay } : trou;
+      return { date: iso, v: rev };
     });
   }
 
+  // Même rendu qu'un taux d'entonnoir (FunnelHorizontal) : « Close rate » figure aux
+  // deux endroits, et affichait 66,7 % dans l'entonnoir contre 67 % dans le tableau,
+  // pour la même mesure sur le même écran.
+  const fmtRate = (a: number, b: number) => `${fmt((a / b) * 100, 1)}%`;
   type EffMetric = { label: string; value: string; prevValue: string | null; delta: { value: number; label: string; color: string } | null; lowerIsBetter: boolean };
   type EffRow = { platform: string; color: string; metrics: EffMetric[]; platformCalls: CallRecord[]; reachByDate: Map<string, number> };
   const igReachByDate = new Map<string, number>((ig?.chartData ?? []).filter(dd => inFunnelDateWindow(dd.date)).map(dd => [dd.date, dd.reach]));
@@ -4006,10 +4062,12 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
       metrics: [
         { label: 'Reach pour 1 call', value: igBookes > 0 ? fmt(Math.round(igReachD / igBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'Calls bookés', value: fmt(igBookes), prevValue: null, delta: null, lowerIsBetter: false },
-        { label: 'No-show', value: igBookes > 0 ? `${igNoShowRate}%` : '—', prevValue: null, delta: null, lowerIsBetter: true },
-        { label: 'Close rate', value: igHonores > 0 ? `${pct(igCloses, igHonores)}%` : '—', prevValue: null, delta: null, lowerIsBetter: false },
+        { label: 'No-show', value: igBookes > 0 ? fmtRate(igNoShows, igBookes) : '—', prevValue: null, delta: null, lowerIsBetter: true },
+        { label: 'Close rate', value: igHonores > 0 ? fmtRate(igCloses, igHonores) : '—', prevValue: null, delta: null, lowerIsBetter: false },
         { label: 'Rev / call booké', value: igBookes > 0 ? fmtEur(Math.round(igRev / igBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: false },
-        { label: 'Cash / vue', value: igReachD > 0 ? fmtEur(igRev / igReachD) : '—', prevValue: null, delta: null, lowerIsBetter: false },
+        // « Cash / vue » : Instagram mesure une portée, pas des vues — la colonne
+        // voisine dit déjà « Reach pour 1 call ».
+        { label: 'Cash / reach', value: igReachD > 0 ? fmtEur(igRev / igReachD) : '—', prevValue: null, delta: null, lowerIsBetter: false },
         { label: 'Revenue total', value: fmtEur(igRev), prevValue: null, delta: null, lowerIsBetter: false },
       ],
     },
@@ -4018,8 +4076,8 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
       metrics: [
         { label: 'Vues pour 1 call', value: ytBookes > 0 ? fmt(Math.round(ytViewsD / ytBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'Calls bookés', value: fmt(ytBookes), prevValue: null, delta: null, lowerIsBetter: false },
-        { label: 'No-show', value: ytBookes > 0 ? `${ytNoShowRate}%` : '—', prevValue: null, delta: null, lowerIsBetter: true },
-        { label: 'Close rate', value: ytHonores > 0 ? `${pct(ytCloses, ytHonores)}%` : '—', prevValue: null, delta: null, lowerIsBetter: false },
+        { label: 'No-show', value: ytBookes > 0 ? fmtRate(ytNoShows, ytBookes) : '—', prevValue: null, delta: null, lowerIsBetter: true },
+        { label: 'Close rate', value: ytHonores > 0 ? fmtRate(ytCloses, ytHonores) : '—', prevValue: null, delta: null, lowerIsBetter: false },
         { label: 'Rev / call booké', value: ytBookes > 0 ? fmtEur(Math.round(ytRev / ytBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: false },
         { label: 'Cash / vue', value: ytViewsD > 0 ? fmtEur(ytRev / ytViewsD) : '—', prevValue: null, delta: null, lowerIsBetter: false },
         { label: 'Revenue total', value: fmtEur(ytRev), prevValue: null, delta: null, lowerIsBetter: false },
@@ -4029,20 +4087,29 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
 
   // ── Calls filtrés pour la table (toujours live) ──
   const filteredCalls = callsFilter === 'ig' ? callsIG : callsFilter === 'yt' ? callsYT : callsInWindow;
+  const filteredActifs = filteredCalls.filter(c => c.status === 'active');
 
-  const totalBookes  = igBookes + ytBookes;
-  const totalHonores = igHonores + ytHonores;
-  const totalCloses  = igCloses + ytCloses;
-  const totalRev     = igRev + ytRev;
+  // Les totaux du hero portent sur TOUTES les sources — c'est ce que dit leur
+  // sous-titre. Ils valaient `igBookes + ytBookes`, donc un call dont la source ne
+  // commence ni par `ig` ni par `yt` en était absent, alors qu'il figurait bien dans
+  // la table en dessous (filtre « Tous ») et au numérateur du taux de no-show. Le
+  // dénominateur excluait ce que le numérateur comptait : le taux pouvait dépasser
+  // 100 % (aucun cas en base au 2026-08-29, les 19 calls de vente ont tous une source
+  // ig_* ou yt_*, mais rien ne l'interdit).
+  const callsActifs  = callsInWindow.filter(c => c.status === 'active');
+  const totalBookes  = callsActifs.length;
+  const totalHonores = callsActifs.filter(c => isCallHonored(c, now)).length;
+  const totalCloses  = callsActifs.filter(c => c.deal_closed).length;
+  const totalRev     = callsActifs.reduce((acc, c) => acc + (c.revenue || 0), 0);
+  const noShowCount  = callsActifs.filter(c => c.no_show).length;
   const closingRate  = totalHonores > 0 ? pct(totalCloses, totalHonores) : 0;
-  const noShowRate   = totalBookes > 0 ? pct(callsInWindow.filter(c => c.no_show).length, totalBookes) : 0;
+  const noShowRate   = totalBookes > 0 ? pct(noShowCount, totalBookes) : 0;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 48 }}>
 
       {/* ── HERO — STATS GLOBALES ── */}
       {(() => {
-        const noShowCount = callsInWindow.filter(c => c.no_show).length;
         const revPerCall = totalBookes > 0 ? Math.round(totalRev / totalBookes) : 0;
 
         const heroItems = [
@@ -4096,73 +4163,70 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                   onClick={e => e.stopPropagation()}
                 >
                   {(() => {
-                    const totalBookes7 = igBookes + ytBookes;
-                    const totalRev7 = igRev + ytRev;
-                    const revPerCall7 = totalBookes7 > 0 ? Math.round(totalRev7 / totalBookes7) : 0;
-
-                    // Pour les graphiques temporels, on utilise les vrais chartData quand disponibles
-                    // Filtre par vraie date calendaire (periodStart/periodEnd déjà calculés plus
-                    // haut dans TabFunnel), pas par position dans le tableau.
-                    const toCallsData = (subset: CallRecord[], key: 'booked' | 'honored' | 'closed' | 'rev') => {
-                      const dates2: string[] = [];
-                      let d2 = periodStart;
-                      while (d2.getTime() <= periodEnd.getTime()) {
-                        dates2.push(parisDateStr(d2));
-                        d2 = parisAddDays(d2, 1);
-                      }
-                      return dates2.map(date => {
+                    // Série jour par jour d'un sous-ensemble de calls, découpée sur la
+                    // date de RÉSERVATION (callsByBookedDay) et sur la fenêtre du FETCH
+                    // (windowDays) — les deux mêmes règles que le total qu'elle détaille.
+                    // Elle bouclait sur periodStart/periodEnd, donc sur le mois en cours
+                    // même en All-Time, et comparait des instants UTC à des jours de
+                    // Paris.
+                    const toCallsData = (subset: CallRecord[], key: 'booked' | 'honored' | 'closed' | 'rev' | 'revPerCall') => {
+                      const byDay = callsByBookedDay(subset);
+                      return windowDays.map(date => {
                         if (isFutureDayFunnel(date)) return { date, v: null as any };
-                        const dayStart = new Date(date).getTime();
-                        const dayEnd = dayStart + 86400000;
-                        // Même date que la fenêtre qui alimente `subset` (callPeriodDate,
-                        // donc booked_at) : découper le graphique sur scheduled_at
-                        // alors que le total filtre sur booked_at ferait sortir de la
-                        // courbe un call pourtant compté dans le total.
-                        const daySubset = subset.filter(c => {
-                          const t = new Date(callPeriodDate(c)).getTime();
-                          return t >= dayStart && t < dayEnd;
-                        });
-                        let v = 0;
-                        if (key === 'booked') v = daySubset.filter(c => c.status === 'active').length;
-                        else if (key === 'honored') v = daySubset.filter(c => isCallHonored(c, now)).length;
-                        else if (key === 'closed') v = daySubset.filter(c => c.deal_closed).length;
-                        else if (key === 'rev') v = daySubset.reduce((s, c) => s + (c.revenue || 0), 0);
-                        return { date, v };
+                        const daySubset = (byDay.get(date) ?? []).filter(c => c.status === 'active');
+                        if (key === 'booked') return { date, v: daySubset.length };
+                        if (key === 'honored') return { date, v: daySubset.filter(c => isCallHonored(c, now)).length };
+                        if (key === 'closed') return { date, v: daySubset.filter(c => c.deal_closed).length };
+                        if (key === 'rev') return { date, v: daySubset.reduce((s, c) => s + (c.revenue || 0), 0) };
+                        // revPerCall : un ratio n'existe pas sans dénominateur — un jour
+                        // sans call booké est un trou, pas un « 0 € par call ».
+                        if (daySubset.length === 0) return { date, v: null as any };
+                        return { date, v: Math.round(daySubset.reduce((s, c) => s + (c.revenue || 0), 0) / daySubset.length) };
                       });
                     };
 
                     // L'ordre DOIT correspondre exactement à heroItems (même index cliqué
                     // via expandedHero) : 0=bookés, 1=calls IG, 2=calls YT, 3=honorés,
                     // 4=no-show, 5=closés, 6=revenue total, 7=rev/call.
+                    // Les cartes « toutes sources » lisent callsInWindow, pas
+                    // [...callsIG, ...callsYT] : la modale doit détailler exactement le
+                    // chiffre sur lequel on a cliqué.
                     const modalCharts: { data: { date: string; v: number }[]; color: string; fmtV: (v: number) => string }[] = [
                       // 0 Calls bookés
-                      { color: 'var(--ink)', fmtV: String, data: toCallsData([...callsIG, ...callsYT], 'booked') },
+                      { color: 'var(--ink)', fmtV: String, data: toCallsData(callsInWindow, 'booked') },
                       // 1 Calls IG
                       { color: IG_COLOR, fmtV: String, data: toCallsData(callsIG, 'booked') },
                       // 2 Calls YT
                       { color: YT_COLOR, fmtV: String, data: toCallsData(callsYT, 'booked') },
                       // 3 Calls honorés
-                      { color: AMBER, fmtV: String, data: toCallsData([...callsIG, ...callsYT], 'honored') },
+                      { color: AMBER, fmtV: String, data: toCallsData(callsInWindow, 'honored') },
                       // 4 No-show
-                      { color: RED, fmtV: String, data: toCallsData([...callsIG, ...callsYT].filter(c => c.no_show), 'booked') },
+                      { color: RED, fmtV: String, data: toCallsData(callsInWindow.filter(c => c.no_show), 'booked') },
                       // 5 Deals closés
-                      { color: GREEN, fmtV: String, data: toCallsData([...callsIG, ...callsYT], 'closed') },
+                      { color: GREEN, fmtV: String, data: toCallsData(callsInWindow, 'closed') },
                       // 6 Revenue total
-                      { color: GREEN, fmtV: (v) => `${v} €`, data: toCallsData([...callsIG, ...callsYT], 'rev') },
-                      // 7 Rev / call — moyenne sur la période
-                      { color: GREEN, fmtV: (v) => `${Math.round(v)} €`, data: toCallsData([...callsIG, ...callsYT], 'honored').map(pt => ({ date: pt.date, v: pt.v > 0 ? revPerCall7 : 0 })) },
+                      { color: GREEN, fmtV: (v) => `${v} €`, data: toCallsData(callsInWindow, 'rev') },
+                      // 7 Rev / call — valeur RÉELLE du jour (revenu du jour ÷ calls
+                      // bookés du jour). La courbe posait auparavant la moyenne de toute
+                      // la période sur les jours à honoré et 0 partout ailleurs : une
+                      // série entièrement fabriquée, qui n'apprenait rien du jour affiché.
+                      { color: GREEN, fmtV: (v) => `${Math.round(v)} €`, data: toCallsData(callsInWindow, 'revPerCall') },
                     ];
                     const chart = modalCharts[expandedHero!];
                     return (<>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
                         <div>
                           <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)' }}>{heroSnapshot?.label}</div>
-                          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>{periodLabel(period, periodIndex)}</div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>{windowLabel}</div>
                         </div>
                         <button onClick={() => { setExpandedHero(null); setHeroSnapshot(null); onModalChange?.(false); }} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)', lineHeight: 1 }}>×</button>
                       </div>
                       <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--ink)', marginBottom: 16 }}>{heroSnapshot?.value}</div>
-                      <ResponsiveContainer width="100%" height={220}>
+                      {/* initialDimension : au premier rendu la modale n'a pas encore
+                          de largeur mesurée, et Recharts émet « width(-1) and
+                          height(-1) » dans la console. Même correctif que sur les trois
+                          graphiques de Business micro. */}
+                      <ResponsiveContainer width="100%" height={220} initialDimension={{ width: 700, height: 220 }}>
                         <ReAreaChart data={chart.data} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                           <defs>
                             <linearGradient id="grad-hero-modal" x1="0" y1="0" x2="0" y2="1">
@@ -4171,7 +4235,11 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                             </linearGradient>
                           </defs>
                           <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(chart.data.length, period)} />
-                          <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = Math.max(1, Math.ceil(range * 0.12)); return [dataMin - margin, dataMax + margin]; }} />
+                          {/* Borne basse jamais négative : un compteur de calls ne peut pas
+                              valoir −1, et l'axe en affichait pourtant la graduation.
+                              Même garde que les six autres axes de ce fichier — c'étaient
+                              les deux seuls à ne pas l'avoir. */}
+                          <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = Math.max(1, Math.ceil(range * 0.12)); const lo = dataMin - margin; return [dataMin >= 0 ? Math.max(0, lo) : lo, dataMax + margin]; }} />
                           <Tooltip content={({ active, payload, label }) => {
                             if (!active || !payload?.length) return null;
                             return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{chart.fmtV(payload[0].value as number)}</strong></div></div>;
@@ -4191,7 +4259,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
 
       {/* ── FUNNELS & EFFICACITÉ ── */}
       <div>
-        <div className="eyebrow-lg" style={{ color: 'var(--muted)', marginBottom: 28 }}>Funnels & Efficacité — {periodLabel(period, periodIndex)}</div>
+        <div className="eyebrow-lg" style={{ color: 'var(--muted)', marginBottom: 28 }}>Funnels & Efficacité — {windowLabel}</div>
 
         {/* Funnels */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 40, marginBottom: 32 }}>
@@ -4223,7 +4291,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                   const effData = buildEffDayData(row.platformCalls, mi, row.reachByDate);
                   return (
                     <div key={mi}
-                      onClick={() => { setExpandedEff({ label: `${row.platform} — ${m.label}`, value: m.value, color: row.color, data: effData }); onModalChange?.(true); }}
+                      onClick={() => { setExpandedEff({ label: `${row.platform} — ${m.label}`, value: m.value, color: row.color, estPct: mi === 2 || mi === 3, data: effData }); onModalChange?.(true); }}
                       style={{ padding: '14px 10px', borderLeft: mi > 0 ? '1px solid var(--border-soft)' : 'none', cursor: 'pointer', transition: 'background .15s' }}
                       onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
                       onMouseLeave={e => e.currentTarget.style.background = ''}
@@ -4255,12 +4323,15 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>{expandedEff.label}</div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Jour par jour · {period} derniers jours</div>
+                {/* « {period} derniers jours » était faux dans les trois modes : la
+                    fenêtre est un mois (ou une semaine) CALENDAIRE, un mois PASSÉ quand
+                    on recule, et tout l'historique en All-Time. */}
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Jour par jour · {windowLabel}</div>
               </div>
               <button onClick={() => { setExpandedEff(null); onModalChange?.(false); }} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--muted)', lineHeight: 1 }}>×</button>
             </div>
             <div style={{ fontSize: 36, fontWeight: 800, color: 'var(--ink)', marginBottom: 20 }}>{expandedEff.value}</div>
-            <ResponsiveContainer width="100%" height={220}>
+            <ResponsiveContainer width="100%" height={220} initialDimension={{ width: 660, height: 220 }}>
               <ReAreaChart data={expandedEff.data} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                 <defs>
                   <linearGradient id="grad-eff-modal" x1="0" y1="0" x2="0" y2="1">
@@ -4269,7 +4340,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                   </linearGradient>
                 </defs>
                 <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(expandedEff.data.length, period)} />
-                <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={40} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = Math.max(1, Math.ceil(range * 0.12)); return [dataMin - margin, dataMax + margin]; }} />
+                <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={40} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = Math.max(1, Math.ceil(range * 0.12)); const lo = dataMin - margin; const hi = dataMax + margin; return [dataMin >= 0 ? Math.max(0, lo) : lo, expandedEff.estPct ? Math.min(100, hi) : hi]; }} />
                 <Tooltip content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null;
                   return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{Math.round(payload[0].value as number)}</strong></div></div>;
@@ -4304,14 +4375,14 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
           </div>
         </div>
 
-        {/* Résumé stats */}
+        {/* Résumé stats — même population que les cartes du hero : les calls actifs. */}
         <div style={{ display: 'flex', gap: 20, marginBottom: 12 }}>
           {[
-            { label: 'Bookés', value: fmt(filteredCalls.filter(c => c.status === 'active').length), color: 'var(--ink)' },
-            { label: 'Honorés', value: fmt(filteredCalls.filter(c => isCallHonored(c, now)).length), color: GREEN },
-            { label: 'No-show', value: fmt(filteredCalls.filter(c => c.no_show).length), color: RED },
-            { label: 'Closés', value: fmt(filteredCalls.filter(c => c.deal_closed).length), color: 'var(--accent)' },
-            { label: 'Revenue', value: fmtEur(filteredCalls.reduce((acc, c) => acc + (c.revenue || 0), 0)), color: GREEN },
+            { label: 'Bookés', value: fmt(filteredActifs.length), color: 'var(--ink)' },
+            { label: 'Honorés', value: fmt(filteredActifs.filter(c => isCallHonored(c, now)).length), color: GREEN },
+            { label: 'No-show', value: fmt(filteredActifs.filter(c => c.no_show).length), color: RED },
+            { label: 'Closés', value: fmt(filteredActifs.filter(c => c.deal_closed).length), color: 'var(--accent)' },
+            { label: 'Revenue', value: fmtEur(filteredActifs.reduce((acc, c) => acc + (c.revenue || 0), 0)), color: GREEN },
           ].map((s, i) => (
             <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <div className="eyebrow-sm" style={{ color: 'var(--muted)' }}>{s.label}</div>
@@ -4330,18 +4401,34 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
               </tr>
             </thead>
             <tbody>
-              {filteredCalls.slice(0, 20).map((c, i) => {
+              {filteredCalls.slice(0, callsShown).map((c, i) => {
                 const isPast = new Date(c.scheduled_at) < now;
-                const isCanceled = c.status === 'canceled';
+                // isCallCanceled couvre les trois orthographes présentes en base
+                // ('canceled', 'cancelled', 'declined') — le test `=== 'canceled'`
+                // affichait « Honoré » sur un call annulé écrit à l'anglaise.
+                const isCanceled = isCallCanceled(c);
+                // « Honoré » suit la définition officielle unique (lib/callHonored.ts) :
+                // un call passé dont le rapport n'est pas rempli n'est PAS honoré. La
+                // table le libellait pourtant « Honoré » avec un ✓ en colonne No-show,
+                // pendant que le compteur juste au-dessus l'excluait — 8 lignes
+                // « Honoré » pour un compteur à 7, constaté le 2026-08-29.
+                const honored = isCallHonored(c, now);
                 const statusLabel = isCanceled
                   ? (c.rescheduled ? 'Rebooké' : 'Annulé')
-                  : c.no_show ? 'No-show' : isPast ? 'Honoré' : 'À venir';
+                  : c.no_show ? 'No-show'
+                  : honored ? 'Honoré'
+                  : isPast ? 'Rapport à remplir' : 'À venir';
                 const statusColor = isCanceled
                   ? (c.rescheduled ? AMBER : RED)
-                  : c.no_show ? RED : isPast ? GREEN : 'var(--muted)';
+                  : c.no_show ? RED
+                  : honored ? GREEN
+                  : isPast ? AMBER : 'var(--muted)';
                 const srcParts = (c.source || '').split('_');
-                const srcPlatform = srcParts[0];
-                const srcMedium = srcParts.slice(1).join('_');
+                // Le filtre juste au-dessus dit « Instagram » / « YouTube » ; la colonne
+                // affichait « Ig » / « Yt », la casse machine du champ `source`.
+                const PLATFORM_LABELS: Record<string, string> = { ig: 'Instagram', instagram: 'Instagram', yt: 'YouTube', youtube: 'YouTube', ubizenai: 'Instagram' };
+                const srcPlatform = PLATFORM_LABELS[srcParts[0]?.toLowerCase()] ?? srcParts[0];
+                const srcMedium = srcParts.slice(1).join(' ');
                 const platformColor = isIGCall(c) ? IG_COLOR : isYTCall(c) ? YT_COLOR : 'var(--muted)';
                 return (
                   <tr key={i} style={{ borderTop: '1px solid var(--border-soft)' }}>
@@ -4353,7 +4440,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                     <td style={{ padding: '12px 14px' }}>
                       {c.source ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: platformColor, textTransform: 'capitalize' }}>{srcPlatform}</span>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: platformColor }}>{srcPlatform}</span>
                           {srcMedium && <span style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'capitalize' }}>{srcMedium}</span>}
                         </div>
                       ) : <span style={{ fontSize: 11, color: 'var(--faint)' }}>—</span>}
@@ -4362,9 +4449,12 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                       <span style={{ fontSize: 11, fontWeight: 600, color: statusColor }}>{statusLabel}</span>
                     </td>
                     <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                      {/* Le ✓ dit « le prospect est venu ». C'est le rapport qui
+                          l'établit, pas l'heure qui passe : sans rapport rempli, on ne
+                          sait pas, donc un tiret. */}
                       {c.no_show
                         ? <span style={{ fontSize: 13, color: RED }}>✕</span>
-                        : isPast && !isCanceled
+                        : honored
                           ? <span style={{ fontSize: 13, color: GREEN }}>✓</span>
                           : <span style={{ fontSize: 11, color: 'var(--faint)' }}>—</span>}
                     </td>
@@ -4381,6 +4471,19 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
               })}
             </tbody>
           </table>
+          {filteredCalls.length > callsShown && (
+            <button
+              type="button"
+              onClick={() => setCallsShown(n => n + CALLS_PAGE)}
+              style={{
+                width: '100%', padding: '12px 0', fontSize: 12, fontWeight: 600,
+                color: 'var(--muted)', background: 'none', border: 'none',
+                borderTop: '1px solid var(--border-soft)', cursor: 'pointer',
+              }}
+            >
+              Voir plus ({filteredCalls.length - callsShown} call{filteredCalls.length - callsShown > 1 ? 's' : ''} de plus)
+            </button>
+          )}
         </div>
       </div>
 
@@ -8701,7 +8804,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
           {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} stripe={stripeEff} msgs={msgsEff} calls={callsEff} callsAllTime={callsAllTimeEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} />}
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.yt?.snapshotError} />}
-          {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} />}
+          {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} allTimeStart={allTimeStart} />}
           {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={callsAllTimeEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} shortioChartHistoryStory={shortioChartHistoryStory} joursCollectesShortio={joursCollectesShortio} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
           {tab === 5 && <TabRevenues stripe={stripeEff} calls={callsEff} deals={dealsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} />}
         </>

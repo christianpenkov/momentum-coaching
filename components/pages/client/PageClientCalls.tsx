@@ -19,7 +19,7 @@ import { useClientSelf } from '@/lib/ClientSelfContext';
 import { isCallReallyOver, isCallJoinable, isCallCanceled, isCoachingCall, pickDisplayedCall } from '@/lib/sessionRapport';
 import CallCard from '@/components/ui/CallCard';
 import { CallTypeBadge } from '@/components/ui/CallBadges';
-import { formatCallLongDate, formatCallTime, groupCallsByPeriod } from '@/lib/callFormat';
+import { formatCallLongDate, formatCallTime, groupCallsByPeriod, daysUntilLocal } from '@/lib/callFormat';
 import { useViewerTimeZone } from '@/lib/UserContext';
 import { formatTimeIn, formatDateIn } from '@/lib/timezone';
 
@@ -74,14 +74,6 @@ interface RapportModal {
   // et le JSX ne passe que callId/inviteeName/scheduledAt/isFollowUp/existing.
   // Les données Fathom s'affichent dans CallInfosModal, pas dans le formulaire
   // de rapport.
-}
-
-function daysUntil(dateStr: string) {
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  const target = new Date(dateStr);
-  target.setHours(0, 0, 0, 0);
-  return Math.ceil((target.getTime() - now.getTime()) / 86400000);
 }
 
 // Notes personnelles de l'élève sur un call de coaching (Google Meet), indépendantes
@@ -198,7 +190,11 @@ async function fetchClientCallsData(clientRow: { id: string; integrations_ready_
     .select(CALL_COLUMNS)
     .eq('coach_id', user.id)
     .eq('call_type', 'calendly')
-    .neq('ignored', true)
+    // `.not('ignored','is',true)` et non `.neq('ignored', true)` : PostgREST traduit
+    // `.neq` par `ignored <> true`, qui vaut NULL — donc faux — quand la colonne est
+    // NULL, et la ligne disparaît en silence. La colonne est désormais NOT NULL en
+    // base (migration 20260829180000), cette écriture dit simplement ce qu'elle veut.
+    .not('ignored', 'is', true)
     .order('scheduled_at', { ascending: false });
 
   if (integrationsReadyAt) {
@@ -221,7 +217,7 @@ async function fetchClientCallsData(clientRow: { id: string; integrations_ready_
       .select(CALL_COLUMNS)
       .eq('client_id', clientRow.id)
       .neq('call_type', 'calendly')
-      .neq('ignored', true)
+      .not('ignored', 'is', true)
       .order('scheduled_at', { ascending: false });
     googleCalls = (data as Call[]) || [];
 
@@ -353,7 +349,11 @@ export default function PageClientCalls() {
   }
 
   const pendingCalls = calls.filter(c => c.status === 'pending_acceptance' && c.call_type !== 'calendly');
-  const canceledCalls = calls.filter(c => ['canceled', 'cancelled', 'declined'].includes(c.status || ''));
+  // isCallCanceled (lib/sessionRapport.ts) est la définition unique des trois
+  // orthographes présentes en base. La liste était recopiée ici, quatrième copie du
+  // même tableau — exactement le motif qui avait fait disparaître un call de tous les
+  // onglets côté élève et d'aucun côté coach.
+  const canceledCalls = calls.filter(isCallCanceled);
   // La liste "À venir" inclut aussi les calls encore dans leur fenêtre de rattrapage
   // (isCallJoinable, 15min après la fin théorique) — pas seulement !isCallReallyOver
   // strict — pour que le bouton Rejoindre reste visible pendant le rattrapage. isCallReallyOver
@@ -484,7 +484,13 @@ export default function PageClientCalls() {
   // Infos quand il y a quelque chose à consulter. Jamais de rapport de session —
   // c'est le coach qui le remplit, l'élève ne fait qu'annoter (MyCallNotes).
   function renderActions(call: Call, variant: 'upcoming' | 'history' | 'canceled') {
-    const rapportPending = call.call_type === 'calendly' && call.no_show === null && call.status === 'active';
+    // `outcome === null` et non `no_show === null` : le marqueur « rapport rempli » est
+    // unique dans toute l'app (docs/rapports-de-call.md § 3, lib/sessionRapport.ts) et
+    // c'est `outcome` — celui qu'utilise déjà `pendingRapports` quelques lignes plus
+    // haut, dans ce même fichier. Deux marqueurs pour le même fait, c'est le motif qui
+    // finit toujours par diverger : il suffit d'un chemin de rapport qui n'écrive pas
+    // `no_show` pour que le bouton « Rapport » reparaisse sur un call déjà rapporté.
+    const rapportPending = call.call_type === 'calendly' && call.outcome === null && call.status === 'active';
     // La modale est devenue le seul point d'accès aux notes et commentaires, et
     // le seul endroit où l'élève peut SAISIR ses notes perso : le bouton s'affiche
     // donc sur tout call de coaching, et sur tout call de vente ayant du contenu.
@@ -807,7 +813,7 @@ export default function PageClientCalls() {
             </div>
             <div className="next-call-banner-countdown" style={{ background: 'var(--surface-2)', borderRadius: 12, textAlign: 'center' }}>
               {(() => {
-                const days = daysUntil(nextCall.scheduled_at!);
+                const days = daysUntilLocal(nextCall.scheduled_at!, nowTick);
                 return (
                   <>
                     <div style={{ fontSize: 32, fontWeight: 800, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>

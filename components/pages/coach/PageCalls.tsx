@@ -17,7 +17,7 @@ import { createClient } from '@/lib/supabase/client';
 import { getPendingSessionRapports, isCallReallyOver, isCallJoinable, isCallCanceled, isCoachingCall, pickDisplayedCall } from '@/lib/sessionRapport';
 import CallCard from '@/components/ui/CallCard';
 import { CallTypeBadge } from '@/components/ui/CallBadges';
-import { formatCallLongDate, formatCallTime, groupCallsByPeriod } from '@/lib/callFormat';
+import { formatCallLongDate, formatCallTime, groupCallsByPeriod, daysUntilLocal } from '@/lib/callFormat';
 import type { Call } from '@/lib/supabase/types';
 import { useViewerTimeZone } from '@/lib/UserContext';
 
@@ -151,10 +151,14 @@ export default function PageCalls() {
   // (isCallJoinable, 15min après la fin théorique) — pas seulement !isCallReallyOver
   // strict — pour que le bouton Rejoindre reste visible pendant le rattrapage.
   // nowTick force ce recalcul chaque minute (voir useEffect ci-dessus).
+  // `status === 'active'` : les calls en attente d'acceptation ont leur propre section
+  // juste au-dessus de la liste. Sans ce filtre ils étaient affichés DEUX fois sur le
+  // même écran, et comptés dans « À venir (N) » en plus de « En attente (N) ». La
+  // page élève les excluait déjà — c'est elle qui avait raison.
   const upcoming = calls
-    .filter(c => c.scheduled_at && isCallJoinable(c, nowTick))
+    .filter(c => c.scheduled_at && c.status === 'active' && isCallJoinable(c, nowTick))
     .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
-  // Historique : réellement terminé ET plus joignable.
+  // Historique : réellement terminé, plus joignable, et NON annulé.
   //
   // Le `!isCallJoinable` est indispensable : isCallReallyOver bascule dès la fin
   // théorique, mais isCallJoinable reste vrai 15 min de plus (fenêtre de rattrapage
@@ -162,10 +166,16 @@ export default function PageCalls() {
   // terminer appartenait aux DEUX listes pendant 15 minutes — donc affiché deux
   // fois dans les onglets Ventes/Coachings/Annulés (une fois en "À venir", une fois
   // en "Historique") et compté deux fois dans leur badge.
+  //
+  // Le `!isCallCanceled` corrige le même défaut, en permanence celui-là : les calls
+  // annulés passés entraient dans `history`, donc dans « Coachings » ET dans
+  // « Annulés ». Mesuré le 2026-08-29 sur le compte coach : « Historique (22) » et
+  // « Coachings (22) » incluaient les 3 calls que « Annulés (3) » comptait aussi
+  // (19 non annulés + 3 annulés en base). La page élève filtrait déjà les annulés.
   const history = calls
-    .filter(c => c.scheduled_at && isCallReallyOver(c, nowTick) && !isCallJoinable(c, nowTick))
+    .filter(c => c.scheduled_at && isCallReallyOver(c, nowTick) && !isCallJoinable(c, nowTick) && !isCallCanceled(c))
     .sort((a, b) => new Date(b.scheduled_at!).getTime() - new Date(a.scheduled_at!).getTime());
-  const upcomingActive = upcoming.filter(c => c.status === 'active');
+  const upcomingActive = upcoming;
 
   const nextCall = pickDisplayedCall(upcomingActive, nowTick);
   const pending = calls.filter(c => c.status === 'pending_acceptance');
@@ -173,12 +183,22 @@ export default function PageCalls() {
   // Onglets Ventes / Coachings / Annulés — chacun affiche ses propres sections
   // "À venir" puis "Historique" en dessous, indépendamment de l'onglet À venir/Historique
   // principal (qui, lui, mélange tous les types sans filtre).
-  const salesUpcoming = upcoming.filter(c => !isCoachingCall(c) && !isCallCanceled(c));
+  const salesUpcoming = upcoming.filter(c => !isCoachingCall(c));
   const salesHistory = history.filter(c => !isCoachingCall(c));
-  const coachingUpcoming = upcoming.filter(c => isCoachingCall(c) && !isCallCanceled(c));
-  const coachingHistory = history.filter(c => isCoachingCall(c));
-  const canceledUpcoming = upcoming.filter(isCallCanceled);
-  const canceledHistory = history.filter(isCallCanceled);
+  const coachingUpcoming = upcoming.filter(isCoachingCall);
+  const coachingHistory = history.filter(isCoachingCall);
+  // Les annulés se lisent directement dans `calls`, jamais depuis `upcoming` /
+  // `history` : ces deux listes les excluent, l'une via isCallJoinable (qui rend faux
+  // pour un call annulé), l'autre via isCallReallyOver (faux tant que l'heure de fin
+  // n'est pas passée). `upcoming.filter(isCallCanceled)` était donc TOUJOURS vide, et
+  // un rendez-vous annulé avant d'avoir eu lieu n'apparaissait dans AUCUN onglet.
+  const canceledCalls = calls.filter(c => c.scheduled_at && isCallCanceled(c));
+  const canceledUpcoming = canceledCalls
+    .filter(c => new Date(c.scheduled_at!).getTime() > nowTick)
+    .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
+  const canceledHistory = canceledCalls
+    .filter(c => new Date(c.scheduled_at!).getTime() <= nowTick)
+    .sort((a, b) => new Date(b.scheduled_at!).getTime() - new Date(a.scheduled_at!).getTime());
 
   // Le coach n'a de calls de vente que s'il a connecté son PROPRE Calendly (ses
   // calls, pas ceux de ses élèves — cf. docs/calls-coach-id-piege.md). Sans ça
@@ -435,8 +455,11 @@ export default function PageCalls() {
               </div>
               <div className="next-call-banner-countdown" style={{ background: 'var(--surface-2)', borderRadius: 12, textAlign: 'center' }}>
                 {(() => {
-                  const diffMs = new Date(nextCall.scheduled_at).getTime() - nowTick;
-                  const days = Math.ceil(diffMs / 86_400_000);
+                  // Nombre de JOURS civils qui séparent aujourd'hui du rendez-vous, pas
+                  // un quotient d'heures : `Math.ceil(diff / 24h)` annonçait « J−1 ·
+                  // Demain » pour un call prévu ce soir, dès qu'il restait plus d'une
+                  // heure. Même calcul que `daysUntil` côté élève, qui était correct.
+                  const days = daysUntilLocal(nextCall.scheduled_at, nowTick);
                   return (
                     <>
                       <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>

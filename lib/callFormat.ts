@@ -31,6 +31,23 @@ export function formatCallLongDate(dateStr: string, tz: string = DEFAULT_TIME_ZO
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+// Nombre de JOURS CIVILS qui séparent aujourd'hui du rendez-vous, dans le fuseau du
+// lecteur : 0 = aujourd'hui, 1 = demain. C'est ce que lit le compteur « J−N » du
+// bandeau « Prochain call ».
+//
+// Un quotient d'heures (`Math.ceil(diff / 86 400 000)`) ne répond pas à la même
+// question : pour un call prévu ce soir à 23 h vu à 16 h, il rend 1 et le bandeau
+// annonçait « J−1 · Demain » alors que le rendez-vous est le jour même. Les deux
+// calculs coexistaient — celui-ci côté élève, le quotient côté coach — pour le même
+// badge sur les deux écrans.
+export function daysUntilLocal(dateStr: string, now: number = Date.now()): number {
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(dateStr);
+  target.setHours(0, 0, 0, 0);
+  return Math.round((target.getTime() - today.getTime()) / 86_400_000);
+}
+
 export type CallPeriod = {
   key: string;
   label: string;
