@@ -2234,9 +2234,7 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
   // « Impossible de synchroniser les donnees » aux quatre profils, alors que rien
   // n'etait perdu et que personne n'avait rien a faire. Ces incidents restent traces
   // dans cron_runs, qui est le bon endroit pour l'exploitant.
-  const incidentsPassagers = (e: string) =>
-    e.includes('last_clicks') || e.includes('flux_clics_tronque') || e.includes('old_domain_');
-  const erreursVisibles = errors.filter(e => !incidentsPassagers(e));
+  const erreursVisibles = errors.filter(e => !estIncidentPassager(e));
   const status = erreursVisibles.length === 0 ? 'ok' : 'partial';
   await supa.from('integrations')
     .update({ last_snapshot_status: status, last_snapshot_error: erreursVisibles.length ? erreursVisibles.join(', ') : null })
@@ -2244,6 +2242,33 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
 
   return errors;
 }
+
+/**
+ * Un incident passager ne demande d'action a personne.
+ *
+ * Trois formes, toutes auto-reparees : un 500 de Short.io (leur serveur, pas notre
+ * requete), un flux de clics tronque dont la reparation est reportee au passage
+ * suivant, et un ancien domaine devenu inaccessible.
+ *
+ * Sert a DEUX endroits, et c'est le meme jugement dans les deux :
+ *  - `last_snapshot_error`, qui allume un bandeau rouge chez l'eleve ;
+ *  - `cron_runs`, dont le contrat documente est « table vide = aucun incident ».
+ *
+ * Ce contrat est ce qui rend la supervision utile. Le jour ou elle contient des
+ * lignes qu'on ne peut pas traiter, soit on perd du temps a les lire, soit on prend
+ * l'habitude de les ignorer — et elle ne sert plus le jour d'un vrai incident.
+ * Constate le 2026-08-29 : deux lignes de 500 passagers ont declenche une enquete
+ * pour un incident qui n'avait rien coute, verification faite (aucun trou de
+ * collecte sur les quatre profils).
+ *
+ * Ce qui garde l'oeil ouvert a leur place : la vue `shortio_sante_donnees`, qui
+ * surveille la CONSEQUENCE (une journee manquante) et non la cause. Elle passe a
+ * « ALERTE : hors fenetre d auto reparation » des que le retard depasse 7 jours,
+ * donc une panne durable chez le fournisseur ressort la, correctement, au lieu de
+ * se noyer dans des lignes quotidiennes qu'on ne lit plus.
+ */
+const estIncidentPassager = (e: string) =>
+  e.includes('last_clicks') || e.includes('flux_clics_tronque') || e.includes('old_domain_');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Handler principal
@@ -2403,6 +2428,16 @@ Deno.serve(async (req: Request) => {
   // apparaître dans get_logs. Un seul récapitulatif suffit ici (pas de détail par
   // profil dans un log séparé — errors.push/console.error dans snapshotProfile
   // couvrent déjà le détail par profil).
+  // Meme tri de gravite que pour le bandeau de l'eleve, applique ici a la supervision.
+  // Les incidents passagers restent dans les logs Supabase (console.error ci-dessous)
+  // pour l'enquete a chaud, mais n'entrent pas dans `cron_runs` : cette table doit
+  // rester vide tant que rien ne demande d'action, sinon elle cesse d'etre lue.
+  const erreursActionnables: Record<string, string[]> = {};
+  for (const [pid, errs] of Object.entries(allErrors)) {
+    const restant = errs.filter(e => !estIncidentPassager(e));
+    if (restant.length) erreursActionnables[pid] = restant;
+  }
+
   if (Object.keys(allErrors).length) {
     console.error(`[poll-leads] run terminé avec des erreurs sur ${Object.keys(allErrors).length} profil(s):`, JSON.stringify(allErrors));
     // Trace EN BASE, pas seulement dans les logs.
@@ -2418,11 +2453,13 @@ Deno.serve(async (req: Request) => {
     // Pour savoir si tout va bien :  select * from cron_runs order by ran_at desc;
     // Table vide = aucun incident depuis 30 jours.
     try {
-      await supa.from('cron_runs').insert({
-        fonction: 'poll-leads',
-        profils_en_erreur: Object.keys(allErrors).length,
-        erreurs: allErrors,
-      });
+      if (Object.keys(erreursActionnables).length) {
+        await supa.from('cron_runs').insert({
+          fonction: 'poll-leads',
+          profils_en_erreur: Object.keys(erreursActionnables).length,
+          erreurs: erreursActionnables,
+        });
+      }
     } catch (e) {
       // Ne jamais faire echouer un run a cause de sa propre journalisation.
       console.error('[poll-leads] cron_runs insert failed', e);
