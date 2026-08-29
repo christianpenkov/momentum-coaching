@@ -702,11 +702,28 @@ async function handleEvent(event: Stripe.Event) {
     }
 
     // L'utilisateur a débranché Momentum depuis son dashboard Stripe.
+    //
+    // ⚠️ `status` n'accepte QUE 'ok' ou 'failed' — contrainte
+    // `integrations_status_check`. Ce case écrivait 'disconnected' : l'UPDATE
+    // était rejeté par Postgres, l'erreur n'était pas lue, et RIEN n'était
+    // écrit. Le jeton mort restait en base, l'intégration restait « ok », et
+    // l'élève continuait de voir des chiffres figés sur une connexion rompue —
+    // exactement la panne invisible que le bandeau de santé cherche à montrer,
+    // et que ce case était censé déclarer.
     case 'account.application.deauthorized': {
-      await supabase.from('integrations')
-        .update({ access_token: null, refresh_token: null, status: 'disconnected' })
+      const { error } = await supabase.from('integrations')
+        .update({
+          access_token: null,
+          refresh_token: null,
+          status: 'failed',
+          last_snapshot_status: 'error',
+          last_snapshot_error: 'stripe: compte débranché depuis le dashboard Stripe',
+        })
         .eq('provider', 'stripe')
         .eq('account_label', event.account!);
+      // Une écriture de santé qui échoue en silence est pire que pas d'écriture
+      // du tout : elle laisse croire que la surveillance fonctionne.
+      if (error) console.error('[stripe] deauthorized non enregistré:', error.message);
       break;
     }
   }
