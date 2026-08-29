@@ -10,13 +10,19 @@ import { createClient } from '@/lib/supabase/client';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import ModalShell from '@/components/ui/ModalShell';
 import { useIsMobile } from '@/lib/useIsMobile';
+import { refusSequence } from '@/lib/sequenceDm';
 
 // ─── Garde de navigation — bloque un changement de post/onglet si des DMs ne sont pas sauvegardés ──
 interface UnsavedGuardApi {
   setHasUnsaved: (v: boolean) => void;
   guard: (action: () => void) => void;
-  registerSaveAll: (fn: (() => Promise<void>) | null) => void;
-  saveAll: () => Promise<void>;
+  // `null` = enregistré, une chaîne = la raison du refus.
+  //
+  // L'enregistrement doit pouvoir ÉCHOUER et le dire. « Enregistrer » dans la
+  // fenêtre de départ naviguait quoi qu'il arrive : un enregistrement refusé
+  // emportait le texte du coach avec lui, sans qu'il voie jamais pourquoi.
+  registerSaveAll: (fn: (() => Promise<string | null>) | null) => void;
+  saveAll: () => Promise<string | null>;
 }
 const UnsavedGuardContext = createContext<UnsavedGuardApi | null>(null);
 function useUnsavedGuard() {
@@ -1338,8 +1344,13 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
    * Vide → null sur les champs du lien : le webhook applique alors son défaut,
    * celui-là même que le placeholder affiche.
    */
-  const enregistrerSequence = async () => {
-    if (!nbModifs || seqSaving) return;
+  const enregistrerSequence = async (): Promise<string | null> => {
+    if (!nbModifs || seqSaving) return null;
+    // Refuser AVANT d'écrire : un champ vide enregistré serait remplacé par un
+    // texte générique côté webhook, et plus rien ne dirait au coach que ce n'est
+    // pas le sien. Voir `refusSequence`.
+    const refus = refusSequence({ accroche: seq.accroche, accrocheBtn: seq.accrocheBtn, lienBtn: seq.lienBtn });
+    if (refus) { setSeqError(refus); return refus; }
     setSeqSaving(true); setSeqError(null);
     try {
       const res = await fetch('/api/client/content-links', {
@@ -1362,8 +1373,11 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
         dmOpenerMessage: seq.relance,
       });
       setSeqRef(seq);
+      return null;
     } catch (e: any) {
-      setSeqError(e.message || 'Erreur');
+      const message = e.message || 'Erreur';
+      setSeqError(message);
+      return message;
     } finally {
       setSeqSaving(false);
     }
@@ -2942,6 +2956,10 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
   const lmName = leadMagnets.find(l => l.id === primary.lmId)?.name;
 
   const submit = async () => {
+    // Même règle que les posts, depuis l'unification des séquences : ces trois
+    // champs ne peuvent pas être vides. Voir `refusSequence`.
+    const refus = refusSequence({ accroche: dmLmMessage, accrocheBtn: dmButtonText, lienBtn: dmLinkButtonText });
+    if (refus) { setError(refus); return; }
     setSaving(true); setError(null);
     try {
       if (isExistingSequence) {
@@ -4708,17 +4726,20 @@ export default function PageLiens() {
 
   // Garde de navigation — bloque un changement de post/onglet si des DMs ne sont pas sauvegardés
   const hasUnsavedRef = useRef(false);
-  const saveAllRef = useRef<(() => Promise<void>) | null>(null);
+  const saveAllRef = useRef<(() => Promise<string | null>) | null>(null);
   const [pendingLeaveAction, setPendingLeaveAction] = useState<(() => void) | null>(null);
   const [savingAll, setSavingAll] = useState(false);
+  // La raison d'un enregistrement refusé, affichée DANS la fenêtre de départ :
+  // l'erreur du formulaire est derrière elle, le coach ne la verrait pas.
+  const [refusEnregistrement, setRefusEnregistrement] = useState<string | null>(null);
   const unsavedGuardApi = useMemo<UnsavedGuardApi>(() => ({
     setHasUnsaved: (v: boolean) => { hasUnsavedRef.current = v; },
     guard: (action: () => void) => {
-      if (hasUnsavedRef.current) setPendingLeaveAction(() => action);
+      if (hasUnsavedRef.current) { setRefusEnregistrement(null); setPendingLeaveAction(() => action); }
       else action();
     },
     registerSaveAll: (fn) => { saveAllRef.current = fn; },
-    saveAll: async () => { if (saveAllRef.current) await saveAllRef.current(); },
+    saveAll: async () => (saveAllRef.current ? await saveAllRef.current() : null),
   }), []);
 
   // Fermeture d'onglet / rechargement / navigation hors-app : popup native du navigateur
@@ -5962,16 +5983,27 @@ export default function PageLiens() {
       </div>
 
       {pendingLeaveAction && (
-        <ModalShell onClose={() => setPendingLeaveAction(null)} width={380} variant={isMobile ? 'sheet' : 'centered'}>
+        <ModalShell onClose={() => { setRefusEnregistrement(null); setPendingLeaveAction(null); }} width={380} variant={isMobile ? 'sheet' : 'centered'}>
           <div style={{ padding: 24 }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: INK, marginBottom: 8 }}>Modifications non sauvegardées</div>
-            <div style={{ fontSize: 13, color: MUTED, lineHeight: 1.5, marginBottom: 20 }}>
+            <div style={{ fontSize: 13, color: MUTED, lineHeight: 1.5, marginBottom: refusEnregistrement ? 12 : 20 }}>
               Tu as des changements dans la séquence de DM qui n'ont pas été enregistrés. Si tu quittes maintenant, ils seront perdus.
             </div>
+            {refusEnregistrement && (
+              <div style={{ fontSize: 12.5, color: RED, lineHeight: 1.5, marginBottom: 20, padding: '10px 12px', borderRadius: 8, background: 'var(--red-soft)' }}>
+                Impossible d'enregistrer — {refusEnregistrement}
+              </div>
+            )}
             <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 10, justifyContent: isMobile ? undefined : 'flex-end' }}>
               <button onClick={async () => {
                   setSavingAll(true);
-                  try { await unsavedGuardApi.saveAll(); } finally { setSavingAll(false); }
+                  let refus: string | null = null;
+                  try { refus = await unsavedGuardApi.saveAll(); } finally { setSavingAll(false); }
+                  // Rien n'a été enregistré : on reste, et on dit pourquoi. Quitter
+                  // ici perdrait exactement le texte que ce bouton promettait de
+                  // sauver. « Ne pas enregistrer » reste disponible pour partir
+                  // quand même, en connaissance de cause.
+                  if (refus) { setRefusEnregistrement(refus); return; }
                   const action = pendingLeaveAction;
                   hasUnsavedRef.current = false;
                   setPendingLeaveAction(null);
@@ -5984,7 +6016,7 @@ export default function PageLiens() {
                 style={{ order: isMobile ? 2 : 2, minHeight: 44, padding: '8px 16px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: 'none', background: RED, color: '#fff', cursor: savingAll ? 'default' : 'pointer', opacity: savingAll ? 0.5 : 1 }}>
                 Ne pas enregistrer
               </button>
-              <button onClick={() => setPendingLeaveAction(null)} disabled={savingAll}
+              <button onClick={() => { setRefusEnregistrement(null); setPendingLeaveAction(null); }} disabled={savingAll}
                 style={{ order: isMobile ? 3 : 1, minHeight: 44, padding: '8px 16px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: `1px solid ${BORDER}`, background: 'none', color: INK, cursor: savingAll ? 'default' : 'pointer', opacity: savingAll ? 0.5 : 1 }}>
                 Annuler
               </button>
