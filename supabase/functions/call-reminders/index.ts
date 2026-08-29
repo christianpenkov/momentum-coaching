@@ -24,18 +24,37 @@ const sb = createClient(
 // d'être — chaque notification s'affiche désormais dans le fuseau de son
 // destinataire, ce qu'aucune formule manuelle ne peut couvrir (base IANA).
 
+/** Issue d'un envoi : `webpush` etant sans types, l'annoter est le seul moyen de
+ *  garder `deno check` vert et de distinguer succes et echec. */
+type EnvoiPush = { livre: boolean; statusCode: number | undefined };
+
+// Rend le NOMBRE de notifications reellement acceptees par le service de push.
+//
+// Le drapeau « rappel envoye » ne doit se poser que si quelque chose est parti.
+// Avant, cette fonction ne rendait rien et l'appelant marquait le rappel envoye
+// dans tous les cas — y compris quand l'eleve n'avait aucun abonnement. Le rappel
+// etait alors perdu pour toujours, avec un drapeau qui affirmait le contraire.
+// C'est le cas d'une PWA en cours de reinstallation : entre la desinscription et
+// le nouvel endpoint, la table est vide pendant quelques secondes.
+//
+// `notify-rapport` verifiait deja `sent > 0` avant de poser son drapeau : la regle
+// existait, elle etait juste ecrite a un seul des trois endroits.
+//
+// ⚠️ Un 201 comme un 410 portent tous deux un `statusCode` — web-push RESOUT avec
+// un statusCode en cas de succes. On ne peut donc pas distinguer succes et echec
+// par la presence du champ : il faut marquer la branche prise.
 async function sendPushToProfile(
   profileId: string,
   title: string,
   body: string,
   url: string
-) {
+): Promise<number> {
   const { data: subs } = await sb
     .from('push_subscriptions')
     .select('endpoint, p256dh, auth')
     .eq('profile_id', profileId);
 
-  if (!subs || subs.length === 0) return;
+  if (!subs || subs.length === 0) return 0;
 
   webpush.setVapidDetails(
     Deno.env.get('VAPID_SUBJECT')!.trim(),
@@ -46,25 +65,28 @@ async function sendPushToProfile(
   const payload = JSON.stringify({ title, body, url });
 
   // Envoi en parallèle — Promise.all pour éviter les timeouts
-  const results = await Promise.all(
-    subs.map(sub =>
+  const results: EnvoiPush[] = await Promise.all(
+    subs.map((sub): Promise<EnvoiPush> =>
       webpush
         .sendNotification(
           { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
           payload
         )
-        .catch((err: { statusCode?: number }) => err)
+        .then(() => ({ livre: true, statusCode: undefined }))
+        .catch((err: { statusCode?: number }) => ({ livre: false, statusCode: err?.statusCode }))
     )
   );
 
   // Nettoyer les abonnements morts — 404 ET 410 (RFC 8030). Ne traiter que le
   // 410 laissait s'accumuler les endpoints repondant 404, reessayes a chaque
   // passage du cron.
+  // Parametres annotes explicitement : `webpush` est un import npm sans types, donc
+  // `results` retombe en `any[]` et les callbacks heritent d'un `any` implicite que
+  // `deno check` refuse. Sans annotation cette fonction etait la seule des onze a
+  // echouer la porte que AGENTS.md impose avant tout deploiement.
   const expiredEndpoints = results
-    .map((r, i) => ({ r, sub: subs[i] }))
-    .filter(({ r }) => r && typeof r === 'object' && 'statusCode' in r
-      && [404, 410].includes(r.statusCode as number))
-    .map(({ sub }) => sub.endpoint);
+    .map((r, i: number) => (!r.livre && [404, 410].includes(r.statusCode as number) ? subs[i].endpoint : null))
+    .filter(Boolean) as string[];
 
   if (expiredEndpoints.length > 0) {
     await sb
@@ -72,6 +94,8 @@ async function sendPushToProfile(
       .delete()
       .in('endpoint', expiredEndpoints);
   }
+
+  return results.filter(r => r.livre).length;
 }
 
 Deno.serve(async (req: Request) => {
@@ -177,14 +201,17 @@ Deno.serve(async (req: Request) => {
       scheduledAt >= window24hStart &&
       scheduledAt <= window24hEnd
     ) {
-      await sendPushToProfile(
+      const livres = await sendPushToProfile(
         clientRow.profile_id,
         'Rappel — call demain',
         `${topic} · ${dateStr} à ${timeStr}`,
         url
       );
-      await sb.from('calls').update({ reminder_24h_sent: true }).eq('id', call.id);
-      sent++;
+      // Rien n'est parti : on ne pose pas le drapeau, le prochain passage reessaiera.
+      if (livres > 0) {
+        await sb.from('calls').update({ reminder_24h_sent: true }).eq('id', call.id);
+        sent++;
+      }
     }
 
     // Rappel 15 min avant — idempotent via reminder_15min_sent
@@ -193,14 +220,17 @@ Deno.serve(async (req: Request) => {
       scheduledAt >= window15mStart &&
       scheduledAt <= window15mEnd
     ) {
-      await sendPushToProfile(
+      const livres = await sendPushToProfile(
         clientRow.profile_id,
         'Ton call commence dans 15 min',
         `${topic} · ${timeStr}`,
         url
       );
-      await sb.from('calls').update({ reminder_15min_sent: true }).eq('id', call.id);
-      sent++;
+      // Rien n'est parti : on ne pose pas le drapeau, le prochain passage reessaiera.
+      if (livres > 0) {
+        await sb.from('calls').update({ reminder_15min_sent: true }).eq('id', call.id);
+        sent++;
+      }
     }
   }
 

@@ -25,13 +25,30 @@ const sb = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 );
 
-async function sendPushToProfile(profileId: string, title: string, body: string, url: string, tag?: string) {
+/** Issue d'un envoi : `webpush` etant sans types, l'annoter est le seul moyen de
+ *  distinguer succes et echec — un 201 comme un 410 portent un `statusCode`. */
+type EnvoiPush = { livre: boolean; statusCode: number | undefined };
+
+/**
+ * Rend le NOMBRE de notifications reellement acceptees par le service de push.
+ *
+ * L'appelant ne doit poser `reminder_*_sent_at` que si quelque chose est parti.
+ * Avant, le drapeau se posait meme quand l'eleve n'avait aucun abonnement : le
+ * rappel d'echeance etait perdu pour toujours, avec un drapeau qui affirmait le
+ * contraire. Le cas se produit pendant une reinstallation de la PWA, ou la table
+ * est vide entre l'ancien endpoint et le nouveau.
+ *
+ * Ici la reparation est reelle, pas seulement honnete : la fenetre J-2 est large
+ * de deux jours et le J+2 court sur trente, donc le passage du lendemain rattrape
+ * un rappel non delivre. `notify-rapport` appliquait deja cette regle.
+ */
+async function sendPushToProfile(profileId: string, title: string, body: string, url: string, tag?: string): Promise<number> {
   const { data: subs } = await sb
     .from('push_subscriptions')
     .select('endpoint, p256dh, auth')
     .eq('profile_id', profileId);
 
-  if (!subs || subs.length === 0) return;
+  if (!subs || subs.length === 0) return 0;
 
   webpush.setVapidDetails(
     Deno.env.get('VAPID_SUBJECT')!.trim(),
@@ -41,11 +58,12 @@ async function sendPushToProfile(profileId: string, title: string, body: string,
 
   const payload = JSON.stringify({ title, body, url, tag });
 
-  const results = await Promise.all(
-    subs.map(sub =>
+  const results: EnvoiPush[] = await Promise.all(
+    subs.map((sub): Promise<EnvoiPush> =>
       webpush
         .sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, payload)
-        .catch((err: { statusCode?: number }) => err)
+        .then(() => ({ livre: true, statusCode: undefined }))
+        .catch((err: { statusCode?: number }) => ({ livre: false, statusCode: err?.statusCode }))
     )
   );
 
@@ -53,11 +71,13 @@ async function sendPushToProfile(profileId: string, title: string, body: string,
   // indéfiniment à chaque passage du cron. Le 404 manquait, donc ces
   // endpoints-là restaient en base pour toujours.
   const dead = results
-    .map((r: any, i: number) => ([404, 410].includes(r?.statusCode) ? subs[i].endpoint : null))
+    .map((r, i: number) => (!r.livre && [404, 410].includes(r.statusCode as number) ? subs[i].endpoint : null))
     .filter(Boolean) as string[];
   if (dead.length) {
     await sb.from('push_subscriptions').delete().in('endpoint', dead);
   }
+
+  return results.filter(r => r.livre).length;
 }
 
 function fmtEur(n: number): string {
@@ -127,7 +147,7 @@ Deno.serve(async (req) => {
       // les notifications suivantes.
       if (!r.reminder_before_sent_at && r.due_on > today && r.due_on <= inTwoDays) {
         const dejaEnvoye = !!r.sent_at;
-        await sendPushToProfile(
+        const livres = await sendPushToProfile(
           d.profile_id,
           `Échéance ${r.rank}/${total} dans 2 jours`,
           horsStripe
@@ -138,10 +158,14 @@ Deno.serve(async (req) => {
           `/paiements?deal=${d.id}`,
           `echeance-${r.id}-before`,
         );
-        await sb.from('deal_installments')
-          .update({ reminder_before_sent_at: new Date().toISOString() })
-          .eq('id', r.id);
-        before++;
+        // Rien n'est parti : pas de drapeau, le passage de demain reessaiera —
+        // la fenetre J-2 est large de deux jours, le rappel n'est pas perdu.
+        if (livres > 0) {
+          await sb.from('deal_installments')
+            .update({ reminder_before_sent_at: new Date().toISOString() })
+            .eq('id', r.id);
+          before++;
+        }
       }
 
       // ── J+2 : toujours impayée ───────────────────────────────────────────
@@ -156,7 +180,7 @@ Deno.serve(async (req) => {
         // client n'a pas payé (un message personnel vaut mieux qu'un rappel).
         // `sent_at` est fiable ici : il n'est renseigné que si l'élève a
         // explicitement coché la case.
-        await sendPushToProfile(
+        const livres = await sendPushToProfile(
           d.profile_id,
           // L'ancienneté du retard se saisit d'un coup d'œil, là où une date
           // seule demande de la comparer mentalement à aujourd'hui. Recalculé
@@ -186,10 +210,13 @@ Deno.serve(async (req) => {
           // se remplaceraient l'un l'autre dans le centre de notifications.
           `echeance-${r.id}-late`,
         );
-        await sb.from('deal_installments')
-          .update({ reminder_late_sent_at: new Date().toISOString() })
-          .eq('id', r.id);
-        late++;
+        // Idem : le J+2 est reexamine chaque jour pendant trente jours.
+        if (livres > 0) {
+          await sb.from('deal_installments')
+            .update({ reminder_late_sent_at: new Date().toISOString() })
+            .eq('id', r.id);
+          late++;
+        }
       }
     } catch (e: any) {
       // Une échéance en échec ne doit pas empêcher les suivantes de partir.
