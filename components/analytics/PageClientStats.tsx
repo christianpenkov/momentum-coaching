@@ -3773,7 +3773,7 @@ const YT_COLOR = '#dc2626';
 function FunnelHorizontal({ platform, color, steps }: {
   platform: string;
   color: string;
-  steps: { label: string; value: string; sub?: string; rate?: number; rawValue: number }[];
+  steps: { label: string; value: string; sub?: string; rate?: number; rawValue: number; noteTaux?: string }[];
 }) {
   const DOT = 64;
 
@@ -3823,13 +3823,27 @@ function FunnelHorizontal({ platform, color, steps }: {
               <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)', lineHeight: 1.3 }}>{step.label}</div>
               {step.sub && <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>{step.sub}</div>}
               {step.rate !== undefined && (
-                <div style={{
-                  marginTop: 5,
-                  fontSize: 11, fontWeight: 700,
-                  color: step.rate < 1 ? RED : step.rate < 5 ? AMBER : GREEN,
-                }}>
+                /* Au-dela de 100 %, AMBRE et jamais vert. Le bareme de couleur est
+                   cale sur un taux de clic (<1 % rouge, <5 % ambre, sinon vert) : un
+                   « 140 % » s'affichait donc en vert vif et se lisait « excellente
+                   conversion », alors qu'il dit l'inverse — il y a plus de rendez-vous
+                   que de clics traces, donc des reservations qui echappent au suivi. */
+                <div
+                  title={step.rate > 100
+                    ? 'Plus de rendez-vous que de clics tracés sur cette période : des réservations arrivent sans passer par un lien suivi (lien collé à la main, adresse Calendly directe).'
+                    : undefined}
+                  style={{
+                    marginTop: 5,
+                    fontSize: 11, fontWeight: 700,
+                    cursor: step.rate > 100 ? 'help' : undefined,
+                    color: step.rate > 100 ? AMBER : step.rate < 1 ? RED : step.rate < 5 ? AMBER : GREEN,
+                  }}
+                >
                   {fmt(step.rate, 1)}%
                 </div>
+              )}
+              {step.noteTaux && (
+                <div style={{ fontSize: 9, color: 'var(--faint)', marginTop: 2, lineHeight: 1.3 }}>{step.noteTaux}</div>
               )}
             </div>
           </div>
@@ -3857,7 +3871,7 @@ function periodLabel(period: number, index: number): string {
 }
 
 
-function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, onModalChange, leads: leadsFromProp, prospectLinksData, linkClickedByLeadId, clicksByUrl, sinceConnection, allTimeStart, profileId }: { msgs: IGMessages | null; calls: CallRecord[]; stripe: StripeStats | null; ig: IGStats | null; yt: YTStats | null; shortio: ShortioStats | null; period: Period; periodIndex: number; onModalChange?: (open: boolean) => void; leads?: MockLead[]; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; sinceConnection?: boolean; allTimeStart?: string | null; profileId?: string }) {
+function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, onModalChange, leads: leadsFromProp, prospectLinksData, linkClickedByLeadId, clicksByUrl, sinceConnection, allTimeStart, profileId, joursCollectesShortio }: { msgs: IGMessages | null; calls: CallRecord[]; stripe: StripeStats | null; ig: IGStats | null; yt: YTStats | null; shortio: ShortioStats | null; period: Period; periodIndex: number; onModalChange?: (open: boolean) => void; leads?: MockLead[]; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; sinceConnection?: boolean; allTimeStart?: string | null; profileId?: string; joursCollectesShortio?: Set<string> }) {
   const leads = leadsFromProp && leadsFromProp.length > 0 ? leadsFromProp : [];
   const [callsFilter, setCallsFilter] = useState<'all' | 'ig' | 'yt'>('all');
   // La table coupait à 20 lignes sans le dire : en All-Time sur un élève actif, la
@@ -4024,6 +4038,40 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   })();
   const igTotalClicsD = igBioClics + igPostClics + igProspectClics;
 
+  // ── Couverture reelle de la collecte de clics ───────────────────────────────
+  //
+  // Un taux « calls / clics » n'a de sens que si les deux termes couvrent la MEME
+  // periode. Sur le profil de test, la collecte Short.io demarre le 19/07 alors que
+  // les stats partent du 09/06 : six calls Instagram et deux YouTube sont bookes
+  // avant qu'un seul clic ait pu etre enregistre. Ils se retrouvaient au numerateur
+  // avec un denominateur structurellement vide — d'ou 140 % et 300 % affiches.
+  //
+  // Le verrou d'acces (integrations_ready_at) empeche desormais ce decalage a
+  // l'inscription d'un vrai eleve. Mais il revient apres coup des qu'une panne de
+  // collecte dure quelques jours : c'est de cela que cette borne protege.
+  //
+  // Le GRAND CHIFFRE de l'etage ne bouge pas — il reste le nombre vrai de rendez-vous.
+  // Seul le TAUX se calcule sur la partie comparable, et la note dit depuis quand.
+  const debutCouvertureClics: string | null = (() => {
+    if (!joursCollectesShortio?.size) return null;
+    let mini: string | null = null;
+    for (const j of joursCollectesShortio) if (!mini || j < mini) mini = j;
+    return mini;
+  })();
+  const debutFenetreStr = parisDateStr(winStart);
+  const couvertureIncomplete = !!debutCouvertureClics && debutCouvertureClics > debutFenetreStr;
+  const bookesDansCouverture = (subset: CallRecord[]) => {
+    if (!couvertureIncomplete) return subset.filter(c => c.status === 'active').length;
+    return subset.filter(c => {
+      if (c.status !== 'active') return false;
+      const d = callPeriodDate(c);
+      return !!d && parisDateStr(new Date(d)) >= debutCouvertureClics!;
+    }).length;
+  };
+  const noteCouverture = couvertureIncomplete && debutCouvertureClics
+    ? `taux depuis le ${new Date(debutCouvertureClics + 'T12:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}, début du suivi des clics`
+    : undefined;
+
   const dash = '—';
   // Libellé sans durée : « Reach 30j » mentait sur les trois modes — un mois calendaire
   // n'a pas 30 jours, un mois passé n'est pas « les 30 derniers », et l'All-Time
@@ -4032,7 +4080,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const igFunnelSteps = [
     { label: 'Reach', value: igReachD == null ? dash : (igReachD >= 1000 ? `${fmt(igReachD / 1000, 1)}k` : fmt(igReachD)), rawValue: igReachD ?? 0 },
     { label: 'Clics liens Calendly', value: noData ? dash : fmt(igTotalClicsD), sub: 'bio + descr. + DM', rawValue: igTotalClicsD, rate: igReachD && igReachD > 0 ? (igTotalClicsD / igReachD) * 100 : undefined },
-    { label: 'Calls bookés', value: fmt(igBookes), rawValue: igBookes, rate: igTotalClicsD > 0 ? (igBookes / igTotalClicsD) * 100 : 0 },
+    { label: 'Calls bookés', value: fmt(igBookes), rawValue: igBookes, rate: igTotalClicsD > 0 ? (bookesDansCouverture(callsIG) / igTotalClicsD) * 100 : undefined, noteTaux: noteCouverture },
     { label: 'Calls honorés', value: fmt(igHonores), rawValue: igHonores, rate: igBookes > 0 ? (igHonores / igBookes) * 100 : 0 },
     { label: 'Deals closés', value: fmt(igCloses), rawValue: igCloses, rate: igHonores > 0 ? (igCloses / igHonores) * 100 : 0 },
     { label: 'Revenue', value: fmtEur(igRev), rawValue: igRev },
@@ -4041,7 +4089,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const ytFunnelSteps = [
     { label: 'Vues', value: noData ? dash : (ytViewsD >= 1000 ? `${fmt(ytViewsD / 1000, 1)}k` : fmt(ytViewsD)), rawValue: ytViewsD },
     { label: 'Clics Calendly', value: noData ? dash : fmt(ytClicsD), sub: 'Bio + Descr.', rawValue: ytClicsD, rate: noData ? 0 : (ytViewsD > 0 ? (ytClicsD / ytViewsD) * 100 : 0) },
-    { label: 'Calls bookés', value: fmt(ytBookes), rawValue: ytBookes, rate: ytClicsD > 0 ? (ytBookes / ytClicsD) * 100 : 0 },
+    { label: 'Calls bookés', value: fmt(ytBookes), rawValue: ytBookes, rate: ytClicsD > 0 ? (bookesDansCouverture(callsYT) / ytClicsD) * 100 : undefined, noteTaux: noteCouverture },
     { label: 'Calls honorés', value: fmt(ytHonores), rawValue: ytHonores, rate: ytBookes > 0 ? (ytHonores / ytBookes) * 100 : 0 },
     { label: 'Deals closés', value: fmt(ytCloses), rawValue: ytCloses, rate: ytHonores > 0 ? (ytCloses / ytHonores) * 100 : 0 },
     { label: 'Revenue', value: fmtEur(ytRev), rawValue: ytRev },
@@ -8856,7 +8904,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
           {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} stripe={stripeEff} msgs={msgsEff} calls={callsEff} callsAllTime={callsAllTimeEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} />}
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.yt?.snapshotError} />}
-          {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} allTimeStart={allTimeStart} profileId={profileId} />}
+          {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} allTimeStart={allTimeStart} profileId={profileId} joursCollectesShortio={joursCollectesShortio} />}
           {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={callsAllTimeEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} shortioChartHistoryStory={shortioChartHistoryStory} joursCollectesShortio={joursCollectesShortio} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
           {tab === 5 && <TabRevenues stripe={stripeEff} calls={callsEff} deals={dealsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} />}
         </>
