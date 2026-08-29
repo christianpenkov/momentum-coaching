@@ -35,14 +35,23 @@
  * `prospect_events` — où rien n'est jamais écrasé.
  */
 
-/** Une prise de lead magnet, telle que `instagram_lead_lm_history` l'enregistre. */
+/**
+ * Une prise de lead magnet, telle que `instagram_lead_lm_history` l'enregistre.
+ *
+ * ⚠️ `detected_at` arrive de PostgREST au format Postgres — `2026-07-06 11:42:34.51+00`,
+ * avec une ESPACE et non un `T`, et un décalage `+00` sans minutes. Ce n'est pas de
+ * l'ISO 8601 strict. `Date.parse` de V8 l'accepte et rend le même instant que l'ISO
+ * (vérifié, et épinglé par un test) — mais ne jamais supposer ce format, le tester.
+ */
 export interface PriseDeLeadMagnet {
   /** Le contenu d'où vient cette prise. `null` pour une story hors séquence. */
   media_id: string | null;
-  /** Horodatage ISO de la prise. */
+  /** Horodatage de la prise, au format Postgres ou ISO. */
   detected_at: string;
   /** Faux quand la demande a été vue mais le lead magnet jamais parti. */
   lead_magnet_sent?: boolean | null;
+  /** La personne. Indispensable : le journal contient plusieurs lignes par personne. */
+  ig_user_id?: string | null;
 }
 
 /** Une réponse au message d'accroche, telle que `prospect_events` l'enregistre. */
@@ -61,22 +70,47 @@ export interface CallPourConversion {
 export const ORIGINE_INCONNUE = '__origine_inconnue__';
 
 /**
- * ACQUISITION — combien de fois chaque contenu a fait entrer quelqu'un.
+ * ACQUISITION — combien de PERSONNES chaque contenu a fait entrer.
  *
- * Une ligne du journal = un `+1` pour son contenu. Une même personne qui prend le
- * lead magnet de trois contenus fait donc `+1` à chacun des trois : les trois l'ont
- * bien fait entrer, à trois moments.
+ * Une personne compte **une seule fois par contenu**, quel que soit le nombre de fois
+ * qu'elle en redemande le lead magnet. Elle compte en revanche pour CHACUN des contenus
+ * dont elle a pris le lead magnet : les trois l'ont bien fait entrer, à trois moments.
+ *
+ * ── POURQUOI LA DÉDUPLICATION EST OBLIGATOIRE ─────────────────────────────────
+ *
+ * Première version de cette fonction : un `+1` par ligne de journal. Confrontée aux
+ * vraies données le 2026-08-29, elle donnait **4 à GUIDE pour une seule personne** —
+ * `rdjdkzjd` avait recommenté le mot-clé quatre fois en une heure (13h51, 14h02,
+ * 14h14, 14h40). La colonne « Commentaires LM » compte des personnes, pas des
+ * commentaires ; sans déduplication, un prospect insistant gonfle un contenu.
+ *
+ * Ce défaut ne venait pas du calcul mais de la FORME des données : la fixture écrite
+ * à la main avait trois lignes propres là où la base en a sept. C'est la raison d'être
+ * des fixtures figées extraites du réel dans le fichier de test.
  *
  * Les prises dont le lead magnet n'est jamais parti sont exclues : le contenu a été
- * commenté, mais rien n'a été livré, donc personne n'est entré.
+ * commenté, mais rien n'a été livré, donc personne n'est entré. Cas réel : la ligne du
+ * 28/06 21h39 est à `false`, suivie deux minutes plus tard de la même à `true`.
+ *
+ * Une prise sans `ig_user_id` est comptée comme une personne distincte : on ne peut pas
+ * la rapprocher d'une autre, et la fondre dans une voisine inventerait un regroupement.
  */
 export function acquisitionParContenu(historique: PriseDeLeadMagnet[]): Map<string, number> {
-  const parContenu = new Map<string, number>();
+  // Un Set de personnes PAR contenu, plutot qu'une cle concatenee : deux identifiants
+  // colles par un separateur peuvent toujours fusionner deux couples distincts si ce
+  // separateur apparait un jour dans l'un des deux. Ici la question ne se pose pas.
+  const personnesParContenu = new Map<string, Set<string>>();
+  let anonymes = 0;
   for (const prise of historique) {
     if (prise.lead_magnet_sent === false) continue;
     const cle = prise.media_id ?? ORIGINE_INCONNUE;
-    parContenu.set(cle, (parContenu.get(cle) ?? 0) + 1);
+    const personne = prise.ig_user_id ?? `__anonyme_${anonymes++}__`;
+    let personnes = personnesParContenu.get(cle);
+    if (!personnes) { personnes = new Set<string>(); personnesParContenu.set(cle, personnes); }
+    personnes.add(personne);
   }
+  const parContenu = new Map<string, number>();
+  for (const [cle, personnes] of personnesParContenu) parContenu.set(cle, personnes.size);
   return parContenu;
 }
 
