@@ -62,6 +62,8 @@ export interface ReponseAccroche {
 
 /** Un call, pour le seul rôle Conversion. */
 export interface CallPourConversion {
+  /** Identifiant du call — sert à écarter les continuations. */
+  id?: string;
   /** Le contenu porté par le lien Calendly cliqué. Vide pour un lien de bio. */
   utm_content?: string | null;
   /**
@@ -228,6 +230,64 @@ function nettoyer(valeur: string | null | undefined): string | null {
   if (typeof valeur !== 'string') return null;
   const propre = valeur.trim();
   return propre.length > 0 ? propre : null;
+}
+
+
+/**
+ * CONVERSION par contenu — un crédit par OPPORTUNITÉ, jamais par rendez-vous.
+ *
+ * Une **continuation** (2e rendez-vous d'un prospect déjà ouvert) reçoit **zéro**
+ * crédit. Raison : elle n'est produite par aucun contenu, elle est produite par le
+ * premier appel. Le contenu a déjà été crédité.
+ *
+ * C'est devenu indispensable depuis le commit `7da4b53` de la session parallèle : le
+ * 2e call hérite désormais du `utm_content` de son parent. Un modèle qui compterait un
+ * crédit par call donnerait donc **deux crédits au même contenu pour un seul
+ * prospect** — un défaut né avec la correction, puisque avant, le 2e call n'avait
+ * aucun `utm_content` et ne se rattachait à rien.
+ *
+ * `idsDeContinuation` est IMPORTÉ de `lib/callSeries.ts` et jamais redérivé ici :
+ * c'est le seul endroit qui décide ce qu'est une continuation, il est testé, et deux
+ * définitions du même fait finissent toujours par diverger.
+ *
+ * ⚠️ Appariement : passer le jeu de calls LE PLUS LARGE à `idsDeContinuation`, puis
+ * filtrer par période ensuite. Une paire à cheval sur deux périodes serait sinon
+ * invisible, et le 2e call recompterait comme une opportunité neuve — c'est le cas le
+ * plus banal, un 2e rendez-vous calé le mois suivant.
+ *
+ * ⚠️ L'INVARIANT à tenir, et le test qui le rend exécutable : sur une période donnée,
+ * la somme des crédits de Conversion doit égaler le nombre d'opportunités. Si les deux
+ * divergent, l'un des deux est faux. « Opportunité » et « Conversion » restent deux
+ * mots distincts — une unité de comptage et un rôle d'attribution — et c'est cet
+ * invariant, pas un vocabulaire unifié, qui les tient ensemble.
+ */
+export function conversionParContenu(
+  calls: CallPourConversion[],
+  idsContinuation: ReadonlySet<string>,
+): Map<string, number> {
+  const parContenu = new Map<string, number>();
+  for (const call of calls) {
+    if (call.id && idsContinuation.has(call.id)) continue;
+    const cle = contenuConversion(call) ?? SANS_CONTENU;
+    parContenu.set(cle, (parContenu.get(cle) ?? 0) + 1);
+  }
+  return parContenu;
+}
+
+/**
+ * L'invariant, exécutable : crédits de Conversion contre nombre d'opportunités.
+ *
+ * Renvoie `null` si tout va bien, sinon l'écart constaté. À appeler dans un test, et
+ * idéalement en garde de développement à l'écran : une divergence signifie qu'un des
+ * deux comptages est faux, et aucun des deux ne le signalerait seul.
+ */
+export function ecartConversionOpportunites(
+  creditsParContenu: Map<string, number>,
+  nombreOpportunites: number,
+): { credits: number; opportunites: number } | null {
+  let credits = 0;
+  for (const n of creditsParContenu.values()) credits += n;
+  return credits === nombreOpportunites ? null : { credits, opportunites: nombreOpportunites };
 }
 
 /**

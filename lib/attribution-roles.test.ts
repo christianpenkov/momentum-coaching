@@ -6,8 +6,11 @@ import {
   activationParContenu,
   contenuConversion,
   contenusOuActivationDepasseAcquisition,
+  conversionParContenu,
+  ecartConversionOpportunites,
   SANS_CONTENU,
 } from './attribution-roles.ts';
+import { idsDeContinuation } from './callSeries.ts';
 
 /**
  * FIXTURES FIGÉES, EXTRAITES DE LA VRAIE BASE le 2026-08-29.
@@ -226,4 +229,64 @@ test('invariant : sans contenu n entre jamais dans la comparaison des roles', ()
     contenusOuActivationDepasseAcquisition(new Map([[A, 5]]), new Map([[SANS_CONTENU, 99]])),
     [],
   );
+});
+
+// ── CONVERSION : un credit par OPPORTUNITE, jamais par rendez-vous ─────────────
+
+/**
+ * Deux rendez-vous du meme prospect, le second etant une continuation du premier
+ * (le rapport du premier dit `second_call`). Depuis le commit 7da4b53, le 2e call
+ * herite du utm_content de son parent : sans exclusion, GUIDE recevrait 2 credits
+ * pour un seul prospect.
+ */
+const PAIRE_AVEC_CONTINUATION = [
+  { id: 'c1', utm_content: GUIDE, outcome: 'second_call', invitee_email: 'p@x.fr',
+    booked_at: '2026-07-08 10:00:00+00', scheduled_at: '2026-07-08 10:00:00+00' },
+  { id: 'c2', utm_content: GUIDE, outcome: 'closed_won', invitee_email: 'p@x.fr',
+    booked_at: '2026-08-12 10:00:00+00', scheduled_at: '2026-08-12 10:00:00+00' },
+];
+
+test('conversion : une continuation recoit ZERO credit', () => {
+  const continuations = idsDeContinuation(PAIRE_AVEC_CONTINUATION);
+  assert.ok(continuations.has('c2'), 'c2 doit etre reconnu comme une continuation');
+  const conv = conversionParContenu(PAIRE_AVEC_CONTINUATION, continuations);
+  assert.equal(conv.get(GUIDE), 1, 'un seul credit pour un seul prospect, pas deux');
+});
+
+test('conversion : idsDeContinuation est importe, jamais redérive ici', () => {
+  // Deux definitions du meme fait finissent toujours par diverger. Ce test echouera
+  // si quelqu un reecrit la regle localement au lieu d appeler lib/callSeries.
+  assert.equal(typeof idsDeContinuation, 'function');
+});
+
+test('conversion : deux prospects distincts sur le meme contenu comptent deux fois', () => {
+  const calls = [
+    { id: 'a', utm_content: GUIDE, invitee_email: 'un@x.fr',
+      booked_at: '2026-07-08 10:00:00+00', scheduled_at: '2026-07-08 10:00:00+00' },
+    { id: 'b', utm_content: GUIDE, invitee_email: 'deux@x.fr',
+      booked_at: '2026-07-09 10:00:00+00', scheduled_at: '2026-07-09 10:00:00+00' },
+  ];
+  assert.equal(conversionParContenu(calls, idsDeContinuation(calls)).get(GUIDE), 2);
+});
+
+test('conversion : un call de bio tombe en sans contenu, il ne disparait pas', () => {
+  const calls = [{ id: 'bio', utm_content: null, invitee_email: 'b@x.fr',
+    booked_at: '2026-08-18 10:00:00+00', scheduled_at: '2026-08-18 10:00:00+00' }];
+  const conv = conversionParContenu(calls, new Set());
+  assert.equal(conv.get(SANS_CONTENU), 1);
+});
+
+test('INVARIANT : la somme des credits de Conversion egale le nombre d opportunites', () => {
+  // Le lien entre les deux vocabulaires. « Opportunite » est une unite de comptage,
+  // « Conversion » un role d attribution ; si les deux divergent, l un est faux, et
+  // aucun des deux ne le signalerait seul.
+  const continuations = idsDeContinuation(PAIRE_AVEC_CONTINUATION);
+  const opportunites = PAIRE_AVEC_CONTINUATION.filter(c => !continuations.has(c.id)).length;
+  const conv = conversionParContenu(PAIRE_AVEC_CONTINUATION, continuations);
+  assert.equal(ecartConversionOpportunites(conv, opportunites), null);
+});
+
+test('INVARIANT : une divergence est signalee, jamais avalee', () => {
+  const conv = new Map([[GUIDE, 3]]);
+  assert.deepEqual(ecartConversionOpportunites(conv, 2), { credits: 3, opportunites: 2 });
 });
