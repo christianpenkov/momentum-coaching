@@ -5435,9 +5435,20 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // 2. Leads commentaires — group by detected_at (jour) sur lmHistoryInPeriod (une ligne
   // par vraie interaction datée, jamais écrasée — pas leadsInPeriod qui ne compte qu'une
   // fois par personne avec la date de sa DERNIÈRE interaction).
+  // La carte compte des PERSONNES (`lmEnvoyes`), la courbe comptait des INTERACTIONS :
+  // un prospect qui recommente quatre fois le meme mot-cle en une heure ajoutait quatre
+  // points. Deux unites sous le meme titre, et une courbe qui ne pouvait pas totaliser
+  // sa carte. Chaque personne compte desormais UNE fois, le jour de sa premiere
+  // interaction de la periode.
   const leadsPerDay = new Map<string, number>();
+  const premierJourParPersonne = new Map<string, string>();
   for (const h of lmHistoryInPeriod) {
+    if (h.lead_magnet_sent === false || !h.ig_user_id) continue;
     const day = utcDateStr(new Date(h.detected_at));
+    const deja = premierJourParPersonne.get(h.ig_user_id);
+    if (!deja || day < deja) premierJourParPersonne.set(h.ig_user_id, day);
+  }
+  for (const day of premierJourParPersonne.values()) {
     leadsPerDay.set(day, (leadsPerDay.get(day) ?? 0) + 1);
   }
   const leadsSeries = regrouperComptage(dayRange, granularite, date => isOutsideCoverage(date) ? null : (leadsPerDay.get(date) ?? 0));
@@ -5445,7 +5456,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // 3. Réponses accroche LM DM — vrai timestamp hook_replied_at (ajouté au select ci-dessus)
   const hookRepliesPerDay = new Map<string, number>();
   for (const l of leadsInPeriod) {
-    if (!l.hookReplied || !l.hookRepliedAt) continue;
+    // `leadMagnetSent` : MEME population que la carte. Sans lui la courbe tracait aussi
+    // les reponses de cold DM — des gens a qui aucun lead magnet n'a ete envoye — et
+    // affichait 3 la ou la carte affichait 2. Le titre dit « LM DM ».
+    if (!l.hookReplied || !l.hookRepliedAt || !l.leadMagnetSent) continue;
     if (!isInPeriod(l.hookRepliedAt)) continue;
     const day = utcDateStr(new Date(l.hookRepliedAt));
     hookRepliesPerDay.set(day, (hookRepliesPerDay.get(day) ?? 0) + 1);
@@ -5455,7 +5469,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // 4. Liens Calendly envoyés DM — calendly_link_sent_at ?? created_at, sur calendlyLinksSent (déjà filtré période)
   const calendlyLinksPerDay = new Map<string, number>();
   for (const l of calendlyLinksSent) {
-    const ts = l.calendly_link_sent_at ?? l.created_at;
+    // MEME date que le filtre qui alimente `calendlyLinksSent`. Les deux divergent des
+    // que l'echo Meta manque, et un lien compte dans la carte tombait hors du graphique.
+    const ts = calendlySentAt(l, linkClickedByLeadId);
+    if (!ts) continue;
     const day = utcDateStr(new Date(ts));
     calendlyLinksPerDay.set(day, (calendlyLinksPerDay.get(day) ?? 0) + 1);
   }
@@ -5481,7 +5498,11 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const calendlyClicsPerDay = new Map<string, number>();
   for (const l of calendlyLinksSent) {
     if (!l.first_click_at) continue;
-    const day = utcDateStr(new Date(l.calendly_link_sent_at ?? l.created_at));
+    // MEME date que le denominateur : sinon un clic et son envoi tombent dans deux
+    // colonnes differentes, et le taux est faux des deux cotes.
+    const tsClic = calendlySentAt(l, linkClickedByLeadId);
+    if (!tsClic) continue;
+    const day = utcDateStr(new Date(tsClic));
     calendlyClicsPerDay.set(day, (calendlyClicsPerDay.get(day) ?? 0) + 1);
   }
   const activationCalendlySeries = regrouperTaux(dayRange, granularite, date => isOutsideCoverage(date)
@@ -6689,19 +6710,6 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 780 }}>
             <thead>
-              <tr>
-                {/* Bandeau de ROLES — la frontiere que l'ecran ne disait pas.
-                    Ces douze colonnes se lisaient comme un entonnoir : chacune semblait
-                    l'etape suivante de la precedente. Elles repondent en realite a trois
-                    questions differentes, et un meme parcours credite trois contenus
-                    distincts. On n'additionne JAMAIS deux roles : le meme prospect y
-                    serait compte trois fois. */}
-                <th style={{ position: 'sticky', left: 0, zIndex: 2, background: 'var(--surface)' }} colSpan={2} />
-                <th className="eyebrow-sm" colSpan={3} style={{ textAlign: 'center', color: 'var(--muted)', padding: '2px 10px 4px', fontSize: 9, letterSpacing: '.08em', borderBottom: '1px solid var(--border)' }}>ILS ARRIVENT</th>
-                <th className="eyebrow-sm" colSpan={2} style={{ textAlign: 'center', color: '#8B5CF6', padding: '2px 10px 4px', fontSize: 9, letterSpacing: '.08em', borderBottom: '1px solid var(--border)' }}>ILS PARLENT</th>
-                <th className="eyebrow-sm" colSpan={5} style={{ textAlign: 'center', color: GREEN, padding: '2px 10px 4px', fontSize: 9, letterSpacing: '.08em', borderBottom: '1px solid var(--border)' }}>ILS RÉSERVENT</th>
-                <th colSpan={2} style={{ borderBottom: '1px solid var(--border)' }} />
-              </tr>
               <tr>
                 {/* Thumbnail — fixe au scroll horizontal */}
                 <th style={{ position: 'sticky', left: 0, zIndex: 2, background: 'var(--surface)', width: 44, borderBottom: '1px solid var(--border)', padding: '6px 10px 10px' }} />
