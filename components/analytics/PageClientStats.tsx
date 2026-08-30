@@ -362,16 +362,40 @@ function AideColonne({ texte }: { texte: string }) {
   );
 }
 
-const AIDE_REV_PAR_CALL =
-  "Le revenu de la période divisé par les calls bookés de cette ligne. Un deuxième "
-  + "rendez-vous qui prolonge la même vente n'entre pas au dénominateur, comme dans la "
-  + "colonne « Calls bookés ». L'onglet Funnel & Calls divise par tous les rendez-vous : "
-  + "son chiffre est donc un peu plus bas.";
-
+// Les cinq regles de comptage de « Mes stats », definies UNE fois. Elles decrivent des
+// grains, pas des emplacements : le meme texte doit apparaitre partout ou le meme
+// nombre est compte de la meme facon, sinon les libelles se remettent a diverger.
 const AIDE_CALLS_BOOKES =
-  "Un deuxième rendez-vous qui prolonge la même vente n'est pas recompté ici. Si la même "
-  + "personne reprend rendez-vous plus tard pour une nouvelle demande, elle compte à nouveau. "
-  + "L'onglet Funnel & Calls compte tous les rendez-vous, d'où l'écart.";
+  "Un deuxième rendez-vous qui prolonge la même vente ne compte pas deux fois. "
+  + "« Mes stats » mesure ce que votre contenu produit, pas le nombre de créneaux tenus — "
+  + "la page Calls, elle, les affiche tous. Si la même personne reprend rendez-vous plus "
+  + "tard pour une nouvelle demande, elle compte à nouveau. C'est votre rapport de call "
+  + "qui fait la différence : le second rendez-vous n'est écarté que si vous avez déclaré "
+  + "qu'il suivrait.";
+
+const AIDE_CALLS_HONORES =
+  "Parmi les calls bookés, ceux qui ont eu lieu. Même règle : un deuxième rendez-vous qui "
+  + "prolonge la même vente n'est pas recompté. Ce nombre ne peut donc jamais dépasser les "
+  + "calls bookés.";
+
+const AIDE_NO_SHOW =
+  "Le seul compteur de Mes stats qui parle en rendez-vous et non en calls bookés — son "
+  + "dénominateur est écrit à côté de lui pour cette raison. Un créneau posé puis non "
+  + "honoré est un créneau perdu, même s'il prolongeait une vente déjà en cours. On mesure "
+  + "ici la fiabilité d'un créneau, pas ce que le contenu a produit.";
+
+const AIDE_CLOSING =
+  "Les deals signés rapportés aux calls honorés. Un deal se compte là où il a été signé, y "
+  + "compris lors d'un deuxième rendez-vous : signer au second entretien vaut un deal pour "
+  + "une opportunité, donc 100 %, et non 50 %. C'est le seul endroit où un deuxième "
+  + "rendez-vous change quelque chose : il n'ajoute pas d'opportunité, mais il peut en "
+  + "faire aboutir une.";
+
+const AIDE_REV_PAR_CALL =
+  "Le revenu de la période divisé par les calls bookés. Un deuxième rendez-vous qui "
+  + "prolonge la même vente n'entre pas au dénominateur, comme dans la colonne « Calls "
+  + "bookés ». Un deal signé lors d'un second rendez-vous reste au numérateur : il compte "
+  + "là où il a été signé.";
 
 // Format axe X : "13 févr." — pas d'année, espacé uniformément
 const fmtAxisDate = (iso: string) => {
@@ -1132,7 +1156,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
           { label: 'Abonnés YT', value: fmt(yt?.subscribers || 0), sub: 'total', color: YT_COLOR },
           null, // carte Publications custom
           'leads', // carte Leads custom (badge nouveaux à droite du chiffre)
-          { label: 'Calls bookés', value: fmt(callsBookes), sub: ovEtiquettePeriode, color: 'var(--ink)' as string },
+          { label: 'Calls bookés', value: fmt(callsBookes), sub: ovEtiquettePeriode, color: 'var(--ink)' as string, aide: AIDE_CALLS_BOOKES },
         ] as const).map((item, i) => {
           if (item === 'leads') return (
             <div key="leads" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
@@ -1175,7 +1199,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
           );
           return (
             <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
-              <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8 }}>{item.label}</div>
+              <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8, display: 'flex', alignItems: 'center' }}>{item.label}{'aide' in item && item.aide ? <AideColonne texte={item.aide} /> : null}</div>
               <div style={{ fontSize: 20, fontWeight: 800, color: item.color, lineHeight: 1, marginBottom: 4 }}>{item.value}</div>
               <div style={{ fontSize: 10, color: 'var(--faint)' }}>{item.sub}</div>
             </div>
@@ -1184,14 +1208,14 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
         {[
-          { label: 'Calls honorés', value: fmt(callsHonores), sub: ovEtiquettePeriode, color: AMBER },
-          { label: 'No-show', value: `${fmt(noShowRate, 0)} %`, sub: `${noShows} sur ${rendezVous} rendez-vous`, color: noShowRate > 20 ? RED : noShowRate > 10 ? AMBER : GREEN },
-          { label: 'Closing', value: `${fmt(closingRate, 0)} %`, sub: `${dealsCloses} deals closés`, color: closingRate >= 25 ? GREEN : closingRate >= 15 ? AMBER : RED },
-          { label: 'Rev / call', value: fmtEur(revPerCall), sub: 'par call booké', color: GREEN },
+          { label: 'Calls honorés', value: fmt(callsHonores), sub: ovEtiquettePeriode, color: AMBER, aide: AIDE_CALLS_HONORES },
+          { label: 'No-show', value: `${fmt(noShowRate, 0)} %`, sub: `${noShows} sur ${rendezVous} rendez-vous`, color: noShowRate > 20 ? RED : noShowRate > 10 ? AMBER : GREEN, aide: AIDE_NO_SHOW },
+          { label: 'Closing', value: `${fmt(closingRate, 0)} %`, sub: `${dealsCloses} deals closés`, color: closingRate >= 25 ? GREEN : closingRate >= 15 ? AMBER : RED, aide: AIDE_CLOSING },
+          { label: 'Rev / call', value: fmtEur(revPerCall), sub: 'par call booké', color: GREEN, aide: AIDE_REV_PAR_CALL },
           { label: 'Revenue', value: fmtEur(totalRev), sub: ovEtiquettePeriode, color: GREEN },
         ].map((item, i) => (
           <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
-            <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8 }}>{item.label}</div>
+            <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8, display: 'flex', alignItems: 'center' }}>{item.label}{'aide' in item && item.aide ? <AideColonne texte={item.aide} /> : null}</div>
             <div style={{ fontSize: 20, fontWeight: 800, color: item.color, lineHeight: 1, marginBottom: 4 }}>{item.value}</div>
             <div style={{ fontSize: 10, color: 'var(--faint)' }}>{item.sub}</div>
           </div>
@@ -3881,7 +3905,7 @@ const YT_COLOR = '#dc2626';
 function FunnelHorizontal({ platform, color, steps }: {
   platform: string;
   color: string;
-  steps: { label: string; value: string; sub?: string; rate?: number; rawValue: number; noteTaux?: string }[];
+  steps: { label: string; value: string; sub?: string; rate?: number; rawValue: number; noteTaux?: string; aide?: string }[];
 }) {
   const DOT = 64;
 
@@ -3928,7 +3952,7 @@ function FunnelHorizontal({ platform, color, steps }: {
 
             {/* Label + sous-titre + taux sous le point */}
             <div style={{ marginTop: 12, textAlign: 'center', maxWidth: 100 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)', lineHeight: 1.3 }}>{step.label}</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)', lineHeight: 1.3, display: 'flex', alignItems: 'center' }}>{step.label}{step.aide ? <AideColonne texte={step.aide} /> : null}</div>
               {step.sub && <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>{step.sub}</div>}
               {step.rate !== undefined && (
                 /* Au-dela de 100 %, AMBRE et jamais vert. Le bareme de couleur est
@@ -4274,17 +4298,17 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
     // par AUCUN nouveau clic, donc l'inclure au numerateur ferait monter le ratio
     // sans qu'un clic ne l'ait cause. Meme principe que le bornage sur la couverture
     // Short.io, quelques lignes plus haut.
-    { label: 'Calls bookés', value: fmt(igBookes), rawValue: igBookes, rate: couvertureNulle || igTotalClicsD <= 0 ? undefined : (bookesDansCouverture(callsIG.filter(c => !continuations.has(c.id))) / igTotalClicsD) * 100, noteTaux: couvertureNulle ? noteCouverture : noteBookes(callsIG) },
+    { label: 'Calls bookés', value: fmt(igBookes), rawValue: igBookes, rate: couvertureNulle || igTotalClicsD <= 0 ? undefined : (bookesDansCouverture(callsIG.filter(c => !continuations.has(c.id))) / igTotalClicsD) * 100, noteTaux: couvertureNulle ? noteCouverture : noteBookes(callsIG), aide: AIDE_CALLS_BOOKES },
     // Ce taux-ci n'a pas besoin des opportunites : ses DEUX termes comptent des
     // rendez-vous, donc une continuation les fait monter tous les deux ensemble.
-    { label: 'Calls honorés', value: fmt(igHonores), rawValue: igHonores, rate: igBookes > 0 ? (igHonores / igBookes) * 100 : 0 },
+    { label: 'Calls honorés', value: fmt(igHonores), rawValue: igHonores, rate: igBookes > 0 ? (igHonores / igBookes) * 100 : 0, aide: AIDE_CALLS_HONORES },
     // Le denominateur du close rate n'est PAS l'etage precedent : c'est le nombre
     // d'OPPORTUNITES honorees (regle 6 du referentiel). Des qu'un 2e rendez-vous
     // existe, les deux nombres different — 13 honores pour 12 opportunites — et un
     // lecteur qui refait le calcul tombe sur un ecart inexplique. On l'ecrit, et
     // seulement quand il y a quelque chose a expliquer.
     { label: 'Deals closés', value: fmt(igCloses), rawValue: igCloses, rate: igOpportunites > 0 ? (igCloses / igOpportunites) * 100 : undefined,
-      noteTaux: igOpportunites !== igHonores ? `sur ${igOpportunites} opportunités — un 2ᵉ rendez-vous ne recompte pas` : undefined },
+      noteTaux: igOpportunites !== igHonores ? `sur ${igOpportunites} opportunités — un 2ᵉ rendez-vous ne recompte pas` : undefined, aide: AIDE_CLOSING },
     { label: 'Revenue', value: fmtEur(igRev), rawValue: igRev },
   ];
 
@@ -4299,17 +4323,17 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
     // par AUCUN nouveau clic, donc l'inclure au numerateur ferait monter le ratio
     // sans qu'un clic ne l'ait cause. Meme principe que le bornage sur la couverture
     // Short.io, quelques lignes plus haut.
-    { label: 'Calls bookés', value: fmt(ytBookes), rawValue: ytBookes, rate: couvertureNulle || ytClicsD <= 0 ? undefined : (bookesDansCouverture(callsYT.filter(c => !continuations.has(c.id))) / ytClicsD) * 100, noteTaux: couvertureNulle ? noteCouverture : noteBookes(callsYT) },
+    { label: 'Calls bookés', value: fmt(ytBookes), rawValue: ytBookes, rate: couvertureNulle || ytClicsD <= 0 ? undefined : (bookesDansCouverture(callsYT.filter(c => !continuations.has(c.id))) / ytClicsD) * 100, noteTaux: couvertureNulle ? noteCouverture : noteBookes(callsYT), aide: AIDE_CALLS_BOOKES },
     // Ce taux-ci n'a pas besoin des opportunites : ses DEUX termes comptent des
     // rendez-vous, donc une continuation les fait monter tous les deux ensemble.
-    { label: 'Calls honorés', value: fmt(ytHonores), rawValue: ytHonores, rate: ytBookes > 0 ? (ytHonores / ytBookes) * 100 : 0 },
+    { label: 'Calls honorés', value: fmt(ytHonores), rawValue: ytHonores, rate: ytBookes > 0 ? (ytHonores / ytBookes) * 100 : 0, aide: AIDE_CALLS_HONORES },
     // Le denominateur du close rate n'est PAS l'etage precedent : c'est le nombre
     // d'OPPORTUNITES honorees (regle 6 du referentiel). Des qu'un 2e rendez-vous
     // existe, les deux nombres different — 13 honores pour 12 opportunites — et un
     // lecteur qui refait le calcul tombe sur un ecart inexplique. On l'ecrit, et
     // seulement quand il y a quelque chose a expliquer.
     { label: 'Deals closés', value: fmt(ytCloses), rawValue: ytCloses, rate: ytOpportunites > 0 ? (ytCloses / ytOpportunites) * 100 : undefined,
-      noteTaux: ytOpportunites !== ytHonores ? `sur ${ytOpportunites} opportunités — un 2ᵉ rendez-vous ne recompte pas` : undefined },
+      noteTaux: ytOpportunites !== ytHonores ? `sur ${ytOpportunites} opportunités — un 2ᵉ rendez-vous ne recompte pas` : undefined, aide: AIDE_CLOSING },
     { label: 'Revenue', value: fmtEur(ytRev), rawValue: ytRev },
   ];
 
@@ -4360,7 +4384,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   // deux endroits, et affichait 66,7 % dans l'entonnoir contre 67 % dans le tableau,
   // pour la même mesure sur le même écran.
   const fmtRate = (a: number, b: number) => `${fmt((a / b) * 100, 1)}%`;
-  type EffMetric = { label: string; value: string; prevValue: string | null; delta: { value: number; label: string; color: string } | null; lowerIsBetter: boolean };
+  type EffMetric = { label: string; value: string; prevValue: string | null; delta: { value: number; label: string; color: string } | null; lowerIsBetter: boolean; aide?: string };
   type EffRow = { platform: string; color: string; metrics: EffMetric[]; platformCalls: CallRecord[]; reachByDate: Map<string, number> };
   const igReachByDate = new Map<string, number>((ig?.chartData ?? []).filter(dd => inFunnelDateWindow(dd.date)).map(dd => [dd.date, dd.reach]));
   const ytReachByDate = new Map<string, number>((yt?.chartData ?? []).filter(dd => inFunnelDateWindow(dd.date)).map(dd => [dd.date, dd.views]));
@@ -4370,10 +4394,10 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
       platform: 'Instagram', color: IG_COLOR, platformCalls: callsIG, reachByDate: igReachByDate,
       metrics: [
         { label: 'Reach pour 1 call', value: igReachD != null && igBookes > 0 ? fmt(Math.round(igReachD / igBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: true },
-        { label: 'Calls bookés', value: fmt(igBookes), prevValue: null, delta: null, lowerIsBetter: false },
-        { label: 'No-show', value: igRendezVous > 0 ? `${fmtRate(igNoShows, igRendezVous)} · ${igNoShows}/${igRendezVous}` : '—', prevValue: null, delta: null, lowerIsBetter: true },
-        { label: 'Close rate', value: igOpportunites > 0 ? fmtRate(igCloses, igOpportunites) : '—', prevValue: null, delta: null, lowerIsBetter: false },
-        { label: 'Rev / call booké', value: igBookes > 0 ? fmtEur(Math.round(igRev / igBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: false },
+        { label: 'Calls bookés', value: fmt(igBookes), prevValue: null, delta: null, lowerIsBetter: false, aide: AIDE_CALLS_BOOKES },
+        { label: 'No-show', value: igRendezVous > 0 ? `${fmtRate(igNoShows, igRendezVous)} · ${igNoShows}/${igRendezVous}` : '—', prevValue: null, delta: null, lowerIsBetter: true, aide: AIDE_NO_SHOW },
+        { label: 'Close rate', value: igOpportunites > 0 ? fmtRate(igCloses, igOpportunites) : '—', prevValue: null, delta: null, lowerIsBetter: false, aide: AIDE_CLOSING },
+        { label: 'Rev / call booké', value: igBookes > 0 ? fmtEur(Math.round(igRev / igBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: false, aide: AIDE_REV_PAR_CALL },
         // « Cash / vue » : Instagram mesure une portée, pas des vues — la colonne
         // voisine dit déjà « Reach pour 1 call ».
         { label: 'Cash / reach', value: igReachD != null && igReachD > 0 ? fmtEur(igRev / igReachD) : '—', prevValue: null, delta: null, lowerIsBetter: false },
@@ -4384,10 +4408,10 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
       platform: 'YouTube', color: YT_COLOR, platformCalls: callsYT, reachByDate: ytReachByDate,
       metrics: [
         { label: 'Vues pour 1 call', value: ytBookes > 0 ? fmt(Math.round(ytViewsD / ytBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: true },
-        { label: 'Calls bookés', value: fmt(ytBookes), prevValue: null, delta: null, lowerIsBetter: false },
-        { label: 'No-show', value: ytRendezVous > 0 ? `${fmtRate(ytNoShows, ytRendezVous)} · ${ytNoShows}/${ytRendezVous}` : '—', prevValue: null, delta: null, lowerIsBetter: true },
-        { label: 'Close rate', value: ytOpportunites > 0 ? fmtRate(ytCloses, ytOpportunites) : '—', prevValue: null, delta: null, lowerIsBetter: false },
-        { label: 'Rev / call booké', value: ytBookes > 0 ? fmtEur(Math.round(ytRev / ytBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: false },
+        { label: 'Calls bookés', value: fmt(ytBookes), prevValue: null, delta: null, lowerIsBetter: false, aide: AIDE_CALLS_BOOKES },
+        { label: 'No-show', value: ytRendezVous > 0 ? `${fmtRate(ytNoShows, ytRendezVous)} · ${ytNoShows}/${ytRendezVous}` : '—', prevValue: null, delta: null, lowerIsBetter: true, aide: AIDE_NO_SHOW },
+        { label: 'Close rate', value: ytOpportunites > 0 ? fmtRate(ytCloses, ytOpportunites) : '—', prevValue: null, delta: null, lowerIsBetter: false, aide: AIDE_CLOSING },
+        { label: 'Rev / call booké', value: ytBookes > 0 ? fmtEur(Math.round(ytRev / ytBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: false, aide: AIDE_REV_PAR_CALL },
         { label: 'Cash / vue', value: ytViewsD > 0 ? fmtEur(ytRev / ytViewsD) : '—', prevValue: null, delta: null, lowerIsBetter: false },
         { label: 'Revenue total', value: fmtEur(ytRev), prevValue: null, delta: null, lowerIsBetter: false },
       ],
@@ -4636,7 +4660,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                       onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
                       onMouseLeave={e => e.currentTarget.style.background = ''}
                     >
-                      <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>{m.label}</div>
+                      <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6, display: 'flex', alignItems: 'center' }}>{m.label}{m.aide ? <AideColonne texte={m.aide} /> : null}</div>
                       <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{m.value}</div>
                       {d && d.label !== '—' && (
                         <div style={{ marginTop: 6, display: 'flex', alignItems: 'baseline', gap: 6 }}>
@@ -4731,15 +4755,15 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
         {/* Résumé stats — même population que les cartes du hero : les calls actifs. */}
         <div style={{ display: 'flex', gap: 20, marginBottom: 12 }}>
           {[
-            { label: 'Bookés', value: fmt(filteredOpportunites.length), color: 'var(--ink)' },
-            { label: 'Honorés', value: fmt(filteredOpportunites.filter(c => isCallHonored(c, now)).length), color: GREEN },
+            { label: 'Bookés', value: fmt(filteredOpportunites.length), color: 'var(--ink)', aide: AIDE_CALLS_BOOKES },
+            { label: 'Honorés', value: fmt(filteredOpportunites.filter(c => isCallHonored(c, now)).length), color: GREEN, aide: AIDE_CALLS_HONORES },
             // Grain « rendez-vous », comme partout : un creneau perdu reste perdu.
-            { label: 'No-show', value: `${fmt(filteredActifs.filter(c => c.no_show).length)} / ${fmt(filteredActifs.length)}`, color: RED },
+            { label: 'No-show', value: `${fmt(filteredActifs.filter(c => c.no_show).length)} / ${fmt(filteredActifs.length)}`, color: RED, aide: AIDE_NO_SHOW },
             { label: 'Closés', value: fmt(filteredActifs.filter(c => c.deal_closed).length), color: 'var(--accent)' },
             { label: 'Revenue', value: fmtEur(filteredActifs.reduce((acc, c) => acc + (c.revenue || 0), 0)), color: GREEN },
           ].map((s, i) => (
             <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <div className="eyebrow-sm" style={{ color: 'var(--muted)' }}>{s.label}</div>
+              <div className="eyebrow-sm" style={{ color: 'var(--muted)', display: 'flex', alignItems: 'center' }}>{s.label}{'aide' in s && s.aide ? <AideColonne texte={s.aide} /> : null}</div>
               <div style={{ fontSize: 16, fontWeight: 800, color: s.color }}>{s.value}</div>
             </div>
           ))}
@@ -6546,7 +6570,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                   <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
                   {/* 5 — Calls bookés depuis liens */}
                   <div onClick={() => toggleMetric('calls')} style={cardStyle('calls')}>
-                  <div className="eyebrow-sm" style={libelleCarte}>Calls bookés</div>
+                  <div className="eyebrow-sm" style={{ ...libelleCarte, display: 'flex', alignItems: 'center' }}>Calls bookés<AideColonne texte={AIDE_CALLS_BOOKES} /></div>
                   <div style={{ fontSize: 24, fontWeight: 800, color: callsTotal > 0 ? GREEN : 'var(--faint)', lineHeight: 1 }}>{callsTotal}</div>
                   <div style={legendeCarte}>résultat final du tracking</div>
                   </div>
@@ -7215,7 +7239,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     <TH>Source</TH>
                     <TH right><EnteteColonne nom="clicLien">Clics / Liens</EnteteColonne></TH>
                     <TH right><EnteteColonne nom="callBooke">Calls bookés</EnteteColonne><AideColonne texte={AIDE_CALLS_BOOKES} /></TH>
-                    <TH right><EnteteColonne nom="callHonore">Calls honorés</EnteteColonne></TH>
+                    <TH right><EnteteColonne nom="callHonore">Calls honorés</EnteteColonne><AideColonne texte={AIDE_CALLS_HONORES} /></TH>
                     <TH right><EnteteColonne nom="close">Closés</EnteteColonne></TH>
                     <TH right><EnteteColonne nom="revenue">Revenue</EnteteColonne></TH>
                     {/* « Rev / call » porte le meme billet que « Revenue » : le libelle
@@ -7440,6 +7464,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                       className="eyebrow-sm" style={{ textAlign: 'right', color: active ? BLUE : 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>
                       <EnteteColonne nom={icone}>{label} {active ? (sortDir === 'desc' ? '↓' : '↑') : ''}</EnteteColonne>
                       {key === 'callsBooked' && <AideColonne texte={AIDE_CALLS_BOOKES} />}
+                      {key === 'callsHonored' && <AideColonne texte={AIDE_CALLS_HONORES} />}
                     </th>
                   );
                 })}
