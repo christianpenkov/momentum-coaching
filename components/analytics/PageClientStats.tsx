@@ -4854,7 +4854,8 @@ function CashByOrigin({ profileId, periodStart, periodEnd, sinceConnection, allT
 
   const rows = data?.rows ?? [];
   const total = data?.total ?? 0;
-  const visible = showAll ? rows : rows.slice(0, 5);
+  const VISIBLES = 4;
+  const visible = showAll ? rows : rows.slice(0, VISIBLES);
 
   return (
     <div className="card">
@@ -4953,7 +4954,20 @@ function CashByOrigin({ profileId, periodStart, periodEnd, sinceConnection, allT
             })}
           </div>
 
-          {rows.length > 5 && (
+          {/* Note de rapprochement. Sans elle, deux blocs voisins affichent 10 200 €
+              et 2 600 € sans que rien ne dise pourquoi : celui-ci ventile l'argent
+              REÇU, la carte du haut compte l'argent VENDU. Une vente signée dont
+              aucune échéance n'est encore tombée n'a aucune ligne ici — c'est
+              exactement ce qui fait l'écart, et c'est invisible autrement. */}
+          <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border-soft)', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+            <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.5 }}>
+              Total de l&apos;argent <strong>reçu</strong>. Les ventes signées et pas encore
+              encaissées n&apos;apparaissent pas ici.
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{fmtEur(total)}</div>
+          </div>
+
+          {rows.length > VISIBLES && (
             <button
               onClick={() => setShowAll(v => !v)}
               style={{
@@ -4962,7 +4976,7 @@ function CashByOrigin({ profileId, periodStart, periodEnd, sinceConnection, allT
                 background: 'none', border: 'none', cursor: 'pointer',
               }}
             >
-              {showAll ? 'Voir moins' : `Voir plus (${rows.length - 5})`}
+              {showAll ? 'Voir moins' : `Voir plus (${rows.length - VISIBLES})`}
             </button>
           )}
         </>
@@ -6265,7 +6279,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   //
   // La modale en etait une COPIE, et la copie avait diverge quatre fois : badge de lead
   // magnet absent (il disparaissait des qu'on cliquait « Voir tout »), et « Clics LM »
-  // et « Conversations DM » masques derriere « Commentaires LM » alors que le tableau
+  // et « Conversations declenchees » masques derriere « Commentaires LM » alors que le tableau
   // ne les masquait plus. Chaque correction devait etre faite deux fois, et ne l'etait
   // jamais.
   //
@@ -7322,7 +7336,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                   const active = sortKey === key;
                   return (
                     <th key={key} onClick={() => { if (active) setSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setSortKey(key); setSortDir('desc'); } }}
-                      // Sans cette infobulle, « Conversations DM » se lit spontanement
+                      // Sans cette infobulle, « Conversations declenchees » se lit spontanement
                       // comme un nombre de PERSONNES, et le chiffre surprend des qu'on le
                       // compare aux leads : il peut legitimement le depasser.
                       title={key === 'lmReponses' ? "Compte chaque reprise de conversation, pas chaque personne unique. Une discussion qui s'éteint puis redémarre grâce à un autre contenu compte deux fois, et chacune est créditée au contenu qui l'a relancée — ce nombre peut donc dépasser les leads du contenu." : undefined}

@@ -1210,7 +1210,7 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
             // faisait afficher au post GUIDE un call et 500 EUR pour zero commentaire.
             // Fige ici, il ne bouge plus.
             //
-            // « Conversations DM » passe donc d'une ESTIMATION a une MESURE pour tout ce
+            // « Conversations declenchees » passe donc d'une ESTIMATION a une MESURE pour tout ce
             // qui arrive a partir de maintenant. L'historique anterieur reste reconstruit,
             // et l'ecran prefere la valeur figee des qu'elle existe.
             metadata:    { media_id: leadToUpdate.media_id ?? null },

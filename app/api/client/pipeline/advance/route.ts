@@ -75,7 +75,7 @@ export async function POST(request: Request) {
     // `prospect_events`, ou rien n'est jamais efface.
     //
     // Sans cette insertion, un prospect avance A LA MAIN etait invisible dans le
-    // journal pour toujours : la colonne « Conversations DM » ne l'aurait jamais
+    // journal pour toujours : la colonne « Ont repondu » ne l'aurait jamais
     // compte, et aucun ecran ne l'aurait signale. Trouve le 2026-08-30 en verifiant
     // que tous les chemins d'ecriture journalisent bien.
     //
