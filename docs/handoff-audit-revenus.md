@@ -419,6 +419,26 @@ somme de « Cash encaissé par origine » **2 600 €**, égale à la carte ·
 tableau des paiements affichant « TestYT − 200 € Remboursé » au 20 août.
 All-Time 10 200 / 2 600 / 25 %. Juillet 500 / 0 / 0 %. Juin 4 000 / 0 / 0 %.
 
+### Le tableau du bas liste les VENTES, plus les paiements
+
+« Derniers paiements » redisait, en moins bien, ce que la page Paiements dit déjà — par
+client, avec « À rattacher » et « Relances ». Et l'onglet n'affichait jamais une seule
+vente : on y lisait « 5 700 € · 5 deals signés » sans savoir lesquels.
+
+Le tableau liste maintenant les ventes signées dans la période : date, client, contracté,
+encaissé à ce jour, statut, avec un total en pied. Ce qui compte le plus n'est pas
+l'information ajoutée, c'est que **les deux chiffres du haut deviennent vérifiables ligne
+à ligne** : la colonne « Contracté » totalise la carte « Cash contracté », la colonne
+« Encaissé » totalise le numérateur du taux de collecte. C'est en contrôlant ces deux
+invariants qu'on a trouvé la moitié des défauts de cet écran.
+
+Un remboursement reste lisible dans l'écart entre les deux colonnes (800 € encaissés sur
+une vente de 1 000 €) ; le détail paiement par paiement vit sur la page Paiements.
+
+Le bloc « Cash encaissé par origine » s'arrête à 4 lignes avant « Voir plus », et porte
+une note de rapprochement : son total est l'argent REÇU, pas l'argent VENDU — c'est ce
+qui explique 2 600 € ici sous 10 200 € en carte, et rien ne le disait.
+
 ### Ce qui reste ouvert
 
 1. **Trois encaissements Stripe (60 €) existent chez Stripe et nulle part chez nous.**
@@ -433,6 +453,27 @@ All-Time 10 200 / 2 600 / 25 %. Juillet 500 / 0 / 0 %. Juin 4 000 / 0 / 0 %.
    `pi_3U6dWUG…`, 1 000 € chacune, même horodatage à la seconde. `deal_payments` n'en
    porte qu'une. La file « À rattacher » lit `stripe_payments` — à vérifier qu'elle ne
    propose pas de rattacher un paiement déjà rattaché sous son autre identifiant.
+
+### `first_touch_content_id` porte TROIS formes d'identifiant, pas deux
+
+À retenir avant toute lecture de ce champ :
+
+| Forme | Exemple | Contenu | Où le résoudre |
+|---|---|---|---|
+| numérique, 17-18 chiffres | `18056185901693457` | post Instagram | `ig_post_meta` |
+| 11 caractères | `EMvwzHVjNJg` | vidéo YouTube | `resolveYtVideoTitles`, vignette via `/api/resources/yt-thumb` |
+| UUID | `d1ad9817-…` | **séquence de stories** | `story_sequences.name`, vignette = première story non archivée (`ig_stories.storage_url`, `posted_at` croissant) |
+
+`/api/payments/by-origin` n'en connaissait que deux : toute séquence de stories tombait
+donc dans le repli « Contenu supprimé », sans vignette, alors qu'elle était bien vivante.
+Et aucune vidéo YouTube n'avait jamais de vignette — la route posait `thumbnail: null` en
+dur. Corrigé le 2026-08-30, en reprenant la résolution de « Performance par contenu »
+(onglet Business micro, `app/api/instagram/story-sequences-stats`) pour que les deux
+écrans nomment et illustrent un contenu de la même façon.
+
+⚠️ J'avais d'abord conclu, en voyant un UUID, à une attribution mal écrite en amont.
+C'était faux : la forme d'un identifiant ne dit rien tant qu'on n'a pas cherché quel type
+de contenu l'utilise. L'écran voisin le savait déjà.
 3. **Neuf `ResponsiveContainer` sans `initialDimension`** produisent encore des
    `width(-1)` en console : huit en ligne dans `PageClientStats` (un dans
    `TabOverviewV2`, deux dans `TabInstagram`, cinq dans `TabYouTube`) et le composant
