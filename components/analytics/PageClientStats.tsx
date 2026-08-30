@@ -5889,7 +5889,21 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
       })
       .map((l: any) => l.postId + '|' + l.postPlatform),
     ...prospectLinks
-      .filter((l: any) => isValidPostId(l.postId) && !['bio-ig', 'bio-yt'].includes(l.postId))
+      .filter((l: any) => {
+        if (!isValidPostId(l.postId) || ['bio-ig', 'bio-yt'].includes(l.postId)) return false;
+        // MEME garde que la branche `postLinks` juste au-dessus : le contenu doit etre
+        // connu dans le compte actif. Elle manquait ici, et l'asymetrie se voyait a
+        // l'ecran.
+        //
+        // `prospectLinks` vient de Short.io, et un domaine Short.io peut etre PARTAGE
+        // entre plusieurs eleves — trois sur ubizenai.s.gy au 2026-08-30. Les liens des
+        // autres entraient donc dans cette liste avec des identifiants de posts qui
+        // n'existent pas ici : deux lignes « (sans titre) », IG · Reel, sans vignette,
+        // sans permalien et sans un seul chiffre, en bas de « Voir tout ».
+        //
+        // Ce n'est pas une donnee manquante : c'est le contenu de quelqu'un d'autre.
+        return isValidYtVideoId(l.postId) ? knownYtIds.has(l.postId) : knownIgIds.has(l.postId);
+      })
       .map((l: any) => l.postId + '|' + (l.postPlatform || (isValidYtVideoId(l.postId) ? 'YT' : 'IG'))),
     // Basé sur lmHistory (media_id figé par interaction), pas leads.postId (état courant du
     // lead, écrasé par sa DERNIÈRE interaction) — sinon un post/story ancien qui n'a plus
