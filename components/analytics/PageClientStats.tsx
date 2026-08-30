@@ -4071,23 +4071,28 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
 
   const calcCalls = (subset: CallRecord[]) => {
     const actifs = subset.filter(c => c.status === 'active');
-    const bookes = actifs.length;
-    const honores = actifs.filter(c => isCallHonored(c, now)).length;
+    // DEUX grains, et un seul mot pour chacun dans toute la page.
+    //
+    // « Rendez-vous » = tous les creneaux poses. Ne sert QUE de denominateur au
+    // no-show, qui mesure la fiabilite d'un creneau : un 2e rendez-vous pose et non
+    // honore est un creneau perdu, quelle que soit sa place dans le parcours. C'est
+    // la pratique du secteur, le show rate se calcule sur les creneaux poses. Ce
+    // denominateur est ECRIT a cote du taux, il ne se deduit pas des bookes.
+    const rendezVous = actifs.length;
+    const noShows = actifs.filter(c => c.no_show).length;
+    // « Calls bookes » et « Calls honores » = des OPPORTUNITES. Mes stats mesure ce
+    // que le contenu produit ; un 2e rendez-vous qui prolonge la meme vente n'est
+    // produit par aucun nouveau clic, et le compter ferait passer le taux
+    // clics -> calls au-dessus de 100 % structurellement et pour toujours.
+    const opportunites = actifs.filter(c => !continuations.has(c.id)).length;
+    const opportunitesHonorees = actifs.filter(c => isCallHonored(c, now) && !continuations.has(c.id)).length;
+    const bookes = opportunites;
+    const honores = opportunitesHonorees;
+    // `closes` et `rev` gardent le sous-ensemble entier : un deal se compte la ou il a
+    // ete signe, meme au 2e rendez-vous. Meme regle partout dans la page.
     const closes = actifs.filter(c => c.deal_closed).length;
     const rev = actifs.reduce((acc, c) => acc + (c.revenue || 0), 0);
-    const noShows = actifs.filter(c => c.no_show).length;
-    // Denominateur du CLOSE RATE : des opportunites, pas des rendez-vous. Un
-    // prospect qui fait deux calls et signe au second vaut 1 deal pour 1
-    // opportunite (100 %), la ou le comptage par rendez-vous disait 50 %. C'est la
-    // definition du marche, et le no-show garde deliberement l'autre grain — il
-    // mesure la fiabilite d'un creneau, pas la capacite a closer une personne.
-    const opportunitesHonorees = actifs.filter(c => isCallHonored(c, now) && !continuations.has(c.id)).length;
-    // Haut de l'entonnoir : une continuation n'est produite par AUCUN nouveau clic,
-    // donc elle n'y entre pas. Sans cette exclusion, faire heriter le 2e call de
-    // l'origine du premier ferait repasser le taux clics -> calls au-dessus de 100 %,
-    // structurellement et pour toujours.
-    const opportunites = actifs.filter(c => !continuations.has(c.id)).length;
-    return { bookes, honores, closes, rev, noShows, opportunites, opportunitesHonorees };
+    return { bookes, honores, closes, rev, noShows, rendezVous, opportunites, opportunitesHonorees };
   };
 
   const igCallsLive = calcCalls(callsIG);
@@ -4122,6 +4127,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const igCloses  = igCallsLive.closes;
   const igRev     = igCallsLive.rev;
   const igNoShows = igCallsLive.noShows;
+  const igRendezVous = igCallsLive.rendezVous;
 
   const ytViewsD  = noData ? 0 : (yt ? yt.chartData.filter(d => inFunnelDateWindow(d.date)).reduce((s, d) => s + d.views, 0) : 0);
   const ytBookes  = ytCallsLive.bookes;
@@ -4131,6 +4137,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const ytCloses  = ytCallsLive.closes;
   const ytRev     = ytCallsLive.rev;
   const ytNoShows = ytCallsLive.noShows;
+  const ytRendezVous = ytCallsLive.rendezVous;
   const isCalendlyUrl = (l: any) => (l.originalUrl || '').toLowerCase().includes('calendly');
   // Clics Short.io filtrés par période : clicksByUrl (DB) prioritaire, repli sur le
   // chiffre d'API seulement quand les deux fenêtres coïncident.
@@ -4233,18 +4240,16 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   // l'autre : la fenetre de couverture des clics, et les continuations. La note n'en
   // nommait qu'une, si bien que le numerateur restait irreconstituable — 15 affiches,
   // 8 au numerateur, et un seul des deux ecarts explique. On les compose.
-  const noteBookes = (sousEnsemble: CallRecord[]) => {
-    const morceaux: string[] = [];
+  // « hors 2e rendez-vous » a ete RETIRE de cette note le 2026-08-30 : elle disait que
+  // le TAUX excluait quelque chose que le grand chiffre, lui, comptait. Depuis que
+  // « Calls bookes » compte des opportunites dans tout Mes stats, l'exclusion n'est plus
+  // une particularite du taux mais la regle de la page — l'ecrire ici affirmerait une
+  // difference qui n'existe plus. La regle est expliquee par le « ? » de l'en-tete.
+  const noteBookes = (_sousEnsemble: CallRecord[]) => {
     if (debutCouvertureClics && couvertureIncomplete) {
-      morceaux.push(`depuis le ${new Date(debutCouvertureClics + 'T12:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}, début du suivi des clics`);
+      return `taux depuis le ${new Date(debutCouvertureClics + 'T12:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}, début du suivi des clics`;
     }
-    // Ne le dire que si une continuation est reellement retiree DANS la fenetre
-    // couverte : ailleurs elle ne change rien au numerateur, et l'ecrire serait du
-    // bruit.
-    const avec = bookesDansCouverture(sousEnsemble);
-    const sans = bookesDansCouverture(sousEnsemble.filter(c => !continuations.has(c.id)));
-    if (avec !== sans) morceaux.push('hors 2ᵉ rendez-vous');
-    return morceaux.length ? `taux ${morceaux.join(', ')}` : undefined;
+    return undefined;
   };
 
   const noteCouverture = couvertureNulle && debutCouvertureClics
@@ -4326,8 +4331,9 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
       const trou = { date: iso, v: null as any };
       if (isFutureDayFunnel(iso)) return trou;
       const cs = byDay.get(iso) ?? [];
-      const booked = cs.filter(c => c.status === 'active').length;
-      const honored = cs.filter(c => isCallHonored(c, now)).length;
+      const opportunitesDuJour = cs.filter(c => c.status === 'active' && !continuations.has(c.id));
+      const booked = opportunitesDuJour.length;
+      const honored = opportunitesDuJour.filter(c => isCallHonored(c, now)).length;
       const closed = cs.filter(c => c.deal_closed).length;
       const rev = cs.reduce((s, c) => s + (c.revenue || 0), 0);
       const noShows = cs.filter(c => c.status === 'active' && c.no_show).length;
@@ -4365,7 +4371,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
       metrics: [
         { label: 'Reach pour 1 call', value: igReachD != null && igBookes > 0 ? fmt(Math.round(igReachD / igBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'Calls bookés', value: fmt(igBookes), prevValue: null, delta: null, lowerIsBetter: false },
-        { label: 'No-show', value: igBookes > 0 ? fmtRate(igNoShows, igBookes) : '—', prevValue: null, delta: null, lowerIsBetter: true },
+        { label: 'No-show', value: igRendezVous > 0 ? `${fmtRate(igNoShows, igRendezVous)} · ${igNoShows}/${igRendezVous}` : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'Close rate', value: igOpportunites > 0 ? fmtRate(igCloses, igOpportunites) : '—', prevValue: null, delta: null, lowerIsBetter: false },
         { label: 'Rev / call booké', value: igBookes > 0 ? fmtEur(Math.round(igRev / igBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: false },
         // « Cash / vue » : Instagram mesure une portée, pas des vues — la colonne
@@ -4379,7 +4385,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
       metrics: [
         { label: 'Vues pour 1 call', value: ytBookes > 0 ? fmt(Math.round(ytViewsD / ytBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'Calls bookés', value: fmt(ytBookes), prevValue: null, delta: null, lowerIsBetter: false },
-        { label: 'No-show', value: ytBookes > 0 ? fmtRate(ytNoShows, ytBookes) : '—', prevValue: null, delta: null, lowerIsBetter: true },
+        { label: 'No-show', value: ytRendezVous > 0 ? `${fmtRate(ytNoShows, ytRendezVous)} · ${ytNoShows}/${ytRendezVous}` : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'Close rate', value: ytOpportunites > 0 ? fmtRate(ytCloses, ytOpportunites) : '—', prevValue: null, delta: null, lowerIsBetter: false },
         { label: 'Rev / call booké', value: ytBookes > 0 ? fmtEur(Math.round(ytRev / ytBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: false },
         { label: 'Cash / vue', value: ytViewsD > 0 ? fmtEur(ytRev / ytViewsD) : '—', prevValue: null, delta: null, lowerIsBetter: false },
@@ -4390,7 +4396,11 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
 
   // ── Calls filtrés pour la table (toujours live) ──
   const filteredCalls = callsFilter === 'ig' ? callsIG : callsFilter === 'yt' ? callsYT : callsInWindow;
+  // `filteredActifs` = les RENDEZ-VOUS (denominateur du no-show et de la liste elle-meme,
+  // qui affiche bien chaque creneau). `filteredOpportunites` = ce que le contenu a
+  // produit, pour les compteurs « Bookes » et « Honores ».
   const filteredActifs = filteredCalls.filter(c => c.status === 'active');
+  const filteredOpportunites = filteredActifs.filter(c => !continuations.has(c.id));
 
   // Les totaux du hero portent sur TOUTES les sources — c'est ce que dit leur
   // sous-titre. Ils valaient `igBookes + ytBookes`, donc un call dont la source ne
@@ -4400,7 +4410,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   // 100 % (aucun cas en base au 2026-08-29, les 19 calls de vente ont tous une source
   // ig_* ou yt_*, mais rien ne l'interdit).
   const callsActifs  = callsInWindow.filter(c => c.status === 'active');
-  const totalBookes  = callsActifs.length;
+  const totalBookes  = callsActifs.filter(c => !continuations.has(c.id)).length;
   const totalHonores = callsActifs.filter(c => isCallHonored(c, now)).length;
   const totalOpportunites = callsActifs.filter(c => isCallHonored(c, now) && !continuations.has(c.id)).length;
   const totalCloses  = callsActifs.filter(c => c.deal_closed).length;
@@ -4484,14 +4494,19 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                       return windowDays.map(date => {
                         if (isFutureDayFunnel(date)) return { date, v: null as any };
                         const daySubset = (byDay.get(date) ?? []).filter(c => c.status === 'active');
-                        if (key === 'booked') return { date, v: daySubset.length };
-                        if (key === 'honored') return { date, v: daySubset.filter(c => isCallHonored(c, now)).length };
+                        // Bookes et honores comptent des OPPORTUNITES. `closed` et `rev`
+                        // gardent le sous-ensemble entier : un deal se compte la ou il a
+                        // ete signe, meme au 2e rendez-vous — meme regle que partout.
+                        const dayOpportunites = daySubset.filter(c => !continuations.has(c.id));
+                        if (key === 'booked') return { date, v: dayOpportunites.length };
+                        if (key === 'honored') return { date, v: dayOpportunites.filter(c => isCallHonored(c, now)).length };
                         if (key === 'closed') return { date, v: daySubset.filter(c => c.deal_closed).length };
                         if (key === 'rev') return { date, v: daySubset.reduce((s, c) => s + (c.revenue || 0), 0) };
                         // revPerCall : un ratio n'existe pas sans dénominateur — un jour
-                        // sans call booké est un trou, pas un « 0 € par call ».
-                        if (daySubset.length === 0) return { date, v: null as any };
-                        return { date, v: Math.round(daySubset.reduce((s, c) => s + (c.revenue || 0), 0) / daySubset.length) };
+                        // sans call booké est un trou, pas un « 0 € par call ». Le
+                        // denominateur est celui de la carte « Rev / call » : les bookes.
+                        if (dayOpportunites.length === 0) return { date, v: null as any };
+                        return { date, v: Math.round(daySubset.reduce((s, c) => s + (c.revenue || 0), 0) / dayOpportunites.length) };
                       });
                     };
 
@@ -4716,9 +4731,10 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
         {/* Résumé stats — même population que les cartes du hero : les calls actifs. */}
         <div style={{ display: 'flex', gap: 20, marginBottom: 12 }}>
           {[
-            { label: 'Bookés', value: fmt(filteredActifs.length), color: 'var(--ink)' },
-            { label: 'Honorés', value: fmt(filteredActifs.filter(c => isCallHonored(c, now)).length), color: GREEN },
-            { label: 'No-show', value: fmt(filteredActifs.filter(c => c.no_show).length), color: RED },
+            { label: 'Bookés', value: fmt(filteredOpportunites.length), color: 'var(--ink)' },
+            { label: 'Honorés', value: fmt(filteredOpportunites.filter(c => isCallHonored(c, now)).length), color: GREEN },
+            // Grain « rendez-vous », comme partout : un creneau perdu reste perdu.
+            { label: 'No-show', value: `${fmt(filteredActifs.filter(c => c.no_show).length)} / ${fmt(filteredActifs.length)}`, color: RED },
             { label: 'Closés', value: fmt(filteredActifs.filter(c => c.deal_closed).length), color: 'var(--accent)' },
             { label: 'Revenue', value: fmtEur(filteredActifs.reduce((acc, c) => acc + (c.revenue || 0), 0)), color: GREEN },
           ].map((s, i) => (
@@ -5842,7 +5858,9 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const calendlyActivatedDb = calendlyLinksSent.filter(l => l.first_click_at != null).length;
   // calls filtrés par la fenêtre de période (en S-0, callsEff n'a pas de borne haute)
   const callsInWindow = (calls ?? []).filter(c => isInPeriod(callPeriodDate(c)));
-  const callsBooked = callsInWindow.filter(c => c.status === 'active').length;
+  // OPPORTUNITES, comme le breakdown juste en dessous. Cette carte affichait 18 face a
+  // un tableau qui affichait 17, dans le meme onglet et a trois centimetres d'ecart.
+  const callsBooked = callsInWindow.filter(c => c.status === 'active' && !continuationsContenu.has(c.id)).length;
   const callsTotal = callsBooked;
 
   // ── Séries jour-par-jour pour les KPI cliquables ──
@@ -6006,7 +6024,9 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   for (const c of callsInWindow) {
     const day = utcDateStr(new Date(callPeriodDate(c)));
     const cur = callsPerDay.get(day) ?? { booked: 0, honored: 0, closed: 0, revenue: 0 };
-    if (c.status === 'active') {
+    // Meme grain que la carte : des opportunites. `closed` et `revenue` gardent tous
+    // les calls — un deal se compte la ou il a ete signe, meme au 2e rendez-vous.
+    if (c.status === 'active' && !continuationsContenu.has(c.id)) {
       cur.booked += 1;
       if (isCallHonored(c, now)) cur.honored += 1;
     }
@@ -6276,8 +6296,9 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     // « via lead magnet » se lit sur la source, pas sur le rattachement — même
     // correction que le tunnel de l'accueil (commit 4a7a792).
     const postCallsLm = postCalls.filter(c => c.source === 'ig_dm');
-    const callsBookedLm = postCallsLm.filter(c => c.status === 'active').length;
-    const callsHonoredLm = postCallsLm.filter(c => isCallHonored(c, now)).length;
+    const postOpportunitesLm = postCallsLm.filter(c => !continuationsContenu.has(c.id));
+    const callsBookedLm = postOpportunitesLm.filter(c => c.status === 'active').length;
+    const callsHonoredLm = postOpportunitesLm.filter(c => isCallHonored(c, now)).length;
     const closedLm = postCallsLm.filter(c => c.deal_closed).length;
     const revenueLm = postCallsLm.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
     const vuesParCall = callsBooked > 0 && views > 0 ? Math.round(views / callsBooked) : null;
