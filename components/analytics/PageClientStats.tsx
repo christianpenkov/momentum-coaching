@@ -142,9 +142,15 @@ interface CallRecord {
   lead_deleted?: boolean | null; ignored?: boolean | null;
 }
 
+/**
+ * Les paiements de la periode, lus dans `deal_payments`.
+ *
+ * `mrr`, `monthlyRevenue`, `activeSubscriptions` et `availableBalance` ont ete retires :
+ * ils etaient renseignes des deux cotes et lus nulle part, et `monthlyRevenue` sommait
+ * tous les statuts, remboursements compris. Un champ mort qui porte de l'argent finit
+ * par etre branche ailleurs tel quel.
+ */
 interface StripeStats {
-  mrr: number; monthlyRevenue: number; activeSubscriptions: number;
-  availableBalance: number;
   recentPayments: { id: string; amount: number; currency: string; description: string; date: string; status: string }[];
 }
 interface IGMessages {
@@ -4128,8 +4134,18 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const igFunnelSteps = [
     { label: 'Reach', value: igReachD == null ? dash : (igReachD >= 1000 ? `${fmt(igReachD / 1000, 1)}k` : fmt(igReachD)), rawValue: igReachD ?? 0 },
     { label: 'Clics liens Calendly', value: noData ? dash : fmt(igTotalClicsD), sub: 'bio + descr. + DM', rawValue: igTotalClicsD, rate: igReachD && igReachD > 0 ? (igTotalClicsD / igReachD) * 100 : undefined },
-    { label: 'Opportunités', value: fmt(igOpportunitesBookees), rawValue: igOpportunitesBookees, rate: couvertureNulle || igTotalClicsD <= 0 ? undefined : (bookesDansCouverture(callsIG.filter(c => !continuations.has(c.id))) / igTotalClicsD) * 100, noteTaux: noteCouverture },
-    { label: 'Honorées', value: fmt(igOpportunites), rawValue: igOpportunites, rate: igOpportunitesBookees > 0 ? (igOpportunites / igOpportunitesBookees) * 100 : 0 },
+    // Le GRAND CHIFFRE reste le nombre VRAI de rendez-vous — c'est ce que « Calls
+    // bookes » veut dire, et le renommer en « Opportunites » aurait fait payer au
+    // libelle le prix d'un probleme qui ne concerne que le TAUX.
+    //
+    // Seul le taux se calcule sur les opportunites : un 2e rendez-vous n'est produit
+    // par AUCUN nouveau clic, donc l'inclure au numerateur ferait monter le ratio
+    // sans qu'un clic ne l'ait cause. Meme principe que le bornage sur la couverture
+    // Short.io, quelques lignes plus haut.
+    { label: 'Calls bookés', value: fmt(igBookes), rawValue: igBookes, rate: couvertureNulle || igTotalClicsD <= 0 ? undefined : (bookesDansCouverture(callsIG.filter(c => !continuations.has(c.id))) / igTotalClicsD) * 100, noteTaux: noteCouverture },
+    // Ce taux-ci n'a pas besoin des opportunites : ses DEUX termes comptent des
+    // rendez-vous, donc une continuation les fait monter tous les deux ensemble.
+    { label: 'Calls honorés', value: fmt(igHonores), rawValue: igHonores, rate: igBookes > 0 ? (igHonores / igBookes) * 100 : 0 },
     { label: 'Deals closés', value: fmt(igCloses), rawValue: igCloses, rate: igOpportunites > 0 ? (igCloses / igOpportunites) * 100 : undefined },
     { label: 'Revenue', value: fmtEur(igRev), rawValue: igRev },
   ];
@@ -4137,8 +4153,18 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const ytFunnelSteps = [
     { label: 'Vues', value: noData ? dash : (ytViewsD >= 1000 ? `${fmt(ytViewsD / 1000, 1)}k` : fmt(ytViewsD)), rawValue: ytViewsD },
     { label: 'Clics Calendly', value: noData ? dash : fmt(ytClicsD), sub: 'Bio + Descr.', rawValue: ytClicsD, rate: noData ? 0 : (ytViewsD > 0 ? (ytClicsD / ytViewsD) * 100 : 0) },
-    { label: 'Opportunités', value: fmt(ytOpportunitesBookees), rawValue: ytOpportunitesBookees, rate: couvertureNulle || ytClicsD <= 0 ? undefined : (bookesDansCouverture(callsYT.filter(c => !continuations.has(c.id))) / ytClicsD) * 100, noteTaux: noteCouverture },
-    { label: 'Honorées', value: fmt(ytOpportunites), rawValue: ytOpportunites, rate: ytOpportunitesBookees > 0 ? (ytOpportunites / ytOpportunitesBookees) * 100 : 0 },
+    // Le GRAND CHIFFRE reste le nombre VRAI de rendez-vous — c'est ce que « Calls
+    // bookes » veut dire, et le renommer en « Opportunites » aurait fait payer au
+    // libelle le prix d'un probleme qui ne concerne que le TAUX.
+    //
+    // Seul le taux se calcule sur les opportunites : un 2e rendez-vous n'est produit
+    // par AUCUN nouveau clic, donc l'inclure au numerateur ferait monter le ratio
+    // sans qu'un clic ne l'ait cause. Meme principe que le bornage sur la couverture
+    // Short.io, quelques lignes plus haut.
+    { label: 'Calls bookés', value: fmt(ytBookes), rawValue: ytBookes, rate: couvertureNulle || ytClicsD <= 0 ? undefined : (bookesDansCouverture(callsYT.filter(c => !continuations.has(c.id))) / ytClicsD) * 100, noteTaux: noteCouverture },
+    // Ce taux-ci n'a pas besoin des opportunites : ses DEUX termes comptent des
+    // rendez-vous, donc une continuation les fait monter tous les deux ensemble.
+    { label: 'Calls honorés', value: fmt(ytHonores), rawValue: ytHonores, rate: ytBookes > 0 ? (ytHonores / ytBookes) * 100 : 0 },
     { label: 'Deals closés', value: fmt(ytCloses), rawValue: ytCloses, rate: ytOpportunites > 0 ? (ytCloses / ytOpportunites) * 100 : undefined },
     { label: 'Revenue', value: fmtEur(ytRev), rawValue: ytRev },
   ];
@@ -4696,17 +4722,22 @@ interface OriginRow {
  * est une réponse aussi légitime qu'un contenu. Les lignes sans contenu se
  * distinguent par une vignette pointillée, jamais par une mise en retrait.
  */
-function CashByOrigin({ profileId, periodStart, periodEnd, sinceConnection }: {
+function CashByOrigin({ profileId, periodStart, periodEnd, sinceConnection, allTimeStart }: {
   profileId?: string;
   periodStart: Date;
   periodEnd: Date;
   sinceConnection?: boolean;
+  allTimeStart?: string | null;
 }) {
   const [showAll, setShowAll] = useState(false);
 
-  // En mode "depuis connexion" le fetch est déjà borné en amont : ne pas
-  // re-clipper sur la fenêtre calendaire, qui écraserait ce bornage.
-  const start = sinceConnection ? undefined : periodStart.toISOString();
+  // Ce bloc a son PROPRE appel réseau : contrairement à ce que disait le commentaire
+  // précédent, rien ne le bornait en amont. En « depuis connexion » il lisait donc TOUT
+  // l'historique, y compris les paiements antérieurs à la mise en route des
+  // intégrations, alors que la carte « Cash collecté » juste au-dessus s'arrête, elle, à
+  // cette date. Deux totaux pour la même chose sur le même écran. On borne au même
+  // point de départ ; sans borne haute, puisque le mode va jusqu'à aujourd'hui.
+  const start = sinceConnection ? (allTimeStart ?? undefined) : periodStart.toISOString();
   const end = sinceConnection ? undefined : periodEnd.toISOString();
 
   const { data, isLoading } = useQuery<{ rows: OriginRow[]; total: number }>({
@@ -4839,8 +4870,36 @@ function CashByOrigin({ profileId, periodStart, periodEnd, sinceConnection }: {
   );
 }
 
-function TabRevenues({ stripe, calls, deals, period, periodIndex, onRefresh, refreshing, sinceConnection, profileId }: { stripe: StripeStats | null; calls: CallRecord[]; deals?: DealRecord[]; period: Period; periodIndex: number; onRefresh?: () => void; refreshing?: boolean; sinceConnection?: boolean; profileId?: string }) {
-  if (!stripe) return (
+/**
+ * Les statuts qu'une ligne de paiement peut porter, avec leur libellé et leur couleur.
+ *
+ * Écrit une seule fois : le tableau des paiements peignait en rouge « Échoué » tout ce
+ * qui n'était pas `succeeded`, donc un remboursement, un litige ou un paiement en
+ * attente. Les statuts sont ceux qu'écrivent `recordPayment` et le webhook des litiges
+ * dans `deal_payments`.
+ */
+/**
+ * Au-delà de ce nombre de points, le graphique des revenus regroupe par tranches de
+ * 7 jours. Seuil mesuré : à 82 barres, une barre fait 0,02 px de large sur la largeur
+ * disponible — le graphique paraît vide alors que ses valeurs sont justes.
+ */
+const JOURS_AVANT_REGROUPEMENT = 62;
+
+const STATUT_PAIEMENT: Record<string, { label: string; color: string }> = {
+  succeeded: { label: 'Réussi', color: GREEN },
+  refunded:  { label: 'Remboursé', color: AMBER },
+  disputed:  { label: 'Contesté', color: RED },
+  pending:   { label: 'En attente', color: AMBER },
+  failed:    { label: 'Échoué', color: RED },
+};
+
+function TabRevenues({ stripe, deals, period, periodIndex, onRefresh, refreshing, sinceConnection, profileId, allTimeStart, stripeConnected }: { stripe: StripeStats | null; deals?: DealRecord[]; period: Period; periodIndex: number; onRefresh?: () => void; refreshing?: boolean; sinceConnection?: boolean; profileId?: string; allTimeStart?: string | null; stripeConnected?: boolean }) {
+  // Le test portait sur `stripe` — donc sur le succès d'un appel à l'API Stripe. Une
+  // panne de cet appel affichait « Connecte ton compte Stripe » sur un compte pourtant
+  // connecté, et emportait avec elle les montants des ventes, qui vivent en base et ne
+  // dépendent pas de Stripe. La question se lit désormais dans `integrations`, la table
+  // qui porte la réponse.
+  if (stripeConnected === false) return (
     <div style={{ textAlign: 'center', padding: '48px 24px' }}>
       <div style={{ fontSize: 14, color: 'var(--muted)', marginBottom: 16 }}>Connecte ton compte Stripe pour voir les revenus.</div>
       {/* La connexion se fait en un clic via Stripe Connect. La clé secrète
@@ -4856,42 +4915,30 @@ function TabRevenues({ stripe, calls, deals, period, periodIndex, onRefresh, ref
 
   const { periodStart, periodEnd } = getPeriodWindow(periodIndex, period === 7 ? 'week' : 'month');
 
-  // En mode "depuis connexion", stripe/calls sont déjà bornés [connectedAt, aujourd'hui]
+  // En mode "depuis connexion", les paiements sont déjà bornés [connectedAt, aujourd'hui]
   // par le fetch — ne pas re-clipper avec la fenêtre calendaire du mois/semaine en cours.
-  const allInPeriod = sinceConnection ? stripe.recentPayments : stripe.recentPayments.filter(p => {
+  const paiements = stripe?.recentPayments ?? [];
+  const allInPeriod = sinceConnection ? paiements : paiements.filter(p => {
     const d = new Date(p.date);
     return d >= periodStart && d <= periodEnd;
   });
   const succeeded = allInPeriod.filter(p => p.status === 'succeeded');
+  // Le tableau montre la même population que les cartes, du plus récent au plus ancien.
+  const paiementsAffiches = [...allInPeriod].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 
-  const callsInPeriod = sinceConnection ? calls : calls.filter(c => {
-    const d = new Date(callPeriodDate(c));
-    return d >= periodStart && d <= periodEnd;
-  });
-  // Cash contracté de cet écran : somme des `calls.revenue` des calls closés de la
-  // période, donc rattaché au mois de RÉSERVATION du call depuis le passage de
-  // callsInPeriod sur booked_at.
+  // Cash contracté : somme des DEALS signés dans la période.
   //
-  // ⚠️ L'accueil (useCoachData) rattache lui son cash contracté au mois de SIGNATURE
-  // du deal (`deals.signed_at`) — un deal signé en relance appartient au mois où
-  // l'argent a été engagé. Les deux écrans peuvent donc diverger dès qu'une signature
-  // ne tombe pas dans le mois de son call. Aucun cas à ce jour : le cycle réservation
-  // → signature est de quelques heures (mesuré le 2026-08-19, max 1 jour).
-  //
-  // La convergence passe par le chantier « cash sur la table deals » (les deals sans
-  // call, upsells, sont aussi invisibles ici) — voir docs/perimetre-stats-referentiel.md,
-  // section « Ce qui reste ouvert ».
-  // Cash contracté : somme des DEALS signés dans la période, plus des `calls.revenue`.
+  // Cet onglet ne lit plus les calls du tout. Ils ne servaient qu'à compter les « deals
+  // closés » du panier moyen et du sous-titre — sur une AUTRE date (`booked_at`) et une
+  // AUTRE population que le montant affiché juste à côté.
   //
   // Un deal peut exister SANS call — upsell, vente hors pipeline. Le sommer depuis les
   // calls le rendait invisible : c'était le dernier écart à impact financier réel
-  // (identifié le 2026-08-19 ; 0 cas en base à cette date, 6 600 € des deux côtés,
-  // donc aucun chiffre ne bouge aujourd'hui).
+  // (identifié le 2026-08-19).
   //
-  // Découpé sur `signed_at`, volontairement une AUTRE date que les calls : un deal
-  // signé ce mois sur un call du mois dernier appartient au cash de ce mois — c'est le
-  // mois où l'argent a été engagé. Même règle que useCoachData : les deux écrans
-  // convergent désormais sur la même source ET la même date.
+  // Découpé sur `signed_at` : un deal signé ce mois sur un call du mois dernier
+  // appartient au cash de ce mois — c'est le mois où l'argent a été engagé. Même règle
+  // que useCoachData : les deux écrans convergent sur la même source ET la même date.
   //
   // Deals annulés exclus (une vente annulée n'a pas été signée), même filtre que
   // computeDealTotals dans lib/salesCallStats.ts.
@@ -4903,44 +4950,113 @@ function TabRevenues({ stripe, calls, deals, period, periodIndex, onRefresh, ref
     return ds >= periodStart && ds <= periodEnd;
   });
   const cashContracte = dealsInPeriod.reduce((s, d) => s + Number(d.amount_total || 0), 0);
-  // Conservé : le panier moyen et le compte de ventes raisonnent en calls closés.
-  const dealsClosed = callsInPeriod.filter(c => c.deal_closed);
 
   // Number() explicite : les numeric Postgres arrivent en chaîne, et une
   // concaténation silencieuse ("10" + "20" = "1020") passerait le typage.
   const cashCollecte = succeeded.reduce((s, p) => s + Number(p.amount || 0), 0);
-  // Panier moyen = ce que vaut une VENTE, donc sur le contracté et le nombre de
-  // deals — pas sur le collecté divisé par le nombre de paiements, qui ferait
-  // chuter la moyenne dès qu'un deal est payé en 3× (3 paiements pour 1 vente).
-  const avgBasket = dealsClosed.length > 0 ? cashContracte / dealsClosed.length : 0;
-  const cashCollectePct = cashContracte > 0 ? Math.round((cashCollecte / cashContracte) * 100) : 0;
+  // Panier moyen = ce que vaut une VENTE, donc sur le contracté et le nombre de deals —
+  // pas sur le collecté divisé par le nombre de paiements, qui ferait chuter la moyenne
+  // dès qu'un deal est payé en 3× (3 paiements pour 1 vente).
+  //
+  // Le dénominateur compte les DEALS de la période, plus les calls closés : le
+  // numérateur venait des deals découpés sur `signed_at`, le dénominateur des calls
+  // découpés sur `booked_at` — deux populations et deux dates pour une seule division.
+  // Un deal sans call gonflait le seul numérateur, un call closé sans deal le seul
+  // dénominateur. Le sous-titre « deals closés (N) » annonçait d'ailleurs des deals en
+  // comptant des calls.
+  const avgBasket = dealsInPeriod.length > 0 ? cashContracte / dealsInPeriod.length : 0;
+  // null et non 0 quand il n'y a rien à collecter : « 0 % » en rouge sur une période
+  // sans aucune vente affirme un échec là où il n'y a rien à mesurer. Constaté à
+  // l'écran sur mai 2026 et sur la semaine en cours.
+  const cashCollectePct = cashContracte > 0 ? Math.round((cashCollecte / cashContracte) * 100) : null;
 
-  // Nombre réel de jours dans la période (7 pour une semaine, 28-31 pour un mois
-  // calendaire variable) — pas une longueur fixe supposée depuis `period`. Plafonné à
-  // aujourd'hui : en milieu de semaine/mois, periodEnd peut être dans le futur, ce qui
-  // afficherait sinon des jours à 0€ qui n'ont pas encore eu lieu.
-  const revenueByDay: { date: string; ca: number; contracte: number }[] = (() => {
+  // ── Ventilation par jour ────────────────────────────────────────────────────
+  //
+  // Deux corrections, toutes deux vérifiées à l'écran le 2026-08-30 :
+  //
+  // 1. LE JOUR EST CELUI DE PARIS, PAS CELUI D'UTC. Le code comparait
+  //    `p.date.startsWith(iso)` où `iso` est un jour de Paris et `p.date` un instant
+  //    UTC. Le paiement de 300 € horodaté 2026-08-20T22:00:52Z (soit le 21 août à
+  //    00h00 à Paris) s'affichait « 21 août » dans le tableau et tombait dans la barre
+  //    du 20 août sur le même écran. Même défaut sur `signed_at`, avec en prime une
+  //    fuite de montant : un deal signé le 1er à 00h30 Paris entre dans `dealsInPeriod`
+  //    (comparaison d'instants) mais son jour UTC appartient au mois précédent, donc
+  //    aucune barre ne le porte et la somme des barres cesse de valoir le total.
+  //
+  // 2. LA FENÊTRE SUIT LES CARTES. La boucle partait toujours de `periodStart`, soit le
+  //    mois ou la semaine EN COURS. En All-Time les cartes lisent tout l'historique
+  //    (`sinceConnection` court-circuite le filtre de période) : l'écran affichait
+  //    10 200 € en carte pour 5 700 € de barres, sur un axe borné au 1er–29 août alors
+  //    que la période annoncée était « depuis le 09/06 ». La boucle se borne désormais
+  //    sur l'étendue réelle des données quand la période n'en fournit pas.
+  const graphe: { rows: { date: string; ca: number; contracte: number }[]; parSemaine: boolean } = (() => {
     const todayStr = parisDateStr(new Date());
+    // Regroupement en un passage, sur le jour de Paris de chaque montant.
+    const caParJour = new Map<string, number>();
+    for (const p of succeeded) {
+      const j = parisDateStr(new Date(p.date));
+      caParJour.set(j, (caParJour.get(j) ?? 0) + Number(p.amount || 0));
+    }
+    const contracteParJour = new Map<string, number>();
+    for (const d of dealsInPeriod) {
+      if (!d.signed_at) continue;
+      const j = parisDateStr(new Date(d.signed_at));
+      contracteParJour.set(j, (contracteParJour.get(j) ?? 0) + Number(d.amount_total || 0));
+    }
+
+    // En mode « depuis connexion » la fenêtre calendaire ne veut rien dire : on part de
+    // la date de connexion, ou du premier jour qui porte de l'argent, jamais du 1er du
+    // mois en cours.
+    let debut = periodStart;
+    if (sinceConnection) {
+      const joursAvecDonnee = [...caParJour.keys(), ...contracteParJour.keys()].sort();
+      const bornes = [
+        ...(allTimeStart ? [parisDateStr(new Date(allTimeStart))] : []),
+        ...(joursAvecDonnee.length ? [joursAvecDonnee[0]] : []),
+      ].sort();
+      // Aucune donnée ET aucune date de connexion : on retombe sur la période courante
+      // plutôt que d'inventer une borne.
+      if (bornes.length) {
+        const [y, m, dd] = bornes[0].split('-').map(Number);
+        debut = new Date(Date.UTC(y, m - 1, dd, 12, 0, 0));
+      }
+    }
+
     const rows: { date: string; ca: number; contracte: number }[] = [];
-    let d = periodStart;
-    while (d.getTime() <= periodEnd.getTime()) {
+    let d = debut;
+    const fin = sinceConnection ? new Date() : periodEnd;
+    // Garde-fou : une borne aberrante ne doit produire ni boucle sans fin, ni graphique
+    // de plusieurs milliers de barres.
+    const MAX_JOURS = 800;
+    while (d.getTime() <= fin.getTime() && rows.length < MAX_JOURS) {
       const iso = parisDateStr(d);
-      if (iso > todayStr) break; // plafonne à aujourd'hui, comme avant (pas de jours futurs à 0€)
-      const ca = succeeded.filter(p => p.date.startsWith(iso)).reduce((s, p) => s + p.amount, 0);
-      // Même date que callsInPeriod, qui alimente dealsClosed (callPeriodDate, donc
-      // booked_at) : sans ça, la somme des barres du graphique ne vaudrait plus le
-      // total « Cash contracté » affiché au-dessus.
-      // Même source ET même date que le total affiché au-dessus : les deals, découpés
-      // sur signed_at. Garder les calls ici ferait diverger la somme des barres du
-      // total dès qu'un deal existe sans call.
-      const contracte = dealsInPeriod
-        .filter(d => (d.signed_at ?? '').startsWith(iso))
-        .reduce((s, d) => s + Number(d.amount_total || 0), 0);
-      rows.push({ date: iso, ca, contracte });
+      if (iso > todayStr) break; // plafonne à aujourd'hui (pas de jours futurs à 0 €)
+      rows.push({ date: iso, ca: caParJour.get(iso) ?? 0, contracte: contracteParJour.get(iso) ?? 0 });
       d = parisAddDays(d, 1);
     }
-    return rows;
+
+    // Au-delà d'environ deux mois, une barre par jour devient plus fine qu'un pixel et
+    // le graphique paraît VIDE — mesuré : sur la fenêtre All-Time de 82 jours, les
+    // barres faisaient 0,02 px de large alors que leurs valeurs étaient justes. On
+    // regroupe donc par tranches de 7 jours au-delà du seuil. La somme est préservée :
+    // c'est l'invariant qui lie ce graphique aux cartes du dessus.
+    if (rows.length <= JOURS_AVANT_REGROUPEMENT) return { rows, parSemaine: false };
+    const paquets: { date: string; ca: number; contracte: number }[] = [];
+    for (let i = 0; i < rows.length; i += 7) {
+      const tranche = rows.slice(i, i + 7);
+      paquets.push({
+        date: tranche[0].date,
+        ca: tranche.reduce((s, r) => s + r.ca, 0),
+        contracte: tranche.reduce((s, r) => s + r.contracte, 0),
+      });
+    }
+    return { rows: paquets, parSemaine: true };
   })();
+  const revenueByDay = graphe.rows;
+
+  const libellePeriode = sinceConnection
+    ? (allTimeStart ? `depuis le ${new Date(allTimeStart).toLocaleDateString('fr-FR')}` : 'depuis la connexion')
+    : periodLabel(period, periodIndex);
 
   return (
     <div className="stack">
@@ -4954,7 +5070,7 @@ function TabRevenues({ stripe, calls, deals, period, periodIndex, onRefresh, ref
         <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
           <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Cash contracté</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmtEur(cashContracte)}</div>
-          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>deals closés ({dealsClosed.length})</div>
+          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>deals signés ({dealsInPeriod.length})</div>
         </div>
         <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
           <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Cash collecté</div>
@@ -4964,26 +5080,46 @@ function TabRevenues({ stripe, calls, deals, period, periodIndex, onRefresh, ref
         <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
           <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Panier moyen</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmtEur(Math.round(avgBasket))}</div>
-          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>{dealsClosed.length > 0 ? `sur ${dealsClosed.length} deal${dealsClosed.length > 1 ? 's' : ''}` : 'aucun deal'}</div>
+          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>{dealsInPeriod.length > 0 ? `sur ${dealsInPeriod.length} deal${dealsInPeriod.length > 1 ? 's' : ''}` : 'aucun deal'}</div>
         </div>
         <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
           <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Taux de cash collecté</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: cashCollectePct >= 80 ? GREEN : cashCollectePct >= 50 ? AMBER : RED, lineHeight: 1 }}>{cashCollectePct}%</div>
-          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>collecté / contracté</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: cashCollectePct === null ? 'var(--muted)' : cashCollectePct >= 80 ? GREEN : cashCollectePct >= 50 ? AMBER : RED, lineHeight: 1 }}>{cashCollectePct === null ? '—' : `${cashCollectePct}%`}</div>
+          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>{cashCollectePct === null ? 'aucune vente à collecter' : 'collecté / contracté'}</div>
         </div>
       </div>
 
-      <Card title="Revenus / jour" sub={periodIndex === 0 ? `${period} derniers jours · deals closés & paiements Stripe` : `${periodLabel(period, periodIndex)} · deals closés & paiements Stripe`}>
-        <BarChart data={revenueByDay} bars={[{ key: 'contracte', label: 'Cash contracté', color: 'var(--accent-brand)' }, { key: 'ca', label: 'Cash collecté', color: GREEN }]} xKey="date" height={200} formatter={fmtEur} xInterval={period === 7 ? 0 : Math.floor(revenueByDay.length / 7) - 1} />
+      {/* Le sous-titre disait « 30 derniers jours » sur une fenêtre qui est un MOIS
+          CALENDAIRE (« 1 août – 31 août »), et le disait aussi en All-Time — faux deux
+          fois, puisque `periodIndex` vaut 0 dans les deux cas. On reprend le libellé de
+          la période réellement affichée, celui du bandeau du haut.
+          xInterval : `Math.floor(n / 7) - 1` vaut −1 dès que la série compte moins de 7
+          points, soit les 6 premiers jours de chaque mois. Recharts 3.8.1 traduit −1 en
+          « un point sur 0 », et sa fonction getEveryNth renvoie alors un tableau VIDE :
+          l'axe des dates disparaît complètement. Plancher à 0. */}
+      <Card title={graphe.parSemaine ? 'Revenus / semaine' : 'Revenus / jour'} sub={`${libellePeriode} · deals signés & paiements encaissés${graphe.parSemaine ? ' · une barre = 7 jours' : ''}`}>
+        <BarChart data={revenueByDay} bars={[{ key: 'contracte', label: 'Cash contracté', color: 'var(--accent-brand)' }, { key: 'ca', label: 'Cash collecté', color: GREEN }]} xKey="date" height={200} formatter={fmtEur} xInterval={period === 7 && !sinceConnection ? 0 : Math.max(0, Math.floor(revenueByDay.length / 7) - 1)} />
       </Card>
 
       {/* Empilé pleine largeur sous le graphique, jamais en colonne à côté. */}
-      <CashByOrigin profileId={profileId} periodStart={periodStart} periodEnd={periodEnd} sinceConnection={sinceConnection} />
+      <CashByOrigin profileId={profileId} periodStart={periodStart} periodEnd={periodEnd} sinceConnection={sinceConnection} allTimeStart={allTimeStart} />
 
+      {/* Le tableau itérait sur `stripe.recentPayments`, la liste brute, alors que les
+          cartes juste au-dessus utilisent `allInPeriod`, la même liste filtrée sur la
+          période. Constaté à l'écran le 2026-08-30 : sur la semaine du 24 au 30 août, la
+          carte annonçait « paiements reçus (0) » pendant que le tableau affichait six
+          lignes des 19, 20 et 21 août. Trié du plus récent au plus ancien : le titre dit
+          « derniers », l'ordre de la source ne le garantissait pas. */}
       <div className="card">
         <div className="card-head">
           <div className="card-title">Derniers paiements</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)' }}>{libellePeriode}</div>
         </div>
+        {paiementsAffiches.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '28px 24px', fontSize: 13, color: 'var(--muted)' }}>
+            Aucun paiement sur la période
+          </div>
+        ) : (
         <table className="table" style={{ width: '100%' }}>
           <thead>
             <tr>
@@ -4993,20 +5129,28 @@ function TabRevenues({ stripe, calls, deals, period, periodIndex, onRefresh, ref
             </tr>
           </thead>
           <tbody>
-            {stripe.recentPayments.map((p, i) => (
-              <tr key={i} style={{ borderTop: '1px solid var(--border-soft)' }}>
-                <td style={{ padding: '10px', fontSize: 12, color: 'var(--muted)' }}>{new Date(p.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit' })}</td>
+            {paiementsAffiches.map((p, i) => {
+              const st = STATUT_PAIEMENT[p.status] ?? { label: p.status, color: 'var(--muted)' };
+              return (
+              <tr key={p.id || i} style={{ borderTop: '1px solid var(--border-soft)' }}>
+                {/* timeZone Europe/Paris explicite : la même date sert au graphique, qui
+                    la calcule en heure de Paris. Sans ça les deux se contredisent sur un
+                    paiement de fin de journée. */}
+                <td style={{ padding: '10px', fontSize: 12, color: 'var(--muted)' }}>{new Date(p.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit', timeZone: 'Europe/Paris' })}</td>
                 <td style={{ padding: '10px', fontSize: 12 }}>{p.description || '—'}</td>
                 <td style={{ padding: '10px', fontSize: 13, fontWeight: 700 }}>{fmtEur(p.amount)}</td>
                 <td style={{ padding: '10px' }}>
-                  <span style={{ fontSize: 11, color: p.status === 'succeeded' ? GREEN : RED, fontWeight: 600 }}>
-                    {p.status === 'succeeded' ? 'Réussi' : 'Échoué'}
-                  </span>
+                  {/* « Réussi sinon Échoué » peignait en rouge tout ce qui n'est pas
+                      `succeeded` — un remboursement, un litige ou un paiement en attente
+                      s'affichaient « Échoué », ce qu'ils ne sont pas. */}
+                  <span style={{ fontSize: 11, color: st.color, fontWeight: 600 }}>{st.label}</span>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
+        )}
       </div>
     </div>
   );
@@ -5438,7 +5582,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // La carte compte des PERSONNES (`lmEnvoyes`), la courbe comptait des INTERACTIONS :
   // un prospect qui recommente quatre fois le meme mot-cle en une heure ajoutait quatre
   // points. Deux unites sous le meme titre, et une courbe qui ne pouvait pas totaliser
-  // sa carte. Chaque personne compte desormais UNE fois, le jour de sa premiere
+  // la carte. Chaque personne compte desormais UNE fois, le jour de sa premiere
   // interaction de la periode.
   const leadsPerDay = new Map<string, number>();
   const premierJourParPersonne = new Map<string, string>();
@@ -6099,14 +6243,9 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         {selectedMetric === 'activation' && (
           <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
             <ResponsiveContainer width="100%" height={160}>
-              {/* BARRES et non courbes. Un taux d'activation n'existe que les jours ou
-                  quelque chose a ete envoye — quelques colonnes isolees sur un mois. Depuis
-                  que regrouperTaux rend un TROU (et non 0 %) sur denominateur nul, une
-                  courbe serait pleine de discontinuites, et une courbe absente se lit comme
-                  un graphique casse ; une barre absente se lit « rien ce jour-la ». */}
-              <ComposedChart data={activationSeries} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
+              <ReAreaChart data={activationSeries} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                 <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={!parJour ? fmtAxisBucket : (sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate)} interval={graduationsDates(activationSeries.length, sPeriod)} padding={{ left: 0, right: 0 }} />
-                <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={36} unit="%" domain={[0, 100]} />
+                <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={36} unit="%" domain={[-4, 100]} />
                 <Tooltip content={({ active, payload, label }) => !active || !payload?.length ? null : (
                   <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div>
                     {payload.map((p: any, i: number) => (
@@ -6115,9 +6254,9 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                   </div>
                 )} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="lm" name="LM" fill={AMBER} radius={[2, 2, 0, 0]} isAnimationActive={false} />
-                <Bar dataKey="calendly" name="Calendly" fill={BLUE} radius={[2, 2, 0, 0]} isAnimationActive={false} />
-              </ComposedChart>
+                <Area type="monotone" dataKey="lm" name="LM" stroke={AMBER} strokeWidth={2} fill="none" dot={todayDotFactory(AMBER, 'date', lastRealPointKey(activationSeries, 'date', 'lm'))} isAnimationActive={false} />
+                <Area type="monotone" dataKey="calendly" name="Calendly" stroke={BLUE} strokeWidth={2} fill="none" dot={todayDotFactory(BLUE, 'date', lastRealPointKey(activationSeries, 'date', 'calendly'))} isAnimationActive={false} />
+              </ReAreaChart>
             </ResponsiveContainer>
           </div>
         )}
@@ -6898,19 +7037,11 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                           <td style={{ position: 'sticky', left: 44, zIndex: 1, background: isSelected ? BLUE + '15' : 'var(--surface)', padding: '8px 10px', maxWidth: 200 }}>
                             <div style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>{row.title.slice(0, 45)}{row.title.length > 45 ? '…' : ''}</div>
                             <span style={{ fontSize: 9, fontWeight: 700, color: platformColor, background: platformColor + '18', borderRadius: 4, padding: '2px 5px' }}>{row.platform === 'STORY_SEQUENCE' ? 'STORY' : row.platform} · {row.type}</span>
-                            {/* ⚠️ CETTE MODALE EST UNE COPIE DU TABLEAU PRINCIPAL, et elle avait
-                                deja diverge trois fois : le badge de lead magnet manquait ici
-                                — il disparaissait donc des qu'on cliquait « Voir tout » — et
-                                les deux colonnes LM y gardaient un masquage corrige ailleurs.
-                                Toute modification du tableau doit etre faite AUX DEUX ENDROITS
-                                tant que la ligne n'est pas mutualisee. C'est la duplication
-                                qui est la cause, pas l'oubli. */}
-                            {row.lmName && <span style={{ fontSize: 9, fontWeight: 700, color: '#8B5CF6', background: '#8B5CF618', borderRadius: 4, padding: '2px 5px', marginLeft: 4 }}>{row.lmName}</span>}
                           </td>
                           <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.clicsDesc > 0 ? 700 : 400, color: row.clicsDesc > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.clicsDesc > 0 ? fmt(row.clicsDesc) : '—'}</td>
                           <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmDetectes > 0 ? 700 : 400, color: row.lmDetectes > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 ? row.lmDetectes : '—'}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmClics > 0 ? 700 : 400, color: row.lmClics > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 || row.lmClics > 0 ? (row.lmClics > 0 ? row.lmClics : '0') : '—'}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmReponses > 0 ? 700 : 400, color: row.lmReponses > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 || row.lmReponses > 0 ? (row.lmReponses > 0 ? row.lmReponses : '0') : '—'}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmClics > 0 ? 700 : 400, color: row.lmClics > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 ? (row.lmClics > 0 ? row.lmClics : '0') : '—'}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmReponses > 0 ? 700 : 400, color: row.lmReponses > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 ? (row.lmReponses > 0 ? row.lmReponses : '0') : '—'}</td>
                           <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.dmCount > 0 ? 700 : 400, color: row.dmCount > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.dmCount > 0 ? row.dmCount : '—'}</td>
                           <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.callsBooked > 0 ? 700 : 400, color: row.callsBooked > 0 ? GREEN : 'var(--faint)' }}>{row.callsBooked > 0 ? row.callsBooked : '—'}</td>
                           <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.callsHonored > 0 ? 700 : 400, color: row.callsHonored > 0 ? GREEN : 'var(--faint)' }}>{row.callsHonored > 0 ? row.callsHonored : '—'}</td>
@@ -7592,7 +7723,9 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     // `date` est conservé en alias de paid_at pour ne pas toucher aux consommateurs.
     supabase
       .from('deal_payments')
-      .select('amount, status, date:paid_at, deals!inner(profile_id)')
+      // `buyer_name` : la colonne « Description » du tableau des paiements affichait
+      // « — » sur toutes les lignes de ce chemin, faute d'etre selectionnee.
+      .select('id, amount, status, date:paid_at, deals!inner(profile_id, buyer_name)')
       .eq('deals.profile_id', targetId)
       .gte('paid_at', periodStart.toISOString())
       .lte('paid_at', periodEnd.toISOString())
@@ -7959,16 +8092,17 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     : null;
 
   // ── Stripe ──────────────────────────────────────────────────────────────────
-  const stripeHist = snaps.length > 0 ? {
-    mrr:                 lastSnap?.mrr ?? 0,
-    monthlyRevenue:      stripeRows.reduce((s: number, r: any) => s + (r.amount ?? 0), 0),
-    activeSubscriptions: lastSnap?.stripe_active_subs ?? 0,
-    availableBalance:    0,
-    recentPayments:      stripeRows.map((r: any) => ({
-      id: r.payment_id, amount: r.amount, currency: r.currency ?? 'eur',
-      description: r.description ?? null, date: r.date, status: r.status,
+  // Plus conditionne a `snaps.length > 0` : les paiements viennent de `deal_payments`,
+  // pas de `analytics_daily_snapshots`. Un mois sans snapshot Instagram/YouTube — donc
+  // sans collecte de contenu — rendait tout l'onglet Revenus muet (« Connecte ton compte
+  // Stripe ») alors que des ventes y avaient bien ete encaissees. Le cash ne depend pas
+  // de la collecte des reseaux sociaux.
+  const stripeHist = {
+    recentPayments: stripeRows.map((r: any) => ({
+      id: r.id, amount: Number(r.amount ?? 0), currency: 'eur',
+      description: r.deals?.buyer_name ?? '', date: r.date, status: r.status,
     })),
-  } : null;
+  };
 
   // ── Messages IG (scalaires depuis snapshots) ─────────────────────────────────
   const msgsHist = snaps.length > 0 ? {
@@ -8343,6 +8477,40 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     return integrationsReadyAt ? q.gte('signed_at', integrationsReadyAt) : q;
   });
 
+  // Cash collecte de la periode COURANTE — meme source et meme regle que les periodes
+  // passees (fetchSnapshot, qui lit deja `deal_payments`).
+  //
+  // ── Pourquoi ce changement ────────────────────────────────────────────────────
+  // La periode courante lisait `/api/stripe/client-data`, c'est-a-dire l'API Stripe en
+  // direct : `charges.list({ limit: 50 })` puis `.slice(0, 10)`, sans aucune borne de
+  // date. Trois consequences mesurees le 2026-08-30 sur le profil de test :
+  //
+  //   • le total ne comptait que les DIX derniers encaissements, tous mois confondus —
+  //     au-dela, le cash collecte sous-comptait en silence, et le taux de collecte avec ;
+  //   • il comptait des encaissements Stripe rattaches a AUCUNE vente (60 EUR de
+  //     paiements de test) et ignorait un reglement hors Stripe enregistre a la main
+  //     (500 EUR), alors que le bloc « Cash encaisse par origine » de la meme page, lui,
+  //     lit la base : 2 360 EUR affiches en carte contre 2 800 EUR juste en dessous ;
+  //   • tout l'onglet disparaissait derriere « Connecte ton compte Stripe » des que
+  //     l'appel echouait, alors que le compte etait connecte.
+  //
+  // La regle « on ne compte que les paiements rattaches a une vente » etait deja ecrite
+  // et datee (19/08/2026) dans le chemin des periodes passees. Elle n'avait simplement
+  // jamais ete portee ici. Les deux chemins lisent desormais la meme table.
+  //
+  // `paid_at` non nul : c'est la date qui borne la periode, et les lignes de
+  // remboursement/litige la portent a NULL par conception (webhook Stripe,
+  // recordPayment). Les exclure explicitement vaut mieux que de les perdre au detour
+  // d'un `gte`.
+  const dealPaymentsRows = await fetchAllPages<any>(() => {
+    const q = supabase.from('deal_payments')
+      .select('id, amount, status, paid_at, deals!inner(profile_id, buyer_name)')
+      .eq('deals.profile_id', targetId)
+      .not('paid_at', 'is', null)
+      .order('paid_at', { ascending: false });
+    return integrationsReadyAt ? q.gte('paid_at', integrationsReadyAt) : q;
+  });
+
   // Déduplique leads par ig_user_id — dernière interaction
   const seen = new Set<string>();
   const igLeads: MockLead[] = leadsRows
@@ -8588,7 +8756,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     }
   }
 
-  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, deals: dealsRows, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, hookRepliedEvents, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, joursCollectesShortio, premierJourCollecteShortio, integrationsReadyAt };
+  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, deals: dealsRows, dealPayments: dealPaymentsRows, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, hookRepliedEvents, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, joursCollectesShortio, premierJourCollecteShortio, integrationsReadyAt };
   } catch { return null; }
 }
 
@@ -8618,12 +8786,18 @@ async function fetchIntegrationStatus(profileId?: string) {
     .from('integrations')
     .select('provider, backfill_done, backfill_started_at, last_snapshot_status, last_snapshot_error, connected_at')
     .eq('profile_id', targetId)
-    .in('provider', ['instagram', 'youtube']);
+    .in('provider', ['instagram', 'youtube', 'stripe']);
 
   if (!data?.length) return null;
 
   const ig = data.find(r => r.provider === 'instagram');
   const yt = data.find(r => r.provider === 'youtube');
+  // Sert a l'onglet Revenus. La question « Stripe est-il branche ? » se lit ici, dans la
+  // table qui porte la reponse — pas au succes d'un appel a l'API Stripe. L'onglet
+  // affichait « Connecte ton compte Stripe » des que cet appel echouait (panne, quota,
+  // jeton revoque), donc un message faux sur un compte connecte, et il emportait avec
+  // lui les montants des ventes, qui ne dependent pas de Stripe.
+  const stripeConnected = data.some(r => r.provider === 'stripe');
 
   const latestSnap = await supabase
     .from('analytics_daily_snapshots')
@@ -8648,6 +8822,7 @@ async function fetchIntegrationStatus(profileId?: string) {
       snapshotError: yt.last_snapshot_error,
       connectedAt: yt.connected_at,
     } : null,
+    stripeConnected,
     latestSnapshotDate: latestSnap.data?.date ?? null,
     latestSnapshotUpdatedAt: latestSnap.data?.updated_at ?? null,
   };
@@ -8787,18 +8962,35 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
     } : ytRaw
   ) : null;
 
-  // Stripe — onglets 0, 5
-  const { data: stripeRaw, refetch: refetchStripe } = useQuery<StripeStats | null>({
-    queryKey: ['stats-stripe', profileId],
-    queryFn: () => fetchApi(`/api/stripe/client-data${q}`),
-    enabled: [0, 5].includes(tab),
-    staleTime: 5 * 60 * 1000,
-  });
-  const stripe: StripeStats | null = stripeRaw ?? null;
+  // Revenus de la periode courante — lus en base, plus par un appel a l'API Stripe.
+  //
+  // L'appel `/api/stripe/client-data` a disparu d'ici : il ne renvoyait que les DIX
+  // derniers encaissements du compte, sans borne de date, et cette liste alimentait a la
+  // fois le total « Cash collecte », le graphique et le tableau de l'onglet Revenus. Elle
+  // en faisait trois affichages faux des qu'un mois portait plus de dix paiements, et
+  // elle mettait un appel reseau externe sur le chemin d'affichage de chaque visite.
+  // Les periodes passees lisaient deja `deal_payments` ; la periode courante le fait
+  // desormais aussi (voir fetchSupabaseStats). Le reste de la reponse de la route —
+  // `mrr`, `activeSubscriptions`, `availableBalance` — n'etait lu nulle part.
+  const stripe: StripeStats | null = supaData?.dealPayments
+    ? {
+        recentPayments: (supaData.dealPayments as any[]).map(r => ({
+          id: r.id,
+          amount: Number(r.amount ?? 0),
+          currency: 'eur',
+          // `deal_payments` ne porte pas de libelle : Stripe en donnait un, souvent
+          // saisi a la volee sur le lien de paiement. Le nom de l'acheteur dit qui a
+          // paye, ce que la colonne « Description » cherchait a dire.
+          description: r.deals?.buyer_name ?? '',
+          date: r.paid_at,
+          status: r.status,
+        })),
+      }
+    : null;
 
   async function handleStripeRefresh() {
     setStripeRefreshing(true);
-    await refetchStripe();
+    await refetchSupa();
     setStripeRefreshing(false);
   }
 
@@ -9172,7 +9364,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.yt?.snapshotError} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} allTimeStart={allTimeStart} profileId={profileId} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} />}
           {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} hookRepliedEvents={hookRepliedEvents} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={callsAllTimeEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} shortioChartHistoryStory={shortioChartHistoryStory} joursCollectesShortio={joursCollectesShortio} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
-          {tab === 5 && <TabRevenues stripe={stripeEff} calls={callsEff} deals={dealsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} />}
+          {tab === 5 && <TabRevenues stripe={stripeEff} deals={dealsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} allTimeStart={allTimeStart} stripeConnected={integStatus?.stripeConnected} />}
         </>
       )}
     </div>
