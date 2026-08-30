@@ -5400,9 +5400,31 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // aujourd'hui] par le fetch — ne rien re-clipper avec la fenêtre du mois/semaine en cours.
   const periodCutoff = periodStart.getTime();
   const periodEndMs = periodEnd.getTime();
+  // All-Time : MEME borne basse que les graphiques (`allTimeStart`).
+  //
+  // `if (sinceConnection) return !!ts` acceptait TOUT, sans limite dans le passe, alors
+  // que les courbes demarrent a `allTimeStart`. Un evenement anterieur etait donc
+  // compte dans la carte et jamais trace : constate le 2026-08-30 sur « Liens Calendly
+  // envoyes DM » — carte 3, courbe 2, le troisieme etant un lien du 7 juin quand
+  // l'All-Time de ce profil commence le 9. Deux fenetres pour une meme metrique, meme
+  // famille que « filtrer sur une date et decouper sur une autre ».
+  //
+  // EN PRODUCTION, RIEN NE PEUT EXISTER AVANT CETTE DATE — et c'est voulu.
+  // `app/(client)/layout.tsx` verrouille l'acces tant que les 7 integrations ne sont
+  // pas connectees : l'eleve ne voit que l'ecran de connexion, donc aucun lead magnet
+  // ne part et aucun lien n'est cree. Le commentaire de ce verrou le dit en toutes
+  // lettres — « le verrou fait coincider les deux dates par construction » — et
+  // precise pourquoi : sans lui, un eleve accumulait des calls avant le demarrage de
+  // la collecte de clics, et l'entonnoir divisait des calls par des clics inexistants.
+  //
+  // Cette borne n'est donc pas une parade defensive : elle FAIT RESPECTER un invariant
+  // que le verrou promet deja. Un evenement anterieur ne peut etre qu'une trace de
+  // developpement — comme le lien du 7 juin sur le profil de test — et le compter
+  // reviendrait a mesurer une periode ou la plateforme n'etait pas en service.
+  const allTimeCutoff = allTimeStart ? new Date(allTimeStart).getTime() : null;
   const isInPeriod = (ts: string | null | undefined) => {
-    if (sinceConnection) return !!ts;
     if (!ts) return false;
+    if (sinceConnection) return allTimeCutoff === null || new Date(ts).getTime() >= allTimeCutoff;
     const t = new Date(ts).getTime();
     return t >= periodCutoff && (_pIdx === 0 || t <= periodEndMs);
   };
