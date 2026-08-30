@@ -107,9 +107,10 @@ Sync Calendly (30 min) · Notify rapport call (30 min) · `poll-leads` (5 min) �
 
 ⚠️ Ne rien mettre dans `vercel.json` — il est volontairement vide.
 
-Le ping de santé Stripe **n'écrit rien quand tout va bien** : `integrations.status = 'ok'`
-ne prouve donc pas qu'il a tourné. La preuve est le corps de sa réponse dans
-l'historique cron-job.org — `{"ok":true,"testes":N,"vivantes":N,"pannes":0}`.
+Le ping de santé Stripe ne déclare une panne qu'en cas d'échec d'appel — un silence
+ne prouverait donc pas qu'il tourne. Il **horodate chaque passage**, succès ou échec,
+dans `integrations.last_synced_at`, et `integrations_sante` signale son absence
+au-delà de 2 jours (`etat_collecte = 'ping_absent'`). Rien à aller lire à la main.
 
 # Santé de la plateforme
 
