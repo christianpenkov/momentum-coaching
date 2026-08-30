@@ -44,6 +44,20 @@ function phrase(i: IntegrationSante): string {
       ? `${i.libelle} refuse la connexion — les données s’arrêtent au ${depuis}.`
       : `${i.libelle} refuse la connexion — plus rien n’est collecté.`;
   }
+  // Cas a part : ce n'est PAS l'integration qui est en peine, c'est sa SURVEILLANCE.
+  // Stripe ne collecte rien quotidiennement — son etat ne se connait qu'en
+  // l'appelant, ce que fait /api/stripe/cron-health une fois par jour. Si ce ping
+  // s'arrete, aucun chiffre ne devient faux : c'est la capacite a detecter une panne
+  // qui disparait. Dire « Stripe ne repond plus, les chiffres s'arretent la »
+  // serait doublement faux, et c'est exactement la phrase qui s'est affichee le
+  // 2026-08-30 avant cette correction.
+  if (i.etat_collecte === 'ping_absent') {
+    const depuisPing = dateLisible(i.derniere_donnee);
+    return depuisPing
+      ? `La surveillance de ${i.libelle} ne tourne plus depuis le ${depuisPing} — une panne de paiement passerait inaperçue. Les chiffres, eux, restent justes.`
+      : `La surveillance de ${i.libelle} ne tourne plus — une panne de paiement passerait inaperçue.`;
+  }
+
   const depuis = dateLisible(i.derniere_donnee);
   const retard = i.retard_jours ?? 0;
   if (retard > 1 && depuis) {
