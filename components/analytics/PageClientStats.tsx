@@ -4163,7 +4163,13 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
     // Ce taux-ci n'a pas besoin des opportunites : ses DEUX termes comptent des
     // rendez-vous, donc une continuation les fait monter tous les deux ensemble.
     { label: 'Calls honorés', value: fmt(igHonores), rawValue: igHonores, rate: igBookes > 0 ? (igHonores / igBookes) * 100 : 0 },
-    { label: 'Deals closés', value: fmt(igCloses), rawValue: igCloses, rate: igOpportunites > 0 ? (igCloses / igOpportunites) * 100 : undefined },
+    // Le denominateur du close rate n'est PAS l'etage precedent : c'est le nombre
+    // d'OPPORTUNITES honorees (regle 6 du referentiel). Des qu'un 2e rendez-vous
+    // existe, les deux nombres different — 13 honores pour 12 opportunites — et un
+    // lecteur qui refait le calcul tombe sur un ecart inexplique. On l'ecrit, et
+    // seulement quand il y a quelque chose a expliquer.
+    { label: 'Deals closés', value: fmt(igCloses), rawValue: igCloses, rate: igOpportunites > 0 ? (igCloses / igOpportunites) * 100 : undefined,
+      noteTaux: igOpportunites !== igHonores ? `sur ${igOpportunites} opportunités — un 2ᵉ rendez-vous ne recompte pas` : undefined },
     { label: 'Revenue', value: fmtEur(igRev), rawValue: igRev },
   ];
 
@@ -4182,7 +4188,13 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
     // Ce taux-ci n'a pas besoin des opportunites : ses DEUX termes comptent des
     // rendez-vous, donc une continuation les fait monter tous les deux ensemble.
     { label: 'Calls honorés', value: fmt(ytHonores), rawValue: ytHonores, rate: ytBookes > 0 ? (ytHonores / ytBookes) * 100 : 0 },
-    { label: 'Deals closés', value: fmt(ytCloses), rawValue: ytCloses, rate: ytOpportunites > 0 ? (ytCloses / ytOpportunites) * 100 : undefined },
+    // Le denominateur du close rate n'est PAS l'etage precedent : c'est le nombre
+    // d'OPPORTUNITES honorees (regle 6 du referentiel). Des qu'un 2e rendez-vous
+    // existe, les deux nombres different — 13 honores pour 12 opportunites — et un
+    // lecteur qui refait le calcul tombe sur un ecart inexplique. On l'ecrit, et
+    // seulement quand il y a quelque chose a expliquer.
+    { label: 'Deals closés', value: fmt(ytCloses), rawValue: ytCloses, rate: ytOpportunites > 0 ? (ytCloses / ytOpportunites) * 100 : undefined,
+      noteTaux: ytOpportunites !== ytHonores ? `sur ${ytOpportunites} opportunités — un 2ᵉ rendez-vous ne recompte pas` : undefined },
     { label: 'Revenue', value: fmtEur(ytRev), rawValue: ytRev },
   ];
 
@@ -4300,7 +4312,13 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
           { label: 'Calls YT',      value: fmt(ytBookes),      sub: `${ytCloses} closés` },
           { label: 'Calls honorés', value: fmt(totalHonores),  sub: `${noShowRate}% no-show` },
           { label: 'No-show',       value: fmt(noShowCount),   sub: `${noShowRate}% des bookés` },
-          { label: 'Deals closés',  value: fmt(totalCloses),   sub: `${closingRate}% closing` },
+          // Le sous-titre nomme le denominateur des qu'il s'ecarte du nombre d'honores
+          // affiche juste a cote : « 57% closing » a cote de « 15 honores » se
+          // recalcule en 8/15 = 53 %, et l'ecart reste inexplique.
+          { label: 'Deals closés',  value: fmt(totalCloses),
+            sub: totalOpportunites !== totalHonores
+              ? `${closingRate}% sur ${totalOpportunites} opportunités`
+              : `${closingRate}% closing` },
           { label: 'Revenue total', value: fmtEur(totalRev),   sub: 'cumulé' },
           { label: 'Rev / call',    value: fmtEur(revPerCall), sub: 'par call booké' },
         ];
