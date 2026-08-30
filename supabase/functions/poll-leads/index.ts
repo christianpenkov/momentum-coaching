@@ -416,10 +416,28 @@ async function fetchIgDayMetrics(token: string, igAccountId: string, date: strin
   // (copies quasi identiques de cette fonction, voir commentaire ig-metrics-core.ts:6-12),
   // lib/yt-fetch.ts (yt_views etc.), et les upserts shortio_clicks/shortio_human_clicks
   // de ce fichier + app/api/instagram/poll-leads/route.ts + app/api/shortio/refresh-today/route.ts.
+  // ⚠️ DEUX natures de donnees, volontairement separees — ne PAS les refusionner.
+  //
+  // `jour` : des metriques DATEES. Meta les rend pour la journee demandee, elles
+  // valent pour elle et pour aucune autre.
+  //
+  // `compte` : l'ETAT ACTUEL du compte (`?fields=followers_count`), sans aucune date.
+  // Elle ne vaut que pour aujourd'hui.
+  //
+  // Elles vivaient dans un seul objet, et les appelants faisaient `...metrics` sur la
+  // ligne qu'ils ecrivaient. Le nombre d'abonnes DU JOUR se retrouvait donc ecrit sur
+  // des dates passees — le rattrapage remonte jusqu'a 720 jours. Constate en base le
+  // 2026-08-30 : les lignes du 22 juillet au 18 aout, toutes ecrites le 27 aout par le
+  // rattrapage, portaient toutes 255 abonnes, la valeur live de ce jour-la. La colonne
+  // ig_followers n'etait pas un historique mais « la derniere valeur connue au moment
+  // ou la ligne a ete touchee », et les deux graphiques qui la lisent (« Abonnes » et
+  // « Abonnes nets ») en heritaient.
+  //
+  // La separation rend l'erreur impossible : `...jour` ne peut plus emporter l'etat du
+  // compte par megarde.
   return {
+   jour: {
     ig_reach:              insightMap['reach'] !== undefined ? sum(insightMap['reach']) : null,
-    ig_followers:          accountData.followers_count ?? null,
-    ig_following:          accountData.follows_count ?? null,
     ig_views:              tvMap['views'] ?? null,
     ig_follows_unfollows:  sommeBreakdown(followsBdData),
     ig_profile_taps:       tvMap['profile_links_taps'] ?? null,
@@ -448,6 +466,12 @@ async function fetchIgDayMetrics(token: string, igAccountId: string, date: strin
     ig_reach_follower:     reachFollower ?? (reachTotalJour === 0 ? 0 : null),
     ig_reach_non_follower: reachNonFollower ?? (reachTotalJour === 0 ? 0 : null),
     ig_response_rate:      null,
+   },
+   // N'ecrire QUE sur la ligne du jour courant. Voir le commentaire ci-dessus.
+   compte: {
+    ig_followers:          accountData.followers_count ?? null,
+    ig_following:          accountData.follows_count ?? null,
+   },
   };
 }
 
@@ -1950,7 +1974,10 @@ async function rattraperTrousIg(profileId: string, token: string, igAccountId: s
       // pouvoir se terminer. Ces journees seront reprises au passage suivant.
       if (!resteDuTempsPourRattraper()) break;
       try {
-        const metrics = await fetchIgDayMetrics(token, igAccountId, t.date);
+        // `jour` seulement : ecrire `compte` ici tamponnerait le nombre d'abonnes
+        // d'AUJOURD'HUI sur une journee vieille de plusieurs semaines. C'est la source
+        // exacte de la courbe d'abonnes plate constatee le 2026-08-30.
+        const { jour: metrics } = await fetchIgDayMetrics(token, igAccountId, t.date);
         // Ne pas ecrire une ligne vide : si Meta ne renvoie rien pour ce jour, mieux
         // vaut laisser le trou que d'y poser des null qui empecheraient un nouvel essai
         // de se distinguer d'un echec.
@@ -2066,6 +2093,21 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
     .maybeSingle();
   const igDernierSync = igIntegration?.last_synced_at ? new Date(igIntegration.last_synced_at).getTime() : 0;
   const igDoitSync = Date.now() - igDernierSync >= IG_INTERVALLE_MS;
+
+  // Premier passage suivant minuit (heure de Paris) — deduit de `igDernierSync`, deja
+  // lu : aucune requete supplementaire. C'est lui qui autorise l'unique refetch de la
+  // journee d'hier, au lieu des 24 d'avant.
+  //
+  // Un profil dont l'integration vient d'etre connectee a igDernierSync = 0 : il tombe
+  // donc dans « premier passage », ce qui est le comportement voulu.
+  const minuitParisMs = (() => {
+    const maintenant = new Date();
+    const paris = new Date(maintenant.getTime() + parisOffsetHours(maintenant) * 3600_000);
+    const depuisMinuit = ((paris.getUTCHours() * 60 + paris.getUTCMinutes()) * 60 + paris.getUTCSeconds()) * 1000
+      + paris.getUTCMilliseconds();
+    return maintenant.getTime() - depuisMinuit;
+  })();
+  const igPremierPassageDuJour = igDernierSync < minuitParisMs;
   // Le rattrapage n'a plus de garde « une fois par jour » : il se limite lui-meme
   // dans le temps (BUDGET_RATTRAPAGE_MS) et sort sans le moindre appel reseau quand
   // il n'y a rien a combler. Le gater une fois par jour ne protegeait plus rien et
@@ -2092,22 +2134,25 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
   if (igCreds) {
     const [igMetricsResult, igPostsResult, igRattrapageResult, igPeriodesResult] = await Promise.allSettled([
       (async () => {
-        const metrics = await fetchIgDayMetrics(igCreds.token, igCreds.igAccountId, yesterday);
-        const { error } = await supa.from('analytics_daily_snapshots').upsert({ profile_id: profileId, date: yesterday, ...metrics, backfill_source: 'cron' }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
-        if (error) throw new Error(error.message);
-        // ig_followers/ig_following viennent de accountData.followers_count/follows_count
-        // (état ACTUEL du compte, pas une vraie métrique period=day datée) — le cron
-        // n'écrivant que la ligne "hier", le nombre
-        // d'abonnés du jour COURANT restait à null jusqu'au lendemain matin (décalage
-        // d'un jour entre le vrai changement et la date où il apparaît). Écrit aussi ces
-        // deux colonnes (seulement elles, sans écraser reach/engagement/interactions qui
-        // nécessiteraient un vrai appel daté sur aujourd'hui) sur la ligne du jour même.
-        if (metrics.ig_followers != null || metrics.ig_following != null) {
-          await supa.from('analytics_daily_snapshots').upsert({
-            profile_id: profileId, date: todayStr,
-            ig_followers: metrics.ig_followers, ig_following: metrics.ig_following,
-            backfill_source: 'cron',
-          }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
+        // ── La journee d'HIER : une seule fois par jour ────────────────────────
+        //
+        // Elle etait refetchee a CHAQUE passage horaire, soit 6 appels x 24 pour une
+        // journee terminee. Inutile : la ligne du jour J est deja ecrite toutes les
+        // heures PENDANT le jour J (bloc « aujourd'hui » plus bas), sa derniere
+        // ecriture tombe donc vers 23 h et vaut deja quasiment la cloture.
+        //
+        // Ce passage-ci ne sert plus qu'a recuperer l'agregation tardive de Meta, une
+        // fois, apres minuit. Gain mesure : 288 -> 150 appels par jour et par eleve.
+        //
+        // `igDernierSync` est deja lu plus haut : aucune requete supplementaire.
+        // Si ce passage echoue, la ligne d'hier garde sa valeur de 23 h — proche de la
+        // verite — et les vrais trous restent du ressort de rattraperTrousIg.
+        if (igPremierPassageDuJour) {
+          // `jour` seulement : `compte` n'a pas de date et ne doit jamais atterrir sur
+          // une ligne autre que celle d'aujourd'hui.
+          const { jour } = await fetchIgDayMetrics(igCreds.token, igCreds.igAccountId, yesterday);
+          const { error } = await supa.from('analytics_daily_snapshots').upsert({ profile_id: profileId, date: yesterday, ...jour, backfill_source: 'cron' }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
+          if (error) throw new Error(error.message);
         }
         // Toutes les métriques day=period (reach, views, accounts_engaged,
         // total_interactions, etc.) : même besoin que ig_followers ci-dessus, mais elles
@@ -2119,11 +2164,18 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
         // même appel API, mais seuls accounts_engaged/total_interactions étaient persistés
         // — le reste était calculé puis jeté sans raison (oubli, pas une limite Meta).
         try {
-          const todayMetrics = await fetchIgDayMetrics(igCreds.token, igCreds.igAccountId, todayStr);
-          const { ig_followers: _tf, ig_following: _tg, ...todayMetricsNoAccount } = todayMetrics;
+          // ── La journee d'AUJOURD'HUI : a chaque passage horaire ───────────────
+          //
+          // C'est ce bloc qui construit l'historique. La ligne du jour J est reecrite
+          // toutes les heures pendant J, donc sa derniere valeur est celle de fin de
+          // journee — exactement ce que « nombre d'abonnes ce jour-la » doit valoir.
+          //
+          // `compte` est ecrit ICI et NULLE PART AILLEURS : c'est l'etat live du
+          // compte, il n'est juste que pour aujourd'hui.
+          const { jour, compte } = await fetchIgDayMetrics(igCreds.token, igCreds.igAccountId, todayStr);
           await supa.from('analytics_daily_snapshots').upsert({
             profile_id: profileId, date: todayStr,
-            ...todayMetricsNoAccount,
+            ...jour, ...compte,
             backfill_source: 'cron',
           }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
         } catch (e) { console.error(`[poll-leads] todayMetrics IG (${profileId}):`, (e as Error).message); }

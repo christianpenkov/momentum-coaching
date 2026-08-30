@@ -197,3 +197,64 @@ npx supabase functions deploy poll-leads --project-ref nvjgwtetyuatnkjihmtw --no
 select * from ig_sante_donnees;
 select * from cron_runs order by ran_at desc;
 ```
+
+## Le compteur d'abonnés n'etait pas un historique (2026-08-30)
+
+`ig_followers` vient de `?fields=followers_count` — l'**etat actuel** du compte, sans
+aucune date. Il etait melange aux metriques datees dans le retour de
+`fetchIgDayMetrics`, et les appelants faisaient `...metrics` sur la ligne qu'ils
+ecrivaient. Le nombre d'abonnes d'aujourd'hui atterrissait donc sur des dates passees —
+le rattrapage remonte jusqu'a 720 jours.
+
+Constate en base : les lignes du **22 juillet au 18 aout**, toutes ecrites le **27 aout**
+par le rattrapage (`ecrit_n_jours_apres` decroit de 1 exactement chaque jour), portaient
+**toutes 255 abonnes** — la valeur live ce jour-la. La colonne valait « derniere valeur
+connue au moment ou la ligne a ete touchee », pas « abonnes ce jour-la ».
+
+Les deux graphiques qui la lisent en heritaient : **Abonnes** (cumulatif) et
+**Abonnes nets** (calcule en delta jour a jour, donc plat a zero).
+
+⚠️ Sur le compte de test le degat est invisible : il est reellement reste autour de
+254-256 pendant des mois. Il devient tres visible sur un compte qui gagne des abonnes,
+c'est-a-dire les eleves reels.
+
+Le chemin Node (`lib/ig-fetch.ts`, `upsertIgSnapshot`) portait **deja** la garde, avec un
+commentaire decrivant le meme incident du 2026-07-06 (« 60 jours d'historique aplatis a
+la meme valeur avant d'etre restaures a la main »). La copie Deno ne l'avait jamais
+recue.
+
+**Correctif** : `fetchIgDayMetrics` rend desormais `{ jour, compte }`. `compte` n'est
+ecrit que sur la ligne d'aujourd'hui, jamais ailleurs. La frontiere est dans le type, pas
+dans un commentaire — elle ne peut plus se reperdre a la copie suivante.
+
+Rien a retrocorriger : l'historique existant reste tel quel et se reconstruit tout seul,
+un jour a la fois. Une reconstruction retroactive serait approximative de toute facon,
+`follower_count` ne comptant que les gains, pas les desabonnements.
+
+## Cadence du bloc metriques de compte (2026-08-30)
+
+`fetchIgDayMetrics` etait appele **deux fois par passage horaire** (hier + aujourd'hui),
+soit 6 x 2 x 24 = **288 appels par jour et par eleve** — contre 36 pour les contenus
+apres leur refonte.
+
+Refetcher la journee d'HIER 24 fois n'apportait rien : la ligne du jour J est deja
+ecrite toutes les heures PENDANT le jour J, sa derniere ecriture tombe vers 23 h et vaut
+deja quasiment la cloture. Ce refetch ne sert qu'a recuperer l'agregation tardive de
+Meta, une fois, apres minuit.
+
+Il est desormais conditionne a `igPremierPassageDuJour`, deduit de `last_synced_at` deja
+lu (aucune requete supplementaire). **288 -> 150 appels par jour et par eleve.**
+
+### Comment ces deux corrections ont ete verifiees
+
+`updated_at` de la ligne ne prouve rien : les blocs calls et Stripe upsertent aussi sur
+`date: yesterday` a chaque passage et la font bouger. Un premier test a conclu a tort que
+le garde-fou ne marchait pas.
+
+La preuve s'obtient par **valeur sentinelle** dans la colonne visee :
+
+| test | sentinelle | resultat |
+|---|---|---|
+| premier passage du jour | `ig_followers = 999` sur hier | reste 999 → l'etat du compte n'est plus ecrit sur une date passee |
+| second passage du jour | `ig_views = 12345` sur hier | reste 12345 → hier n'est plus refetche |
+

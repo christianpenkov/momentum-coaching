@@ -98,6 +98,43 @@ reconnexions groupées), et ils tombent alors tous dans la même invocation.
 
 ---
 
+## 3 bis. Ne jamais écrire un ÉTAT ACTUEL sur une ligne datée
+
+Deux natures de données se ressemblent dans une réponse d'API et n'ont rien à
+voir :
+
+| | exemple | valable pour |
+|---|---|---|
+| **métrique datée** | `insights?metric=reach&period=day&since=…` | la journée demandée |
+| **état actuel** | `?fields=followers_count` | aujourd'hui, point |
+
+Mélangées dans un même objet, un `...metrics` sur une ligne datée écrit l'état
+d'aujourd'hui sur une date passée. Le rattrapage aggrave tout : il rejoue de
+vieilles journées et les tamponne toutes avec la valeur du jour.
+
+> Instagram : `ig_followers` venait de `followers_count`. Constaté en base le
+> 2026-08-30 — les lignes du 22 juillet au 18 août, **toutes écrites le 27 août**
+> par le rattrapage, portaient **toutes 255 abonnés**, la valeur live ce jour-là.
+> La colonne n'était pas un historique mais « la dernière valeur connue au moment
+> où la ligne a été touchée ». Les deux graphiques qui la lisent en héritaient.
+>
+> Le chemin Node portait **déjà** la garde, avec un commentaire décrivant le même
+> incident du 2026-07-06 (« 60 jours d'historique aplatis »). La copie Deno ne
+> l'avait jamais reçue. Motif « deux copies, une seule à jour ».
+
+**Le correctif qui tient** : séparer les deux natures dans le type de retour
+(`{ jour, compte }`), pour que `...jour` ne PUISSE plus emporter l'état. Une
+règle dans un commentaire se reperd à la copie suivante ; une frontière dans le
+type, non.
+
+⚠️ **Mesurer avec un signal spécifique.** `updated_at` de la ligne ne prouve
+rien : d'autres écrivains (calls, Stripe) la touchent au même passage. Poser une
+**valeur sentinelle** dans la colonne visée, relancer, et regarder si elle
+survit — c'est le seul test qui distingue « mon bloc n'a pas écrit » de « la
+ligne n'a pas bougé ».
+
+---
+
 ## 4. Horodater même en cas d'échec
 
 ```javascript
