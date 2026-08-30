@@ -18,6 +18,10 @@ import {
   AreaChart as ReAreaChart, Area,
 } from 'recharts';
 import { getPeriodWindow, parisDateStr, parisAddDays } from '@/lib/period';
+// La regle unique de « l'argent reellement encaisse » : encaisse - rembourse -
+// conteste. Cet ecran la recopiait implicitement en ne gardant que `succeeded`,
+// donc sans jamais deduire un remboursement.
+import { calculerCash, type LignePaiement } from '@/lib/dealCash';
 import { granulariteFenetre, regrouperComptage, regrouperTaux, libelleBucket, type Granularite } from '@/lib/chart-buckets';
 // Listes de catégories : UNE seule définition (lib/shortio-link-category.ts). Elles
 // étaient recopiées trois fois dans ce fichier (TOTAL_CLICS_CATS, SNAP_BUSINESS_CATS,
@@ -252,6 +256,8 @@ function CoverageNotice({ periodStartStr, integrationsReadyAt }: {
  *  créé hors pipeline (upsell, vente directe) — c'est précisément le cas que la somme
  *  des `calls.revenue` ne voyait pas. */
 type DealRecord = {
+  /** Sert à rapporter les paiements d'un deal à ce deal — taux de collecte par cohorte. */
+  id?: string;
   amount_total: number | string;
   status?: string | null;
   signed_at?: string | null;
@@ -4904,7 +4910,7 @@ const STATUT_PAIEMENT: Record<string, { label: string; color: string }> = {
   failed:    { label: 'Échoué', color: RED },
 };
 
-function TabRevenues({ stripe, deals, period, periodIndex, onRefresh, refreshing, sinceConnection, profileId, allTimeStart, stripeConnected }: { stripe: StripeStats | null; deals?: DealRecord[]; period: Period; periodIndex: number; onRefresh?: () => void; refreshing?: boolean; sinceConnection?: boolean; profileId?: string; allTimeStart?: string | null; stripeConnected?: boolean }) {
+function TabRevenues({ stripe, paiementsCohorte, deals, period, periodIndex, onRefresh, refreshing, sinceConnection, profileId, allTimeStart, stripeConnected }: { stripe: StripeStats | null; paiementsCohorte?: { deal_id?: string; amount: number | string | null; status: string | null }[]; deals?: DealRecord[]; period: Period; periodIndex: number; onRefresh?: () => void; refreshing?: boolean; sinceConnection?: boolean; profileId?: string; allTimeStart?: string | null; stripeConnected?: boolean }) {
   // Le test portait sur `stripe` — donc sur le succès d'un appel à l'API Stripe. Une
   // panne de cet appel affichait « Connecte ton compte Stripe » sur un compte pourtant
   // connecté, et emportait avec elle les montants des ventes, qui vivent en base et ne
@@ -4962,9 +4968,37 @@ function TabRevenues({ stripe, deals, period, periodIndex, onRefresh, refreshing
   });
   const cashContracte = dealsInPeriod.reduce((s, d) => s + Number(d.amount_total || 0), 0);
 
-  // Number() explicite : les numeric Postgres arrivent en chaîne, et une
-  // concaténation silencieuse ("10" + "20" = "1020") passerait le typage.
-  const cashCollecte = succeeded.reduce((s, p) => s + Number(p.amount || 0), 0);
+  // NET, pas brut : encaissé − remboursé − contesté, via `calculerCash`, la règle
+  // partagée de lib/dealCash.ts. La somme des seuls `succeeded` affichait 1 000 € là
+  // où la page Paiements affichait 800 € sur le même deal. Number() est fait à
+  // l'intérieur : les numeric Postgres arrivent en chaîne, et une concaténation
+  // silencieuse ("10" + "20" = "1020") passerait le typage.
+  const cashCollecte = calculerCash(allInPeriod as unknown as LignePaiement[]).net;
+
+  // ── Taux de collecte, par COHORTE de deals signés ────────────────────────────
+  //
+  // Numérateur et dénominateur portent sur les MÊMES deals : ceux signés dans la
+  // période. On somme TOUS leurs paiements, sans les borner sur la fenêtre.
+  //
+  // L'ancienne formule rapportait « l'argent rentré pendant la période » à « l'argent
+  // vendu pendant la période » — deux ensembles de deals différents. Une échéance
+  // encaissée ce mois-ci sur un deal signé le mois dernier comptait au numérateur sans
+  // compter au dénominateur : le taux pouvait dépasser 100 %, et s'affichait alors en
+  // vert vif, ce qui se lisait comme une performance.
+  //
+  // Contrepartie assumée : un mois passé peut voir son taux MONTER plus tard, au fur et
+  // à mesure que les échéances de ses ventes tombent. C'est le sens même de la
+  // question posée (« sur ce que j'ai vendu ce mois-là, combien est rentré à ce
+  // jour »). Décision de Chris, 2026-08-30.
+  const parDeal = new Map<string, LignePaiement[]>();
+  for (const p of paiementsCohorte ?? []) {
+    if (!p.deal_id) continue;
+    const l = parDeal.get(p.deal_id) ?? [];
+    l.push({ amount: p.amount, status: p.status });
+    parDeal.set(p.deal_id, l);
+  }
+  const cashCollecteCohorte = dealsInPeriod.reduce(
+    (s, d) => s + (d.id ? calculerCash(parDeal.get(d.id) ?? []).net : 0), 0);
   // Panier moyen = ce que vaut une VENTE, donc sur le contracté et le nombre de deals —
   // pas sur le collecté divisé par le nombre de paiements, qui ferait chuter la moyenne
   // dès qu'un deal est payé en 3× (3 paiements pour 1 vente).
@@ -4979,7 +5013,7 @@ function TabRevenues({ stripe, deals, period, periodIndex, onRefresh, refreshing
   // null et non 0 quand il n'y a rien à collecter : « 0 % » en rouge sur une période
   // sans aucune vente affirme un échec là où il n'y a rien à mesurer. Constaté à
   // l'écran sur mai 2026 et sur la semaine en cours.
-  const cashCollectePct = cashContracte > 0 ? Math.round((cashCollecte / cashContracte) * 100) : null;
+  const cashCollectePct = cashContracte > 0 ? Math.round((cashCollecteCohorte / cashContracte) * 100) : null;
 
   // ── Ventilation par jour ────────────────────────────────────────────────────
   //
@@ -5003,11 +5037,17 @@ function TabRevenues({ stripe, deals, period, periodIndex, onRefresh, refreshing
   const graphe: { rows: { date: string; ca: number; contracte: number }[]; parSemaine: boolean } = (() => {
     const todayStr = parisDateStr(new Date());
     // Regroupement en un passage, sur le jour de Paris de chaque montant.
-    const caParJour = new Map<string, number>();
-    for (const p of succeeded) {
+    // Net, comme la carte : un remboursement porte désormais la date du paiement
+    // qu'il annule, il retombe donc dans la même barre et la creuse d'autant.
+    const lignesParJour = new Map<string, LignePaiement[]>();
+    for (const p of allInPeriod) {
       const j = parisDateStr(new Date(p.date));
-      caParJour.set(j, (caParJour.get(j) ?? 0) + Number(p.amount || 0));
+      const l = lignesParJour.get(j) ?? [];
+      l.push({ amount: p.amount, status: p.status });
+      lignesParJour.set(j, l);
     }
+    const caParJour = new Map<string, number>();
+    for (const [j, lignes] of lignesParJour) caParJour.set(j, calculerCash(lignes).net);
     const contracteParJour = new Map<string, number>();
     for (const d of dealsInPeriod) {
       if (!d.signed_at) continue;
@@ -5096,7 +5136,11 @@ function TabRevenues({ stripe, deals, period, periodIndex, onRefresh, refreshing
         <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
           <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Taux de cash collecté</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: cashCollectePct === null ? 'var(--muted)' : cashCollectePct >= 80 ? GREEN : cashCollectePct >= 50 ? AMBER : RED, lineHeight: 1 }}>{cashCollectePct === null ? '—' : `${cashCollectePct}%`}</div>
-          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>{cashCollectePct === null ? 'aucune vente à collecter' : 'collecté / contracté'}</div>
+          {/* Le sous-titre dit quels deals sont comptés : sans ça, deux nombres
+              « collectés » différents cohabitent sur la même rangée de cartes — celui
+              de la carte voisine (rentré pendant la période) et celui du taux (rentré
+              sur les ventes de la période). */}
+          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>{cashCollectePct === null ? 'aucune vente à collecter' : `${fmtEur(cashCollecteCohorte)} sur les deals signés`}</div>
         </div>
       </div>
 
@@ -5149,7 +5193,13 @@ function TabRevenues({ stripe, deals, period, periodIndex, onRefresh, refreshing
                     paiement de fin de journée. */}
                 <td style={{ padding: '10px', fontSize: 12, color: 'var(--muted)' }}>{new Date(p.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit', timeZone: 'Europe/Paris' })}</td>
                 <td style={{ padding: '10px', fontSize: 12 }}>{p.description || '—'}</td>
-                <td style={{ padding: '10px', fontSize: 13, fontWeight: 700 }}>{fmtEur(p.amount)}</td>
+                {/* Signe négatif sur ce qui SORT de la caisse : sans lui, la colonne
+                    s'additionne mentalement à 3 000 € alors que la carte du dessus
+                    annonce 2 600 €. Le libellé du statut ne suffit pas à corriger une
+                    lecture qui se fait sur les nombres. */}
+                <td style={{ padding: '10px', fontSize: 13, fontWeight: 700, color: p.status === 'refunded' || p.status === 'disputed' ? AMBER : undefined }}>
+                  {p.status === 'refunded' || p.status === 'disputed' ? `− ${fmtEur(p.amount)}` : fmtEur(p.amount)}
+                </td>
                 <td style={{ padding: '10px' }}>
                   {/* « Réussi sinon Échoué » peignait en rouge tout ce qui n'est pas
                       `succeeded` — un remboursement, un litige ou un paiement en attente
@@ -7810,7 +7860,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       .from('deal_payments')
       // `buyer_name` : la colonne « Description » du tableau des paiements affichait
       // « — » sur toutes les lignes de ce chemin, faute d'etre selectionnee.
-      .select('id, amount, status, date:paid_at, deals!inner(profile_id, buyer_name)')
+      .select('id, deal_id, amount, status, date:paid_at, deals!inner(profile_id, buyer_name)')
       .eq('deals.profile_id', targetId)
       .gte('paid_at', periodStart.toISOString())
       .lte('paid_at', periodEnd.toISOString())
@@ -7835,7 +7885,9 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     // le mois où l'argent a été engagé. Même règle que useCoachData.
     supabase
       .from('deals')
-      .select('amount_total, status, signed_at, call_id')
+      // `id` : necessaire au taux de collecte par cohorte, qui rapporte les
+      // paiements d'un deal a ce deal precis.
+      .select('id, amount_total, status, signed_at, call_id')
       .eq('profile_id', targetId)
       .gte('signed_at', periodStart.toISOString())
       .lte('signed_at', periodEnd.toISOString()),
@@ -8189,6 +8241,30 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     })),
   };
 
+  // Paiements des deals de la période, TOUTES dates confondues.
+  //
+  // Le taux de collecte se lit par cohorte : « sur ce que j'ai vendu dans cette
+  // période, combien a été encaissé — quelle que soit la date de l'encaissement ».
+  // La requête ci-dessus, elle, est bornée sur la période : elle répond à une autre
+  // question (« combien est rentré pendant cette période ») et ne peut donc pas
+  // servir au taux. Une échéance de septembre sur un deal de juin en serait absente.
+  //
+  // Borné par la liste des deals de la période, donc jamais une lecture de tout
+  // l'historique. Découpé en paquets de 100 : une liste d'identifiants trop longue
+  // dépasse la taille d'URL admise et la requête échouerait — silencieusement, à
+  // partir d'un certain nombre de ventes dans le mois.
+  const dealsHistRows: any[] = dealsRes.status === 'fulfilled' ? (dealsRes.value.data ?? []) : [];
+  const idsDealsHist = dealsHistRows.map(d => d.id).filter(Boolean);
+  const paiementsDesDeals: any[] = [];
+  for (let i = 0; i < idsDealsHist.length; i += 100) {
+    const paquet = idsDealsHist.slice(i, i + 100);
+    const lot = await fetchAllPages<any>(() => supabase
+      .from('deal_payments')
+      .select('deal_id, amount, status')
+      .in('deal_id', paquet));
+    paiementsDesDeals.push(...lot);
+  }
+
   // ── Messages IG (scalaires depuis snapshots) ─────────────────────────────────
   const msgsHist = snaps.length > 0 ? {
     totalThreads30d: igLeadTotal,
@@ -8204,7 +8280,8 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     ytHist,
     shortioHist,
     callsHist: callsRes.status === 'fulfilled' ? (callsRes.value.data ?? []) : [],
-    dealsHist: dealsRes.status === 'fulfilled' ? (dealsRes.value.data ?? []) : [],
+    dealsHist: dealsHistRows,
+    paiementsDesDeals,
     stripeHist,
     msgsHist,
     snapshotDate: endDateStr,
@@ -8556,7 +8633,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
   // appartient au cash de ce mois. Voir docs/perimetre-stats-referentiel.md.
   const dealsRows = await fetchAllPages<any>(() => {
     const q = supabase.from('deals')
-      .select('amount_total, status, signed_at, call_id')
+      .select('id, amount_total, status, signed_at, call_id')
       .eq('profile_id', targetId)
       .order('signed_at', { ascending: false });
     return integrationsReadyAt ? q.gte('signed_at', integrationsReadyAt) : q;
@@ -8589,7 +8666,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
   // d'un `gte`.
   const dealPaymentsRows = await fetchAllPages<any>(() => {
     const q = supabase.from('deal_payments')
-      .select('id, amount, status, paid_at, deals!inner(profile_id, buyer_name)')
+      .select('id, deal_id, amount, status, paid_at, deals!inner(profile_id, buyer_name)')
       .eq('deals.profile_id', targetId)
       .not('paid_at', 'is', null)
       .order('paid_at', { ascending: false });
@@ -8841,7 +8918,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     }
   }
 
-  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, deals: dealsRows, dealPayments: dealPaymentsRows, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, hookRepliedEvents, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, joursCollectesShortio, premierJourCollecteShortio, integrationsReadyAt };
+  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, deals: dealsRows, dealPayments: dealPaymentsRows, paiementsDesDeals: dealPaymentsRows, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, hookRepliedEvents, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, joursCollectesShortio, premierJourCollecteShortio, integrationsReadyAt };
   } catch { return null; }
 }
 
@@ -9279,6 +9356,13 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   const ytIsFallback = !sinceConnection && periodIndex === 0 && !ytCurrentPeriodTotals;
   const shortioEff = (sinceConnection ? (sinceConnSnap?.shortioHist ?? null) : (periodIndex > 0 ? (snapData?.shortioHist ?? null) : shortio)) as ShortioStats | null;
   const stripeEff  = (sinceConnection ? (sinceConnSnap?.stripeHist  ?? null) : (periodIndex > 0 ? (snapData?.stripeHist  ?? null) : stripe))  as StripeStats | null;
+  // Paiements RATTACHES AUX DEALS de la periode, toutes dates confondues — source du
+  // taux de collecte par cohorte. Volontairement distinct de stripeEff, qui porte les
+  // paiements RECUS PENDANT la periode : les deux repondent a deux questions
+  // differentes, et les confondre etait ce qui rendait le taux capable de depasser 100 %.
+  const paiementsCohorte = (sinceConnection
+    ? (sinceConnSnap?.paiementsDesDeals ?? [])
+    : (periodIndex > 0 ? (snapData?.paiementsDesDeals ?? []) : (supaData?.dealPayments ?? []))) as { deal_id?: string; amount: number | string | null; status: string | null }[];
   const msgsEff    = (sinceConnection ? (sinceConnSnap?.msgsHist    ?? null) : (periodIndex > 0 ? (snapData?.msgsHist    ?? null) : msgs))    as IGMessages | null;
   const callsRaw   = sinceConnection ? (sinceConnSnap?.callsHist ?? []) : (periodIndex > 0 ? (snapData?.callsHist ?? []) : calls);
   const dealsEff   = (sinceConnection ? (sinceConnSnap?.dealsHist ?? []) : (periodIndex > 0 ? (snapData?.dealsHist ?? []) : deals)) as DealRecord[];
@@ -9449,7 +9533,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.yt?.snapshotError} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} allTimeStart={allTimeStart} profileId={profileId} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} />}
           {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} hookRepliedEvents={hookRepliedEvents} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={callsAllTimeEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} shortioChartHistoryStory={shortioChartHistoryStory} joursCollectesShortio={joursCollectesShortio} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
-          {tab === 5 && <TabRevenues stripe={stripeEff} deals={dealsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} allTimeStart={allTimeStart} stripeConnected={integStatus?.stripeConnected} />}
+          {tab === 5 && <TabRevenues stripe={stripeEff} paiementsCohorte={paiementsCohorte} deals={dealsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} allTimeStart={allTimeStart} stripeConnected={integStatus?.stripeConnected} />}
         </>
       )}
     </div>
