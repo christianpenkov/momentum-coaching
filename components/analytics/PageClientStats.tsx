@@ -35,7 +35,7 @@ const CATS_DM_CALENDLY = new Set<string>(CATEGORY_GROUPS.dmCalendly);
 const CATS_DM_LM = new Set<string>(CATEGORY_GROUPS.dmLm);
 const CATS_STORY = new Set<string>(CATEGORY_GROUPS.story);
 import { isCallHonored } from '@/lib/callHonored';
-import { contenuConversion } from '@/lib/attribution-roles';
+import { contenuConversion, acquisitionParContenu, contenuActivation, SANS_CONTENU } from '@/lib/attribution-roles';
 import { isCallCanceled } from '@/lib/sessionRapport';
 import { usePeriodesIg, porteeDeLaPeriode, typePeriodePour, type TypePeriodeIg } from '@/lib/porteeIg';
 import { bucketCallsByBookedDay, parisDayRange, tauxOuTrou, idsDeContinuation } from '@/lib/callSeries';
@@ -5004,7 +5004,7 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, callsAllTime, leadIdToMediaId, igLive, ytLive, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, joursCollectesShortio, selectedMetric, setSelectedMetric, chartFilter, setChartFilter, sinceConnection, integrationsReadyAt, allTimeStart }: {
+function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, destinations, lmHistory, hookRepliedEvents, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, callsAllTime, leadIdToMediaId, igLive, ytLive, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, joursCollectesShortio, selectedMetric, setSelectedMetric, chartFilter, setChartFilter, sinceConnection, integrationsReadyAt, allTimeStart }: {
   shortio: ShortioStats | null;
   shortioLoading?: boolean;
   ig: IGStats | null;
@@ -5012,6 +5012,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   leads: MockLead[];
   leadMagnets: LeadMagnet[];
   lmHistory?: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[];
+  hookRepliedEvents?: { prospect_key: string | null; occurred_at: string }[];
   destinations: DestinationLink[];
   period: Period;
   periodIndex?: number;
@@ -5214,6 +5215,51 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // de leadsInPeriod, qui ne compte qu'une ligne par personne (état courant écrasé à
   // chaque nouvelle interaction). Cf. fix Performance LM (même session) pour le détail.
   const lmHistoryInPeriod = (lmHistory ?? []).filter(h => isInPeriod(h.detected_at));
+
+  // ── ACQUISITION et ACTIVATION : depuis les JOURNAUX, jamais depuis la fiche ────
+  //
+  // `instagram_leads` porte une seule ligne par personne et par eleve
+  // (`unique (profile_id, ig_user_id)`), et son `media_id` est ECRASE a chaque nouveau
+  // commentaire. Mesure du 2026-08-29 : le post GUIDE affichait 1 call et 500 EUR avec
+  // 0 commentaire et 0 conversation, parce qu'un commentaire posterieur sur un autre
+  // post l'avait efface. Un contenu se faisait voler ses leads.
+  //
+  // Les deux colonnes se calculent donc depuis `instagram_lead_lm_history` (une ligne
+  // par interaction, rien n'est jamais ecrase) et `prospect_events` (le journal des
+  // reponses). Regles dans `lib/attribution-roles.ts`, testees sur fixtures reelles.
+  //
+  // Precalcule ICI, une seule passe sur le journal, et non dans la boucle par contenu :
+  // sinon le cout croit avec le nombre de contenus multiplie par le nombre de leads.
+  const lmHistoryPourRoles = lmHistory ?? [];
+  const historiqueParPersonne = new Map<string, typeof lmHistoryPourRoles>();
+  for (const h of lmHistoryPourRoles) {
+    if (!h.ig_user_id) continue;
+    const arr = historiqueParPersonne.get(h.ig_user_id);
+    if (arr) arr.push(h); else historiqueParPersonne.set(h.ig_user_id, [h]);
+  }
+  // Pseudo (minuscules) vers ig_user_id : `prospect_events.prospect_key` porte le
+  // pseudo, le journal LM porte l'identifiant. Les fiches font le pont.
+  const igUserIdParPseudo = new Map<string, string>(
+    (leads ?? []).filter(l => l.igUsername && l.igUserId).map(l => [l.igUsername.toLowerCase(), l.igUserId]),
+  );
+
+  const acquisitionParContenuGlobal = acquisitionParContenu(
+    lmHistoryPourRoles.filter(h => isInPeriod(h.detected_at)),
+  );
+
+  // Une reponse = une CONVERSATION, creditee au contenu du dernier lead magnet pris
+  // AVANT elle. Decision du 2026-08-29 : on compte les conversations, pas les
+  // personnes — une discussion qui s'eteint puis redemarre grace a un autre contenu
+  // compte deux fois, et c'etait tout l'objet du chantier.
+  const activationParContenuGlobal = new Map<string, number>();
+  for (const ev of (hookRepliedEvents ?? [])) {
+    if (!ev.occurred_at || !isInPeriod(ev.occurred_at)) continue;
+    const igUserId = ev.prospect_key ? igUserIdParPseudo.get(ev.prospect_key.toLowerCase()) : undefined;
+    const historique = igUserId ? historiqueParPersonne.get(igUserId) ?? [] : [];
+    const cle = contenuActivation(historique, ev.occurred_at) ?? SANS_CONTENU;
+    activationParContenuGlobal.set(cle, (activationParContenuGlobal.get(cle) ?? 0) + 1);
+  }
+
 
   // ── Section 0 : KPIs ──
   // Clics totaux : bio Calendly + description (Calendly + LM) + clics DM/LM (prospect_links cliqués)
@@ -5551,7 +5597,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 
     const clicsDesc = linkClics(descLink) || 0;
     const postLeadsInPeriod = postLeads.filter(l => isInPeriod(l.commentedAt));
-    const lmDetectes = postLeadsInPeriod.length;
+    // ACQUISITION : depuis le journal, dedupliquee par personne. Un prospect qui
+    // recommente quatre fois le meme mot-cle en une heure — cas reel de rdjdkzjd sur
+    // GUIDE le 05/07 — ne compte qu'une entree.
+    const lmDetectes = acquisitionParContenuGlobal.get(postId) ?? 0;
     const lmSent = postLeadsInPeriod.filter((l: MockLead) => l.leadMagnetSent).length;
     const lmClics = postLeadsInPeriod.filter((l: MockLead) => l.id && lmClickedByLeadId?.has(l.id)).length;
     // `postLeadsInPeriod` et non `postLeads` : cette colonne était la SEULE de la
@@ -5559,7 +5608,13 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     // fenêtre affichée, et elle pouvait donc dépasser « Commentaires LM » juste
     // au-dessus — plus de conversations que de commentaires, ce qui est
     // impossible et donnait un taux de réponse supérieur à 100 %.
-    const lmReponses = postLeadsInPeriod.filter((l: MockLead) => l.hookReplied).length;
+    // ACTIVATION : depuis le journal des reponses, pas depuis le drapeau de la fiche.
+    // Ce drapeau est remis a `false` par une reponse de story ou un Cold DM, donc une
+    // conversation deja eue disparaissait. Mesure du 2026-08-29 : 6 reponses
+    // journalisees contre 4 au maximum a l'ecran, et incogniton.734 en avait 3 a lui
+    // seul. Ce nombre PEUT depasser « Commentaires LM » : un contenu qui reactive
+    // beaucoup et acquiert peu est bon en relance, c'est le signal recherche.
+    const lmReponses = activationParContenuGlobal.get(postId) ?? 0;
     const dmCount = dmProspects.length;
     // Calls bookés/closés/revenue depuis la table calls (source de vérité)
     // postCalls = calls rattachés à ce contenu (DM + description), filtrés sur la période sélectionnée (scheduled_at)
@@ -8026,7 +8081,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
   const since30d = customWindow ? customWindow.start : parisDateStr(_periodStart);
   const until30d = customWindow ? customWindow.end : parisDateStr(_periodEnd);
 
-  const [leadsRows, lmRes, calendlyRes, lmHistoryRows, prospectLinksRows, contentLinksRes, lmClickedEvents, linkClickedEvents] = await Promise.all([
+  const [leadsRows, lmRes, calendlyRes, lmHistoryRows, prospectLinksRows, contentLinksRes, lmClickedEvents, linkClickedEvents, hookRepliedEvents] = await Promise.all([
     // Paginé (fetchAllPages) — plafond fixe .limit(500) auparavant, trop facile à
     // atteindre sur le mode "Depuis connexion" (jusqu'à ~1 an) pour un profil actif.
     // not_a_lead / archived_at : mêmes filtres que lib/salesCallStats.ts (fetchIgLeadsCount)
@@ -8098,6 +8153,23 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
         .eq('profile_id', targetId)
         .eq('event_type', 'link_clicked')
         .not('ig_lead_id', 'is', null)
+    ),
+    // Réponses au message d'accroche — le JOURNAL, pas le drapeau de la fiche.
+    //
+    // `instagram_leads.hook_replied` est un booléen sur une ligne unique par personne,
+    // et il est remis à `false` par une réponse de story ou un Cold DM. Il décrit donc
+    // un ÉTAT COURANT, ce dont le pipeline a besoin, et il est faux pour un compteur
+    // cumulé. Mesure du 2026-08-29 : ce journal porte 6 réponses là où les fiches n'en
+    // montraient que 4, et incogniton.734 en a 3 à lui seul (25/07, 28/07, 30/07).
+    //
+    // PAS de filtre `ig_lead_id is not null`, contrairement aux deux requêtes
+    // au-dessus : 2 de ces 6 réponses ont un `ig_lead_id` nul. Le rattachement se fait
+    // sur `prospect_key` (le pseudo en minuscules).
+    fetchAllPages<{ prospect_key: string | null; occurred_at: string }>(() =>
+      supabase.from('prospect_events')
+        .select('prospect_key, occurred_at')
+        .eq('profile_id', targetId)
+        .eq('event_type', 'hook_replied')
     ),
   ]);
 
@@ -8401,7 +8473,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     }
   }
 
-  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, deals: dealsRows, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, joursCollectesShortio, integrationsReadyAt };
+  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, deals: dealsRows, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, hookRepliedEvents, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, joursCollectesShortio, integrationsReadyAt };
   } catch { return null; }
 }
 
@@ -8512,6 +8584,8 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   // sur le snapshot (voir plus bas) — même mécanique que callsEff.
   const deals: DealRecord[] = supaData?.deals ?? [];
   const lmHistory: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[] = supaData?.lmHistory ?? [];
+  // Journal des reponses au message d'accroche — voir la requete dans fetchSupabaseStats.
+  const hookRepliedEvents: { prospect_key: string | null; occurred_at: string }[] = supaData?.hookRepliedEvents ?? [];
   const integrationsReadyAt: string | null = supaData?.integrationsReadyAt ?? null;
   const leadIdToMediaId: Map<string, string> = supaData?.leadIdToMediaId ?? new Map();
   const prospectLinksData: any[] = supaData?.prospectLinksData ?? [];
@@ -8977,7 +9051,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.yt?.snapshotError} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} allTimeStart={allTimeStart} profileId={profileId} joursCollectesShortio={joursCollectesShortio} />}
-          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={callsAllTimeEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} shortioChartHistoryStory={shortioChartHistoryStory} joursCollectesShortio={joursCollectesShortio} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
+          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} hookRepliedEvents={hookRepliedEvents} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={callsAllTimeEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} shortioChartHistoryStory={shortioChartHistoryStory} joursCollectesShortio={joursCollectesShortio} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
           {tab === 5 && <TabRevenues stripe={stripeEff} calls={callsEff} deals={dealsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} />}
         </>
       )}

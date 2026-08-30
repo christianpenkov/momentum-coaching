@@ -66,6 +66,41 @@ export async function POST(request: Request) {
         .eq('ig_username', username)
         .then()
     );
+    // Le JOURNAL, en plus de la fiche — comme le fait deja `calendly_link_sent`
+    // plus bas dans cette meme route.
+    //
+    // La fiche dit « ou en est cette personne MAINTENANT » : `hook_replied` y est
+    // remis a `false` des qu'un nouveau lead magnet part, et c'est son travail.
+    // Elle ne peut donc pas servir de compteur. Les statistiques par contenu lisent
+    // `prospect_events`, ou rien n'est jamais efface.
+    //
+    // Sans cette insertion, un prospect avance A LA MAIN etait invisible dans le
+    // journal pour toujours : la colonne « Conversations DM » ne l'aurait jamais
+    // compte, et aucun ecran ne l'aurait signale. Trouve le 2026-08-30 en verifiant
+    // que tous les chemins d'ecriture journalisent bien.
+    //
+    // delete+insert, meme raison qu'en dessous : onConflict ne fonctionne pas avec
+    // les index partiels via Supabase JS. Sans le delete, deux avances manuelles
+    // successives compteraient deux conversations pour un seul passage.
+    ops.push(
+      supa.from('prospect_events')
+        .delete()
+        .eq('profile_id', user.id)
+        .eq('prospect_key', username)
+        .eq('event_type', 'hook_replied')
+        .gte('occurred_at', new Date(Date.now() - 60_000).toISOString())
+        .then()
+        .then(() =>
+          supa.from('prospect_events').insert({
+            profile_id: user.id,
+            prospect_key: username,
+            platform: 'ig',
+            event_type: 'hook_replied',
+            occurred_at: now,
+            ig_lead_id: lead?.id ?? null,
+          }).then()
+        )
+    );
   }
 
   // ── calendly_sent : champs + event (seulement si on n'a pas encore le lien) ─
