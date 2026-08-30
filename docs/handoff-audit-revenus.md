@@ -134,6 +134,26 @@ Pour chacune des sept surfaces de la section 2 :
 5. **Balayer toutes les périodes** — voir section 5, c'est là que se cachent les
    défauts de cet écran.
 
+### Le contrôle le plus rentable : RECALCULER chaque taux depuis l'écran
+
+Pour chaque pourcentage affiché, essayer de le retrouver **avec les seuls nombres
+visibles à côté de lui**. S'il ne tombe pas juste, le dénominateur réel est autre
+chose que ce que le lecteur croit — et il doit être **nommé à l'écran**.
+
+Cette classe de défaut a été manquée par l'audit de Funnel & Calls, qui avait
+pourtant vérifié que tous les chiffres étaient JUSTES. Deux cas y sont passés :
+
+- « 15 Calls honorés » à côté de « 57 % closing » : la division donne 53 %, parce
+  que le vrai dénominateur est 14 (les opportunités). Le chiffre était exact et
+  impossible à reconstituer.
+- L'étage « Calls bookés » retirait de son numérateur **deux** populations — hors
+  fenêtre de collecte ET continuations — et sa note n'en nommait qu'une.
+
+Sur l'onglet Revenus, le candidat évident est le **taux de cash collecté** :
+`cashCollecte / cashContracte` rapporte des paiements de la période à des deals
+signés dans la période — deux populations différentes, qui ne se recalculent pas
+l'une depuis l'autre.
+
 ### Et une vérification que la lecture d'écran ne donne pas
 
 **La somme des barres du graphique doit égaler le total de la carte correspondante.**
