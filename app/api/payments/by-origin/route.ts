@@ -4,6 +4,7 @@ import { createClient as createServerClient } from '@/lib/supabase/server';
 import { resolveTargetProfile } from '@/lib/stripe-account';
 import { resolveYtVideoTitles } from '@/lib/ytVideoTitles';
 import { calculerCash, type LignePaiement } from '@/lib/dealCash';
+import { isYtVideoId } from '@/lib/ytId';
 
 /**
  * Cash encaissé par origine — le bloc analytique de l'onglet Revenus.
@@ -124,11 +125,16 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const ytIds = contentIds.filter(id => !titles.has(id) && /^[A-Za-z0-9_-]{11}$/.test(id));
+    const ytIds = contentIds.filter(id => !titles.has(id) && isYtVideoId(id));
     if (ytIds.length) {
       const ytTitles = await resolveYtVideoTitles(profileId, ytIds);
       for (const [id, title] of Object.entries(ytTitles)) {
-        titles.set(id, { title: String(title).slice(0, 70), thumbnail: null, kind: 'YouTube' });
+        // `thumbnail: null` en dur privait TOUTES les vidéos YouTube de vignette, pour
+        // toujours — la ligne tombait sur la pastille pointillée réservée aux contenus
+        // introuvables, à côté de lignes Instagram illustrées. La vignette YouTube ne
+        // demande aucun appel d'API : elle se déduit de l'identifiant, et la route
+        // /api/resources/yt-thumb sait déjà servir la meilleure résolution disponible.
+        titles.set(id, { title: String(title).slice(0, 70), thumbnail: `/api/resources/yt-thumb?id=${id}`, kind: 'YouTube' });
       }
     }
   }
@@ -144,9 +150,14 @@ export async function GET(request: NextRequest) {
     if (key.startsWith('content:')) {
       const id = key.slice('content:'.length);
       const t = titles.get(id);
+      // « Contenu supprimé » affirme quelque chose de faux quand l'identifiant n'a
+      // jamais été un contenu : on trouve dans first_touch_content_id des UUID, qui ne
+      // sont ni un media_id Instagram (numérique) ni un id YouTube (11 caractères).
+      // Le dire distingue une publication effacée d'une attribution mal écrite en amont.
+      const idPlausible = /^\d{10,}$/.test(id) || isYtVideoId(id);
       const n = b.deals.size;
       return {
-        key, label: t?.title ?? 'Contenu supprimé',
+        key, label: t?.title ?? (idPlausible ? 'Contenu supprimé' : 'Contenu non identifié'),
         meta: `${t?.kind ?? 'Contenu'} · ${n} deal${n > 1 ? 's' : ''}`,
         amount: montantDuBucket(b), isOrigin: false, thumbnail: t?.thumbnail ?? null, dealsCount: n,
       };
