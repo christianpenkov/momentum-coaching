@@ -274,9 +274,20 @@ Vérifier ce que Recharts en fait.
 ## 7. Outils et comptes
 
 **Comptes de test** (`browse`) :
-- Élève : `christianpenkov80@gmail.com` / `Fortnite2605`
-- Coach : `christianpenkov06@gmail.com` / `Fortnite2605`
+- Élève : `christianpenkov80@gmail.com` / `Momentum123`
+- Coach : `christianpenkov06@gmail.com` / `Momentum123`
 - Profil avec données réelles : `a02e5927-7b39-4b7d-b112-0a43b30e9f09`
+
+⚠️ Le mot de passe change. Il valait `Fortnite2605` jusqu'au 2026-08-30, et un
+`invalid_credentials` ne veut donc pas dire que le compte est cassé. Le tester
+directement plutôt que de renoncer au navigateur — quelques secondes, et ça évite de
+livrer un audit sans sa vérification à l'écran :
+
+```bash
+curl -s -X POST "$SUPABASE_URL/auth/v1/token?grant_type=password" \
+  -H "apikey: $ANON_KEY" -H 'Content-Type: application/json' \
+  -d '{"email":"christianpenkov80@gmail.com","password":"..."}'
+```
 
 **Serveur de dev** : `npx next dev -p 3007`. Il tombe régulièrement — le relancer
 plutôt que de conclure à une panne applicative.
