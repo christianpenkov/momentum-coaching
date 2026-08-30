@@ -934,12 +934,30 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
     const t = new Date(callPeriodDate(c)).getTime();
     return t >= cutoff.getTime() && (_ovPIdx === 0 || t <= ovPeriodEnd.getTime());
   });
-  const callsBookes  = callsInPeriod.filter(c => c.status === 'active').length;
-  const callsHonores = callsInPeriod.filter(c => isCallHonored(c, now)).length;
+  // Continuations : un 2e rendez-vous qui PROLONGE la meme vente ne recompte pas.
+  // Apparie sur `callsAllTime` quand il est la (jeu complet, jamais coupe par la
+  // periode) : une paire a cheval sur deux fenetres serait invisible depuis la fenetre,
+  // et le 2e call recompterait comme une opportunite neuve. Meme raison qu'en
+  // TabFunnel et dans Business micro.
+  const continuationsOv = idsDeContinuation(callsAllTime ?? calls);
+  const estOpportunite = (c: CallRecord) => !continuationsOv.has(c.id);
+
+  // « Calls bookes » et « Calls honores » comptent des OPPORTUNITES : Mes stats mesure
+  // ce que le contenu produit, pas le nombre de creneaux tenus.
+  const callsBookes  = callsInPeriod.filter(c => c.status === 'active' && estOpportunite(c)).length;
+  const callsHonores = callsInPeriod.filter(c => isCallHonored(c, now) && estOpportunite(c)).length;
+
+  // Le NO-SHOW garde l'autre grain, deliberement. Il mesure la fiabilite d'un CRENEAU,
+  // pas la capacite a closer une personne : un 2e rendez-vous pose et non honore est un
+  // creneau perdu, quelle que soit sa place dans le parcours. C'est aussi la pratique du
+  // secteur — le show rate se calcule sur les creneaux poses, jamais sur les
+  // opportunites. Son denominateur est donc ECRIT a l'ecran (« N sur M rendez-vous »),
+  // pour qu'aucun lecteur ne tente de le retrouver a partir de « Calls bookes ».
+  const rendezVous   = callsInPeriod.filter(c => c.status === 'active').length;
   const noShows      = callsInPeriod.filter(c => c.status === 'active' && c.no_show).length;
   const dealsCloses  = callsInPeriod.filter(c => c.deal_closed).length;
   const totalRev     = callsInPeriod.reduce((s, c) => s + (c.revenue || 0), 0);
-  const noShowRate   = callsBookes > 0 ? pct(noShows, callsBookes) : 0;
+  const noShowRate   = rendezVous > 0 ? pct(noShows, rendezVous) : 0;
   const closingRate  = callsHonores > 0 ? pct(dealsCloses, callsHonores) : 0;
   const revPerCall   = callsBookes > 0 ? Math.round(totalRev / callsBookes) : 0;
 
@@ -1046,7 +1064,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
         // qui elle est rangée, et la fusion change le second sans toucher au premier.
         return c.source === 'ig_dm' && c.ig_lead_id ? leadIdToMediaId.get(c.ig_lead_id) === p.id : false;
       });
-      const callsBooked = postCalls.filter(c => c.status === 'active').length;
+      const callsBooked = postCalls.filter(c => c.status === 'active' && estOpportunite(c)).length;
       const noShowCount = postCalls.filter(c => c.no_show).length;
       const closedCount = postCalls.filter(c => c.deal_closed).length;
       const revTotal = postCalls.reduce((s, c) => s + (c.revenue || 0), 0);
@@ -1060,7 +1078,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
     }),
     ...ytVideos.map(v => {
       const postCalls = ytCallsAll.filter(c => c.utm_content === v.id);
-      const callsBooked = postCalls.filter(c => c.status === 'active').length;
+      const callsBooked = postCalls.filter(c => c.status === 'active' && estOpportunite(c)).length;
       const noShowCount = postCalls.filter(c => c.no_show).length;
       const closedCount = postCalls.filter(c => c.deal_closed).length;
       const revTotal = postCalls.reduce((s, c) => s + (c.revenue || 0), 0);
@@ -1167,7 +1185,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
         {[
           { label: 'Calls honorés', value: fmt(callsHonores), sub: ovEtiquettePeriode, color: AMBER },
-          { label: 'No-show', value: `${fmt(noShowRate, 0)} %`, sub: `${noShows} calls`, color: noShowRate > 20 ? RED : noShowRate > 10 ? AMBER : GREEN },
+          { label: 'No-show', value: `${fmt(noShowRate, 0)} %`, sub: `${noShows} sur ${rendezVous} rendez-vous`, color: noShowRate > 20 ? RED : noShowRate > 10 ? AMBER : GREEN },
           { label: 'Closing', value: `${fmt(closingRate, 0)} %`, sub: `${dealsCloses} deals closés`, color: closingRate >= 25 ? GREEN : closingRate >= 15 ? AMBER : RED },
           { label: 'Rev / call', value: fmtEur(revPerCall), sub: 'par call booké', color: GREEN },
           { label: 'Revenue', value: fmtEur(totalRev), sub: ovEtiquettePeriode, color: GREEN },
@@ -1431,7 +1449,16 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
     return t >= igPeriodStart.getTime() && t <= igPeriodEnd.getTime();
   });
   const igReachP = igDaysSlice.reduce((s, d) => s + d.reach, 0);
-  const igFollowerDeltaP = (igDaysSlice[igDaysSlice.length - 1]?.followerCount ?? 0) - (igDaysSlice[0]?.followerCount ?? 0);
+  // Bornes qui portent RÉELLEMENT un nombre d'abonnés, pas les bornes de la période.
+  // `ig_followers` n'est plus écrit que sur la ligne du jour depuis le 2026-08-30 : une
+  // journée comblée par le seul rattrapage n'en porte pas. Avec `?? 0` sur les bornes,
+  // un tel jour en début ou en fin de période donnait un delta absurde (tout le compte
+  // gagné, ou tout le compte perdu, en une journée). Même garde que le calcul
+  // équivalent dans app/api/instagram/stats/route.ts.
+  const igAbonnesConnusP = igDaysSlice.filter(d => d.followerCount != null);
+  const igFollowerDeltaP = igAbonnesConnusP.length >= 2
+    ? (igAbonnesConnusP[igAbonnesConnusP.length - 1]!.followerCount! - igAbonnesConnusP[0]!.followerCount!)
+    : 0;
   // Vraie somme des interactions (likes+comments+saves+shares) — distincte des comptes
   // ENGAGÉS (accountsEngaged, un nombre de personnes), qui était utilisée par erreur
   // pour le KPI "Interactions posts" ET pour engRate, alors que ces deux métriques
@@ -1535,7 +1562,12 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
   const igStatSeries: Record<string, { data: { date: string; v: number }[]; color: string; unit?: string }> = {
     'Publications': { data: pubsByDay, color: IG_COLOR },
     'Reach': { data: igDays.map(d => ({ date: d.date, v: igDaysNoDataSet.has(d.date) ? (null as any) : d.reach })), color: 'var(--accent-brand)' },
-    'Abonnés': { data: igDays.map(d => ({ date: d.date, v: igDaysNoDataSet.has(d.date) ? (null as any) : (d.followerCount ?? 0) })), color: IG_COLOR },
+    // `?? null` et non `?? 0` : `igDaysNoDataSet` ne contient que les jours SANS LIGNE.
+    // Une ligne qui existe mais dont `ig_followers` est absent (journée comblée par le
+    // seul rattrapage, qui n'écrit plus l'état du compte depuis le 2026-08-30) passait
+    // donc par ce `??` et dessinait une chute à zéro au milieu de la courbe. Un trou dit
+    // « on ne sait pas », un zéro affirme que le compte n'a plus aucun abonné.
+    'Abonnés': { data: igDays.map(d => ({ date: d.date, v: igDaysNoDataSet.has(d.date) ? (null as any) : (d.followerCount ?? (null as any)) })), color: IG_COLOR },
     'Interactions posts': { data: interactionsByDay, color: GREEN },
     // Detail jour par jour des deux cartes de portee.
     //
@@ -1575,6 +1607,10 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
       // au lieu de couper la ligne, la faisant continuer plate jusqu'à fin de période.
       return igDays.map((d, i, arr) => {
         if (igDaysNoDataSet.has(d.date)) return { date: d.date, v: null as any };
+        // Ligne présente mais sans nombre d'abonnés (journée comblée par le seul
+        // rattrapage) : on ne peut pas calculer de variation, et « 0 » affirmerait à
+        // tort que le compte n'a ni gagné ni perdu personne ce jour-là.
+        if (d.followerCount == null) return { date: d.date, v: null as any };
         const prev = arr[i - 1]?.followerCount ?? d.followerCount ?? 0;
         const curr = d.followerCount ?? prev;
         return { date: d.date, v: i === 0 ? 0 : (curr - (prev ?? curr)) };
