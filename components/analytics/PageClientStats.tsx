@@ -5518,7 +5518,23 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     }
     return 0;
   })();
-  const lmEnvoyes = leadsInPeriod.filter(l => l.leadMagnetSent).length;
+  // Population « a recu un lead magnet » : depuis le JOURNAL, pas depuis la fiche.
+  //
+  // `instagram_leads.lead_magnet_sent` est le QUATRIEME champ mutable de cette table a
+  // fausser une statistique, apres media_id, keyword_matched et hook_replied : le
+  // chemin story le remet a la valeur de la nouvelle sequence. Mesure du 2026-08-30 sur
+  // le profil de test : incogniton.734 a recu HUIT lead magnets d'apres le journal, et
+  // sa fiche porte `lead_magnet_sent = false`. Il sortait donc du denominateur, qui
+  // affichait 3 au lieu de 4 — et gonflait le taux de reponse a 67 % au lieu de 75 %.
+  //
+  // Un denominateur sous-evalue gonfle un taux : c'est exactement le defaut inverse de
+  // celui que la garde `&& l.leadMagnetSent` corrigeait a l'origine (un cold DM au
+  // numerateur sans etre au denominateur, 133 % observe). Les deux se soignent par la
+  // meme regle : definir la population UNE fois, depuis le journal, et s'y tenir.
+  const personnesAvecLm = new Set(
+    lmHistoryInPeriod.filter(h => h.lead_magnet_sent !== false && h.ig_user_id).map(h => h.ig_user_id),
+  );
+  const lmEnvoyes = personnesAvecLm.size;
   // Numérateur strictement inclus dans le dénominateur : cette carte mesure la
   // performance du lead magnet ("parmi ceux à qui j'ai envoyé un LM, combien ont
   // répondu ?"), donc seule une réponse d'un lead AYANT reçu un LM la concerne.
@@ -5526,7 +5542,9 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // envoyé) comptait au numérateur sans jamais pouvoir compter au dénominateur —
   // observé à 133 % (4 réponses / 3 LM envoyés). Les cold DM restent comptés dans
   // la carte Leads et dans le Pipeline, ils sortent seulement de CE ratio.
-  const hookReplies = leadsInPeriod.filter(l => l.hookReplied && l.leadMagnetSent).length;
+  // MEME population que le denominateur juste au-dessus — un numerateur strictement
+  // inclus dans son denominateur, ce qui etait deja l'intention de la garde d'origine.
+  const hookReplies = leadsInPeriod.filter(l => l.hookReplied && l.igUserId && personnesAvecLm.has(l.igUserId)).length;
   const tauxHookReply = lmEnvoyes > 0 ? Math.round((hookReplies / lmEnvoyes) * 100) : 0;
   // Liens Calendly envoyés DM — source de vérité : DB uniquement
   const calendlyLinksSent = prospectLinksDb.filter(l => {
@@ -5636,7 +5654,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     // `leadMagnetSent` : MEME population que la carte. Sans lui la courbe tracait aussi
     // les reponses de cold DM — des gens a qui aucun lead magnet n'a ete envoye — et
     // affichait 3 la ou la carte affichait 2. Le titre dit « LM DM ».
-    if (!l.hookReplied || !l.hookRepliedAt || !l.leadMagnetSent) continue;
+    // MEME population que la carte : `personnesAvecLm`, defini depuis le journal.
+    if (!l.hookReplied || !l.hookRepliedAt || !l.igUserId || !personnesAvecLm.has(l.igUserId)) continue;
     if (!isInPeriod(l.hookRepliedAt)) continue;
     const day = utcDateStr(new Date(l.hookRepliedAt));
     hookRepliesPerDay.set(day, (hookRepliesPerDay.get(day) ?? 0) + 1);

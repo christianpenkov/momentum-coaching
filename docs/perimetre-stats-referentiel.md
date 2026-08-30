@@ -11,7 +11,7 @@ Les calculs eux-mêmes n'étaient presque jamais faux. Ce qui divergeait, c'éta
 
 ---
 
-## Les cinq règles
+## Les six règles
 
 ### 1. Date de démarrage : `integrations_ready_at`, jamais autre chose
 
@@ -85,6 +85,62 @@ en fait même un filtre dédié « Annulés ».
 `new Date('2026-08-19')` vaut **minuit**. Utilisée comme borne haute, elle exclut
 toute la journée en cours — un rendez-vous du jour devenait invisible jusqu'au
 lendemain.
+
+### 6. Une OPPORTUNITÉ n'est pas un rendez-vous
+
+**Définition.** Une opportunité est **une chance de vendre à une personne**, quel
+que soit le nombre de rendez-vous qu'elle a demandés. Deux rendez-vous avec le même
+prospect, quand le second prolonge le premier, sont **une seule** opportunité.
+
+**Pourquoi cette notion existe.** Sans elle, un prospect qui fait deux calls et signe
+au second affichait **50 % de close rate** : le deal comptait une fois, mais les deux
+rendez-vous comptaient au dénominateur. C'est 100 % — une opportunité, un deal.
+Bien mener une vente en deux temps faisait donc *baisser* la performance affichée.
+
+**Ce qui relie deux rendez-vous : la DÉCLARATION, jamais un délai.** Le vendeur
+répond « 2ème call » dans son rapport, ce qui pose `outcome = 'second_call'` sur le
+call précédent. Un seuil de temps (« moins d'un mois = même opportunité ») aurait
+coupé en deux un 2ᵉ call calé à cinq semaines, fusionné à tort deux vraies
+opportunités rapprochées, et imposé un nombre magique indéfendable. Un prospect qui
+rebooke spontanément trois mois plus tard ne passe jamais par là : son call précédent
+porte `to_recontact` ou `lost`, et compte donc pour **deux** opportunités.
+
+**Le drapeau `is_follow_up` n'est PAS lu.** Il est posé par un PATCH dont le code
+tolère l'échec. On relit `outcome`, écrit dans le même patch que le rapport lui-même,
+qui ne peut pas manquer. Corollaire de la refonte du pipeline : l'issue se calcule à
+l'affichage, jamais stockée deux fois.
+
+**Quel call est exclu : le SECOND.** L'opportunité est représentée par son premier
+rendez-vous ; le deal, lui, est compté là où il a été signé.
+
+**Source unique : `idsDeContinuation` dans `lib/callSeries.ts`.** Ne jamais
+re-dériver la règle ailleurs. Et l'appariement se fait sur le **jeu de calls le plus
+large disponible**, le filtrage par période venant ensuite — sinon une paire à cheval
+sur deux périodes devient invisible et le 2ᵉ call recompte comme une opportunité
+neuve.
+
+**Identité du prospect : l'e-mail IDENTIFIE, le nom ne fait que RAPPROCHER.** Deux
+e-mails différents sont deux personnes, quoi que disent les noms. Le nom sert
+uniquement de passerelle pour un call qui n'a **aucun** e-mail — cas réel, le 2ᵉ call
+saisi à la main. Si un call sans e-mail porte un nom que se partagent deux adresses,
+l'ambiguïté n'est pas tranchée : il reste seul et compte pour une opportunité de
+plus. Se tromper en gonflant le dénominateur sous-estime la performance ; se tromper
+en le rétrécissant la surestime. Entre les deux, on choisit celle qui ne flatte pas.
+
+**Où la notion s'applique, et où elle ne s'applique PAS :**
+
+| Mesure | Grain | Pourquoi |
+|---|---|---|
+| Close rate | **opportunité** | mesure la capacité à closer une PERSONNE |
+| Taux clics → calls | **opportunité** | un 2ᵉ rendez-vous n'est produit par aucun nouveau clic |
+| No-show | rendez-vous | mesure la fiabilité d'un CRÉNEAU, pas d'une personne |
+| Calls bookés, Calls honorés | rendez-vous | ce sont des comptes de rendez-vous, et ils sont vrais |
+| Crédit d'un contenu | **opportunité** | sinon un contenu est crédité deux fois pour un prospect |
+
+**Le grand chiffre ne bouge jamais.** « Calls bookés » affiche le nombre vrai de
+rendez-vous ; seul le **taux** se calcule sur les opportunités. Renommer l'étage en
+« Opportunités » a été essayé le 2026-08-30 puis annulé : le libellé payait le prix
+d'un problème qui ne concernait que le taux.
 
 ---
 

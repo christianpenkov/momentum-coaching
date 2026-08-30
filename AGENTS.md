@@ -117,7 +117,12 @@ l'historique cron-job.org — `{"ok":true,"testes":N,"vivantes":N,"pannes":0}`.
 select * from cron_runs order by ran_at desc;   -- vide = aucun incident (30j)
 select * from yt_sante_donnees;                 -- 'ok' partout
 select * from integrations_sante;               -- 'ok' ou 'non_connectee'
+select * from ventes_sante_montants;            -- vide = rapport et deal concordent
 ```
+
+`ventes_sante_montants` compare les DEUX écritures du cash : le montant saisi dans le
+rapport de call et le deal qui en découle. Les écrans lisent `deals` ; une ligne ici
+signifie qu'un élève a saisi un montant que ses stats n'affichent pas.
 
 ⚠️ Sur les vues de santé, `etat <> 'ok'` n'est **pas** un filtre d'anomalie :
 `non_connectee` et `integration deconnectee` disent seulement que l'intégration n'est
