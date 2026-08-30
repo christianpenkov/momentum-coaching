@@ -127,7 +127,15 @@ select * from yt_sante_donnees;                 -- 'ok' partout
 select * from integrations_sante;               -- 'ok' ou 'non_connectee'
 select * from ventes_sante_montants;            -- vide = rapport et deal concordent
 select * from ig_sante_insights_posts;          -- 'ok' partout
+select * from base_sante_taille;                -- 'ok' = plafond de stockage loin
 ```
+
+`base_sante_taille` surveille le **plan Supabase**, qui est aujourd'hui le **gratuit**
+(500 Mo, base à 97 Mo le 2026-08-30). C'est le seul risque de la plateforme qui ne
+prévient pas : rien ne casse à l'avance, les écritures échouent d'un coup. La vue
+mesure la croissance réelle des trois tables « une ligne par contenu et par jour » et
+affiche les jours restants pour les deux plans — passer en Pro ne demande donc aucune
+modification. À 40 élèves × 300 posts, le gratuit tient ~6 semaines ; le Pro, ~2,5 ans.
 
 `ig_sante_insights_posts` surveille la collecte des contenus Instagram.
 `depreciation_metrique_probable` = une métrique Meta vient de disparaître ; la
