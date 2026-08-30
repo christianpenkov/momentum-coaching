@@ -6099,9 +6099,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         {selectedMetric === 'activation' && (
           <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
             <ResponsiveContainer width="100%" height={160}>
-              <ReAreaChart data={activationSeries} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
+              {/* BARRES et non courbes. Un taux d'activation n'existe que les jours ou
+                  quelque chose a ete envoye — quelques colonnes isolees sur un mois. Depuis
+                  que regrouperTaux rend un TROU (et non 0 %) sur denominateur nul, une
+                  courbe serait pleine de discontinuites, et une courbe absente se lit comme
+                  un graphique casse ; une barre absente se lit « rien ce jour-la ». */}
+              <ComposedChart data={activationSeries} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                 <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={!parJour ? fmtAxisBucket : (sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate)} interval={graduationsDates(activationSeries.length, sPeriod)} padding={{ left: 0, right: 0 }} />
-                <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={36} unit="%" domain={[-4, 100]} />
+                <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={36} unit="%" domain={[0, 100]} />
                 <Tooltip content={({ active, payload, label }) => !active || !payload?.length ? null : (
                   <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div>
                     {payload.map((p: any, i: number) => (
@@ -6110,9 +6115,9 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                   </div>
                 )} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Area type="monotone" dataKey="lm" name="LM" stroke={AMBER} strokeWidth={2} fill="none" dot={todayDotFactory(AMBER, 'date', lastRealPointKey(activationSeries, 'date', 'lm'))} isAnimationActive={false} />
-                <Area type="monotone" dataKey="calendly" name="Calendly" stroke={BLUE} strokeWidth={2} fill="none" dot={todayDotFactory(BLUE, 'date', lastRealPointKey(activationSeries, 'date', 'calendly'))} isAnimationActive={false} />
-              </ReAreaChart>
+                <Bar dataKey="lm" name="LM" fill={AMBER} radius={[2, 2, 0, 0]} isAnimationActive={false} />
+                <Bar dataKey="calendly" name="Calendly" fill={BLUE} radius={[2, 2, 0, 0]} isAnimationActive={false} />
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         )}
@@ -6893,11 +6898,19 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                           <td style={{ position: 'sticky', left: 44, zIndex: 1, background: isSelected ? BLUE + '15' : 'var(--surface)', padding: '8px 10px', maxWidth: 200 }}>
                             <div style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>{row.title.slice(0, 45)}{row.title.length > 45 ? '…' : ''}</div>
                             <span style={{ fontSize: 9, fontWeight: 700, color: platformColor, background: platformColor + '18', borderRadius: 4, padding: '2px 5px' }}>{row.platform === 'STORY_SEQUENCE' ? 'STORY' : row.platform} · {row.type}</span>
+                            {/* ⚠️ CETTE MODALE EST UNE COPIE DU TABLEAU PRINCIPAL, et elle avait
+                                deja diverge trois fois : le badge de lead magnet manquait ici
+                                — il disparaissait donc des qu'on cliquait « Voir tout » — et
+                                les deux colonnes LM y gardaient un masquage corrige ailleurs.
+                                Toute modification du tableau doit etre faite AUX DEUX ENDROITS
+                                tant que la ligne n'est pas mutualisee. C'est la duplication
+                                qui est la cause, pas l'oubli. */}
+                            {row.lmName && <span style={{ fontSize: 9, fontWeight: 700, color: '#8B5CF6', background: '#8B5CF618', borderRadius: 4, padding: '2px 5px', marginLeft: 4 }}>{row.lmName}</span>}
                           </td>
                           <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.clicsDesc > 0 ? 700 : 400, color: row.clicsDesc > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.clicsDesc > 0 ? fmt(row.clicsDesc) : '—'}</td>
                           <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmDetectes > 0 ? 700 : 400, color: row.lmDetectes > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 ? row.lmDetectes : '—'}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmClics > 0 ? 700 : 400, color: row.lmClics > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 ? (row.lmClics > 0 ? row.lmClics : '0') : '—'}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmReponses > 0 ? 700 : 400, color: row.lmReponses > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 ? (row.lmReponses > 0 ? row.lmReponses : '0') : '—'}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmClics > 0 ? 700 : 400, color: row.lmClics > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 || row.lmClics > 0 ? (row.lmClics > 0 ? row.lmClics : '0') : '—'}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmReponses > 0 ? 700 : 400, color: row.lmReponses > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 || row.lmReponses > 0 ? (row.lmReponses > 0 ? row.lmReponses : '0') : '—'}</td>
                           <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.dmCount > 0 ? 700 : 400, color: row.dmCount > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.dmCount > 0 ? row.dmCount : '—'}</td>
                           <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.callsBooked > 0 ? 700 : 400, color: row.callsBooked > 0 ? GREEN : 'var(--faint)' }}>{row.callsBooked > 0 ? row.callsBooked : '—'}</td>
                           <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.callsHonored > 0 ? 700 : 400, color: row.callsHonored > 0 ? GREEN : 'var(--faint)' }}>{row.callsHonored > 0 ? row.callsHonored : '—'}</td>
