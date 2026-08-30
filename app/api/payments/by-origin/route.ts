@@ -125,6 +125,45 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // ── Séquences de stories ────────────────────────────────────────────────
+    // TROISIÈME type de contenu, à côté des posts Instagram et des vidéos YouTube.
+    // `first_touch_content_id` y porte un `story_sequences.id`, donc un UUID — ni un
+    // media_id Instagram (numérique) ni un id YouTube (11 caractères). Faute de le
+    // savoir, la route affichait « Contenu supprimé » sur une séquence bien vivante.
+    //
+    // Même résolution que « Performance par contenu » de l'onglet Business micro
+    // (app/api/instagram/story-sequences-stats) : le nom de la séquence pour titre, et
+    // la première story de la séquence pour vignette — première au sens de `posted_at`,
+    // et jamais une story archivée.
+    const idsSequences = contentIds.filter(id => !titles.has(id) && /^[0-9a-f-]{36}$/i.test(id));
+    if (idsSequences.length) {
+      const { data: sequences } = await supa
+        .from('story_sequences')
+        .select('id, name')
+        .eq('profile_id', profileId)
+        .in('id', idsSequences);
+      const trouvees = sequences ?? [];
+      const { data: stories } = trouvees.length
+        ? await supa
+            .from('ig_stories')
+            .select('sequence_id, storage_url, posted_at')
+            .in('sequence_id', trouvees.map(s => s.id))
+            .is('archived_at', null)
+            .order('posted_at', { ascending: true })
+        : { data: [] as any[] };
+      const premiereStory = new Map<string, string | null>();
+      for (const s of stories ?? []) {
+        if (s.sequence_id && !premiereStory.has(s.sequence_id)) premiereStory.set(s.sequence_id, s.storage_url ?? null);
+      }
+      for (const seq of trouvees) {
+        titles.set(seq.id, {
+          title: (seq.name ?? 'Séquence de stories').slice(0, 70),
+          thumbnail: premiereStory.get(seq.id) ?? null,
+          kind: 'Story',
+        });
+      }
+    }
+
     const ytIds = contentIds.filter(id => !titles.has(id) && isYtVideoId(id));
     if (ytIds.length) {
       const ytTitles = await resolveYtVideoTitles(profileId, ytIds);
@@ -150,14 +189,12 @@ export async function GET(request: NextRequest) {
     if (key.startsWith('content:')) {
       const id = key.slice('content:'.length);
       const t = titles.get(id);
-      // « Contenu supprimé » affirme quelque chose de faux quand l'identifiant n'a
-      // jamais été un contenu : on trouve dans first_touch_content_id des UUID, qui ne
-      // sont ni un media_id Instagram (numérique) ni un id YouTube (11 caractères).
-      // Le dire distingue une publication effacée d'une attribution mal écrite en amont.
-      const idPlausible = /^\d{10,}$/.test(id) || isYtVideoId(id);
+      // Les trois formes d'identifiant sont désormais résolues : post Instagram,
+      // vidéo YouTube, séquence de stories. Ce qui ne se résout plus a donc bien été
+      // supprimé — le libellé redevient vrai.
       const n = b.deals.size;
       return {
-        key, label: t?.title ?? (idPlausible ? 'Contenu supprimé' : 'Contenu non identifié'),
+        key, label: t?.title ?? 'Contenu supprimé',
         meta: `${t?.kind ?? 'Contenu'} · ${n} deal${n > 1 ? 's' : ''}`,
         amount: montantDuBucket(b), isOrigin: false, thumbnail: t?.thumbnail ?? null, dealsCount: n,
       };
