@@ -3875,7 +3875,7 @@ function periodLabel(period: number, index: number): string {
 }
 
 
-function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, onModalChange, leads: leadsFromProp, prospectLinksData, linkClickedByLeadId, clicksByUrl, sinceConnection, allTimeStart, profileId, joursCollectesShortio }: { msgs: IGMessages | null; calls: CallRecord[]; stripe: StripeStats | null; ig: IGStats | null; yt: YTStats | null; shortio: ShortioStats | null; period: Period; periodIndex: number; onModalChange?: (open: boolean) => void; leads?: MockLead[]; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; sinceConnection?: boolean; allTimeStart?: string | null; profileId?: string; joursCollectesShortio?: Set<string> }) {
+function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, onModalChange, leads: leadsFromProp, prospectLinksData, linkClickedByLeadId, clicksByUrl, sinceConnection, allTimeStart, profileId, joursCollectesShortio, premierJourCollecteShortio }: { msgs: IGMessages | null; calls: CallRecord[]; stripe: StripeStats | null; ig: IGStats | null; yt: YTStats | null; shortio: ShortioStats | null; period: Period; periodIndex: number; onModalChange?: (open: boolean) => void; leads?: MockLead[]; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; sinceConnection?: boolean; allTimeStart?: string | null; profileId?: string; joursCollectesShortio?: Set<string>; premierJourCollecteShortio?: string | null }) {
   const leads = leadsFromProp && leadsFromProp.length > 0 ? leadsFromProp : [];
   const [callsFilter, setCallsFilter] = useState<'all' | 'ig' | 'yt'>('all');
   // La table coupait à 20 lignes sans le dire : en All-Time sur un élève actif, la
@@ -4089,14 +4089,23 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   //
   // Le GRAND CHIFFRE de l'etage ne bouge pas — il reste le nombre vrai de rendez-vous.
   // Seul le TAUX se calcule sur la partie comparable, et la note dit depuis quand.
-  const debutCouvertureClics: string | null = (() => {
+  // Le premier jour de collecte est GLOBAL : `joursCollectesShortio` ne porte que les
+  // journees de la fenetre affichee, et sur une periode entierement anterieure au
+  // debut de la collecte il est VIDE. Le code en concluait « couverture complete » —
+  // l'exact inverse de la verite — et juin 2026 affichait « 5 opportunites pour
+  // 2 clics : 250 % ». Un ensemble vide dit « on ne sait rien », pas « tout va bien ».
+  const debutCouvertureClics: string | null = premierJourCollecteShortio ?? (() => {
     if (!joursCollectesShortio?.size) return null;
     let mini: string | null = null;
     for (const j of joursCollectesShortio) if (!mini || j < mini) mini = j;
     return mini;
   })();
   const debutFenetreStr = parisDateStr(winStart);
+  const finFenetreStr = parisDateStr(winEnd);
   const couvertureIncomplete = !!debutCouvertureClics && debutCouvertureClics > debutFenetreStr;
+  // Fenetre ENTIEREMENT anterieure a la collecte : il n'y a aucune partie comparable,
+  // donc aucun taux. Un 0 % affirmerait « personne n'a converti » ; c'est un trou.
+  const couvertureNulle = !!debutCouvertureClics && debutCouvertureClics > finFenetreStr;
   const bookesDansCouverture = (subset: CallRecord[]) => {
     if (!couvertureIncomplete) return subset.filter(c => c.status === 'active').length;
     return subset.filter(c => {
@@ -4105,9 +4114,11 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
       return !!d && parisDateStr(new Date(d)) >= debutCouvertureClics!;
     }).length;
   };
-  const noteCouverture = couvertureIncomplete && debutCouvertureClics
-    ? `taux depuis le ${new Date(debutCouvertureClics + 'T12:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}, début du suivi des clics`
-    : undefined;
+  const noteCouverture = couvertureNulle && debutCouvertureClics
+    ? `aucun taux : le suivi des clics n'a commencé que le ${new Date(debutCouvertureClics + 'T12:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`
+    : couvertureIncomplete && debutCouvertureClics
+      ? `taux depuis le ${new Date(debutCouvertureClics + 'T12:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}, début du suivi des clics`
+      : undefined;
 
   const dash = '—';
   // Libellé sans durée : « Reach 30j » mentait sur les trois modes — un mois calendaire
@@ -4117,7 +4128,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const igFunnelSteps = [
     { label: 'Reach', value: igReachD == null ? dash : (igReachD >= 1000 ? `${fmt(igReachD / 1000, 1)}k` : fmt(igReachD)), rawValue: igReachD ?? 0 },
     { label: 'Clics liens Calendly', value: noData ? dash : fmt(igTotalClicsD), sub: 'bio + descr. + DM', rawValue: igTotalClicsD, rate: igReachD && igReachD > 0 ? (igTotalClicsD / igReachD) * 100 : undefined },
-    { label: 'Opportunités', value: fmt(igOpportunitesBookees), rawValue: igOpportunitesBookees, rate: igTotalClicsD > 0 ? (bookesDansCouverture(callsIG.filter(c => !continuations.has(c.id))) / igTotalClicsD) * 100 : undefined, noteTaux: noteCouverture },
+    { label: 'Opportunités', value: fmt(igOpportunitesBookees), rawValue: igOpportunitesBookees, rate: couvertureNulle || igTotalClicsD <= 0 ? undefined : (bookesDansCouverture(callsIG.filter(c => !continuations.has(c.id))) / igTotalClicsD) * 100, noteTaux: noteCouverture },
     { label: 'Honorées', value: fmt(igOpportunites), rawValue: igOpportunites, rate: igOpportunitesBookees > 0 ? (igOpportunites / igOpportunitesBookees) * 100 : 0 },
     { label: 'Deals closés', value: fmt(igCloses), rawValue: igCloses, rate: igOpportunites > 0 ? (igCloses / igOpportunites) * 100 : undefined },
     { label: 'Revenue', value: fmtEur(igRev), rawValue: igRev },
@@ -4126,7 +4137,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const ytFunnelSteps = [
     { label: 'Vues', value: noData ? dash : (ytViewsD >= 1000 ? `${fmt(ytViewsD / 1000, 1)}k` : fmt(ytViewsD)), rawValue: ytViewsD },
     { label: 'Clics Calendly', value: noData ? dash : fmt(ytClicsD), sub: 'Bio + Descr.', rawValue: ytClicsD, rate: noData ? 0 : (ytViewsD > 0 ? (ytClicsD / ytViewsD) * 100 : 0) },
-    { label: 'Opportunités', value: fmt(ytOpportunitesBookees), rawValue: ytOpportunitesBookees, rate: ytClicsD > 0 ? (bookesDansCouverture(callsYT.filter(c => !continuations.has(c.id))) / ytClicsD) * 100 : undefined, noteTaux: noteCouverture },
+    { label: 'Opportunités', value: fmt(ytOpportunitesBookees), rawValue: ytOpportunitesBookees, rate: couvertureNulle || ytClicsD <= 0 ? undefined : (bookesDansCouverture(callsYT.filter(c => !continuations.has(c.id))) / ytClicsD) * 100, noteTaux: noteCouverture },
     { label: 'Honorées', value: fmt(ytOpportunites), rawValue: ytOpportunites, rate: ytOpportunitesBookees > 0 ? (ytOpportunites / ytOpportunitesBookees) * 100 : 0 },
     { label: 'Deals closés', value: fmt(ytCloses), rawValue: ytCloses, rate: ytOpportunites > 0 ? (ytCloses / ytOpportunites) * 100 : undefined },
     { label: 'Revenue', value: fmtEur(ytRev), rawValue: ytRev },
@@ -7645,6 +7656,21 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   // pas du tout — et jusqu'ici le graphique affichait quand même un point à 0, rendant
   // une panne de collecte indiscernable d'une journée sans clic. Cas réel mesuré le
   // 2026-08-28 : profil dc6f6aec, 18 et 20 août, aucune ligne en base, courbe à 0.
+  // Premier jour de collecte de clics — GLOBAL, jamais borne a la fenetre affichee.
+  //
+  // `joursCollectesShortio` ne contient que les journees DE LA FENETRE. Sur une
+  // periode entierement anterieure au debut de la collecte, cet ensemble est donc
+  // VIDE — et le code en concluait « couverture complete », l'exact inverse de la
+  // verite. Juin 2026 affichait ainsi « 5 opportunites pour 2 clics : 250 % ».
+  // Un ensemble vide dit « on ne sait rien », pas « tout est couvert ».
+  const { data: premierJourRows } = await supabase
+    .from('shortio_link_daily_snapshots')
+    .select('date')
+    .eq('profile_id', targetId)
+    .order('date', { ascending: true })
+    .limit(1);
+  const premierJourCollecteShortio: string | null = premierJourRows?.[0]?.date ?? null;
+
   const snapJoursCollectes = new Set<string>();
   const { data: snapChartRpcData, error: snapChartRpcError } = await supabase.rpc('get_shortio_clicks_by_day', {
     p_profile_id: targetId,
@@ -7948,6 +7974,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     totalClicsChangePct: snapTotalClicsChangePct,
     shortioChartHistory: snapShortioChartHistory,
     joursCollectesShortio: snapJoursCollectes,
+    premierJourCollecteShortio,
     shortioChartHistoryBio: snapShortioChartHistoryBio,
     shortioChartHistoryContent: snapShortioChartHistoryContent,
     shortioChartHistoryDm: snapShortioChartHistoryDm,
@@ -8443,6 +8470,21 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
   const storyByDate = new Map<string, number>();
   // Voir le commentaire jumeau dans fetchSnapshot : une journée absente de la RPC est
   // une journée SANS collecte, pas une journée sans clic.
+  // Premier jour de collecte de clics — GLOBAL, jamais borne a la fenetre affichee.
+  //
+  // `joursCollectesShortio` ne contient que les journees DE LA FENETRE. Sur une
+  // periode entierement anterieure au debut de la collecte, cet ensemble est donc
+  // VIDE — et le code en concluait « couverture complete », l'exact inverse de la
+  // verite. Juin 2026 affichait ainsi « 5 opportunites pour 2 clics : 250 % ».
+  // Un ensemble vide dit « on ne sait rien », pas « tout est couvert ».
+  const { data: premierJourRows } = await supabase
+    .from('shortio_link_daily_snapshots')
+    .select('date')
+    .eq('profile_id', targetId)
+    .order('date', { ascending: true })
+    .limit(1);
+  const premierJourCollecteShortio: string | null = premierJourRows?.[0]?.date ?? null;
+
   const joursCollectesShortio = new Set<string>();
   // calendlyStaticClicsFromDb/businessClicsFromDb : calculés ici (depuis l'agrégat
   // RPC, jamais tronqué) plutôt que depuis shortioClicksRes plus haut, qui peut
@@ -8525,7 +8567,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     }
   }
 
-  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, deals: dealsRows, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, hookRepliedEvents, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, joursCollectesShortio, integrationsReadyAt };
+  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, deals: dealsRows, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, hookRepliedEvents, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, joursCollectesShortio, premierJourCollecteShortio, integrationsReadyAt };
   } catch { return null; }
 }
 
@@ -8863,6 +8905,11 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   const joursCollectesShortio: Set<string> | undefined = sinceConnection
     ? sinceConnSnap?.joursCollectesShortio
     : (periodIndex === 0 ? supaData?.joursCollectesShortio : snapData?.joursCollectesShortio);
+  // Global, donc valable quelle que soit la periode affichee — c'est tout l'interet :
+  // il reste connu meme quand la fenetre courante ne contient aucune journee collectee.
+  const premierJourCollecteShortio: string | null | undefined = sinceConnection
+    ? sinceConnSnap?.premierJourCollecteShortio
+    : (periodIndex === 0 ? supaData?.premierJourCollecteShortio : snapData?.premierJourCollecteShortio);
   const shortioChartHistoryStory: { date: string; story: number }[] | undefined = sinceConnection
     ? sinceConnSnap?.shortioChartHistoryStory
     : (periodIndex === 0 ? supaData?.shortioChartHistoryStory : snapData?.shortioChartHistoryStory);
@@ -9102,7 +9149,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
           {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} stripe={stripeEff} msgs={msgsEff} calls={callsEff} callsAllTime={callsAllTimeEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} />}
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.yt?.snapshotError} />}
-          {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} allTimeStart={allTimeStart} profileId={profileId} joursCollectesShortio={joursCollectesShortio} />}
+          {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} allTimeStart={allTimeStart} profileId={profileId} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} />}
           {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} hookRepliedEvents={hookRepliedEvents} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={callsAllTimeEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} shortioChartHistoryStory={shortioChartHistoryStory} joursCollectesShortio={joursCollectesShortio} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
           {tab === 5 && <TabRevenues stripe={stripeEff} calls={callsEff} deals={dealsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} />}
         </>
