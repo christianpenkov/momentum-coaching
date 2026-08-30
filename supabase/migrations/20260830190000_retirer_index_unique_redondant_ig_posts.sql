@@ -1,0 +1,29 @@
+-- Deux index UNIQUE sur EXACTEMENT les mêmes trois colonnes.
+--
+--   analytics_ig_posts_history_profile_id_snapshot_date_post_id_key
+--       unique (profile_id, snapshot_date, post_id)
+--   analytics_ig_posts_history_profile_post_date_key
+--       unique (profile_id, post_id, snapshot_date)
+--
+-- L'ordre des colonnes change le tri, pas l'unicité : les deux contraignent le même
+-- triplet. Le second suffit donc à garantir « une ligne par post et par jour ».
+--
+-- Mesuré avant retrait : 95 octets par ligne chacun, sur ~734 octets structurels
+-- (457 de données + 277 d'index). Le doublon coûte donc ~13 % de la table, pour rien —
+-- et cette table est celle qui croît le plus vite (une ligne par post et par jour,
+-- ~4,4 M lignes/an à 40 élèves × 300 posts).
+--
+-- Ce qui reste couvert après le retrait :
+--   • l'unicité, par ..._profile_post_date_key (c'est aussi la cible du
+--     `onConflict: 'profile_id,post_id,snapshot_date'` de snapshotIgPosts — vérifié,
+--     c'est le SEUL onConflict de cette table dans tout le dépôt) ;
+--   • les lectures par fenêtre de dates, par idx_analytics_ig_posts_profile_date
+--     (profile_id, snapshot_date DESC) — l'index le plus utilisé de la table
+--     (3545 parcours contre 1349 pour celui qu'on retire).
+--
+-- Aucun nom d'index ni de contrainte n'est référencé dans le code (vérifié).
+--
+-- `drop index` échoue ici : l'index appartient à une CONTRAINTE unique, il faut donc
+-- retirer la contrainte, ce qui emporte l'index.
+alter table analytics_ig_posts_history
+  drop constraint if exists analytics_ig_posts_history_profile_id_snapshot_date_post_id_key;

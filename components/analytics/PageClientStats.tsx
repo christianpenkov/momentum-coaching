@@ -8859,17 +8859,32 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     if (!d.call_id || d.status === 'canceled') continue;
     montantParCall.set(d.call_id, (montantParCall.get(d.call_id) ?? 0) + Number(d.amount_total || 0));
   }
+  // UNE entree par PERSONNE, pliee sur TOUS ses calls — et non le dernier ecrit.
+  //
+  // `set` dans une boucle ecrasait : la liste etant triee `scheduled_at DESC`, la
+  // derniere iteration est le call le plus ANCIEN, donc c'est lui qui restait.
+  // incogniton.734 a deux calls (15/06 et 15/08) : le revenu et le `deal_closed` du
+  // second etaient perdus. Les deux valent 0 aujourd'hui, donc rien ne se voyait —
+  // le defaut est dans le mecanisme, pas dans le chiffre du jour.
+  //
+  // Deux grains differents, volontairement :
+  // - booked / honored / closed : « au moins un », parce que la table compte des
+  //   PERSONNES. Une personne qui a reserve deux fois a reserve, une fois.
+  // - revenue : une SOMME, parce qu'un deal se compte la ou il a ete signe, meme au
+  //   2e rendez-vous. Meme regle que `closed`/`revenue` dans Performance par contenu.
+  // - qualified : le plus recent renseigne (la liste vient en `scheduled_at DESC`),
+  //   un tri-etat ne se plie ni en « au moins un » ni en somme.
   const callByLeadId = new Map<string, { callBooked: boolean; callHonored: boolean; dealClosed: boolean; revenue: number; qualified: boolean | null }>();
   for (const c of callsData) {
-    if (c.ig_lead_id) {
-      callByLeadId.set(c.ig_lead_id, {
-        callBooked:  c.status === 'active',
-        callHonored: isCallHonored(c, now),
-        dealClosed:  !!c.deal_closed,
-        revenue:     montantParCall.get(c.id) ?? 0,
-        qualified:   c.qualified ?? null,
-      });
-    }
+    if (!c.ig_lead_id) continue;
+    const prev = callByLeadId.get(c.ig_lead_id);
+    callByLeadId.set(c.ig_lead_id, {
+      callBooked:  (prev?.callBooked  ?? false) || c.status === 'active',
+      callHonored: (prev?.callHonored ?? false) || isCallHonored(c, now),
+      dealClosed:  (prev?.dealClosed  ?? false) || !!c.deal_closed,
+      revenue:     (prev?.revenue ?? 0) + (montantParCall.get(c.id) ?? 0),
+      qualified:   prev?.qualified ?? c.qualified ?? null,
+    });
   }
 
   // prospect_links enrichis avec callBooked/callHonored/dealClosed/revenue/qualified/clicsHumains/post_id via DB
