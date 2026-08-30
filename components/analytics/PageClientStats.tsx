@@ -5851,7 +5851,22 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const viewsLifetimeRaw = platform === 'IG' ? igLiveViewsById.get(postId) : ytLiveViewsById.get(postId);
     const viewsLifetime = viewsLifetimeRaw ?? null;
     // Nom du LM associé aux leads de ce contenu (premier keyword trouvé)
-    const lmKeyword = postLeads[0]?.keyword || null;
+    // Mot-cle du contenu : depuis le JOURNAL, pas depuis la fiche.
+    // `postLeads[0]?.keyword` lisait `instagram_leads.keyword_matched`, ecrase a chaque
+    // nouvelle interaction de la meme personne comme media_id et lead_magnet_sent avant
+    // lui. Un contenu pouvait donc afficher le mot-cle d'un AUTRE contenu.
+    // Le journal garde une ligne par interaction : on prend la plus recente de ce
+    // contenu, avec repli sur la fiche pour les contenus anterieurs au journal.
+    const lmKeyword = (() => {
+      let meilleur: { ms: number; kw: string } | null = null;
+      for (const h of lmHistoryInPeriod) {
+        if (h.media_id !== postId || !h.keyword_matched) continue;
+        const ms = Date.parse(h.detected_at);
+        if (!Number.isFinite(ms)) continue;
+        if (!meilleur || ms > meilleur.ms) meilleur = { ms, kw: h.keyword_matched };
+      }
+      return meilleur?.kw ?? postLeads[0]?.keyword ?? null;
+    })();
     const lmName = lmKeyword ? (lmNameByKeyword.get(lmKeyword.toLowerCase()) ?? lmKeyword) : null;
 
     const clicsDesc = linkClics(descLink) || 0;
@@ -5952,7 +5967,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const qualifiedAnswered = qualifiableCalls.length;
     const qualifiedPct = qualifiedAnswered > 0 ? Math.round((qualifiedCount / qualifiedAnswered) * 100) : null;
 
-    return { postId, platform, title, thumbnail, type, views, descLink, dmProspects, lmDetectes, lmSent, lmClics, lmReponses, dmCount, clicsDesc, callsBooked, callsHonored, closed, revenue, callsBookedDesc, callsHonoredDesc, closedDesc, revenueDesc, callsBookedLm, callsHonoredLm, closedLm, revenueLm, vuesParCall, cashParVue, qualifiedPct, qualifiedCount, qualifiedAnswered, lmName, postCallsDesc };
+    return { postId, platform, title, thumbnail, type, views, descLink, dmProspects, lmDetectes, lmSent, lmClics, lmReponses, dmCount, clicsDesc, callsBooked, callsHonored, closed, revenue, callsBookedDesc, callsHonoredDesc, closedDesc, revenueDesc, callsBookedLm, callsHonoredLm, closedLm, revenueLm, vuesParCall, cashParVue, qualifiedPct, qualifiedCount, qualifiedAnswered, lmName, lmKeyword, postCallsDesc };
   });
 
   // Séquences stories — une ligne par séquence (pas par story individuelle), pivot
@@ -5989,6 +6004,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     cashParVue: null,
     qualifiedPct: null, qualifiedCount: 0, qualifiedAnswered: 0,
     lmName: seq.lmKeyword ? `#${seq.lmKeyword}` : null,
+    lmKeyword: seq.lmKeyword ?? null,
     postCallsDesc: [],
   }));
 
@@ -6024,6 +6040,13 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
             <span style={{ fontSize: 9, fontWeight: 700, color: platformColor, background: platformColor + '18', borderRadius: 4, padding: '2px 5px' }}>{row.platform === 'STORY_SEQUENCE' ? 'STORY' : row.platform} · {row.type}</span>
             {row.lmName && <span style={{ fontSize: 9, fontWeight: 700, color: '#8B5CF6', background: '#8B5CF618', borderRadius: 4, padding: '2px 5px' }}>{row.lmName}</span>}
+            {/* Le mot-cle a cote du nom : « Guide complet » ne dit pas sous quel mot les
+                prospects ont commente. Affiche seulement s'il apporte quelque chose — un
+                lead magnet sans nom affiche deja son mot-cle comme nom, et une sequence
+                story affiche « #MOTCLE » : dans les deux cas le repeter serait du bruit. */}
+            {row.lmKeyword && row.lmName
+              && row.lmName.replace(/^#/, '').toLowerCase() !== row.lmKeyword.toLowerCase()
+              && <span style={{ fontSize: 9, fontWeight: 600, color: 'var(--muted)', background: 'var(--surface-2)', borderRadius: 4, padding: '2px 5px' }}>#{row.lmKeyword}</span>}
           </div>
         </td>
         <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.clicsDesc > 0 ? 700 : 400, color: row.clicsDesc > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.clicsDesc > 0 ? fmt(row.clicsDesc) : '—'}</td>
