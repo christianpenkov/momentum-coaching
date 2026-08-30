@@ -156,7 +156,23 @@ async function recordPayment(supabase: Supa, params: {
     stripe_payment_id: params.stripePaymentId,
     amount: params.amountMinor / 100,
     currency: params.currency,
-    paid_at: params.status === 'succeeded' ? params.paidAt : null,
+    // ⚠️ `refunded` porte une date, au même titre que `succeeded`.
+    //
+    // Cette colonne est ce qui BORNE les périodes partout dans l'application
+    // (`gte`/`lte` sur paid_at). La laisser à NULL ne rendait pas les
+    // remboursements « sans date » : elle les rendait invisibles de TOUTES les
+    // fenêtres, sur tous les écrans, définitivement — donc jamais déduits nulle
+    // part, alors que calculerCash() les soustrait. Constaté le 2026-08-30 :
+    // 1 000 € encaissés et 200 € remboursés s'affichaient 1 000 €.
+    //
+    // La date posée est celle de la charge D'ORIGINE (`charge.created`, voir le
+    // case `charge.refunded`), pas celle du remboursement : le remboursement se
+    // soustrait au mois où l'argent était entré, donc ce mois-là finit par dire
+    // ce qu'il a vraiment rapporté. Décision de Chris, 2026-08-30.
+    //
+    // `failed` et `pending` restent à NULL : aucun argent n'a bougé, ils n'ont
+    // pas de date d'encaissement à porter.
+    paid_at: params.status === 'succeeded' || params.status === 'refunded' ? params.paidAt : null,
     status: params.status,
     failure_reason: params.failureReason ?? null,
     match_method: matchMethod,
@@ -189,26 +205,33 @@ async function recordPayment(supabase: Supa, params: {
  *   3. une ligne déjà enregistrée sous cet identifiant, cas d'un remboursement
  *      antérieur qui aurait créé la ligne `ch_…`.
  *
- * Renvoie `null` plutôt que de deviner : rattacher un litige au mauvais deal
- * retirerait de l'argent de la mauvaise vente.
+ * Renvoie `dealId: null` plutôt que de deviner : rattacher un litige au mauvais
+ * deal retirerait de l'argent de la mauvaise vente.
+ *
+ * Renvoie AUSSI `paidAt`, la date du paiement contesté quand la ligne a pu être
+ * retrouvée. Une ligne de litige doit porter la date de l'argent qu'elle retire,
+ * pas celle du litige : sans elle, elle serait invisible de toutes les fenêtres
+ * de période, donc jamais déduite (voir le commentaire de `paid_at` dans
+ * recordPayment). La recherche de ligne est désormais faite même quand les
+ * metadata ont déjà donné le deal — c'est une lecture indexée, sur un chemin
+ * rare, et c'est le seul endroit qui connaît la date d'origine.
  */
 async function dealDuPaiement(
   supabase: Supa,
   profileId: string,
   chargeId: string,
   metadata: Stripe.Metadata | null | undefined,
-): Promise<string | null> {
-  const viaMeta = metadata?.[METADATA_KEYS.deal];
-  if (viaMeta) return viaMeta;
+): Promise<{ dealId: string | null; paidAt: string | null }> {
+  const viaMeta = metadata?.[METADATA_KEYS.deal] ?? null;
 
   const identifiants = [chargeId];
+  let viaCharge: string | null = null;
 
   const access = await getStripeAccess(profileId);
   if (access) {
     try {
       const charge = await access.stripe.charges.retrieve(chargeId, undefined, access.opts);
-      const viaCharge = charge.metadata?.[METADATA_KEYS.deal];
-      if (viaCharge) return viaCharge;
+      viaCharge = charge.metadata?.[METADATA_KEYS.deal] ?? null;
 
       const pi = typeof charge.payment_intent === 'string'
         ? charge.payment_intent
@@ -222,13 +245,18 @@ async function dealDuPaiement(
 
   const { data } = await supabase
     .from('deal_payments')
-    .select('deal_id, deals!inner(profile_id)')
+    .select('deal_id, paid_at, deals!inner(profile_id)')
     .eq('deals.profile_id', profileId)
     .in('stripe_payment_id', identifiants)
     .limit(1)
     .maybeSingle();
 
-  return (data as { deal_id?: string } | null)?.deal_id ?? null;
+  const ligne = data as { deal_id?: string; paid_at?: string | null } | null;
+
+  return {
+    dealId: viaMeta ?? viaCharge ?? ligne?.deal_id ?? null,
+    paidAt: ligne?.paid_at ?? null,
+  };
 }
 
 /**
@@ -547,7 +575,7 @@ async function handleEvent(event: Stripe.Event) {
       const chargeId = typeof dispute.charge === 'string' ? dispute.charge : dispute.charge?.id;
       if (!chargeId) break;
 
-      const dealId = await dealDuPaiement(supabase, profileId, chargeId, dispute.metadata);
+      const { dealId, paidAt: dateContestee } = await dealDuPaiement(supabase, profileId, chargeId, dispute.metadata);
       if (!dealId) break;
 
       // Identifiant préfixé : la ligne du litige doit coexister avec celle du
@@ -559,7 +587,12 @@ async function handleEvent(event: Stripe.Event) {
         stripe_payment_id: `dispute_${chargeId}`,
         amount: (dispute.amount ?? 0) / 100,
         currency: dispute.currency ?? 'eur',
-        paid_at: null,
+        // Date du paiement contesté, pas celle du litige : la somme retirée se
+        // soustrait au mois où elle était entrée. Repli sur la date du litige
+        // quand la ligne d'origine n'a pas pu être retrouvée — une date
+        // approchée vaut mieux qu'un NULL, qui rendrait le litige invisible de
+        // toutes les périodes et donc jamais déduit.
+        paid_at: dateContestee ?? new Date((dispute.created ?? Math.floor(Date.now() / 1000)) * 1000).toISOString(),
         status: 'disputed',
         match_method: 'metadata',
       });
@@ -609,7 +642,7 @@ async function handleEvent(event: Stripe.Event) {
       const chargeId = typeof dispute.charge === 'string' ? dispute.charge : dispute.charge?.id;
       if (!chargeId) break;
 
-      const dealId = await dealDuPaiement(supabase, profileId, chargeId, dispute.metadata);
+      const { dealId } = await dealDuPaiement(supabase, profileId, chargeId, dispute.metadata);
       if (!dealId) break;
 
       await supabase.from('deal_payments')
@@ -632,7 +665,7 @@ async function handleEvent(event: Stripe.Event) {
       const chargeId = typeof refund.charge === 'string' ? refund.charge : refund.charge?.id;
       if (!chargeId) break;
 
-      const dealId = await dealDuPaiement(supabase, profileId, chargeId, refund.metadata);
+      const { dealId } = await dealDuPaiement(supabase, profileId, chargeId, refund.metadata);
       if (!dealId) break;
 
       await supabase.from('deal_payments')

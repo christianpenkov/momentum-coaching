@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { resolveTargetProfile } from '@/lib/stripe-account';
 import { resolveYtVideoTitles } from '@/lib/ytVideoTitles';
+import { calculerCash, type LignePaiement } from '@/lib/dealCash';
 
 /**
  * Cash encaissé par origine — le bloc analytique de l'onglet Revenus.
@@ -49,11 +50,16 @@ export async function GET(request: NextRequest) {
   const end = params.get('end');
 
   // Encaissé réel, pas contracté : le bloc s'appelle « cash encaissé ».
+  //
+  // Tous les statuts, pas seulement `succeeded` : le net est calculé plus bas par
+  // `calculerCash`, la règle partagée de lib/dealCash.ts (encaissé − remboursé −
+  // contesté). Ne garder que `succeeded` faisait dire à ce bloc 1 000 € là où la
+  // page Paiements disait 800 € sur le même deal — exactement la divergence que
+  // dealCash.ts avait été créé pour supprimer.
   let query = supa
     .from('deal_payments')
-    .select('amount, paid_at, deals!inner(profile_id, first_touch_content_id, attribution_source, id)')
-    .eq('deals.profile_id', profileId)
-    .eq('status', 'succeeded');
+    .select('amount, status, paid_at, deals!inner(profile_id, first_touch_content_id, attribution_source, id)')
+    .eq('deals.profile_id', profileId);
 
   if (start) query = query.gte('paid_at', start);
   if (end) query = query.lte('paid_at', end);
@@ -62,7 +68,10 @@ export async function GET(request: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // Regroupement par contenu, ou par nature d'origine quand il n'y en a pas.
-  const buckets = new Map<string, { amount: number; deals: Set<string>; isOrigin: boolean }>();
+  // On accumule les LIGNES et non un total : le net se calcule ensuite par
+  // `calculerCash`, pour que ce bloc dise exactement la même chose que la page
+  // Paiements et que la carte « Cash collecté ».
+  const buckets = new Map<string, { lignes: LignePaiement[]; deals: Set<string>; isOrigin: boolean }>();
 
   for (const p of (payments ?? []) as any[]) {
     const d = p.deals;
@@ -76,11 +85,14 @@ export async function GET(request: NextRequest) {
       : source === 'client_existant' ? 'origin:client'
       : 'origin:manual';
 
-    const b = buckets.get(key) ?? { amount: 0, deals: new Set<string>(), isOrigin: !contentId };
-    b.amount += Number(p.amount);
-    if (d?.id) b.deals.add(d.id);
+    const b = buckets.get(key) ?? { lignes: [] as LignePaiement[], deals: new Set<string>(), isOrigin: !contentId };
+    b.lignes.push({ amount: p.amount, status: p.status });
+    // Un deal qui n'a QUE des remboursements ne compte pas comme une vente
+    // encaissée : il ne rejoint le compte que s'il a au moins un encaissement.
+    if (d?.id && p.status === 'succeeded') b.deals.add(d.id);
     buckets.set(key, b);
   }
+  const montantDuBucket = (b: { lignes: LignePaiement[] }) => calculerCash(b.lignes).net;
 
   // Titres et vignettes des contenus : une requête pour tous plutôt qu'une par ligne.
   const contentIds = [...buckets.keys()]
@@ -136,19 +148,21 @@ export async function GET(request: NextRequest) {
       return {
         key, label: t?.title ?? 'Contenu supprimé',
         meta: `${t?.kind ?? 'Contenu'} · ${n} deal${n > 1 ? 's' : ''}`,
-        amount: b.amount, isOrigin: false, thumbnail: t?.thumbnail ?? null, dealsCount: n,
+        amount: montantDuBucket(b), isOrigin: false, thumbnail: t?.thumbnail ?? null, dealsCount: n,
       };
     }
     const o = ORIGIN_LABELS[key] ?? { label: 'Autre', meta: '' };
     const n = b.deals.size;
     return {
       key, label: o.label, meta: `${o.meta} · ${n} deal${n > 1 ? 's' : ''}`,
-      amount: b.amount, isOrigin: true, thumbnail: null, dealsCount: n,
+      amount: montantDuBucket(b), isOrigin: true, thumbnail: null, dealsCount: n,
     };
   });
 
-  rows.sort((a, b) => b.amount - a.amount);
-  const total = rows.reduce((s, r) => s + r.amount, 0);
+  // Une ligne dont le net retombe a zero (tout rembourse) n'a plus rien a dire.
+  const visibles = rows.filter(r => Math.abs(r.amount) > 0.005);
+  visibles.sort((a, b) => b.amount - a.amount);
+  const total = visibles.reduce((s, r) => s + r.amount, 0);
 
-  return NextResponse.json({ rows, total });
+  return NextResponse.json({ rows: visibles, total });
 }
