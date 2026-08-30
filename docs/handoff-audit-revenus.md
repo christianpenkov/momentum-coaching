@@ -375,25 +375,49 @@ externe de moins sur le chemin d'affichage de chaque visite.
 - Console de l'onglet : zéro avertissement, zéro erreur.
 - `npx tsc --noEmit` propre, `npm test` 222/222.
 
+### Décisions prises le 2026-08-30, et livrées
+
+**Le taux de collecte se lit par cohorte.** Numérateur et dénominateur portent désormais
+sur les mêmes deals — ceux signés dans la période — et on somme TOUS leurs paiements
+sans les borner sur la fenêtre. Le taux ne peut plus dépasser 100 %, et le sous-titre de
+la carte affiche son numérateur pour que la fraction soit vérifiable à l'œil. La carte
+« Cash collecté » voisine garde son sens de trésorerie : les deux questions sont
+légitimes, elles ne devaient pas être mélangées dans une même division. Contrepartie
+assumée : un mois passé voit son taux monter au fil des échéances.
+
+**Un remboursement porte la date du paiement d'origine.** `paid_at` était NULL sur toute
+ligne non-`succeeded`, or c'est la colonne qui borne les périodes : les remboursements et
+litiges étaient invisibles de toutes les fenêtres, donc jamais déduits. Le webhook les
+date maintenant sur la charge d'origine, une migration rattrape l'existant, et les trois
+chemins de lecture passent par `calculerCash`. Le mois de la vente finit donc par dire ce
+qu'il a réellement rapporté — au prix d'un montant passé qui peut changer.
+
+Vérifié à l'écran après livraison, profil de test, août 2026 :
+cash collecté **2 600 €** (2 800 € avant, remboursement de 200 € non déduit) ·
+taux **46 %** (« 2 600 € sur les deals signés ») ·
+somme de « Cash encaissé par origine » **2 600 €**, égale à la carte ·
+tableau des paiements affichant « TestYT − 200 € Remboursé » au 20 août.
+All-Time 10 200 / 2 600 / 25 %. Juillet 500 / 0 / 0 %. Juin 4 000 / 0 / 0 %.
+
 ### Ce qui reste ouvert
 
-1. **Les remboursements et les litiges sont invisibles de toute fenêtre.** `recordPayment`
-   écrit `paid_at = NULL` pour tout statut autre que `succeeded` (webhook Stripe, ligne
-   159). Or `paid_at` est la colonne qui borne la période, partout. Conséquence mesurée :
-   le remboursement de 200 € du deal `a1e5b81e` n'est déduit nulle part — `lib/dealCash.ts`
-   dit 800 € net, l'onglet Revenus et « Cash encaissé par origine » disent 1 000 €.
-   Décision à prendre : à quelle date rattacher un remboursement — celle du paiement
-   d'origine (le mois se corrige rétroactivement) ou celle du remboursement (le mois
-   courant encaisse le moins) ? Rien n'a été touché tant que ce n'est pas tranché.
-2. **Le taux de collecte peut dépasser 100 %** — une échéance encaissée ce mois-ci sur un
-   deal signé le mois dernier compte au numérateur sans compter au dénominateur. Non
-   atteignable sur les données actuelles, structurellement possible.
-3. **Trois paiements Stripe (60 €) ne sont rattachés à aucune vente** sur le compte de
-   test. Ils étaient comptés par l'ancien chemin, ils ne le sont plus. C'est la règle du
-   19/08/2026 — signalé pour mémoire.
-4. Les `ResponsiveContainer` **des autres onglets** (Vue générale notamment) n'ont
-   toujours pas d'`initialDimension` : ils continuent de produire des `width(-1)` en
-   console. Hors périmètre de ce chantier.
+1. **Trois encaissements Stripe (60 €) existent chez Stripe et nulle part chez nous.**
+   Vus le 2026-08-30 dans `charges.list` du compte de test (25 €, 25 €, 10 €, datés du
+   19/08), ils sont absents de `stripe_payments`, qui ne compte que 6 lignes en tout. Ce
+   n'est donc pas un problème d'affichage : la page Paiements a bien un onglet
+   « À rattacher » alimenté par cette table, mais il ne peut pas montrer des lignes qui
+   n'y sont pas. Le webhook ne les a jamais enregistrées — cause non établie (livraison
+   d'événement, ou charges antérieures à l'enregistrement du endpoint). Il faut le
+   journal de livraison des webhooks côté Stripe pour trancher.
+2. **Deux lignes pour un même encaissement dans `stripe_payments`** : `in_1U6dWUG…` et
+   `pi_3U6dWUG…`, 1 000 € chacune, même horodatage à la seconde. `deal_payments` n'en
+   porte qu'une. La file « À rattacher » lit `stripe_payments` — à vérifier qu'elle ne
+   propose pas de rattacher un paiement déjà rattaché sous son autre identifiant.
+3. **Neuf `ResponsiveContainer` sans `initialDimension`** produisent encore des
+   `width(-1)` en console : huit en ligne dans `PageClientStats` (un dans
+   `TabOverviewV2`, deux dans `TabInstagram`, cinq dans `TabYouTube`) et le composant
+   partagé `components/charts/LineChart.tsx`, qui vaut pour tous ses appelants.
+   `BarChart` et `AreaChart` sont corrigés. Hors périmètre de ce chantier.
 
 ### Note de livraison
 
