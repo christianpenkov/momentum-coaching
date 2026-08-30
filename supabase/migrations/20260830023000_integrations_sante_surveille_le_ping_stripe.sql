@@ -1,0 +1,12 @@
+-- Voir le commentaire complet dans la migration appliquée : la vue ne surveillait
+-- la fraîcheur que d'Instagram, YouTube et Short.io. Stripe n'avait aucun contrôle,
+-- alors que sa panne n'est déclarée que par un appel qui échoue — si le cron de
+-- santé s'arrête, plus rien n'appelle Stripe, donc plus rien ne déclare de panne,
+-- et la vue reste verte. Le silence signifiait « tout va bien » là où il signifiait
+-- « je ne regarde plus ».
+--
+-- /api/stripe/cron-health horodate désormais chaque passage dans last_synced_at ;
+-- cette vue signale son absence au-delà de 2 jours, au même endroit que le reste.
+-- Repli sur connected_at tant qu'aucun ping n'a eu lieu, sinon un compte tout juste
+-- connecté serait dégradé avant le premier passage du cron.
+-- (corps identique a la migration appliquee via apply_migration)

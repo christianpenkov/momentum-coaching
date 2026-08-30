@@ -86,6 +86,30 @@ export async function GET(request: NextRequest) {
     else sansConnexion++;
   }
 
+  // ── Le detecteur doit se surveiller lui-meme ──────────────────────────────
+  //
+  // Cette route n'ecrit RIEN quand tout va bien : c'est `appelStripe` qui declare
+  // une panne, et seulement en cas d'echec. Un silence en base ne distingue donc pas
+  // « tout va bien » de « le cron ne tourne plus » — job supprime, secret change,
+  // route en 500. La seule preuve de vie etait le corps de la reponse dans
+  // cron-job.org, qu'il aurait fallu aller lire a la main. C'est de la maintenance,
+  // l'inverse de l'objectif.
+  //
+  // On horodate donc chaque passage, SUCCES OU ECHEC — un compte en panne doit
+  // continuer a prouver que le ping tourne, sinon une vraie panne masquerait
+  // l'absence de surveillance. La vue `integrations_sante` signale ensuite un ping
+  // trop vieux, au meme endroit que les autres integrations.
+  //
+  // `last_synced_at` et non `metadata.stripe_synced_at` : cette derniere est la borne
+  // de synchronisation de `sync-stripe-payments`, qui ne traite que les comptes en
+  // cle restreinte. Les deux champs ne doivent jamais se confondre.
+  const { error: pingErr } = await supa
+    .from('integrations')
+    .update({ last_synced_at: new Date().toISOString() })
+    .eq('provider', 'stripe')
+    .in('profile_id', integrations.map(i => i.profile_id));
+  if (pingErr) console.error('[stripe/cron-health] horodatage du ping:', pingErr.message);
+
   return NextResponse.json({
     ok: true,
     testes: integrations.length,
