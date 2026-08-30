@@ -8343,6 +8343,8 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   // passés) : on cherche le snapshot le plus récent qui a réellement une valeur.
   const lastSnap = snaps[0] ?? null;
   const lastSnapWithYtSubs = snaps.find(r => r.yt_subscribers != null) ?? null;
+  // Pendant du précédent, côté Instagram. Voir le commentaire sur `followers` plus bas.
+  const lastSnapAvecAbonnes = snaps.find(r => r.ig_followers != null) ?? null;
   // Repartitions (trafic / appareils / demographie) : portees par UNE seule ligne de la
   // periode, celle du dernier jour traite par le cron. Prendre lastSnap tout court
   // renvoyait un tableau vide des que ce n'etait pas la premiere ligne — meme motif que
@@ -8410,8 +8412,18 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   const igHist = snaps.length > 0 ? {
     reach30d:             igReachTotal,
     views30d:             igViewsTotal,
-    followers:            lastSnap?.ig_followers ?? 0,
-    following:            lastSnap?.ig_following ?? 0,
+    // Le snapshot le plus récent qui porte RÉELLEMENT un nombre d'abonnés, pas
+    // simplement le plus récent — même garde que `lastSnapWithYtSubs` plus haut, dont
+    // Instagram n'avait jamais hérité.
+    //
+    // Elle est devenue nécessaire le 2026-08-30 : `ig_followers` est l'état actuel du
+    // compte, il n'est donc plus écrit que sur la ligne du JOUR. Une journée comblée
+    // par le seul rattrapage (cron arrêté 24 h) n'en porte pas. Avec `lastSnap` brut,
+    // une telle journée en tête de période donnait `followers = 0`, donc « Abonnés »
+    // à 0 et « Abonnés touchés » à 0 % « sur tes 0 abonnés » — un écran faux, sans
+    // aucune erreur nulle part.
+    followers:            lastSnapAvecAbonnes?.ig_followers ?? 0,
+    following:            lastSnapAvecAbonnes?.ig_following ?? 0,
     accountsEngaged30d:   igEngTotal,
     totalInteractions30d: igInterTotal,
     profileLinksTaps30d:  igTapsTotal,
