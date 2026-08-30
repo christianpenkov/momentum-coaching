@@ -6679,6 +6679,19 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 780 }}>
             <thead>
               <tr>
+                {/* Bandeau de ROLES — la frontiere que l'ecran ne disait pas.
+                    Ces douze colonnes se lisaient comme un entonnoir : chacune semblait
+                    l'etape suivante de la precedente. Elles repondent en realite a trois
+                    questions differentes, et un meme parcours credite trois contenus
+                    distincts. On n'additionne JAMAIS deux roles : le meme prospect y
+                    serait compte trois fois. */}
+                <th style={{ position: 'sticky', left: 0, zIndex: 2, background: 'var(--surface)' }} colSpan={2} />
+                <th className="eyebrow-sm" colSpan={3} style={{ textAlign: 'center', color: 'var(--muted)', padding: '2px 10px 4px', fontSize: 9, letterSpacing: '.08em', borderBottom: '1px solid var(--border)' }}>ILS ARRIVENT</th>
+                <th className="eyebrow-sm" colSpan={2} style={{ textAlign: 'center', color: '#8B5CF6', padding: '2px 10px 4px', fontSize: 9, letterSpacing: '.08em', borderBottom: '1px solid var(--border)' }}>ILS PARLENT</th>
+                <th className="eyebrow-sm" colSpan={5} style={{ textAlign: 'center', color: GREEN, padding: '2px 10px 4px', fontSize: 9, letterSpacing: '.08em', borderBottom: '1px solid var(--border)' }}>ILS RÉSERVENT</th>
+                <th colSpan={2} style={{ borderBottom: '1px solid var(--border)' }} />
+              </tr>
+              <tr>
                 {/* Thumbnail — fixe au scroll horizontal */}
                 <th style={{ position: 'sticky', left: 0, zIndex: 2, background: 'var(--surface)', width: 44, borderBottom: '1px solid var(--border)', padding: '6px 10px 10px' }} />
                 {/* Contenu — pas de tri, fixe au scroll horizontal */}
@@ -6687,7 +6700,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                   ['clicsDesc',    'Clics desc.',            'clicLien'],
                   ['lmDetectes',   'Commentaires LM',        'commentaireLm'],
                   ['lmClics',      'Clics LM',               'clicLeadMagnet'],
-                  ['lmReponses',   'Conversations DM',       'conversationDm'],
+                  ['lmReponses',   'Conversations DM',       'conversationDm'],  // infobulle posee plus bas
                   ['dmCount',      'Calendly envoyés DM',    'calendlyEnvoye'],
                   ['callsBooked',  'Calls bookés',           'callBooke'],
                   ['callsHonored', 'Calls honorés',          'callHonore'],
@@ -6700,6 +6713,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                   const active = sortKey === key;
                   return (
                     <th key={key} onClick={() => { if (active) setSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setSortKey(key); setSortDir('desc'); } }}
+                      // Sans cette infobulle, « Conversations DM » se lit spontanement
+                      // comme un nombre de PERSONNES, et le chiffre surprend des qu'on le
+                      // compare aux leads : il peut legitimement le depasser.
+                      title={key === 'lmReponses' ? "Compte chaque reprise de conversation, pas chaque personne unique. Une discussion qui s'éteint puis redémarre grâce à un autre contenu compte deux fois, et chacune est créditée au contenu qui l'a relancée — ce nombre peut donc dépasser les leads du contenu." : undefined}
                       className="eyebrow-sm" style={{ textAlign: 'right', color: active ? BLUE : 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>
                       <EnteteColonne nom={icone}>{label} {active ? (sortDir === 'desc' ? '↓' : '↑') : ''}</EnteteColonne>
                     </th>
@@ -6748,8 +6765,11 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                       </td>
                       <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.clicsDesc > 0 ? 700 : 400, color: row.clicsDesc > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.clicsDesc > 0 ? fmt(row.clicsDesc) : '—'}</td>
                       <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmDetectes > 0 ? 700 : 400, color: row.lmDetectes > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 ? row.lmDetectes : '—'}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmClics > 0 ? 700 : 400, color: row.lmClics > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 ? (row.lmClics > 0 ? row.lmClics : '0') : '—'}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmReponses > 0 ? 700 : 400, color: row.lmReponses > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 ? (row.lmReponses > 0 ? row.lmReponses : '0') : '—'}</td>
+                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmClics > 0 ? 700 : 400, color: row.lmClics > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 || row.lmClics > 0 ? (row.lmClics > 0 ? row.lmClics : '0') : '—'}</td>
+                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmReponses > 0 ? 700 : 400, color: row.lmReponses > 0 ? 'var(--ink)' : 'var(--faint)' }}>{/* Ne plus masquer une conversation derriere l'acquisition : depuis que les deux
+                          colonnes lisent des journaux differents, une conversation peut exister
+                          sans acquisition sur ce contenu, et le tiret l'aurait cachee. */}
+                          {row.lmDetectes > 0 || row.lmReponses > 0 ? (row.lmReponses > 0 ? row.lmReponses : '0') : '—'}</td>
                       <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.dmCount > 0 ? 700 : 400, color: row.dmCount > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.dmCount > 0 ? row.dmCount : '—'}</td>
                       <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.callsBooked > 0 ? 700 : 400, color: row.callsBooked > 0 ? GREEN : 'var(--faint)' }}>{row.callsBooked > 0 ? row.callsBooked : '—'}</td>
                       <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.callsHonored > 0 ? 700 : 400, color: row.callsHonored > 0 ? GREEN : 'var(--faint)' }}>{row.callsHonored > 0 ? row.callsHonored : '—'}</td>
@@ -6767,6 +6787,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                 return <tbody>{displayRows.map((row, i) => <ContentRow key={i} row={row} i={i} />)}</tbody>;
               })()}
           </table>
+
         </div>
 
         {/* Bouton Voir tout */}
