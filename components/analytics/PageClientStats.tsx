@@ -5994,6 +5994,59 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 
   const consolidatedRows = [...rawConsolidatedRows, ...storySequenceContentRows]
     .sort((a, b) => b.views - a.views || b.revenue - a.revenue);
+  // UNE SEULE definition de la ligne de contenu, pour le tableau ET pour la modale
+  // « Voir tout ».
+  //
+  // La modale en etait une COPIE, et la copie avait diverge quatre fois : badge de lead
+  // magnet absent (il disparaissait des qu'on cliquait « Voir tout »), et « Clics LM »
+  // et « Conversations DM » masques derriere « Commentaires LM » alors que le tableau
+  // ne les masquait plus. Chaque correction devait etre faite deux fois, et ne l'etait
+  // jamais.
+  //
+  // `dansModale` porte le SEUL comportement legitimement different : cliquer une ligne
+  // depuis la modale la referme, alors que depuis le tableau il n'y a rien a refermer.
+  const ContentRow = ({ row, i, dansModale = false }: { row: typeof consolidatedRows[number]; i: number; dansModale?: boolean }) => {
+    const platformColor = row.platform === 'IG' ? ACCENT : row.platform === 'STORY_SEQUENCE' ? '#8B5CF6' : RED;
+    const isSelected = selectedContentId === row.postId;
+    return (
+      <tr key={i}
+        onClick={() => { setSelectedContentId(isSelected ? null : row.postId); setDetailModal(isSelected ? null : row); if (dansModale) setShowAllTable(false); }}
+        style={{ borderBottom: '1px solid var(--border-soft)', cursor: 'pointer', background: isSelected ? BLUE + '07' : '' }}
+        onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = 'var(--surface-2)'; }}
+        onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = ''; }}>
+        <td style={{ position: 'sticky', left: 0, zIndex: 1, background: isSelected ? BLUE + '15' : 'var(--surface)', padding: '8px 10px', width: 40 }}>
+          {row.thumbnail
+            ? <img loading="lazy" decoding="async" src={row.thumbnail} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
+            : <div style={{ width: 36, height: 36, borderRadius: 6, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>{row.platform === 'IG' ? '📷' : row.platform === 'STORY_SEQUENCE' ? '📸' : '▶️'}</div>}
+        </td>
+        <td style={{ position: 'sticky', left: 44, zIndex: 1, background: isSelected ? BLUE + '15' : 'var(--surface)', padding: '8px 10px', maxWidth: 200 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>{row.title.slice(0, 45)}{row.title.length > 45 ? '…' : ''}</div>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
+            <span style={{ fontSize: 9, fontWeight: 700, color: platformColor, background: platformColor + '18', borderRadius: 4, padding: '2px 5px' }}>{row.platform === 'STORY_SEQUENCE' ? 'STORY' : row.platform} · {row.type}</span>
+            {row.lmName && <span style={{ fontSize: 9, fontWeight: 700, color: '#8B5CF6', background: '#8B5CF618', borderRadius: 4, padding: '2px 5px' }}>{row.lmName}</span>}
+          </div>
+        </td>
+        <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.clicsDesc > 0 ? 700 : 400, color: row.clicsDesc > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.clicsDesc > 0 ? fmt(row.clicsDesc) : '—'}</td>
+        <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmDetectes > 0 ? 700 : 400, color: row.lmDetectes > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 ? row.lmDetectes : '—'}</td>
+        <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmClics > 0 ? 700 : 400, color: row.lmClics > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 || row.lmClics > 0 ? (row.lmClics > 0 ? row.lmClics : '0') : '—'}</td>
+        <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmReponses > 0 ? 700 : 400, color: row.lmReponses > 0 ? 'var(--ink)' : 'var(--faint)' }}>{/* Ne plus masquer une conversation derriere l'acquisition : depuis que les deux
+            colonnes lisent des journaux differents, une conversation peut exister
+            sans acquisition sur ce contenu, et le tiret l'aurait cachee. */}
+            {row.lmDetectes > 0 || row.lmReponses > 0 ? (row.lmReponses > 0 ? row.lmReponses : '0') : '—'}</td>
+        <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.dmCount > 0 ? 700 : 400, color: row.dmCount > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.dmCount > 0 ? row.dmCount : '—'}</td>
+        <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.callsBooked > 0 ? 700 : 400, color: row.callsBooked > 0 ? GREEN : 'var(--faint)' }}>{row.callsBooked > 0 ? row.callsBooked : '—'}</td>
+        <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.callsHonored > 0 ? 700 : 400, color: row.callsHonored > 0 ? GREEN : 'var(--faint)' }}>{row.callsHonored > 0 ? row.callsHonored : '—'}</td>
+        <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 12, color: row.qualifiedPct !== null ? 'var(--ink)' : 'var(--faint)', fontWeight: row.qualifiedPct !== null ? 600 : 400, whiteSpace: 'nowrap' }}>
+          {row.qualifiedPct !== null ? `${row.qualifiedPct}% (${row.qualifiedCount}/${row.qualifiedAnswered})` : '—'}
+        </td>
+        <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.closed > 0 ? 700 : 400, color: row.closed > 0 ? GREEN : 'var(--faint)' }}>{row.closed > 0 ? row.closed : '—'}</td>
+        <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: row.revenue > 0 ? GREEN : 'var(--faint)', whiteSpace: 'nowrap' }}>{row.revenue > 0 ? fmtEur(row.revenue) : '—'}</td>
+        <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 12, color: row.vuesParCall ? 'var(--muted)' : 'var(--faint)', fontWeight: row.vuesParCall ? 600 : 400 }}>{row.vuesParCall ? fmt(row.vuesParCall) : '—'}</td>
+        <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 12, color: row.cashParVue !== null ? 'var(--ink)' : 'var(--faint)', fontWeight: row.cashParVue !== null ? 600 : 400, whiteSpace: 'nowrap' }}>{row.cashParVue !== null ? fmtEur(row.cashParVue) : '—'}</td>
+      </tr>
+    );
+  };
+
   // « Activité business » = au moins une colonne business non nulle. Sert au sous-titre
   // de la section, qui annonçait le nombre TOTAL de contenus sous le libellé « avec
   // activité business » — un post publié sans aucun lien ni lead y était compté.
@@ -6963,47 +7016,6 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                   });
                 const displayRows = filteredRows.slice(0, 7);
 
-                const ContentRow = ({ row, i }: { row: typeof filteredRows[0]; i: number }) => {
-                  const platformColor = row.platform === 'IG' ? ACCENT : row.platform === 'STORY_SEQUENCE' ? '#8B5CF6' : RED;
-                  const isSelected = selectedContentId === row.postId;
-                  return (
-                    <tr key={i}
-                      onClick={() => { setSelectedContentId(isSelected ? null : row.postId); setDetailModal(isSelected ? null : row); }}
-                      style={{ borderBottom: '1px solid var(--border-soft)', cursor: 'pointer', background: isSelected ? BLUE + '07' : '' }}
-                      onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = 'var(--surface-2)'; }}
-                      onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = ''; }}>
-                      <td style={{ position: 'sticky', left: 0, zIndex: 1, background: isSelected ? BLUE + '15' : 'var(--surface)', padding: '8px 10px', width: 40 }}>
-                        {row.thumbnail
-                          ? <img loading="lazy" decoding="async" src={row.thumbnail} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
-                          : <div style={{ width: 36, height: 36, borderRadius: 6, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>{row.platform === 'IG' ? '📷' : row.platform === 'STORY_SEQUENCE' ? '📸' : '▶️'}</div>}
-                      </td>
-                      <td style={{ position: 'sticky', left: 44, zIndex: 1, background: isSelected ? BLUE + '15' : 'var(--surface)', padding: '8px 10px', maxWidth: 200 }}>
-                        <div style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>{row.title.slice(0, 45)}{row.title.length > 45 ? '…' : ''}</div>
-                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
-                          <span style={{ fontSize: 9, fontWeight: 700, color: platformColor, background: platformColor + '18', borderRadius: 4, padding: '2px 5px' }}>{row.platform === 'STORY_SEQUENCE' ? 'STORY' : row.platform} · {row.type}</span>
-                          {row.lmName && <span style={{ fontSize: 9, fontWeight: 700, color: '#8B5CF6', background: '#8B5CF618', borderRadius: 4, padding: '2px 5px' }}>{row.lmName}</span>}
-                        </div>
-                      </td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.clicsDesc > 0 ? 700 : 400, color: row.clicsDesc > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.clicsDesc > 0 ? fmt(row.clicsDesc) : '—'}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmDetectes > 0 ? 700 : 400, color: row.lmDetectes > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 ? row.lmDetectes : '—'}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmClics > 0 ? 700 : 400, color: row.lmClics > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 || row.lmClics > 0 ? (row.lmClics > 0 ? row.lmClics : '0') : '—'}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmReponses > 0 ? 700 : 400, color: row.lmReponses > 0 ? 'var(--ink)' : 'var(--faint)' }}>{/* Ne plus masquer une conversation derriere l'acquisition : depuis que les deux
-                          colonnes lisent des journaux differents, une conversation peut exister
-                          sans acquisition sur ce contenu, et le tiret l'aurait cachee. */}
-                          {row.lmDetectes > 0 || row.lmReponses > 0 ? (row.lmReponses > 0 ? row.lmReponses : '0') : '—'}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.dmCount > 0 ? 700 : 400, color: row.dmCount > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.dmCount > 0 ? row.dmCount : '—'}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.callsBooked > 0 ? 700 : 400, color: row.callsBooked > 0 ? GREEN : 'var(--faint)' }}>{row.callsBooked > 0 ? row.callsBooked : '—'}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.callsHonored > 0 ? 700 : 400, color: row.callsHonored > 0 ? GREEN : 'var(--faint)' }}>{row.callsHonored > 0 ? row.callsHonored : '—'}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 12, color: row.qualifiedPct !== null ? 'var(--ink)' : 'var(--faint)', fontWeight: row.qualifiedPct !== null ? 600 : 400, whiteSpace: 'nowrap' }}>
-                        {row.qualifiedPct !== null ? `${row.qualifiedPct}% (${row.qualifiedCount}/${row.qualifiedAnswered})` : '—'}
-                      </td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.closed > 0 ? 700 : 400, color: row.closed > 0 ? GREEN : 'var(--faint)' }}>{row.closed > 0 ? row.closed : '—'}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: row.revenue > 0 ? GREEN : 'var(--faint)', whiteSpace: 'nowrap' }}>{row.revenue > 0 ? fmtEur(row.revenue) : '—'}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 12, color: row.vuesParCall ? 'var(--muted)' : 'var(--faint)', fontWeight: row.vuesParCall ? 600 : 400 }}>{row.vuesParCall ? fmt(row.vuesParCall) : '—'}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 12, color: row.cashParVue !== null ? 'var(--ink)' : 'var(--faint)', fontWeight: row.cashParVue !== null ? 600 : 400, whiteSpace: 'nowrap' }}>{row.cashParVue !== null ? fmtEur(row.cashParVue) : '—'}</td>
-                    </tr>
-                  );
-                };
 
                 return <tbody>{displayRows.map((row, i) => <ContentRow key={i} row={row} i={i} />)}</tbody>;
               })()}
@@ -7078,47 +7090,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                       const bv = (b[sortKey as keyof typeof b] as number) || 0;
                       return sortDir === 'desc' ? bv - av : av - bv;
                     })
-                    .map((row, i) => {
-                      const platformColor = row.platform === 'IG' ? ACCENT : row.platform === 'STORY_SEQUENCE' ? '#8B5CF6' : RED;
-                      const isSelected = selectedContentId === row.postId;
-                      return (
-                        <tr key={i}
-                          onClick={() => { setSelectedContentId(isSelected ? null : row.postId); setDetailModal(isSelected ? null : row); setShowAllTable(false); }}
-                          style={{ borderBottom: '1px solid var(--border-soft)', cursor: 'pointer', background: isSelected ? BLUE + '07' : '' }}
-                          onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = 'var(--surface-2)'; }}
-                          onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = ''; }}>
-                          <td style={{ position: 'sticky', left: 0, zIndex: 1, background: isSelected ? BLUE + '15' : 'var(--surface)', padding: '8px 10px', width: 40 }}>
-                            {row.thumbnail
-                              ? <img loading="lazy" decoding="async" src={row.thumbnail} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
-                              : <div style={{ width: 36, height: 36, borderRadius: 6, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>{row.platform === 'IG' ? '📷' : row.platform === 'STORY_SEQUENCE' ? '📸' : '▶️'}</div>}
-                          </td>
-                          <td style={{ position: 'sticky', left: 44, zIndex: 1, background: isSelected ? BLUE + '15' : 'var(--surface)', padding: '8px 10px', maxWidth: 200 }}>
-                            <div style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>{row.title.slice(0, 45)}{row.title.length > 45 ? '…' : ''}</div>
-                            <span style={{ fontSize: 9, fontWeight: 700, color: platformColor, background: platformColor + '18', borderRadius: 4, padding: '2px 5px' }}>{row.platform === 'STORY_SEQUENCE' ? 'STORY' : row.platform} · {row.type}</span>
-                            {/* ⚠️ CETTE MODALE EST UNE COPIE DU TABLEAU PRINCIPAL. Le badge de
-                                lead magnet manquait ici : il disparaissait donc des qu'on
-                                cliquait « Voir tout ». Toute modification du tableau doit etre
-                                faite AUX DEUX ENDROITS tant que la ligne n'est pas mutualisee —
-                                c'est la duplication qui est la cause, pas l'oubli. */}
-                            {row.lmName && <span style={{ fontSize: 9, fontWeight: 700, color: '#8B5CF6', background: '#8B5CF618', borderRadius: 4, padding: '2px 5px', marginLeft: 4 }}>{row.lmName}</span>}
-                          </td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.clicsDesc > 0 ? 700 : 400, color: row.clicsDesc > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.clicsDesc > 0 ? fmt(row.clicsDesc) : '—'}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmDetectes > 0 ? 700 : 400, color: row.lmDetectes > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 ? row.lmDetectes : '—'}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmClics > 0 ? 700 : 400, color: row.lmClics > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 ? (row.lmClics > 0 ? row.lmClics : '0') : '—'}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmReponses > 0 ? 700 : 400, color: row.lmReponses > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 ? (row.lmReponses > 0 ? row.lmReponses : '0') : '—'}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.dmCount > 0 ? 700 : 400, color: row.dmCount > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.dmCount > 0 ? row.dmCount : '—'}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.callsBooked > 0 ? 700 : 400, color: row.callsBooked > 0 ? GREEN : 'var(--faint)' }}>{row.callsBooked > 0 ? row.callsBooked : '—'}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.callsHonored > 0 ? 700 : 400, color: row.callsHonored > 0 ? GREEN : 'var(--faint)' }}>{row.callsHonored > 0 ? row.callsHonored : '—'}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 12, color: row.qualifiedPct !== null ? 'var(--ink)' : 'var(--faint)', fontWeight: row.qualifiedPct !== null ? 600 : 400, whiteSpace: 'nowrap' }}>
-                            {row.qualifiedPct !== null ? `${row.qualifiedPct}% (${row.qualifiedCount}/${row.qualifiedAnswered})` : '—'}
-                          </td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.closed > 0 ? 700 : 400, color: row.closed > 0 ? GREEN : 'var(--faint)' }}>{row.closed > 0 ? row.closed : '—'}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: row.revenue > 0 ? GREEN : 'var(--faint)', whiteSpace: 'nowrap' }}>{row.revenue > 0 ? fmtEur(row.revenue) : '—'}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 12, color: row.vuesParCall ? 'var(--muted)' : 'var(--faint)', fontWeight: row.vuesParCall ? 600 : 400 }}>{row.vuesParCall ? fmt(row.vuesParCall) : '—'}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 12, color: row.cashParVue !== null ? 'var(--ink)' : 'var(--faint)', fontWeight: row.cashParVue !== null ? 600 : 400, whiteSpace: 'nowrap' }}>{row.cashParVue !== null ? fmtEur(row.cashParVue) : '—'}</td>
-                        </tr>
-                      );
-                    })}
+                    .map((row, i) => <ContentRow key={i} row={row} i={i} dansModale />)}
                 </tbody>
               </table>
             </div>
