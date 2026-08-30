@@ -5553,6 +5553,39 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const idFicheParPersonne = new Map<string, string>(
     (leads ?? []).filter(l => l.igUserId && l.id).map(l => [l.igUserId, l.id as string]),
   );
+  // « Cette personne a-t-elle recu un lead magnet ? » — depuis le JOURNAL, jamais depuis
+  // `instagram_leads.lead_magnet_sent`. La fiche decrit l'etat COURANT d'une personne :
+  // ce drapeau retombe a false des qu'une interaction sans envoi le remplace. Mesure du
+  // 2026-08-30 : incogniton.734 porte 8 lead magnets au journal et `lead_magnet_sent =
+  // false` sur sa fiche. Lue sur la fiche, la ligne « Lead magnet » du breakdown par
+  // source perdait ses calls sans que rien ne le signale.
+  //
+  // Sixieme et dernier usage de champ mutable de cette page corrige par ce chantier.
+  // Le journal est la seule source qui compte, parce qu'il n'efface rien.
+  //
+  // ⚠️ Cet ensemble doit alimenter TOUS les lecteurs de « a recu un lead magnet », pas
+  // seulement la ligne « Lead magnet ». Les lignes Cold DM / DM organique / Story sont
+  // batles sur le COMPLEMENT (`dmDirectLinks = prospectLinks.filter(l => !isLMProspect(l))`) :
+  // si les deux cotes ne lisent pas la meme source, la partition cesse d'etre exclusive
+  // et une personne est comptee DEUX fois dans le total du breakdown. C'est exactement
+  // ce qui est arrive en corrigeant la ligne « Lead magnet » seule (2026-08-30).
+  const personnesAvecLmJournal = new Set<string>();
+  for (const h of lmHistoryPourRoles) {
+    if (h.lead_magnet_sent === false || !h.ig_user_id) continue;
+    personnesAvecLmJournal.add(h.ig_user_id);
+  }
+  const fichesAvecLm = new Set<string>();
+  for (const igUserId of personnesAvecLmJournal) {
+    const idFiche = idFicheParPersonne.get(igUserId);
+    if (idFiche) fichesAvecLm.add(idFiche);
+  }
+  // Certains liens prospect n'ont que le pseudo (crees hors flux Instagram).
+  const pseudosAvecLm = new Set<string>();
+  for (const l of leads ?? []) {
+    if (l.igUsername && l.igUserId && personnesAvecLmJournal.has(l.igUserId)) {
+      pseudosAvecLm.add(l.igUsername.toLowerCase());
+    }
+  }
   // Personnes ayant pris le lead magnet de CHAQUE contenu, depuis le journal.
   const personnesParContenuLm = new Map<string, Set<string>>();
   for (const h of lmHistoryPourRoles) {
@@ -6598,15 +6631,13 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           const bioYTClosed = bioYTCalls.filter(c => c.deal_closed === true).length;
           const bioYTRevenue = bioYTCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
 
+          // Meme source que la ligne « Lead magnet » (le JOURNAL, cf. `fichesAvecLm`), et
+          // pas `instagram_leads.lead_magnet_sent`. Ces deux lectures forment une
+          // PARTITION : ce qui n'est pas LM ici devient Cold DM / DM organique / Story
+          // juste en dessous. Les faire diverger compte une personne deux fois.
           const isLMProspect = (l: any) => {
-            if (l.ig_lead_id) {
-              const lead = leads.find((ml: any) => ml.id === l.ig_lead_id);
-              return !!lead?.leadMagnetSent;
-            }
-            if (l.ig_username) {
-              const lead = leads.find((ml: any) => ml.igUsername === l.ig_username);
-              return !!lead?.leadMagnetSent;
-            }
+            if (l.ig_lead_id) return fichesAvecLm.has(l.ig_lead_id);
+            if (l.ig_username) return pseudosAvecLm.has(String(l.ig_username).toLowerCase());
             return false;
           };
           const dmDirectLinks = prospectLinks.filter((l: any) => !isLMProspect(l));
@@ -6727,8 +6758,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           // KPI "liens Calendly envoyés", mais calls booked/honored/closed = tout lead LM
           // dont un call tombe dans la période, même si le lien avait été envoyé avant.
           const lmProspectLinksDb = (prospectLinksData ?? []).filter((pl: any) => {
-            const lead = leads.find((ml: any) => ml.id === pl.ig_lead_id);
-            if (!lead?.leadMagnetSent) return false;
+            if (!pl.ig_lead_id || !fichesAvecLm.has(pl.ig_lead_id)) return false;
             if (!wasCalendlyLinkSent(pl, linkClickedByLeadId)) return false;
             return isInPeriod(calendlySentAt(pl, linkClickedByLeadId));
           });
@@ -6752,8 +6782,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           // calls bookés ») ne revient pas : callsByLeadInWindow ne contient déjà que
           // les calls DE LA PÉRIODE, donc élargir les leads n'élargit pas les calls.
           const lmAllLinks = (prospectLinksData ?? []).filter((pl: any) => {
-            const lead = leads.find((ml: any) => ml.id === pl.ig_lead_id);
-            if (!lead?.leadMagnetSent) return false;
+            if (!pl.ig_lead_id || !fichesAvecLm.has(pl.ig_lead_id)) return false;
             return wasCalendlyLinkSent(pl, linkClickedByLeadId);
           });
           const lmLeadIds = new Set(lmAllLinks.map((pl: any) => pl.ig_lead_id));
