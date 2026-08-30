@@ -324,3 +324,80 @@ Deux points laissés ouverts par le chantier Funnel & Calls, qui touchent le cas
 - Chaque affirmation adossée à une mesure. Si une cause n'est pas établie, le dire
   plutôt que de la présenter comme certaine.
 - Distinguer explicitement ce qui est corrigé de ce qui attend un arbitrage.
+
+---
+
+## 10. Clôture de l'audit — 2026-08-30
+
+Périmètre audité métrique par métrique, chaîne API → base → écran, recoupé avec des
+requêtes SQL sur les données réelles et des captures d'écran de production et de local.
+Balayage complet des périodes : 30j courant, M−1 à M−3, All-Time, 7j S−0 à S−3.
+
+### Ce qui a été trouvé et corrigé
+
+| # | Défaut | Preuve |
+|---|--------|--------|
+| 1 | **Deux sources pour « Cash collecté ».** Période courante = API Stripe (`charges.list` limité à 50 puis `.slice(0,10)`, sans borne de date) ; périodes passées = `deal_payments`. | Août : 2 360 € en carte contre 2 800 € dans « Cash encaissé par origine » **sur le même écran**. |
+| 2 | **La limite à 10 paiements** faisait sous-compter le cash collecté, et le taux de collecte avec, dès qu'un mois portait plus de dix encaissements. | Lecture de la route ; 6 lignes affichées sur 10 possibles au moment du test. |
+| 3 | **Le tableau « Derniers paiements » ignorait la période** sur le chemin courant. | Semaine du 24–30 août : carte « paiements reçus (0) », tableau = 6 lignes des 19, 20 et 21 août. |
+| 4 | **Le graphique ne couvrait pas la période en All-Time** : il bouclait sur le mois en cours. | Cartes 10 200 €, axe borné au 1er–29 août, somme des barres 5 700 €. Écart 4 500 €. |
+| 5 | **Piège 7 — journées découpées en UTC sous un libellé de Paris.** | Le paiement de 300 € (`2026-08-20T22:00:52Z`) était daté « 21 août » dans le tableau et rangé dans la barre du 20 août. |
+| 6 | **Sous-titre du graphique faux** : « 30 derniers jours » sur un mois calendaire, et aussi en All-Time. | Capture. |
+| 7 | **Colonne « Description » morte** sur le chemin des périodes passées : `buyer_name` n'était pas sélectionné. | « — » sur toutes les lignes en S−1 et All-Time, alors que les mêmes paiements portaient un libellé en S−0. |
+| 8 | **Panier moyen à cheval sur deux sources et deux dates** : numérateur = deals sur `signed_at`, dénominateur = calls closés sur `booked_at`. Le sous-titre « deals closés (N) » comptait des calls. | Structurel. Les deux comptes coïncident sur le jeu actuel (8 = 8) : l'écran n'était pas faux, il l'aurait été au premier upsell sans call. |
+| 9 | **Taux de collecte à « 0 % » en rouge** sur une période sans aucune vente. | Mai 2026 et semaine en cours. Affiche désormais « — · aucune vente à collecter ». |
+| 10 | **`xInterval` négatif** (`Math.floor(n/7) − 1`) les 6 premiers jours de chaque mois → Recharts 3.8.1 renvoie un tableau de graduations VIDE, l'axe des dates disparaît. | Code source de `getEveryNth` (`n < 1` → `[]`). |
+| 11 | **Barres rendues à 0,02 px** au-delà de ~60 points : le graphique paraît vide alors que ses valeurs sont justes. Révélé par la correction n°4. | `getBBox()` au navigateur sur les 7 barres de l'All-Time. |
+| 12 | **`ResponsiveContainer` sans `initialDimension`** → `width(-1) and height(-1)` en console à chaque changement de période. | Console. Zéro occurrence après correction. |
+| 13 | **Statut « Échoué » en rouge** pour tout ce qui n'est pas `succeeded` — un remboursement, un litige ou un paiement en attente. | Lecture ; non atteignable aujourd'hui, voir la question ouverte n°1. |
+| 14 | **L'onglet dépendait de `analytics_daily_snapshots`** : un mois sans collecte Instagram/YouTube rendait tout le cash muet. | `stripeHist` était conditionné à `snaps.length > 0`. |
+| 15 | **Une panne Stripe se lisait « compte non connecté »**, et emportait les montants des ventes qui vivent en base. | Reproduit : clé absente → 500 non géré (`getStripeAccess` hors du try) → écran « Connecte ton compte Stripe » sur un compte au jeton OAuth valide. |
+| 16 | **La route ne passait pas par `appelStripe`** : ses pannes n'ont jamais marqué aucune intégration, contrairement à la règle posée dans `lib/stripe-account.ts`. | Lecture croisée. |
+| 17 | **`CashByOrigin` ne bornait rien en All-Time** malgré un commentaire affirmant le contraire — il lisait tout l'historique là où les cartes s'arrêtent à `integrations_ready_at`. | Lecture de son propre `useQuery`. |
+| 18 | **Champs morts** `mrr`, `monthlyRevenue`, `activeSubscriptions`, `availableBalance` — alimentés des deux côtés, lus nulle part, et `monthlyRevenue` sommait tous les statuts, remboursements compris. | Recherche d'usage. |
+
+### La correction de fond
+
+Le chemin de la période courante n'appelle plus l'API Stripe. Il lit `deal_payments`,
+comme le faisaient déjà les périodes passées. La règle « on ne compte que les paiements
+rattachés à une vente » était écrite et datée (19/08/2026) dans le chemin snapshot ;
+elle n'avait jamais été portée au chemin live. Effet de bord bienvenu : un appel réseau
+externe de moins sur le chemin d'affichage de chaque visite.
+
+### Vérification après correction
+
+- Invariant **somme des barres = total de la carte**, All-Time :
+  1 000 + 3 000 + 500 + 2 100 + 3 600 = **10 200 €**, égal à la carte. Collecté : 2 800 €.
+- Invariant **somme de « Cash encaissé par origine » = « Cash collecté »** : 2 800 € des
+  deux côtés en août (2 360 € contre 2 800 € avant).
+- Quatre périodes relues carte par carte : août 5 700 / 2 800 / 1 140 / 49 % ·
+  juillet 500 / 0 / 500 / 0 % · juin 4 000 / 0 / 2 000 / 0 % · mai 0 / 0 / 0 / **—**.
+- Console de l'onglet : zéro avertissement, zéro erreur.
+- `npx tsc --noEmit` propre, `npm test` 222/222.
+
+### Ce qui reste ouvert
+
+1. **Les remboursements et les litiges sont invisibles de toute fenêtre.** `recordPayment`
+   écrit `paid_at = NULL` pour tout statut autre que `succeeded` (webhook Stripe, ligne
+   159). Or `paid_at` est la colonne qui borne la période, partout. Conséquence mesurée :
+   le remboursement de 200 € du deal `a1e5b81e` n'est déduit nulle part — `lib/dealCash.ts`
+   dit 800 € net, l'onglet Revenus et « Cash encaissé par origine » disent 1 000 €.
+   Décision à prendre : à quelle date rattacher un remboursement — celle du paiement
+   d'origine (le mois se corrige rétroactivement) ou celle du remboursement (le mois
+   courant encaisse le moins) ? Rien n'a été touché tant que ce n'est pas tranché.
+2. **Le taux de collecte peut dépasser 100 %** — une échéance encaissée ce mois-ci sur un
+   deal signé le mois dernier compte au numérateur sans compter au dénominateur. Non
+   atteignable sur les données actuelles, structurellement possible.
+3. **Trois paiements Stripe (60 €) ne sont rattachés à aucune vente** sur le compte de
+   test. Ils étaient comptés par l'ancien chemin, ils ne le sont plus. C'est la règle du
+   19/08/2026 — signalé pour mémoire.
+4. Les `ResponsiveContainer` **des autres onglets** (Vue générale notamment) n'ont
+   toujours pas d'`initialDimension` : ils continuent de produire des `width(-1)` en
+   console. Hors périmètre de ce chantier.
+
+### Note de livraison
+
+Les corrections de `PageClientStats.tsx` ont été absorbées par le commit `090f408` d'une
+session parallèle travaillant dans le même fichier, et poussées sous son message. Le
+*pourquoi* de chaque correction vit dans les commentaires du code. Les deux fichiers
+restants portent leurs propres commits : `970cbe5` (BarChart) et `3ea6e8d` (route Stripe).
