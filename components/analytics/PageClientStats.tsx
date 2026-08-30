@@ -8393,23 +8393,44 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     }
   }
 
-  // Dernier snapshot connu pour les valeurs cumulatives (followers, abonnés, etc.)
-  // snaps est trié 'date' descendant (requête ligne ~5044) donc le plus récent est
-  // le premier élément, pas le dernier — snaps[snaps.length-1] serait le plus ancien.
-  // yt_subscribers peut être null les derniers jours (backfill/collecte pas encore
-  // passés) : on cherche le snapshot le plus récent qui a réellement une valeur.
-  const lastSnap = snaps[0] ?? null;
-  const lastSnapWithYtSubs = snaps.find(r => r.yt_subscribers != null) ?? null;
-  // Pendant du précédent, côté Instagram. Voir le commentaire sur `followers` plus bas.
-  const lastSnapAvecAbonnes = snaps.find(r => r.ig_followers != null) ?? null;
-  // Repartitions (trafic / appareils / demographie) : portees par UNE seule ligne de la
-  // periode, celle du dernier jour traite par le cron. Prendre lastSnap tout court
-  // renvoyait un tableau vide des que ce n'etait pas la premiere ligne — meme motif que
-  // lastSnapWithYtSubs juste au-dessus.
-  const lastSnapWithTraffic = snaps.find(r => r.yt_traffic_sources != null) ?? null;
-  const lastSnapWithDevices = snaps.find(r => r.yt_devices != null) ?? null;
-  const lastSnapWithDemo    = snaps.find(r => r.yt_demographics != null) ?? null;
-  const lastSnapWithKeywords = snaps.find(r => r.yt_search_keywords != null) ?? null;
+  // Dernier snapshot connu pour les valeurs cumulatives (abonnés Instagram et YouTube,
+  // répartitions).
+  //
+  // ⚠️ `snaps` est trié 'date' ASCENDANT — voir la clause `.order('date', { ascending:
+  // true })` de la requête plus haut. Le plus récent est donc le DERNIER élément.
+  //
+  // Le commentaire qui vivait ici affirmait exactement l'inverse (« trié descendant,
+  // donc le plus récent est le premier »), et le code le suivait : `snaps[0]`, c'est-à-
+  // dire le plus ANCIEN. Conséquence constatée à l'écran le 2026-08-30 en période
+  // All-Time : la carte « Abonnés · total » affichait 253, la valeur du 7 mai, pour un
+  // compte qui en a 255. Sur une période courte le défaut est invisible, les deux
+  // bornes portant la même valeur — c'est pour ça qu'il a survécu si longtemps.
+  //
+  // La preuve de la sémantique voulue est dans ce fichier : `fetchYtCurrentPeriodTotals`
+  // fait `snaps[snaps.length - 1]` sur une requête triée pareil. Deux copies de la même
+  // idée, une seule juste.
+  //
+  // Un accès positionnel n'a de sens que relativement à un ordre, et cet ordre vit dans
+  // la requête, jamais dans le commentaire qui l'accompagne.
+  const lastSnap = snaps[snaps.length - 1] ?? null;
+
+  // Le plus récent qui porte RÉELLEMENT une valeur, en remontant depuis la fin.
+  // Nécessaire parce que ces colonnes sont creuses : yt_subscribers peut être null les
+  // derniers jours (collecte pas encore passée), ig_followers n'est écrit que sur la
+  // ligne du jour depuis le 2026-08-30, et les répartitions YouTube ne sont portées que
+  // par une ligne sur douze.
+  const dernierAvec = (cle: string) => {
+    for (let i = snaps.length - 1; i >= 0; i--) {
+      if ((snaps[i] as Record<string, unknown>)?.[cle] != null) return snaps[i];
+    }
+    return null;
+  };
+  const lastSnapWithYtSubs   = dernierAvec('yt_subscribers');
+  const lastSnapAvecAbonnes  = dernierAvec('ig_followers');
+  const lastSnapWithTraffic  = dernierAvec('yt_traffic_sources');
+  const lastSnapWithDevices  = dernierAvec('yt_devices');
+  const lastSnapWithDemo     = dernierAvec('yt_demographics');
+  const lastSnapWithKeywords = dernierAvec('yt_search_keywords');
 
   // ── IG ──────────────────────────────────────────────────────────────────────
   const igReachTotal  = snaps.reduce((s, r) => s + (r.ig_reach ?? 0), 0);
