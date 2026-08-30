@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
-import { getStripeAccess } from '@/lib/stripe-account';
+import { getStripeAccess, appelStripe } from '@/lib/stripe-account';
 
 const serviceSupabase = createServiceClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -29,25 +29,34 @@ export async function GET(request: Request) {
     targetProfileId = profileId;
   }
 
-  // getStripeAccess résout les DEUX chemins de connexion : OAuth Connect
-  // (access_token + acct_xxx) et clé API restreinte. Cette route ne lisait que
-  // `api_key` et renvoyait no_key à tout compte branché en OAuth, alors que
-  // c'est le chemin nominal depuis l'ajout de Connect.
-  const access = await getStripeAccess(targetProfileId);
-  if (!access) {
-    return NextResponse.json({ error: 'no_key' }, { status: 404 });
-  }
-
   try {
+    // getStripeAccess résout les DEUX chemins de connexion : OAuth Connect
+    // (access_token + acct_xxx) et clé API restreinte. Cette route ne lisait que
+    // `api_key` et renvoyait no_key à tout compte branché en OAuth, alors que
+    // c'est le chemin nominal depuis l'ajout de Connect.
+    //
+    // ⚠️ L'appel était AVANT le try. `new Stripe(process.env.STRIPE_SECRET_KEY!)` lève
+    // quand la variable est absente, et l'exception remontait donc en 500 sans corps,
+    // indiscernable pour l'appelant d'un « compte non connecté ». Reproduit le
+    // 2026-08-30 sur un environnement où la clé était vide.
+    const access = await getStripeAccess(targetProfileId);
+    if (!access) {
+      return NextResponse.json({ error: 'no_key' }, { status: 404 });
+    }
+
     const { stripe, opts } = access;
 
     // `opts` porte le Stripe-Account en mode OAuth : sans lui, ces appels
     // interrogeraient le compte de la plateforme au lieu de celui de l'élève.
-    const [subscriptions, charges, balance] = await Promise.all([
+    //
+    // appelStripe : passage obligé qui déclare la panne dans `integrations` (voir
+    // lib/stripe-account.ts, « tout appel Stripe passe par ici »). Cette route était la
+    // seule à l'ignorer, donc ses pannes ne marquaient jamais l'intégration.
+    const [subscriptions, charges, balance] = await appelStripe(access, () => Promise.all([
       stripe.subscriptions.list({ limit: 100, status: 'active', expand: ['data.items.data.price'] }, opts),
       stripe.charges.list({ limit: 50 }, opts),
       stripe.balance.retrieve({}, opts),
-    ]);
+    ]));
 
     let mrr = 0;
     for (const sub of subscriptions.data) {
