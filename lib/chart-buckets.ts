@@ -106,7 +106,15 @@ export function regrouperTaux(
   return bucketsDe(jours, g).map(k => {
     const a = acc.get(k);
     if (!a) return { date: k, v: null };
-    return { date: k, v: a.den > 0 ? Math.round((a.num / a.den) * 100) : 0 };
+    // Denominateur nul = TROU, jamais 0 %.
+    //
+    // « 0 % d'activation » affirme que personne n'a clique. La verite, quand rien n'a
+    // ete envoye ce jour-la, est qu'il n'y a RIEN a activer — la question ne se pose
+    // pas. Afficher 0 % faisait plonger la courbe chaque jour creux et laissait lire
+    // un effondrement de performance la ou il n'y avait aucune activite.
+    //
+    // Regle du projet : un 0 affirme quelque chose, un trou dit « on ne sait pas ».
+    return { date: k, v: a.den > 0 ? Math.round((a.num / a.den) * 100) : null };
   });
 }
 

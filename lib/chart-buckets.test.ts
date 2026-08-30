@@ -83,11 +83,23 @@ test('taux : on somme numérateur et dénominateur, jamais la moyenne des pource
   assert.equal(r[0].v, 1, '1 clic sur 100 envois = 1 %, pas 50 %');
 });
 
-test('taux : dénominateur nul sur un bucket couvert vaut 0 %, hors couverture vaut un trou', () => {
+test('taux : un denominateur nul est un TROU, pas 0 %', () => {
+  // Ce test assertait l'inverse jusqu'au 2026-08-30. « 0 % d'activation » affirmait que
+  // personne n'avait clique, alors que rien n'avait ete envoye ce jour-la : il n'y avait
+  // rien a activer. La courbe plongeait a chaque jour creux et se lisait comme un
+  // effondrement de performance.
   const js = ['2026-06-08', '2026-06-15'];
   const r = regrouperTaux(js, 'semaine', j => (j === '2026-06-08' ? { num: 0, den: 0 } : null));
+  assert.equal(r[0].v, null, 'rien envoye ce jour-la : on ne sait pas, on n affirme pas 0 %');
+  assert.equal(r[1].v, null, 'hors couverture : trou aussi');
+});
+
+test('taux : un vrai zero (des envois, aucun clic) vaut bien 0 %', () => {
+  // La contrepartie : quand il Y A eu des envois et zero clic, 0 % est un fait mesure
+  // et doit s'afficher. Le trou ne doit pas avaler cette information.
+  const js = ['2026-06-08'];
+  const r = regrouperTaux(js, 'semaine', () => ({ num: 0, den: 5 }));
   assert.equal(r[0].v, 0);
-  assert.equal(r[1].v, null);
 });
 
 test('libellés d’axe', () => {
