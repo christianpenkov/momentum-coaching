@@ -5462,6 +5462,21 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     (leads ?? []).filter(l => l.igUsername && l.igUserId).map(l => [l.igUsername.toLowerCase(), l.igUserId]),
   );
 
+  // ig_user_id vers id de fiche : `lmClickedByLeadId` est indexe par id de fiche, alors
+  // que le journal ne connait que la personne. Les fiches font le pont.
+  const idFicheParPersonne = new Map<string, string>(
+    (leads ?? []).filter(l => l.igUserId && l.id).map(l => [l.igUserId, l.id as string]),
+  );
+  // Personnes ayant pris le lead magnet de CHAQUE contenu, depuis le journal.
+  const personnesParContenuLm = new Map<string, Set<string>>();
+  for (const h of lmHistoryPourRoles) {
+    if (h.lead_magnet_sent === false || !h.ig_user_id || !h.media_id) continue;
+    if (!isInPeriod(h.detected_at)) continue;
+    let set = personnesParContenuLm.get(h.media_id);
+    if (!set) { set = new Set<string>(); personnesParContenuLm.set(h.media_id, set); }
+    set.add(h.ig_user_id);
+  }
+
   const acquisitionParContenuGlobal = acquisitionParContenu(
     lmHistoryPourRoles.filter(h => isInPeriod(h.detected_at)),
   );
@@ -5876,7 +5891,18 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     // GUIDE le 05/07 — ne compte qu'une entree.
     const lmDetectes = acquisitionParContenuGlobal.get(postId) ?? 0;
     const lmSent = postLeadsInPeriod.filter((l: MockLead) => l.leadMagnetSent).length;
-    const lmClics = postLeadsInPeriod.filter((l: MockLead) => l.id && lmClickedByLeadId?.has(l.id)).length;
+    // Clics LM : depuis le JOURNAL, comme les deux colonnes voisines.
+    //
+    // Cette ligne lisait `postLeads`, filtre sur `lead.postId` — c'est-a-dire
+    // `instagram_leads.media_id`, ecrase par le dernier post commente. Pour un contenu
+    // dont les leads ont ensuite commente ailleurs, cette liste est VIDE : le post
+    // GUIDE du profil de test affichait donc 0 clic alors que rdjdkzjd avait bien pris
+    // son lead magnet. Dernier des cinq usages de champs mutables de cette fiche.
+    const lmClics = [...(personnesParContenuLm.get(postId) ?? [])]
+      .filter(igUserId => {
+        const idFiche = idFicheParPersonne.get(igUserId);
+        return !!idFiche && !!lmClickedByLeadId?.has(idFiche);
+      }).length;
     // `postLeadsInPeriod` et non `postLeads` : cette colonne était la SEULE de la
     // ligne à ignorer la période. Un vieux contenu la gonflait quelle que soit la
     // fenêtre affichée, et elle pouvait donc dépasser « Commentaires LM » juste
