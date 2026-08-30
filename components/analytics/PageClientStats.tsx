@@ -3891,7 +3891,15 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   // `estPct` : les colonnes No-show et Close rate sont des pourcentages. Sans cette
   // information, l'axe calculait sa borne haute en ajoutant 12 % de marge au maximum
   // et affichait une graduation à « 112 » sur un taux qui ne peut pas dépasser 100.
-  const [expandedEff, setExpandedEff] = useState<{ label: string; value: string; color: string; estPct: boolean; estClosing: boolean; data: { date: string; v: number }[] } | null>(null);
+  // `enBarres` remplace l'ancien `estClosing` : le critere n'est pas « c'est le
+  // closing », c'est la DENSITE de la serie. Un taux de no-show, un close rate ou un
+  // revenu par call n'existent que les jours ou il y a eu des calls — quelques points
+  // isoles sur un mois. Une courbe reliant ces points dessine des valeurs qui
+  // n'existent pas entre eux, et une courbe absente se lit comme un graphique casse ;
+  // une barre absente se lit naturellement « rien ce jour-la ».
+  // Le reach, les vues et le revenu cumule, eux, ont un point par jour : ils restent
+  // en courbe.
+  const [expandedEff, setExpandedEff] = useState<{ label: string; value: string; color: string; estPct: boolean; enBarres: boolean; data: { date: string; v: number }[] } | null>(null);
   const now = new Date();
 
   // ── Fenêtre temporelle de la période sélectionnée (bornes calendaires réelles) ──
@@ -4333,6 +4341,14 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                       { color: GREEN, fmtV: (v) => `${Math.round(v)} €`, data: toCallsData(callsInWindow, 'revPerCall') },
                     ];
                     const chart = modalCharts[expandedHero!];
+                    // Meme critere que le tableau d'efficacite : la DENSITE de la serie,
+                    // pas la nature de la metrique. No-show (4) et Rev/call (7) n'ont un
+                    // point que les jours ou il s'est passe quelque chose — quelques
+                    // points isoles sur un mois, qu'une courbe relie par des valeurs
+                    // inventees et dont l'absence se lit comme un bug. Les compteurs de
+                    // calls et le revenu cumule gardent la courbe : ils ont un point par
+                    // jour.
+                    const heroEnBarres = expandedHero === 4 || expandedHero === 7;
                     return (<>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
                         <div>
@@ -4347,7 +4363,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                           height(-1) » dans la console. Même correctif que sur les trois
                           graphiques de Business micro. */}
                       <ResponsiveContainer width="100%" height={220} initialDimension={{ width: 700, height: 220 }}>
-                        <ReAreaChart data={chart.data} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
+                        <ComposedChart data={chart.data} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                           <defs>
                             <linearGradient id="grad-hero-modal" x1="0" y1="0" x2="0" y2="1">
                               <stop offset="5%" stopColor={chart.color} stopOpacity={0.2} />
@@ -4360,12 +4376,19 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                               Même garde que les six autres axes de ce fichier — c'étaient
                               les deux seuls à ne pas l'avoir. */}
                           <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = Math.max(1, Math.ceil(range * 0.12)); const lo = dataMin - margin; return [dataMin >= 0 ? Math.max(0, lo) : lo, dataMax + margin]; }} />
-                          <Tooltip content={({ active, payload, label }) => {
+                          <Tooltip cursor={heroEnBarres ? { fill: 'var(--surface-2)' } : undefined} content={({ active, payload, label }) => {
                             if (!active || !payload?.length) return null;
                             return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{chart.fmtV(payload[0].value as number)}</strong></div></div>;
                           }} />
-                          <Area type="monotone" dataKey="v" stroke={chart.color} strokeWidth={2} fill="url(#grad-hero-modal)" dot={todayDotFactory(chart.color, 'date', lastRealPointKey(chart.data, 'date', 'v'))} activeDot={{ r: 4, strokeWidth: 0, fill: chart.color }} isAnimationActive={false} />
-                        </ReAreaChart>
+                          {heroEnBarres ? (
+                            /* minPointSize : un vrai 0 doit rester VISIBLE, sinon il est
+                               indiscernable d'un trou — un jour sans no-show et un jour
+                               sans call ne disent pas la meme chose. */
+                            <Bar dataKey="v" fill={chart.color} radius={[2, 2, 0, 0]} minPointSize={(v: number | null | undefined) => (v === 0 ? 3 : 0)} isAnimationActive={false} />
+                          ) : (
+                            <Area type="monotone" dataKey="v" stroke={chart.color} strokeWidth={2} fill="url(#grad-hero-modal)" dot={todayDotFactory(chart.color, 'date', lastRealPointKey(chart.data, 'date', 'v'))} activeDot={{ r: 4, strokeWidth: 0, fill: chart.color }} isAnimationActive={false} />
+                          )}
+                        </ComposedChart>
                       </ResponsiveContainer>
                     </>);
                   })()}
@@ -4411,7 +4434,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                   const effData = buildEffDayData(row.platformCalls, mi, row.reachByDate);
                   return (
                     <div key={mi}
-                      onClick={() => { setExpandedEff({ label: `${row.platform} — ${m.label}`, value: m.value, color: row.color, estPct: mi === 2 || mi === 3, estClosing: mi === 3, data: effData }); onModalChange?.(true); }}
+                      onClick={() => { setExpandedEff({ label: `${row.platform} — ${m.label}`, value: m.value, color: row.color, estPct: mi === 2 || mi === 3, enBarres: mi === 2 || mi === 3 || mi === 4, data: effData }); onModalChange?.(true); }}
                       style={{ padding: '14px 10px', borderLeft: mi > 0 ? '1px solid var(--border-soft)' : 'none', cursor: 'pointer', transition: 'background .15s' }}
                       onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
                       onMouseLeave={e => e.currentTarget.style.background = ''}
@@ -4461,7 +4484,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                 </defs>
                 <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(expandedEff.data.length, period)} />
                 <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={40} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = Math.max(1, Math.ceil(range * 0.12)); const lo = dataMin - margin; const hi = dataMax + margin; return [dataMin >= 0 ? Math.max(0, lo) : lo, expandedEff.estPct ? Math.min(100, hi) : hi]; }} />
-                <Tooltip cursor={expandedEff.estClosing ? { fill: 'var(--surface-2)' } : undefined} content={({ active, payload, label }) => {
+                <Tooltip cursor={expandedEff.enBarres ? { fill: 'var(--surface-2)' } : undefined} content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null;
                   return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{Math.round(payload[0].value as number)}{expandedEff.estPct ? ' %' : ''}</strong></div></div>;
                 }} />
@@ -4471,7 +4494,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                     orphelins, qu'on lit comme un graphique casse ; la barre absente, elle,
                     EST le trou. Partout ailleurs la serie a une valeur chaque jour, et la
                     courbe montre la tendance mieux que des barres. */}
-                {expandedEff.estClosing ? (
+                {expandedEff.enBarres ? (
                   /* Talon de 3 px sur un zero MESURE : sans lui, une barre de hauteur nulle
                      ne dessine rien, et « ce jour-la je n'ai rien close » devient
                      indistinguable de « ce jour-la je n'avais aucun appel ». */
@@ -4528,7 +4551,10 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                {['Date', 'Client', 'Source', 'Statut', 'No-show', 'Closé', 'Revenue'].map((h, i) => (
+                {/* « Show-up » et non « No-show » : la cellule porte un ✓ quand le
+                    prospect est VENU. Sous un en-tete « No-show », ce ✓ affirmait
+                    exactement l'inverse de son titre. */}
+                {['Date', 'Client', 'Source', 'Statut', 'Show-up', 'Closé', 'Revenue'].map((h, i) => (
                   <th key={i} className="eyebrow-sm" style={{ textAlign: 'left', color: 'var(--muted)', padding: '12px 14px' }}>{h}</th>
                 ))}
               </tr>
@@ -4546,10 +4572,15 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                 // pendant que le compteur juste au-dessus l'excluait — 8 lignes
                 // « Honoré » pour un compteur à 7, constaté le 2026-08-29.
                 const honored = isCallHonored(c, now);
+                // « Closé » passe AVANT « Honoré » : les deux sont vrais d'un call
+                // qui a signe, et c'est l'issue qui interesse. Sans ce cas, la colonne
+                // Statut s'arretait a « Honoré » pour un deal signe — l'information la
+                // plus importante de la ligne n'etait lisible que dans la colonne
+                // voisine, en ✓.
                 const statusLabel = isCanceled
                   ? (c.rescheduled ? 'Rebooké' : 'Annulé')
                   : c.no_show ? 'No-show'
-                  : honored ? 'Honoré'
+                  : honored ? (c.deal_closed ? 'Closé' : 'Honoré')
                   : isPast ? 'Rapport à remplir' : 'À venir';
                 const statusColor = isCanceled
                   ? (c.rescheduled ? AMBER : RED)
