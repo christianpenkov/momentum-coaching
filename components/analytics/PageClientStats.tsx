@@ -360,6 +360,12 @@ function AideColonne({ texte }: { texte: string }) {
   );
 }
 
+const AIDE_REV_PAR_CALL =
+  "Le revenu de la période divisé par les calls bookés de cette ligne. Un deuxième "
+  + "rendez-vous qui prolonge la même vente n'entre pas au dénominateur, comme dans la "
+  + "colonne « Calls bookés ». L'onglet Funnel & Calls divise par tous les rendez-vous : "
+  + "son chiffre est donc un peu plus bas.";
+
 const AIDE_CALLS_BOOKES =
   "Un deuxième rendez-vous qui prolonge la même vente n'est pas recompté ici. Si la même "
   + "personne reprend rendez-vous plus tard pour une nouvelle demande, elle compte à nouveau. "
@@ -7129,12 +7135,18 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     <TH right><EnteteColonne nom="revenue">Revenue</EnteteColonne></TH>
                     {/* « Rev / call » porte le meme billet que « Revenue » : le libelle
                         porte la division, pas l'icone.
-                        Le DENOMINATEUR est nomme, et il est le meme que dans Funnel &
-                        Calls : le call BOOKE. « Combien me rapporte un rendez-vous
-                        obtenu » — le no-show fait partie du cout d'obtention. Divise par
-                        les honores, ce tableau affichait 680 EUR face aux 567 EUR de
-                        l'onglet voisin, sous un libelle identique. */}
-                    <TH right><EnteteColonne nom="revenue">Rev / call booké</EnteteColonne></TH>
+                        Le DENOMINATEUR est le call BOOKE, et c'est le meme mot que dans
+                        Funnel & Calls : « combien me rapporte un rendez-vous obtenu »,
+                        le no-show faisant partie du cout d'obtention. Divise par les
+                        honores, ce tableau affichait 680 EUR face aux 567 EUR de l'onglet
+                        voisin, sous un libelle identique.
+                        Les deux chiffres restent legerement differents (600 contre 567)
+                        parce que ce tableau compte des opportunites et l'autre des
+                        rendez-vous. C'est voulu : le denominateur doit rester le nombre
+                        de la cellule voisine, sinon on recree le defaut retire du taux.
+                        L'ecart est explique par le « ? » plutot que par le libelle, qui
+                        reste court et identique des deux cotes. */}
+                    <TH right><EnteteColonne nom="revenue">Rev / call</EnteteColonne><AideColonne texte={AIDE_REV_PAR_CALL} /></TH>
                   </tr>
                 </thead>
                 <tbody>
