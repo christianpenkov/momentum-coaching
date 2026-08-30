@@ -38,6 +38,13 @@ chose, un trou dit « on ne sait pas ».
 `npm test` (node --test, aucune dépendance installée). Couvre les fonctions pures
 de `lib/*.test.ts`.
 
+Les fonctions pures des Edge Functions ont leurs propres tests, que `npm test` ne
+voit pas :
+
+```bash
+npx deno test supabase/functions/_shared/ig-posts.test.ts   # cadence + clôture de journée
+```
+
 ⚠️ **`tsc` et `npm run build` ne couvrent PAS `supabase/functions/`.** Avant tout
 déploiement d'une Edge Function :
 

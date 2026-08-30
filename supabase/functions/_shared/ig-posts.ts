@@ -87,6 +87,37 @@ const DUREES_EN_PARALLELE = 5;
 // Écriture en base par paquets plutôt qu'un aller-retour par post.
 const LIGNES_PAR_UPSERT = 200;
 
+// ── Cadence : 6 passages par jour ────────────────────────────────────────────
+//
+// Avant le 2026-08-30, la collecte tournait UNE fois par jour, gardée par
+// « existe-t-il déjà une ligne pour hier ? ». C'était le bon réglage quand un
+// passage coûtait 801 appels pour 100 posts. Il en coûte 6.
+//
+// ⚠️ Monter la cadence sans changer la DATE ÉCRITE serait une panne silencieuse :
+// les passages de 04 h, 08 h, 12 h… écraseraient la ligne d'HIER avec des chiffres
+// accumulés AUJOURD'HUI, et les stats de la veille gonfleraient toute la journée.
+// D'où la double écriture plus bas — le modèle existe déjà pour les métriques de
+// compte (`fetchIgDayMetrics` écrit hier ET aujourd'hui).
+//
+// Le plafond n'est pas le coût : à 6 passages, un élève consomme ~36 appels/jour
+// pour ses posts (plus ~310 pour les métriques de compte, déjà là), contre un quota
+// de 4800 × impressions/24 h qui lui est PROPRE. Au-delà de 6, on paierait des
+// appels sans gagner de fraîcheur : les insights Meta ne sont pas temps réel.
+const PASSAGES_PAR_JOUR = 6;
+const MINUTES_PAR_CRENEAU = Math.floor(24 * 60 / PASSAGES_PAR_JOUR);
+
+// Étalement des élèves sur l'heure qui suit le début du créneau.
+//
+// Aujourd'hui les profils sont déjà répartis, mais par accident : chacun suit la
+// phase de son propre `last_synced_at`. Mesuré le 2026-08-28 sur trois profils —
+// 00:10, 00:20, 00:45. Cette répartition disparaîtrait après tout événement qui
+// remet les horodatages en phase (panne longue, reconnexions groupées) : les
+// 40 élèves tomberaient alors dans la MÊME invocation de 150 s.
+//
+// Un décalage dérivé de l'identifiant du profil rend l'étalement déterministe :
+// il ne dépend plus de l'historique, il est vrai dès le premier passage.
+const ETALEMENT_MINUTES = 55;
+
 // Notification « nouveau post » : bornée aux posts récents. Sans cette borne, le
 // premier passage après le retrait de `limit=15` enverrait une notification pour
 // CHAQUE post de l'historique — 500 notifications d'un coup sur le téléphone de
@@ -127,6 +158,100 @@ function parPaquets<T>(items: T[], taille: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += taille) out.push(items.slice(i, i + taille));
   return out;
+}
+
+// ── Heure de Paris ───────────────────────────────────────────────────────────
+//
+// Règle UE : dernier dimanche de mars 1 h UTC (passage à +2 h) → dernier dimanche
+// d'octobre 1 h UTC (retour à +1 h). Même algorithme que poll-leads/index.ts et
+// poll-stories/index.ts — il DOIT rester identique, sinon `snapshot_date` divergerait
+// entre le cron et ce module, et une même journée s'écrirait sous deux dates.
+function dernierDimancheDuMois(annee: number, mois: number): number {
+  const dernierJour = new Date(Date.UTC(annee, mois + 1, 0)).getUTCDate();
+  const dateDernierJour = new Date(Date.UTC(annee, mois, dernierJour));
+  return dernierJour - dateDernierJour.getUTCDay();
+}
+
+function decalageParisHeures(dateUtc: Date): number {
+  const annee = dateUtc.getUTCFullYear();
+  const debutEte = Date.UTC(annee, 2, dernierDimancheDuMois(annee, 2), 1, 0, 0);
+  const finEte = Date.UTC(annee, 9, dernierDimancheDuMois(annee, 9), 1, 0, 0);
+  const t = dateUtc.getTime();
+  return t >= debutEte && t < finEte ? 2 : 1;
+}
+
+/** Date calendrier Paris, « aujourd'hui moins N jours ». Copie exacte d'`isoDate`
+ *  dans poll-leads — la collecte doit écrire les mêmes dates que le reste du cron. */
+function dateParis(joursAvant: number): string {
+  const maintenant = new Date();
+  const paris = new Date(maintenant.getTime() + decalageParisHeures(maintenant) * 3600_000);
+  paris.setUTCDate(paris.getUTCDate() - joursAvant);
+  return paris.toISOString().split('T')[0];
+}
+
+/** Millisecondes écoulées depuis minuit, heure de Paris. */
+function msDepuisMinuitParis(): number {
+  const maintenant = new Date();
+  const paris = new Date(maintenant.getTime() + decalageParisHeures(maintenant) * 3600_000);
+  return ((paris.getUTCHours() * 60 + paris.getUTCMinutes()) * 60 + paris.getUTCSeconds()) * 1000
+    + paris.getUTCMilliseconds();
+}
+
+/** Décalage stable et déterministe d'un profil, en minutes, dans [0, ETALEMENT_MINUTES).
+ *  Dérivé de l'identifiant : il ne dépend d'aucun état, donc il ne peut pas se
+ *  resynchroniser après une panne — c'est tout l'intérêt par rapport à la dérive
+ *  de phase actuelle. */
+export function decalageProfilMinutes(profileId: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < profileId.length; i++) {
+    h ^= profileId.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h % ETALEMENT_MINUTES;
+}
+
+/** Début du créneau de collecte en cours, en ms depuis minuit (heure de Paris).
+ *
+ *  Exportée pour être testable : une erreur d'un cran ici doublerait ou diviserait
+ *  par deux la cadence sans provoquer la moindre erreur visible. Pure — elle ne lit
+ *  ni l'horloge ni la base.
+ *
+ *  Avant le premier créneau du jour (les `decalage` premières minutes après minuit),
+ *  elle rend une valeur SUPÉRIEURE à `msDepuisMinuit` : c'est ce qui fait attendre
+ *  l'appelant au lieu de collecter deux fois. */
+export function debutCreneauMs(profileId: string, msDepuisMinuit: number): number {
+  const decalage = decalageProfilMinutes(profileId) * 60_000;
+  const creneau = MINUTES_PAR_CRENEAU * 60_000;
+  const index = Math.floor(Math.max(0, msDepuisMinuit - decalage) / creneau);
+  return index * creneau + decalage;
+}
+
+/** Sous quelle(s) date(s) enregistrer la mesure qui vient d'être prise.
+ *
+ *  Une ligne datée du 29 doit valoir « état À LA FIN du 29 ». Trois situations,
+ *  trois décisions — les confondre fausse les chiffres dans un sens ou dans l'autre.
+ *  Exportée et pure pour être testable : aucune de ces erreurs ne produirait de
+ *  message, seulement des stats légèrement fausses tous les jours.
+ *
+ *  1. Pas de ligne d'hier (mise en service, ou cron arrêté toute la journée d'hier)
+ *     → l'écrire. Une clôture tardive vaut mieux qu'un trou.
+ *  2. Ligne d'hier présente, premier passage du jour ET on est dans le premier
+ *     créneau (avant 04 h) → la réécrire. Elle porte la valeur du dernier passage
+ *     d'hier (20 h), il lui manque 4 h. La mesure de 00 h 11 est la vraie clôture.
+ *  3. Ligne d'hier présente et on est plus tard dans la journée → NE PAS y toucher.
+ *     L'écraser à 14 h lui ajouterait 14 h de trafic du jour courant. C'est le
+ *     défaut de l'ancien code, visible en base : une ligne du 26 août écrite le 27
+ *     à 12 h 10 par un clic sur « Actualiser ». */
+export function datesDuSnapshot(opts: {
+  aujourdhui: string;
+  hier: string;
+  msDepuisMinuit: number;
+  premierPassageDuJour: boolean;
+  ligneHierExiste: boolean;
+}): string[] {
+  const dansPremierCreneau = opts.msDepuisMinuit < MINUTES_PAR_CRENEAU * 60_000;
+  const cloturerHier = !opts.ligneHierExiste || (opts.premierPassageDuJour && dansPremierCreneau);
+  return cloturerHier ? [opts.aujourdhui, opts.hier] : [opts.aujourdhui];
 }
 
 export async function getIgCreds(supa: SupabaseClient, profileId: string): Promise<{ token: string; igAccountId: string } | null> {
@@ -490,22 +615,28 @@ async function lireInsights(
   return r;
 }
 
-// Guard : si des snapshots existent déjà pour `yesterday`, on ne refetch pas — le cron
-// régulier n'a besoin de figer les métriques qu'1x/jour. skipGuard=true (bouton
-// "Actualiser" côté frontend) force le refetch pour rafraîchir la LISTE de posts
-// (nouveaux publiés/supprimés) sans attendre le lendemain — l'upsert reste idempotent
-// pour les métriques d'un post déjà snapshotté (Meta ne les change pas rétroactivement).
+// ── Cadence et dates écrites ─────────────────────────────────────────────────
+//
+// `forcer=true` (bouton "Actualiser" du frontend, callback OAuth) ignore la cadence
+// et collecte tout de suite. Sinon, un passage par créneau de 4 h, décalé par élève.
+//
+// La fonction calcule elle-même ses dates. Elle recevait auparavant `yesterday` de
+// son appelant, ce qui était devenu dangereux : les deux appelants passaient
+// `isoDate(1)`, donc le bouton "Actualiser" cliqué à midi ÉCRASAIT la ligne d'hier
+// avec les chiffres du jour. Visible en base — une ligne du 26 août écrite le 27 à
+// 12h10. Ce n'est plus possible : la date n'est plus un paramètre.
 export async function snapshotIgPosts(
   supa: SupabaseClient,
   profileId: string,
   token: string,
   igAccountId: string,
-  yesterday: string,
-  skipGuard = false,
+  forcer = false,
   notifyConfig?: { platformUrl: string; cronSecret: string },
   echeanceMs?: number,
 ): Promise<string[]> {
   const errors: string[] = [];
+  const aujourdhui = dateParis(0);
+  const hier = dateParis(1);
   // Les travaux facultatifs (vignettes, durées) s'arrêtent à l'échéance et
   // reprennent au passage suivant. Les insights, eux, ne sont pas facultatifs :
   // ils sont la raison d'être du snapshot, et ils coûtent désormais assez peu pour
@@ -513,20 +644,43 @@ export async function snapshotIgPosts(
   const budgetEpuise = () => echeanceMs != null && Date.now() >= echeanceMs;
 
   try {
-    if (!skipGuard) {
-      // ig_account_id + archived_at : cette garde empêche de reprendre deux fois le
-      // snapshot du même jour. Sans les filtres de compte, les lignes archivées d'un
-      // compte précédent portant la même snapshot_date la font croire déjà prise —
-      // et le snapshot du NOUVEAU compte n'est jamais enregistré ce jour-là, laissant
-      // un trou d'un jour dans son historique. Les deux requêtes suivantes de ce
-      // fichier filtrent déjà ainsi ; seule celle-ci avait été oubliée.
-      const { count } = await supa.from('analytics_ig_posts_history')
-        .select('*', { count: 'exact', head: true })
-        .eq('profile_id', profileId)
-        .eq('ig_account_id', igAccountId)
-        .is('archived_at', null)
-        .eq('snapshot_date', yesterday);
-      if (count && count > 0) return [];
+    // ── Garde de cadence ──────────────────────────────────────────────────────
+    //
+    // Le créneau courant démarre à `decalage` minutes après une frontière de 4 h,
+    // heure de Paris. On collecte si aucune ligne du jour n'a été écrite DEPUIS ce
+    // début de créneau. Le premier créneau du jour démarre entre 00:00 et 00:54 —
+    // aucune ligne n'existe encore pour `aujourdhui`, la collecte part donc peu
+    // après minuit, comme avant.
+    //
+    // ⚠️ Filtres ig_account_id + archived_at obligatoires. Sans eux, les lignes d'un
+    // compte précédent (archivées, donc invisibles mais toujours en base) font croire
+    // le créneau déjà pris, et le snapshot du NOUVEAU compte n'est jamais écrit —
+    // un trou d'un jour dans son historique.
+    const msMinuit = msDepuisMinuitParis();
+    const debutCreneau = debutCreneauMs(profileId, msMinuit);
+
+    // Dernière écriture connue pour la journée en cours. Lue même quand `forcer` est
+    // vrai : elle sert aussi à savoir si c'est le PREMIER passage du jour, ce qui
+    // décide de la clôture de la veille plus bas.
+    const { data: dernier } = await supa.from('analytics_ig_posts_history')
+      .select('snapshot_at')
+      .eq('profile_id', profileId)
+      .eq('ig_account_id', igAccountId)
+      .is('archived_at', null)
+      .eq('snapshot_date', aujourdhui)
+      .order('snapshot_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const premierPassageDuJour = !dernier?.snapshot_at;
+
+    if (!forcer) {
+      // Avant le tout premier créneau du jour, `debutCreneau` est postérieur à
+      // l'heure courante : on attend plutôt que de collecter deux fois.
+      if (msMinuit < debutCreneau) return [];
+      if (dernier?.snapshot_at) {
+        const debutCreneauEpoch = Date.now() - msMinuit + debutCreneau;
+        if (Date.parse(dernier.snapshot_at) >= debutCreneauEpoch) return [];
+      }
     }
 
     const { posts, erreur: erreurMedia } = await listerMedias(igAccountId, token);
@@ -737,7 +891,8 @@ export async function snapshotIgPosts(
         follows: m['follows'] ?? null,
         profile_visits: m['profile_visits'] ?? null,
         total_interactions: m['total_interactions'] ?? null,
-        snapshot_date: yesterday,
+        // La date est posée à l'écriture, plus bas : la même mesure alimente la ligne
+        // du jour et, au premier passage de la journée, celle de la veille.
         snapshot_at: snapshotAt,
         // Dé-marque explicitement si ce post avait été précédemment marqué supprimé
         // (republié, ou faux positif d'une exécution antérieure) — un post présent
@@ -753,13 +908,40 @@ export async function snapshotIgPosts(
       lignes.push(row);
     }
 
-    for (let i = 0; i < lignes.length; i += LIGNES_PAR_UPSERT) {
-      const paquet = lignes.slice(i, i + LIGNES_PAR_UPSERT);
-      const { error } = await supa.from('analytics_ig_posts_history')
-        .upsert(paquet, { onConflict: 'profile_id,post_id,snapshot_date', ignoreDuplicates: false });
-      if (error) {
-        errors.push(`ig_post_upsert_paquet_${i}: ${error.message}`);
-        console.log(`[snapshotIgPosts] upsert paquet ${i} ÉCHEC (${paquet.length} lignes): ${JSON.stringify(error)}`);
+    // ── Quelles dates reçoivent cette mesure ──────────────────────────────────
+    //
+    // TOUJOURS la ligne du jour : c'est elle que les écrans affichent, et c'est elle
+    // que les passages intra-journée rafraîchissent.
+    //
+    // Aucune ligne supplémentaire en base : la ligne du 29 écrite comme « aujourd'hui »
+    // le 29 est la MÊME (clé profile_id + post_id + snapshot_date) que celle réécrite
+    // comme « hier » le 30. L'upsert la met à jour, il ne la duplique pas.
+    //
+    // La clôture de la veille est conditionnelle — les trois cas et leur pourquoi
+    // sont documentés sur `datesDuSnapshot`, qui porte la décision et est testée.
+    const { count: lignesHier } = await supa.from('analytics_ig_posts_history')
+      .select('*', { count: 'exact', head: true })
+      .eq('profile_id', profileId)
+      .eq('ig_account_id', igAccountId)
+      .is('archived_at', null)
+      .eq('snapshot_date', hier);
+
+    const datesAEcrire = datesDuSnapshot({
+      aujourdhui, hier,
+      msDepuisMinuit: msMinuit,
+      premierPassageDuJour,
+      ligneHierExiste: !!lignesHier,
+    });
+
+    for (const date of datesAEcrire) {
+      for (let i = 0; i < lignes.length; i += LIGNES_PAR_UPSERT) {
+        const paquet = lignes.slice(i, i + LIGNES_PAR_UPSERT).map((l) => ({ ...l, snapshot_date: date }));
+        const { error } = await supa.from('analytics_ig_posts_history')
+          .upsert(paquet, { onConflict: 'profile_id,post_id,snapshot_date', ignoreDuplicates: false });
+        if (error) {
+          errors.push(`ig_post_upsert_${date}_paquet_${i}: ${error.message}`);
+          console.log(`[snapshotIgPosts] upsert ${date} paquet ${i} ÉCHEC (${paquet.length} lignes): ${JSON.stringify(error)}`);
+        }
       }
     }
 

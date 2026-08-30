@@ -101,6 +101,73 @@ Toute erreur non reconnue est classée **transitoire** : on ne conclut rien, on 
 Même règle que la détection de suppression — ne jamais conclure au-delà de ce que la
 réponse démontre.
 
+## La cadence : 6 passages par jour depuis le 2026-08-30
+
+Tant qu'un passage coûtait 801 appels pour 100 posts, une fois par jour était le seul
+réglage tenable. Il en coûte 6.
+
+| | |
+|---|---|
+| cadence | **6×/jour**, créneaux de 4 h, heure de Paris |
+| appels posts | 36/jour/élève (les métriques de compte en consomment ~310 à côté) |
+| quota Meta | `4800 × impressions/24 h`, **propre à chaque élève** → facteur 14 de marge |
+| budget fonction | ~19 s sur 150 s, dans 6 invocations sur 288 |
+| lignes en base | **aucune de plus** — l'upsert porte sur `(profile_id, post_id, snapshot_date)` |
+
+Pourquoi pas plus : 24×/jour tiendrait encore côté quota. Mais les insights Meta ne sont
+pas temps réel — au-delà de 6, on paie des appels sans gagner de fraîcheur, et on ajoute
+de la surface de panne pour rien.
+
+### La date écrite — le piège qui n'aurait rien affiché
+
+Monter la cadence **sans** changer la date écrite aurait été une panne silencieuse. Le
+code écrivait `isoDate(1)` : les passages de 04 h, 08 h, 12 h… auraient écrasé la ligne
+d'**hier** avec des chiffres accumulés **aujourd'hui**, et les stats de la veille
+auraient gonflé toute la journée. Aucune erreur, aucun log, juste des chiffres faux.
+
+Deux dates sont donc écrites, depuis la même mesure — modèle déjà en place juste à côté
+pour les métriques de compte (`fetchIgDayMetrics` écrit hier ET aujourd'hui) :
+
+- **toujours** la ligne du jour, celle que les écrans affichent ;
+- **la ligne de la veille seulement au premier passage du jour, et seulement avant 04 h.**
+
+Cette dernière condition a trois branches, et les confondre fausse les chiffres dans un
+sens ou dans l'autre. Elles vivent dans `datesDuSnapshot`, testée :
+
+| situation | décision | pourquoi |
+|---|---|---|
+| pas de ligne d'hier | l'écrire | une clôture tardive vaut mieux qu'un trou |
+| ligne d'hier + 1ᵉʳ passage avant 04 h | la réécrire | elle porte la valeur de 20 h, il lui manque 4 h |
+| ligne d'hier + plus tard dans la journée | **ne pas y toucher** | l'écraser à 14 h lui ajouterait 14 h de trafic du jour |
+
+Le troisième cas corrige un défaut qui existait déjà : une ligne du 26 août réécrite le
+27 à 12 h 10 par un clic sur « Actualiser ». La date n'est plus un paramètre de
+`snapshotIgPosts` — elle ne peut plus être passée à tort.
+
+### L'étalement des élèves
+
+Les profils sont aujourd'hui répartis dans le temps, mais **par accident** : chacun suit
+la phase de son propre `last_synced_at`. Mesuré le 2026-08-28 sur trois profils — 00:10,
+00:20, 00:45. Cette répartition disparaîtrait après tout événement remettant les
+horodatages en phase (panne longue, reconnexions groupées) : les 40 élèves tomberaient
+alors dans la même invocation de 150 s.
+
+Le créneau est donc décalé de `hash(profile_id) % 55` minutes. Déterministe, sans état,
+vrai dès le premier passage. Vérifié sur 500 profils simulés : toujours exactement
+6 passages espacés de 240 min, premier passage entre 00:00 et 00:54, réparti sur les
+11 invocations de 5 min.
+
+### Tests
+
+```bash
+npx deno test supabase/functions/_shared/ig-posts.test.ts
+```
+
+⚠️ `npm test` ne couvre **pas** `supabase/functions/`. Ces deux décisions — cadence et
+clôture — sont les seules du module dont une erreur ne produirait aucun symptôme :
+ni erreur, ni ligne dans `cron_runs`, ni écran cassé. Seulement des chiffres légèrement
+faux, tous les jours. D'où leur extraction en fonctions pures testées.
+
 ## Hypothèse fausse n° 3 — « il faut une rotation »
 
 Ce handoff proposait de rafraîchir « les 15 plus récents chaque nuit plus une dizaine en

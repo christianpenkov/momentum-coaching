@@ -79,6 +79,23 @@ Garde-fou via `integrations.last_synced_at` (la colonne existe déjà).
 
 > Gain YouTube sur ce seul point : **12×**.
 
+⚠️ **Changer une cadence oblige à revérifier la DATE écrite.** Un instantané
+quotidien porte une date ; tant qu'il n'y a qu'un passage par jour, on ne se pose
+pas la question. Dès qu'il y en a plusieurs, il faut décider explicitement lequel
+clôture la journée écoulée — sinon les passages de l'après-midi réécrivent la
+ligne de la veille avec le trafic du jour. Aucune erreur, aucun log, juste des
+chiffres faux tous les jours.
+
+> Instagram : en passant de 1 à 6 passages/jour, la ligne de la veille n'est plus
+> réécrite qu'au **premier** passage suivant minuit, et seulement dans le premier
+> créneau. Trois branches, isolées en fonction pure testée
+> (`datesDuSnapshot`) — parce qu'aucune des trois erreurs possibles ne se voit.
+
+⚠️ **Étaler les profils par un décalage dérivé de leur identifiant**, jamais par
+la dérive naturelle des horodatages. La seconde marche, mais par accident : elle
+disparaît dès qu'un événement remet tous les profils en phase (panne longue,
+reconnexions groupées), et ils tombent alors tous dans la même invocation.
+
 ---
 
 ## 4. Horodater même en cas d'échec

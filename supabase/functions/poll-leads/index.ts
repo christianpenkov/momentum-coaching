@@ -2131,7 +2131,7 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
       // Echeance transmise : les travaux « une fois par post » (vignettes, durees)
       // s'arretent quand le budget d'invocation est consomme et reprennent au passage
       // suivant. Meme chronometre que le rattrapage — voir BUDGET_RATTRAPAGE_MS.
-      snapshotIgPosts(supa, profileId, igCreds.token, igCreds.igAccountId, yesterday, false, { platformUrl: PLATFORM_URL, cronSecret: CRON_SECRET }, debutInvocation + BUDGET_RATTRAPAGE_MS),
+      snapshotIgPosts(supa, profileId, igCreds.token, igCreds.igAccountId, false, { platformUrl: PLATFORM_URL, cronSecret: CRON_SECRET }, debutInvocation + BUDGET_RATTRAPAGE_MS),
       // Rattrapage des journees anciennes manquantes — une fois par jour, comme cote
       // YouTube. Ajoute EN DERNIER pour ne pas decaler les deux resultats deja
       // destructures. Sur une base sans trou, la fonction sort avant tout appel reseau.
