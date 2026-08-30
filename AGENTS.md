@@ -137,6 +137,17 @@ mesure la croissance réelle des trois tables « une ligne par contenu et par jo
 affiche les jours restants pour les deux plans — passer en Pro ne demande donc aucune
 modification. À 40 élèves × 300 posts, le gratuit tient ~6 semaines ; le Pro, ~2,5 ans.
 
+**Et cette vue n'a pas besoin d'être regardée** : `/api/sante/alerte-stockage` envoie
+un e-mail à 90 puis à 30 jours du plafond, chacun **une seule fois** (table
+`alertes_plateforme`, réarmée d'elle-même si la situation redevient saine). Le mail
+rappelle tout le contexte — il arrivera dans plusieurs mois. Déclenché par
+`poll-leads` dans la tranche 8 h Paris : **aucun planificateur à créer**, et la clé
+Resend ne quitte pas les variables Vercel.
+
+```sql
+select * from alertes_plateforme;   -- vide = aucun seuil encore franchi
+```
+
 `ig_sante_insights_posts` surveille la collecte des contenus Instagram.
 `depreciation_metrique_probable` = une métrique Meta vient de disparaître ; la
 plateforme a déjà encaissé la perte toute seule, c'est une information, pas une
