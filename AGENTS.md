@@ -99,6 +99,8 @@ select jobname, schedule, active from cron.job order by jobid;   -- côté Supab
 | `purge-debug-logs` | 3h30 | **SQL pur, aucune URL** |
 | `purge-webhook-queue-daily` | 3h35 | **SQL pur, aucune URL** |
 | `purge-call-rapport-drafts-daily` | 3h45 | **SQL pur, aucune URL** |
+| `purge-journaux-machine-daily` | 3h50 | **SQL pur** — retient 7 j de `cron.job_run_details` |
+| `vacuum-pg-net-daily` | 3h55 | **SQL pur** — empêche les tables pg_net de regonfler |
 
 Les trois purges sont des `SELECT public.purge_*()`. Les déplacer sur un planificateur
 externe imposerait de **créer une route HTTP pour chacune** et d'exposer sur Internet
@@ -146,6 +148,19 @@ Resend ne quitte pas les variables Vercel.
 
 ```sql
 select * from alertes_plateforme;   -- vide = aucun seuil encore franchi
+```
+
+⚠️ **La taille de la base n'est pas que de la donnée.** Alerte Disk IO reçue le
+2026-08-30 : sur 112 Mo, **la moitié était du journal de machine** —
+`net._http_response` 34 Mo pour 24 lignes vivantes (autovacuum passé une seule fois
+en 25 jours, pages jamais réutilisées) et `cron.job_run_details` 19 Mo que pg_cron
+ne purge jamais. Après nettoyage : **54 Mo**, et deux jobs quotidiens l'entretiennent.
+Avant de conclure que « la base grossit », regarder QUI grossit :
+
+```sql
+select schemaname||'.'||relname, pg_size_pretty(pg_total_relation_size(relid)),
+       n_live_tup, n_dead_tup, last_autovacuum
+from pg_stat_all_tables order by pg_total_relation_size(relid) desc limit 10;
 ```
 
 `ig_sante_insights_posts` surveille la collecte des contenus Instagram.
