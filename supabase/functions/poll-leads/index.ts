@@ -2654,6 +2654,37 @@ Deno.serve(async (req: Request) => {
   // Les incidents passagers restent dans les logs Supabase (console.error ci-dessous)
   // pour l'enquete a chaud, mais n'entrent pas dans `cron_runs` : cette table doit
   // rester vide tant que rien ne demande d'action, sinon elle cesse d'etre lue.
+  // ── Plafond de stockage : la seule panne qui ne previent pas ────────────────
+  //
+  // Rien ne casse a l'avance, rien n'entre dans cron_runs, et le jour ou la base est
+  // pleine les ecritures echouent d'un coup : les stats de tous les eleves se figent
+  // en silence. La vue `base_sante_taille` le voit venir, encore faut-il la regarder —
+  // d'ou cet e-mail, qui rappelle tout le contexte parce qu'il arrivera des mois plus
+  // tard, quand personne ne s'en souviendra.
+  //
+  // Une fois par jour, dans la tranche 8 h (heure de Paris). Ce cron passe toutes les
+  // 5 minutes : la tranche est donc traversee une douzaine de fois, mais la route
+  // n'envoie qu'une fois par seuil (table alertes_plateforme) et sort immediatement
+  // sinon. Pas de nouveau planificateur a creer, aucun secret deplace : la cle Resend
+  // reste dans les variables Vercel, ou elle vit deja.
+  //
+  // Volontairement hors de la boucle par profil : c'est une propriete de la base, pas
+  // d'un eleve. Et strictement non bloquant — une alerte muette vaut mieux qu'un cron
+  // qui tombe.
+  try {
+    const heureParis = new Date(Date.now() + parisOffsetHours(new Date()) * 3600_000).getUTCHours();
+    if (heureParis === 8) {
+      const controleur = new AbortController();
+      const minuteur = setTimeout(() => controleur.abort(), 10_000);
+      try {
+        await fetch(`${PLATFORM_URL}/api/sante/alerte-stockage`, {
+          headers: { authorization: `Bearer ${CRON_SECRET}` },
+          signal: controleur.signal,
+        });
+      } finally { clearTimeout(minuteur); }
+    }
+  } catch { /* non bloquant — retentee au prochain passage de la tranche */ }
+
   const erreursActionnables: Record<string, string[]> = {};
   for (const [pid, errs] of Object.entries(allErrors)) {
     const restant = errs.filter(e => !estIncidentPassager(e));
