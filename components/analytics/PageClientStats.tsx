@@ -4137,6 +4137,24 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
       return !!d && parisDateStr(new Date(d)) >= debutCouvertureClics!;
     }).length;
   };
+  // Le taux de cet etage subit DEUX exclusions qui n'ont rien a voir l'une avec
+  // l'autre : la fenetre de couverture des clics, et les continuations. La note n'en
+  // nommait qu'une, si bien que le numerateur restait irreconstituable — 15 affiches,
+  // 8 au numerateur, et un seul des deux ecarts explique. On les compose.
+  const noteBookes = (sousEnsemble: CallRecord[]) => {
+    const morceaux: string[] = [];
+    if (debutCouvertureClics && couvertureIncomplete) {
+      morceaux.push(`depuis le ${new Date(debutCouvertureClics + 'T12:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}, début du suivi des clics`);
+    }
+    // Ne le dire que si une continuation est reellement retiree DANS la fenetre
+    // couverte : ailleurs elle ne change rien au numerateur, et l'ecrire serait du
+    // bruit.
+    const avec = bookesDansCouverture(sousEnsemble);
+    const sans = bookesDansCouverture(sousEnsemble.filter(c => !continuations.has(c.id)));
+    if (avec !== sans) morceaux.push('hors 2ᵉ rendez-vous');
+    return morceaux.length ? `taux ${morceaux.join(', ')}` : undefined;
+  };
+
   const noteCouverture = couvertureNulle && debutCouvertureClics
     ? `aucun taux : le suivi des clics n'a commencé que le ${new Date(debutCouvertureClics + 'T12:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`
     : couvertureIncomplete && debutCouvertureClics
@@ -4159,7 +4177,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
     // par AUCUN nouveau clic, donc l'inclure au numerateur ferait monter le ratio
     // sans qu'un clic ne l'ait cause. Meme principe que le bornage sur la couverture
     // Short.io, quelques lignes plus haut.
-    { label: 'Calls bookés', value: fmt(igBookes), rawValue: igBookes, rate: couvertureNulle || igTotalClicsD <= 0 ? undefined : (bookesDansCouverture(callsIG.filter(c => !continuations.has(c.id))) / igTotalClicsD) * 100, noteTaux: noteCouverture },
+    { label: 'Calls bookés', value: fmt(igBookes), rawValue: igBookes, rate: couvertureNulle || igTotalClicsD <= 0 ? undefined : (bookesDansCouverture(callsIG.filter(c => !continuations.has(c.id))) / igTotalClicsD) * 100, noteTaux: couvertureNulle ? noteCouverture : noteBookes(callsIG) },
     // Ce taux-ci n'a pas besoin des opportunites : ses DEUX termes comptent des
     // rendez-vous, donc une continuation les fait monter tous les deux ensemble.
     { label: 'Calls honorés', value: fmt(igHonores), rawValue: igHonores, rate: igBookes > 0 ? (igHonores / igBookes) * 100 : 0 },
@@ -4184,7 +4202,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
     // par AUCUN nouveau clic, donc l'inclure au numerateur ferait monter le ratio
     // sans qu'un clic ne l'ait cause. Meme principe que le bornage sur la couverture
     // Short.io, quelques lignes plus haut.
-    { label: 'Calls bookés', value: fmt(ytBookes), rawValue: ytBookes, rate: couvertureNulle || ytClicsD <= 0 ? undefined : (bookesDansCouverture(callsYT.filter(c => !continuations.has(c.id))) / ytClicsD) * 100, noteTaux: noteCouverture },
+    { label: 'Calls bookés', value: fmt(ytBookes), rawValue: ytBookes, rate: couvertureNulle || ytClicsD <= 0 ? undefined : (bookesDansCouverture(callsYT.filter(c => !continuations.has(c.id))) / ytClicsD) * 100, noteTaux: couvertureNulle ? noteCouverture : noteBookes(callsYT) },
     // Ce taux-ci n'a pas besoin des opportunites : ses DEUX termes comptent des
     // rendez-vous, donc une continuation les fait monter tous les deux ensemble.
     { label: 'Calls honorés', value: fmt(ytHonores), rawValue: ytHonores, rate: ytBookes > 0 ? (ytHonores / ytBookes) * 100 : 0 },
