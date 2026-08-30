@@ -5389,9 +5389,24 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // aujourd'hui] par le fetch — ne rien re-clipper avec la fenêtre du mois/semaine en cours.
   const periodCutoff = periodStart.getTime();
   const periodEndMs = periodEnd.getTime();
+  // All-Time : MEME borne basse que les graphiques (`allTimeStart`).
+  //
+  // `if (sinceConnection) return !!ts` acceptait TOUT, sans limite dans le passe, alors
+  // que les courbes demarrent a `allTimeStart`. Un evenement anterieur etait donc
+  // compte dans la carte et jamais trace : constate le 2026-08-30 sur « Liens Calendly
+  // envoyes DM » — carte 3, courbe 2, le troisieme etant un lien du 7 juin quand
+  // l'All-Time commence le 9. Deux fenetres pour une meme metrique, le meme defaut que
+  // « filtrer sur une date et decouper sur une autre ».
+  //
+  // En production ce cas devrait rester rare : `integrations_ready_at` est pose quand
+  // les 7 integrations sont pretes, et un eleve recoit ses leads apres. Mais elles ne
+  // sont pas forcement connectees le meme jour — quelqu'un qui branche Instagram le
+  // lundi et Stripe le vendredi peut recevoir un vrai lead le mercredi. Aligner ne
+  // coute donc rien quand il n'y a rien avant, et protege ce cas-la.
+  const allTimeCutoff = allTimeStart ? new Date(allTimeStart).getTime() : null;
   const isInPeriod = (ts: string | null | undefined) => {
-    if (sinceConnection) return !!ts;
     if (!ts) return false;
+    if (sinceConnection) return allTimeCutoff === null || new Date(ts).getTime() >= allTimeCutoff;
     const t = new Date(ts).getTime();
     return t >= periodCutoff && (_pIdx === 0 || t <= periodEndMs);
   };
