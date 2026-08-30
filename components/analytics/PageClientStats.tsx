@@ -5849,6 +5849,12 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // ── Section 2 : tableau consolidé par contenu — tous les posts, pas seulement ceux avec business ──
   const knownIgIds = new Set(igPosts.map(p => p.id));
   const knownYtIds = new Set(ytVideos.map(v => v.id));
+  // Identifiants de stories APPARTENANT a une sequence : elles ont deja leur ligne
+  // dediee, il ne faut pas qu'elles en creent une seconde en tant que faux post.
+  const storiesDeSequence = new Set(
+    allStoriesForContent.filter(st => st.sequence_id && st.ig_story_id).map(st => String(st.ig_story_id)),
+  );
+
   const allPostIds = Array.from(new Set([
     ...igPosts.map(p => p.id + '|IG'),
     ...ytVideos.map(v => v.id + '|YT'),
@@ -5867,6 +5873,17 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     // que des leads "périmés" par une interaction plus récente ailleurs disparaît du tableau.
     ...(lmHistory ?? []).filter(h => {
       if (!h.lead_magnet_sent || !isValidPostId(h.media_id, isValidYtVideoId(h.media_id) ? 'YT' : 'IG')) return false;
+      // Une STORY de sequence n'est pas un post, et elle a deja sa propre ligne
+      // (storySequenceContentRows). Sans cette exclusion elle apparaissait EN PLUS
+      // comme un Reel fantome : « (sans titre) », aucune vignette, aucune vue, tous
+      // les chiffres a un tiret — parce qu'aucun snapshot de POST n'existe pour un
+      // identifiant de story. Constate le 2026-08-30 sur le profil de test, deux
+      // lignes vides en bas de « Voir tout », dont 18070859744433801 (mot-cle
+      // STORYTEST), story de sequence confirmee en base.
+      //
+      // Les stories ORPHELINES, elles, restent : la ligne plus bas les reconnait et
+      // leur donne leur vignette et le type « Story ».
+      if (h.media_id && storiesDeSequence.has(h.media_id)) return false;
       return isInPeriod(h.detected_at);
     }).map(h => h.media_id + '|' + (isValidYtVideoId(h.media_id) ? 'YT' : 'IG')),
   ]));
