@@ -1167,7 +1167,9 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
 
       const { data: leadToUpdate } = await serviceSupabase
         .from('instagram_leads')
-        .select('id, hook_replied, ig_username, awaiting_story_followup')
+        // `media_id` : le contenu dont l'accroche vient d'etre envoyee. Il est connu
+        // ICI, au moment de la reponse — et il etait jete. Voir l'insertion plus bas.
+        .select('id, hook_replied, ig_username, awaiting_story_followup, media_id')
         .eq('profile_id', pid)
         .eq('ig_user_id', senderId)
         .or('lead_magnet_sent.eq.true,source.eq.cold_dm,awaiting_story_followup.eq.true')
@@ -1196,6 +1198,22 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
             event_type:  'hook_replied',
             occurred_at: hookRepliedAt,
             ig_lead_id:  leadToUpdate.id,
+            // LE CONTENU, fige au moment de la reponse.
+            //
+            // Sans lui, l'ecran doit RECONSTRUIRE l'attribution en cherchant le dernier
+            // lead magnet pris avant cette date : une deduction solide, mais une
+            // deduction. Or le fait est connu ici — la fiche porte encore le media_id de
+            // l'accroche a laquelle cette personne repond.
+            //
+            // On ne peut pas le relire plus tard depuis la fiche : `media_id` y est
+            // ecrase des que la personne commente un autre post. C'est exactement ce qui
+            // faisait afficher au post GUIDE un call et 500 EUR pour zero commentaire.
+            // Fige ici, il ne bouge plus.
+            //
+            // « Conversations DM » passe donc d'une ESTIMATION a une MESURE pour tout ce
+            // qui arrive a partir de maintenant. L'historique anterieur reste reconstruit,
+            // et l'ecran prefere la valeur figee des qu'elle existe.
+            metadata:    { media_id: leadToUpdate.media_id ?? null },
           }).then(({ error: evtErr }) => {
             if (evtErr) console.error('[IG Webhook] prospect_events hook_replied:', evtErr.message);
           });

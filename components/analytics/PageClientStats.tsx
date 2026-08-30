@@ -5277,7 +5277,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   leads: MockLead[];
   leadMagnets: LeadMagnet[];
   lmHistory?: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[];
-  hookRepliedEvents?: { prospect_key: string | null; occurred_at: string }[];
+  hookRepliedEvents?: { prospect_key: string | null; occurred_at: string; metadata?: any }[];
   destinations: DestinationLink[];
   period: Period;
   periodIndex?: number;
@@ -5556,9 +5556,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const activationParContenuGlobal = new Map<string, number>();
   for (const ev of (hookRepliedEvents ?? [])) {
     if (!ev.occurred_at || !isInPeriod(ev.occurred_at)) continue;
+    // Le contenu FIGE par le webhook fait autorite : c'est une mesure, pas une deduction.
+    // La reconstruction par horodatage — « le dernier lead magnet pris avant la reponse »
+    // — ne sert que pour les evenements anterieurs au 2026-08-30, ou ce champ n'existait
+    // pas encore. Elle s'eteindra donc d'elle-meme.
+    const contenuFige: string | null = ev.metadata?.media_id ?? null;
     const igUserId = ev.prospect_key ? igUserIdParPseudo.get(ev.prospect_key.toLowerCase()) : undefined;
     const historique = igUserId ? historiqueParPersonne.get(igUserId) ?? [] : [];
-    const cle = contenuActivation(historique, ev.occurred_at) ?? SANS_CONTENU;
+    const cle = contenuFige ?? contenuActivation(historique, ev.occurred_at) ?? SANS_CONTENU;
     activationParContenuGlobal.set(cle, (activationParContenuGlobal.get(cle) ?? 0) + 1);
   }
 
@@ -8596,9 +8601,11 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     // PAS de filtre `ig_lead_id is not null`, contrairement aux deux requêtes
     // au-dessus : 2 de ces 6 réponses ont un `ig_lead_id` nul. Le rattachement se fait
     // sur `prospect_key` (le pseudo en minuscules).
-    fetchAllPages<{ prospect_key: string | null; occurred_at: string }>(() =>
+    fetchAllPages<{ prospect_key: string | null; occurred_at: string; metadata: any }>(() =>
       supabase.from('prospect_events')
-        .select('prospect_key, occurred_at')
+        // `metadata.media_id` : le contenu FIGE au moment de la reponse par le webhook.
+        // Quand il est la, l'attribution est une MESURE et non une reconstruction.
+        .select('prospect_key, occurred_at, metadata')
         .eq('profile_id', targetId)
         .eq('event_type', 'hook_replied')
     ),
@@ -9072,7 +9079,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   const deals: DealRecord[] = supaData?.deals ?? [];
   const lmHistory: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[] = supaData?.lmHistory ?? [];
   // Journal des reponses au message d'accroche — voir la requete dans fetchSupabaseStats.
-  const hookRepliedEvents: { prospect_key: string | null; occurred_at: string }[] = supaData?.hookRepliedEvents ?? [];
+  const hookRepliedEvents: { prospect_key: string | null; occurred_at: string; metadata?: any }[] = supaData?.hookRepliedEvents ?? [];
   const integrationsReadyAt: string | null = supaData?.integrationsReadyAt ?? null;
   const leadIdToMediaId: Map<string, string> = supaData?.leadIdToMediaId ?? new Map();
   const prospectLinksData: any[] = supaData?.prospectLinksData ?? [];
