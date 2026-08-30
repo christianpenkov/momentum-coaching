@@ -262,6 +262,8 @@ type DealRecord = {
   status?: string | null;
   signed_at?: string | null;
   call_id?: string | null;
+  /** Qui a achete — colonne « Client » du tableau des ventes. */
+  buyer_name?: string | null;
 };
 
 // Date de rattachement d'un call à une période : la RÉSERVATION, pas la tenue du
@@ -4992,26 +4994,23 @@ function CashByOrigin({ profileId, periodStart, periodEnd, sinceConnection, allT
 }
 
 /**
- * Les statuts qu'une ligne de paiement peut porter, avec leur libellé et leur couleur.
- *
- * Écrit une seule fois : le tableau des paiements peignait en rouge « Échoué » tout ce
- * qui n'était pas `succeeded`, donc un remboursement, un litige ou un paiement en
- * attente. Les statuts sont ceux qu'écrivent `recordPayment` et le webhook des litiges
- * dans `deal_payments`.
- */
-/**
  * Au-delà de ce nombre de points, le graphique des revenus regroupe par tranches de
  * 7 jours. Seuil mesuré : à 82 barres, une barre fait 0,02 px de large sur la largeur
  * disponible — le graphique paraît vide alors que ses valeurs sont justes.
  */
 const JOURS_AVANT_REGROUPEMENT = 62;
 
-const STATUT_PAIEMENT: Record<string, { label: string; color: string }> = {
-  succeeded: { label: 'Réussi', color: GREEN },
-  refunded:  { label: 'Remboursé', color: AMBER },
-  disputed:  { label: 'Contesté', color: RED },
-  pending:   { label: 'En attente', color: AMBER },
-  failed:    { label: 'Échoué', color: RED },
+/**
+ * Les statuts qu'une VENTE peut porter, avec leur libellé et leur couleur.
+ * Mêmes valeurs que la contrainte `deals_status_check` et que lib/dealCash.ts.
+ */
+const STATUT_VENTE: Record<string, { label: string; color: string }> = {
+  paid:     { label: 'Soldée', color: GREEN },
+  open:     { label: 'En cours', color: 'var(--muted)' },
+  past_due: { label: 'Impayé', color: RED },
+  disputed: { label: 'Contestée', color: RED },
+  ended:    { label: 'Terminée', color: 'var(--muted)' },
+  canceled: { label: 'Annulée', color: 'var(--muted)' },
 };
 
 function TabRevenues({ stripe, paiementsCohorte, deals, period, periodIndex, onRefresh, refreshing, sinceConnection, profileId, allTimeStart, stripeConnected }: { stripe: StripeStats | null; paiementsCohorte?: { deal_id?: string; amount: number | string | null; status: string | null }[]; deals?: DealRecord[]; period: Period; periodIndex: number; onRefresh?: () => void; refreshing?: boolean; sinceConnection?: boolean; profileId?: string; allTimeStart?: string | null; stripeConnected?: boolean }) {
@@ -5044,8 +5043,7 @@ function TabRevenues({ stripe, paiementsCohorte, deals, period, periodIndex, onR
     return d >= periodStart && d <= periodEnd;
   });
   const succeeded = allInPeriod.filter(p => p.status === 'succeeded');
-  // Le tableau montre la même population que les cartes, du plus récent au plus ancien.
-  const paiementsAffiches = [...allInPeriod].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  // (le tableau du bas liste les VENTES de la période — voir `ventesAffichees` plus bas)
 
   // Cash contracté : somme des DEALS signés dans la période.
   //
@@ -5209,6 +5207,20 @@ function TabRevenues({ stripe, paiementsCohorte, deals, period, periodIndex, onR
   })();
   const revenueByDay = graphe.rows;
 
+  // Une ligne par vente de la période, de la plus récente à la plus ancienne, avec ce
+  // qui en a été encaissé À CE JOUR — donc la même valeur, deal par deal, que celle qui
+  // compose le numérateur du taux de collecte.
+  const ventesAffichees = [...dealsInPeriod]
+    .sort((a, b) => ((a.signed_at ?? '') < (b.signed_at ?? '') ? 1 : (a.signed_at ?? '') > (b.signed_at ?? '') ? -1 : 0))
+    .map(d => ({
+      id: d.id,
+      signedAt: d.signed_at ?? null,
+      client: d.buyer_name ?? '',
+      contracte: Number(d.amount_total || 0),
+      encaisse: d.id ? calculerCash(parDeal.get(d.id) ?? []).net : 0,
+      statut: d.status ?? 'open',
+    }));
+
   const libellePeriode = sinceConnection
     ? (allTimeStart ? `depuis le ${new Date(allTimeStart).toLocaleDateString('fr-FR')}` : 'depuis la connexion')
     : periodLabel(period, periodIndex);
@@ -5263,57 +5275,73 @@ function TabRevenues({ stripe, paiementsCohorte, deals, period, periodIndex, onR
       {/* Empilé pleine largeur sous le graphique, jamais en colonne à côté. */}
       <CashByOrigin profileId={profileId} periodStart={periodStart} periodEnd={periodEnd} sinceConnection={sinceConnection} allTimeStart={allTimeStart} />
 
-      {/* Le tableau itérait sur `stripe.recentPayments`, la liste brute, alors que les
-          cartes juste au-dessus utilisent `allInPeriod`, la même liste filtrée sur la
-          période. Constaté à l'écran le 2026-08-30 : sur la semaine du 24 au 30 août, la
-          carte annonçait « paiements reçus (0) » pendant que le tableau affichait six
-          lignes des 19, 20 et 21 août. Trié du plus récent au plus ancien : le titre dit
-          « derniers », l'ordre de la source ne le garantissait pas. */}
+      {/* ── Dernières ventes ────────────────────────────────────────────────────
+          Remplace « Derniers paiements », qui redisait en moins bien ce que la page
+          Paiements dit déjà (par client, avec « À rattacher » et « Relances »), et
+          laissait cet onglet sans jamais montrer une seule VENTE : on y lisait
+          « 5 700 € · 5 deals signés » sans pouvoir savoir lesquels.
+
+          Surtout, ce tableau rend les deux chiffres du haut VÉRIFIABLES ligne à
+          ligne : la colonne « Contracté » totalise la carte « Cash contracté », et
+          la colonne « Encaissé » totalise le numérateur du taux de collecte. Deux
+          invariants qu'on ne pouvait contrôler qu'en requêtant la base.
+
+          Un remboursement reste visible : il se lit dans l'écart entre les deux
+          colonnes (800 € encaissés sur une vente de 1 000 €), et le détail
+          paiement par paiement vit sur la page Paiements, à sa place. */}
       <div className="card">
         <div className="card-head">
-          <div className="card-title">Derniers paiements</div>
+          <div className="card-title">Dernières ventes</div>
           <div style={{ fontSize: 11, color: 'var(--muted)' }}>{libellePeriode}</div>
         </div>
-        {paiementsAffiches.length === 0 ? (
+        {ventesAffichees.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '28px 24px', fontSize: 13, color: 'var(--muted)' }}>
-            Aucun paiement sur la période
+            Aucune vente signée sur la période
           </div>
         ) : (
         <table className="table" style={{ width: '100%' }}>
           <thead>
             <tr>
-              {['Date', 'Description', 'Montant', 'Statut'].map((h, i) => (
-                <th key={i} className="eyebrow-sm" style={{ textAlign: 'left', color: 'var(--muted)', padding: '8px 10px' }}>{h}</th>
+              {['Date', 'Client', 'Contracté', 'Encaissé', 'Statut'].map((h, i) => (
+                <th key={i} className="eyebrow-sm" style={{ textAlign: i >= 2 && i <= 3 ? 'right' : 'left', color: 'var(--muted)', padding: '8px 10px' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {paiementsAffiches.map((p, i) => {
-              const st = STATUT_PAIEMENT[p.status] ?? { label: p.status, color: 'var(--muted)' };
+            {ventesAffichees.map((v, i) => {
+              const st = STATUT_VENTE[v.statut] ?? { label: v.statut, color: 'var(--muted)' };
               return (
-              <tr key={p.id || i} style={{ borderTop: '1px solid var(--border-soft)' }}>
+              <tr key={v.id || i} style={{ borderTop: '1px solid var(--border-soft)' }}>
                 {/* timeZone Europe/Paris explicite : la même date sert au graphique, qui
-                    la calcule en heure de Paris. Sans ça les deux se contredisent sur un
-                    paiement de fin de journée. */}
-                <td style={{ padding: '10px', fontSize: 12, color: 'var(--muted)' }}>{new Date(p.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit', timeZone: 'Europe/Paris' })}</td>
-                <td style={{ padding: '10px', fontSize: 12 }}>{p.description || '—'}</td>
-                {/* Signe négatif sur ce qui SORT de la caisse : sans lui, la colonne
-                    s'additionne mentalement à 3 000 € alors que la carte du dessus
-                    annonce 2 600 €. Le libellé du statut ne suffit pas à corriger une
-                    lecture qui se fait sur les nombres. */}
-                <td style={{ padding: '10px', fontSize: 13, fontWeight: 700, color: p.status === 'refunded' || p.status === 'disputed' ? AMBER : undefined }}>
-                  {p.status === 'refunded' || p.status === 'disputed' ? `− ${fmtEur(p.amount)}` : fmtEur(p.amount)}
+                    la calcule en heure de Paris. Sans ça les deux se contredisent sur une
+                    signature de fin de journée. */}
+                <td style={{ padding: '10px', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                  {v.signedAt ? new Date(v.signedAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit', timeZone: 'Europe/Paris' }) : '—'}
                 </td>
+                <td style={{ padding: '10px', fontSize: 12, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.client || '—'}</td>
+                <td style={{ padding: '10px', fontSize: 13, fontWeight: 700, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtEur(v.contracte)}</td>
+                {/* Soldé en vert, rien d'encaissé en muted : un 0 € noir au milieu de
+                    montants noirs ne se distingue pas de ce qui est payé. */}
+                <td style={{ padding: '10px', fontSize: 13, fontWeight: 700, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: v.encaisse <= 0 ? 'var(--muted)' : v.encaisse >= v.contracte - 0.01 ? GREEN : 'var(--ink)' }}>{fmtEur(v.encaisse)}</td>
                 <td style={{ padding: '10px' }}>
-                  {/* « Réussi sinon Échoué » peignait en rouge tout ce qui n'est pas
-                      `succeeded` — un remboursement, un litige ou un paiement en attente
-                      s'affichaient « Échoué », ce qu'ils ne sont pas. */}
                   <span style={{ fontSize: 11, color: st.color, fontWeight: 600 }}>{st.label}</span>
                 </td>
               </tr>
               );
             })}
           </tbody>
+          <tfoot>
+            {/* Le total est là pour être confronté aux cartes du haut, pas pour
+                décorer : c'est lui qui fait de ce tableau une vérification. */}
+            <tr style={{ borderTop: '1px solid var(--border)' }}>
+              <td style={{ padding: '10px', fontSize: 11, color: 'var(--muted)', fontWeight: 600 }} colSpan={2}>
+                {ventesAffichees.length} vente{ventesAffichees.length > 1 ? 's' : ''}
+              </td>
+              <td style={{ padding: '10px', fontSize: 13, fontWeight: 800, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtEur(cashContracte)}</td>
+              <td style={{ padding: '10px', fontSize: 13, fontWeight: 800, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: GREEN }}>{fmtEur(cashCollecteCohorte)}</td>
+              <td />
+            </tr>
+          </tfoot>
         </table>
         )}
       </div>
@@ -8169,7 +8197,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       .from('deals')
       // `id` : necessaire au taux de collecte par cohorte, qui rapporte les
       // paiements d'un deal a ce deal precis.
-      .select('id, amount_total, status, signed_at, call_id')
+      .select('id, amount_total, status, signed_at, call_id, buyer_name')
       .eq('profile_id', targetId)
       .gte('signed_at', periodStart.toISOString())
       .lte('signed_at', periodEnd.toISOString()),
@@ -8917,7 +8945,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
   // appartient au cash de ce mois. Voir docs/perimetre-stats-referentiel.md.
   const dealsRows = await fetchAllPages<any>(() => {
     const q = supabase.from('deals')
-      .select('id, amount_total, status, signed_at, call_id')
+      .select('id, amount_total, status, signed_at, call_id, buyer_name')
       .eq('profile_id', targetId)
       .order('signed_at', { ascending: false });
     return integrationsReadyAt ? q.gte('signed_at', integrationsReadyAt) : q;
