@@ -5398,11 +5398,19 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // l'All-Time commence le 9. Deux fenetres pour une meme metrique, le meme defaut que
   // « filtrer sur une date et decouper sur une autre ».
   //
-  // En production ce cas devrait rester rare : `integrations_ready_at` est pose quand
-  // les 7 integrations sont pretes, et un eleve recoit ses leads apres. Mais elles ne
-  // sont pas forcement connectees le meme jour — quelqu'un qui branche Instagram le
-  // lundi et Stripe le vendredi peut recevoir un vrai lead le mercredi. Aligner ne
-  // coute donc rien quand il n'y a rien avant, et protege ce cas-la.
+  // EN PRODUCTION, RIEN NE PEUT EXISTER AVANT CETTE DATE — et c'est voulu.
+  //
+  // `app/(client)/layout.tsx` verrouille l'acces tant que les 7 integrations ne sont
+  // pas connectees : l'eleve ne voit que l'ecran de connexion, donc aucun lead magnet
+  // ne part et aucun lien n'est cree. Le commentaire de ce verrou le dit en toutes
+  // lettres : « le verrou fait coincider les deux dates par construction », justement
+  // pour qu'un eleve n'accumule pas des calls avant le demarrage de la collecte de
+  // clics — sans quoi l'entonnoir divise des calls par des clics inexistants.
+  //
+  // Cette borne n'est donc pas une parade defensive : elle FAIT RESPECTER un invariant
+  // que le verrou promet deja. Un evenement anterieur ne peut etre qu'une trace de
+  // developpement — comme le lien du 7 juin sur le profil de test — et le compter
+  // reviendrait a mesurer une periode ou la plateforme n'etait pas en service.
   const allTimeCutoff = allTimeStart ? new Date(allTimeStart).getTime() : null;
   const isInPeriod = (ts: string | null | undefined) => {
     if (!ts) return false;
