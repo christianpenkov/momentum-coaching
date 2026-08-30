@@ -221,7 +221,37 @@ export async function snapshotIgPosts(
     // définitivement de "Gérer mes liens" après un passage par B, alors qu'il n'avait
     // jamais été supprimé sur Instagram).
     const currentPostIds = new Set(posts.map((p: any) => p.id));
-    const since90d = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+
+    // ⚠️ NE JAMAIS conclure au-dela de ce que le fetch a REELLEMENT couvert.
+    //
+    // Deux gardes, toutes deux absentes jusqu'au 2026-08-30.
+    //
+    // 1. `posts` vide — un hoquet de Meta, une reponse tronquee — faisait marquer
+    //    SUPPRIMES d'un coup tous les posts des 90 derniers jours. Aucun ne l'aurait
+    //    ete, et la marque ne se leve pas toute seule.
+    //
+    // 2. `/media` est appele avec `limit=15`, mais la fenetre de jugement etait de
+    //    90 JOURS. Le commentaire ci-dessus supposait que « 15 posts couvrent 90
+    //    jours » : vrai pour un compte qui publie peu, faux des qu'un eleve poste
+    //    deux fois par semaine — 26 posts en 90 jours, dont onze marques supprimes
+    //    alors qu'ils existent. C'est le rythme normal de quelqu'un qui fait du
+    //    contenu : le defaut est structurel, pas theorique.
+    //
+    // La borne devient donc le post le PLUS ANCIEN reellement renvoye. Au-dela, le
+    // fetch n'a rien vu : on ne sait pas, donc on ne conclut pas. Meme regle que la
+    // fenetre d'auto-reparation Short.io, qui ne reecrit jamais une journee que la
+    // source n'a pas pu couvrir.
+    if (posts.length === 0) return errors;
+
+    const plusAncienRecuMs = posts.reduce((min: number | null, p: any) => {
+      const t = Date.parse(p.timestamp);
+      if (!Number.isFinite(t)) return min;
+      return min === null || t < min ? t : min;
+    }, null as number | null);
+    const since90dMs = Date.now() - 90 * 24 * 60 * 60 * 1000;
+    const since90d = new Date(
+      plusAncienRecuMs !== null ? Math.max(plusAncienRecuMs, since90dMs) : since90dMs,
+    ).toISOString();
     const { data: existingRows } = await supa.from('analytics_ig_posts_history')
       .select('post_id')
       .eq('profile_id', profileId)
