@@ -60,6 +60,15 @@ export async function POST() {
         .eq('post_id', post.post_id);
       if (updateError) { errors.push(`${post.post_id}: db update ${updateError.message}`); continue; }
 
+      // Depuis le 2026-08-30, c'est `ig_post_vignettes` qui dit au cron si la copie
+      // permanente existe (une lecture par profil au lieu d'un `storage.list()` par
+      // post). Sans cette ligne, cette route téléverserait dans le bucket sans que
+      // le cron le sache — et le cron re-téléverserait chaque nuit.
+      await serviceSupabase.from('ig_post_vignettes').upsert(
+        { post_id: post.post_id, profile_id: user.id, url: publicUrl, indisponible: false },
+        { onConflict: 'post_id' },
+      );
+
       updated++;
     } catch (e: any) {
       errors.push(`${post.post_id}: ${e?.message || 'unknown'}`);

@@ -119,7 +119,14 @@ select * from cron_runs order by ran_at desc;   -- vide = aucun incident (30j)
 select * from yt_sante_donnees;                 -- 'ok' partout
 select * from integrations_sante;               -- 'ok' ou 'non_connectee'
 select * from ventes_sante_montants;            -- vide = rapport et deal concordent
+select * from ig_sante_insights_posts;          -- 'ok' partout
 ```
+
+`ig_sante_insights_posts` surveille la collecte des contenus Instagram.
+`depreciation_metrique_probable` = une métrique Meta vient de disparaître ; la
+plateforme a déjà encaissé la perte toute seule, c'est une information, pas une
+panne. `posts_muets_definitif` n'est **pas** une anomalie : Meta ne rend aucune
+statistique sur les publications antérieures au passage en compte pro.
 
 `ventes_sante_montants` compare les DEUX écritures du cash : le montant saisi dans le
 rapport de call et le deal qui en découle. Les écrans lisent `deals` ; une ligne ici

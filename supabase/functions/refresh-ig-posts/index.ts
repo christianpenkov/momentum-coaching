@@ -89,7 +89,11 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ error: 'no_token' }), { status: 404, headers: jsonHeaders });
   }
 
-  const errors = await snapshotIgPosts(supa, profileId, creds.token, creds.igAccountId, isoDate(1), true, { platformUrl: PLATFORM_URL, cronSecret: CRON_SECRET });
+  // Échéance : les travaux « une fois par post » (vignettes, durées) s'arrêtent à
+  // 100 s sur les 150 s du Edge Runtime et reprennent au passage suivant. Sans ça,
+  // un premier clic sur "Actualiser" pour un compte de 500 posts jamais collectés
+  // ferait tomber la fonction en plein milieu, sans rien écrire.
+  const errors = await snapshotIgPosts(supa, profileId, creds.token, creds.igAccountId, isoDate(1), true, { platformUrl: PLATFORM_URL, cronSecret: CRON_SECRET }, Date.now() + 100_000);
   console.log(`[refresh-ig-posts] profileId=${profileId} igAccountId=${creds.igAccountId} errors=${JSON.stringify(errors)}`);
 
   return new Response(JSON.stringify({ ok: errors.length === 0, errors }), { headers: jsonHeaders });

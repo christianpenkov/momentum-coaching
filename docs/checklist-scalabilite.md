@@ -15,7 +15,8 @@ Le détail de cet audit est dans [`youtube-scalabilite.md`](./youtube-scalabilit
 | Intégration | Auditée | Capacité mesurée | Doc |
 |---|---|---|---|
 | YouTube | ✅ 2026-08-21 | **121 élèves** | [youtube-scalabilite.md](./youtube-scalabilite.md) |
-| Instagram | ✅ 2026-08-22 | quota par utilisateur (non partagé) | [instagram-scalabilite.md](./instagram-scalabilite.md) |
+| Instagram — métriques de compte | ✅ 2026-08-22 | quota par utilisateur (non partagé) | [instagram-scalabilite.md](./instagram-scalabilite.md) |
+| Instagram — contenus | ✅ 2026-08-30 | **~6 appels / 100 posts / nuit** (était 801) | [handoff-appels-instagram-scalabilite.md](./handoff-appels-instagram-scalabilite.md) |
 | Short.io | ❌ à faire | inconnue | [shortio-api.md](./shortio-api.md) |
 | Calendly | ❌ à faire | inconnue | — |
 | Stripe | ❌ à faire | inconnue | — |
@@ -106,6 +107,33 @@ d'ids pour l'un et en **caractères** pour l'autre.
 > YouTube : `videos.list` accepte **50 ids**, mais le filtre `video==` de
 > l'Analytics API est borné à **500 caractères** (~40 ids). Une seule constante
 > partagée entre les deux finissait par violer l'une des limites.
+
+⚠️ **La capacité de groupage se vérifie avec LE jeton du projet sur L'HÔTE du
+projet, jamais depuis la doc seule.** Les grands fournisseurs ont plusieurs
+variantes d'API dont les capacités diffèrent en silence.
+
+> Instagram : la doc Meta décrit des « requêtes groupées » (50 sous-requêtes en un
+> appel HTTP), et c'était la solution retenue dans un handoff. Testée, elle est
+> **inaccessible** avec un jeton Instagram Login (« Cannot call API for app … on
+> behalf of user 0 »). Le mécanisme réellement disponible — la lecture multi-objets
+> `?ids=` — n'était cité nulle part dans la page consultée.
+
+---
+
+## 5 bis. Re-tester toute « parade » documentée dans le code
+
+Un commentaire qui justifie un surcoût structurel (« on ne peut pas grouper parce
+que… ») décrit l'état de l'API **au jour où il a été écrit**. Le re-tester coûte
+quelques minutes ; le croire coûte une architecture construite autour d'une
+contrainte qui n'existe plus.
+
+> Instagram : « un appel groupé perd TOUTES les métriques du groupe si Meta en
+> refuse une seule » justifiait **8 appels par post**. Testé sur 14 posts couvrant
+> trois ans : l'appel groupé rend exactement les mêmes métriques que les appels
+> unitaires, dans les 14 cas. Le refus portait sur l'**objet**, pas sur la
+> métrique. La parade coûtait 8× et ne rattrapait rien.
+
+Question de contrôle : **la parade a-t-elle été vérifiée, ou seulement héritée ?**
 
 ---
 
