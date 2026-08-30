@@ -6399,87 +6399,101 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             display: 'flex', flexDirection: 'column',
           } as React.CSSProperties);
           const legendeCarte: React.CSSProperties = { fontSize: 10, color: 'var(--faint)', marginTop: 'auto', paddingTop: 4 };
+          const blocKpi: React.CSSProperties = {
+            display: 'flex', flexDirection: 'column', gap: 6, flex: '1 1 auto', minWidth: 0,
+            border: '1px solid var(--border)', borderRadius: 12, padding: '10px 12px 12px',
+            background: 'var(--surface)',
+          };
+          const titreBlocKpi: React.CSSProperties = { color: 'var(--muted)', letterSpacing: '.04em' };
+          // `stretch` pour que les cartes du bloc gardent l'alignement de leurs legendes.
+          const rangeeKpi: React.CSSProperties = { display: 'flex', gap: 8, alignItems: 'stretch', flex: 1 };
           const toggleMetric = (metric: typeof selectedMetric) => setSelectedMetric(metric);
 
           return (
-            <div style={{ display: 'flex', gap: 8, marginBottom: 20, alignItems: 'stretch' }}>
-
-              {/* 1 — Clics totaux */}
-              <div onClick={() => toggleMetric('clics')} style={cardStyle('clics')}>
-                <div className="eyebrow-sm" style={libelleCarte}>Clics totaux</div>
-                <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmt(totalClics)}</div>
-                <div style={legendeCarte}>volume global, tous liens</div>
-                {/* totalClicsChangePct (pas shortio.clicksChange) : celui-ci venait de
-                    l'API Short.io elle-même (period=last30, TOUS les liens du domaine),
-                    jamais aligné sur la période calendaire sélectionnée ici — affichait
-                    des variations trompeuses type "-95,6%" à côté d'un "3" qui n'avait
-                    pas bougé. Remplacé par une vraie comparaison periodStart/periodEnd
-                    vs la période équivalente précédente, même agrégation RPC que
-                    totalClics. Confirmé par Chris 2026-07-21. */}
-                {/* 0% en gris neutre (pas de changement, ni hausse ni baisse) — vert
-                    seulement si strictement positif, rouge seulement si strictement
-                    négatif. Demande explicite de Chris 2026-07-21. */}
-                {totalClicsChangePct != null && <div style={{ fontSize: 10, fontWeight: 600, color: totalClicsChangePct > 0 ? GREEN : totalClicsChangePct < 0 ? RED : 'var(--muted)', marginTop: 3 }}>{totalClicsChangePct > 0 ? '+' : ''}{fmtPct(totalClicsChangePct)}</div>}
+            <div style={{ display: 'flex', gap: 14, marginBottom: 20, alignItems: 'stretch', flexWrap: 'wrap' }}>
+              {/* DEUX BLOCS, pas une rangee de six.
+                  A gauche ce que produit le compte, a droite comment le tunnel DM y
+                  arrive. Alignes cote a cote, « Clics totaux » et « Leads
+                  commentaires » se lisaient comme deux etapes qui s'enchainent alors
+                  qu'ils ne sont pas sur le meme chemin : la majorite des clics ne
+                  passe pas par un DM. Aucun chiffre ne change ici, seul le
+                  regroupement. */}
+              <div style={blocKpi}>
+                <div className="eyebrow-sm" style={titreBlocKpi}>Global</div>
+                <div style={rangeeKpi}>
+                  {/* 1 — Clics totaux */}
+                  <div onClick={() => toggleMetric('clics')} style={cardStyle('clics')}>
+                  <div className="eyebrow-sm" style={libelleCarte}>Clics totaux</div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmt(totalClics)}</div>
+                  <div style={legendeCarte}>volume global, tous liens</div>
+                  {/* totalClicsChangePct (pas shortio.clicksChange) : celui-ci venait de
+                  l'API Short.io elle-même (period=last30, TOUS les liens du domaine),
+                  jamais aligné sur la période calendaire sélectionnée ici — affichait
+                  des variations trompeuses type "-95,6%" à côté d'un "3" qui n'avait
+                  pas bougé. Remplacé par une vraie comparaison periodStart/periodEnd
+                  vs la période équivalente précédente, même agrégation RPC que
+                  totalClics. Confirmé par Chris 2026-07-21. */}
+                  {/* 0% en gris neutre (pas de changement, ni hausse ni baisse) — vert
+                  seulement si strictement positif, rouge seulement si strictement
+                  négatif. Demande explicite de Chris 2026-07-21. */}
+                  {totalClicsChangePct != null && <div style={{ fontSize: 10, fontWeight: 600, color: totalClicsChangePct > 0 ? GREEN : totalClicsChangePct < 0 ? RED : 'var(--muted)', marginTop: 3 }}>{totalClicsChangePct > 0 ? '+' : ''}{fmtPct(totalClicsChangePct)}</div>}
+                  </div>
+                  <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
+                  {/* 5 — Calls bookés depuis liens */}
+                  <div onClick={() => toggleMetric('calls')} style={cardStyle('calls')}>
+                  <div className="eyebrow-sm" style={libelleCarte}>Calls bookés</div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: callsTotal > 0 ? GREEN : 'var(--faint)', lineHeight: 1 }}>{callsTotal}</div>
+                  <div style={legendeCarte}>résultat final du tracking</div>
+                  </div>
+                </div>
               </div>
 
-              <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
-
-              {/* 2 — Leads commentaires/DM (compte aussi les réponses story avec mot-clé LM, cf. lmHistory) */}
-              <div onClick={() => toggleMetric('leads')} style={cardStyle('leads')}>
-                <div className="eyebrow-sm" style={libelleCarte}>Leads commentaires/DM</div>
-                <div style={{ fontSize: 24, fontWeight: 800, color: lmEnvoyes > 0 ? 'var(--ink)' : 'var(--faint)', lineHeight: 1 }}>{fmt(lmEnvoyes)}</div>
-                <div style={legendeCarte}>mots-clés détectés</div>
-              </div>
-
-              <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
-
-              {/* 3 — Réponses message d'accroche */}
-              <div onClick={() => toggleMetric('hookReply')} style={cardStyle('hookReply')}>
-                <div className="eyebrow-sm" style={libelleCarte}>Réponses accroche LM DM</div>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, lineHeight: 1 }}>
+              <div style={blocKpi}>
+                <div className="eyebrow-sm" style={titreBlocKpi}>Tunnel DM</div>
+                <div style={rangeeKpi}>
+                  {/* 2 — Leads commentaires/DM (compte aussi les réponses story avec mot-clé LM, cf. lmHistory) */}
+                  <div onClick={() => toggleMetric('leads')} style={cardStyle('leads')}>
+                  <div className="eyebrow-sm" style={libelleCarte}>Leads commentaires/DM</div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: lmEnvoyes > 0 ? 'var(--ink)' : 'var(--faint)', lineHeight: 1 }}>{fmt(lmEnvoyes)}</div>
+                  <div style={legendeCarte}>mots-clés détectés</div>
+                  </div>
+                  <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
+                  {/* 3 — Réponses message d'accroche */}
+                  <div onClick={() => toggleMetric('hookReply')} style={cardStyle('hookReply')}>
+                  <div className="eyebrow-sm" style={libelleCarte}>Réponses accroche LM DM</div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, lineHeight: 1 }}>
                   <div style={{ fontSize: 24, fontWeight: 800, color: hookReplies > 0 ? GREEN : 'var(--faint)' }}>{fmt(hookReplies)}</div>
                   {lmEnvoyes > 0 && <div style={{ fontSize: 13, fontWeight: 700, color: tauxHookReply >= 30 ? GREEN : tauxHookReply >= 15 ? AMBER : RED }}>{tauxHookReply}%</div>}
-                </div>
-                <div style={legendeCarte}>réponses au message d'accroche</div>
-              </div>
-
-              <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
-
-              {/* 4 — Liens Calendly envoyés DM */}
-              <div onClick={() => toggleMetric('calendlyLinks')} style={cardStyle('calendlyLinks')}>
-                <div className="eyebrow-sm" style={libelleCarte}>Liens Calendly envoyés DM</div>
-                <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmt(lmCalendlyLinks)}</div>
-                <div style={legendeCarte}>activité commerciale brute</div>
-              </div>
-
-              <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
-
-              {/* 5 — Taux d'activation DM */}
-              <div onClick={() => toggleMetric('activation')} style={cardStyle('activation')}>
-                <div className="eyebrow-sm" style={libelleCarte}>Taux d'activation DM</div>
-                <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+                  </div>
+                  <div style={legendeCarte}>réponses au message d'accroche</div>
+                  </div>
+                  <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
+                  {/* 4 — Liens Calendly envoyés DM */}
+                  <div onClick={() => toggleMetric('calendlyLinks')} style={cardStyle('calendlyLinks')}>
+                  <div className="eyebrow-sm" style={libelleCarte}>Liens Calendly envoyés DM</div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmt(lmCalendlyLinks)}</div>
+                  <div style={legendeCarte}>activité commerciale brute</div>
+                  </div>
+                  <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
+                  {/* 5 — Taux d'activation DM */}
+                  <div onClick={() => toggleMetric('activation')} style={cardStyle('activation')}>
+                  <div className="eyebrow-sm" style={libelleCarte}>Taux d'activation DM</div>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
                   <div>
-                    <div style={{ fontSize: 10, color: 'var(--faint)', marginBottom: 2 }}>LM</div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: tauxLmColor, lineHeight: 1 }}>{tauxLmClic === null ? '—' : `${tauxLmClic}%`}</div>
+                  <div style={{ fontSize: 10, color: 'var(--faint)', marginBottom: 2 }}>LM</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: tauxLmColor, lineHeight: 1 }}>{tauxLmClic === null ? '—' : `${tauxLmClic}%`}</div>
                   </div>
                   <div style={{ width: 1, height: 28, background: 'var(--border)' }} />
                   <div>
-                    <div style={{ fontSize: 10, color: 'var(--faint)', marginBottom: 2 }}>Calendly</div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: tauxActColor, lineHeight: 1 }}>{tauxCalendlyClic === null ? '—' : `${tauxCalendlyClic}%`}</div>
+                  <div style={{ fontSize: 10, color: 'var(--faint)', marginBottom: 2 }}>Calendly</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: tauxActColor, lineHeight: 1 }}>{tauxCalendlyClic === null ? '—' : `${tauxCalendlyClic}%`}</div>
+                  </div>
+                  </div>
+                  <div style={legendeCarte}>clics / liens envoyés</div>
                   </div>
                 </div>
-                <div style={legendeCarte}>clics / liens envoyés</div>
               </div>
-
-              <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
-
-              {/* 5 — Calls bookés depuis liens */}
-              <div onClick={() => toggleMetric('calls')} style={cardStyle('calls')}>
-                <div className="eyebrow-sm" style={libelleCarte}>Calls bookés</div>
-                <div style={{ fontSize: 24, fontWeight: 800, color: callsTotal > 0 ? GREEN : 'var(--faint)', lineHeight: 1 }}>{callsTotal}</div>
-                <div style={legendeCarte}>résultat final du tracking</div>
-              </div>
-
+            
             </div>
           );
         })()}

@@ -241,3 +241,36 @@ D'où deux garde-fous :
 | `app/api/calls/[id]/rapport-draft/route.ts` | Brouillon : GET / PUT / DELETE |
 | `lib/callAccess.ts` | Contrôle d'appartenance, définition **unique** |
 | `supabase/migrations/20260820190000_call_rapport_drafts.sql` | Table, RLS, purge |
+
+---
+
+## Limites connues
+
+### Deux rendez-vous d'une même personne réservés avec deux adresses différentes
+
+Un 2ᵉ rendez-vous qui **prolonge la même vente** ne doit compter qu'une fois dans
+Business micro (colonnes « Calls bookés » et « Calls honorés » du Breakdown par source
+et de Performance par contenu). La règle vit dans `idsDeContinuation`
+(`lib/callSeries.ts`) : un call est une continuation si le call **précédent du même
+prospect** a été clôturé avec `outcome = 'second_call'` — donc si le coach l'a déclaré
+dans son rapport. Une personne qui reprend rendez-vous plus tard pour une **nouvelle
+demande** compte donc à nouveau, et c'est voulu.
+
+**La limite est en amont, dans le regroupement.** `groupesDeProspects` apparie les calls
+d'une même personne par **e-mail**, puis par **nom** quand l'e-mail manque (et seulement
+si un seul e-mail porte ce nom — sinon le call reste seul). Il n'utilise **pas**
+`ig_lead_id`, qui est absent sur 14 des 18 calls du profil de test : la majorité des
+rendez-vous ne passent par aucune fiche prospect (bio, description de contenu, story).
+
+Conséquence : **un vrai 2ᵉ rendez-vous réservé avec une autre adresse e-mail passe à
+travers et compte pour deux.** Cas réel en base — les deux calls d'`incogniton.734`
+(15/06 et 15/08) portent `drgdrgdrg315@gmail.com` et `jsjdj@mail.com`. Ils *doivent*
+compter pour deux ici (le premier est clôturé `to_recontact`, pas `second_call`), mais
+ils auraient compté pour deux même avec `second_call`.
+
+L'erreur va donc toujours dans le sens du **sur-comptage**, jamais du sous-comptage.
+C'est le sens sûr : un chiffre trop haut se remarque, un chiffre trop bas jamais.
+
+Ne pas « corriger » en ajoutant `ig_lead_id` comme clé de repli : deux fiches peuvent
+décrire la même personne après une fusion, et l'appariement deviendrait faux dans
+l'autre sens. Voir `docs/perimetre-stats-referentiel.md`.

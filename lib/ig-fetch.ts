@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { isoDateCore } from './ig-metrics-core';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -567,7 +568,16 @@ export async function upsertIgSnapshot(
     ig_reach_non_follower: snapshot.ig_reach_non_follower,
     backfill_source:       source,
   };
-  if (source !== 'backfill') {
+  // La règle était « tout sauf le backfill ». Elle laissait passer le cas qui compte :
+  // `app/api/instagram/poll-leads/route.ts` écrit avec source 'cron' sur la date d'HIER,
+  // et y déposait donc le nombre d'abonnés d'aujourd'hui — exactement le défaut corrigé
+  // le 2026-08-30 côté Edge Function, où le rattrapage l'étalait jusqu'à 720 jours en
+  // arrière (lignes du 22 juillet au 18 août toutes écrites le 27 août, toutes à 255).
+  //
+  // La règle porte désormais sur la DONNÉE, pas sur l'intention de l'appelant : ces deux
+  // colonnes reflètent l'état actuel du compte, elles n'ont de sens que sur la ligne
+  // d'aujourd'hui. Un appelant ne peut plus se tromper en choisissant sa `source`.
+  if (snapshot.date === isoDateCore(0)) {
     row.ig_followers = snapshot.ig_followers;
     row.ig_following = snapshot.ig_following;
   }
