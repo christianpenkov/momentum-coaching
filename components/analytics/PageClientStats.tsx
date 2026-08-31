@@ -207,6 +207,29 @@ const isYTCall = (c: { source?: string | null }) => {
 };
 
 /**
+ * Sous-titre de la carte « Abonnes » sur les onglets Instagram et YouTube.
+ *
+ * Ces deux ecrans sont bornes a une periode : tout ce qu'ils montrent — portee,
+ * publications, interactions — concerne la fenetre choisie. La carte y affiche donc
+ * le nombre d'abonnes A LA FIN de cette fenetre, ce qui est coherent avec le reste.
+ *
+ * Ce n'est pas une valeur du jour, et « total » ne le disait pas — le mot n'apprenait
+ * rien et laissait croire a un cumul (signale le 2026-08-31).
+ *
+ * Vue generale, elle, affiche volontairement le compte du JOUR avec « aujourd'hui » :
+ * c'est un tableau de bord d'etat, pas un ecran de periode. Les deux sont justes, ils
+ * ne repondent simplement pas a la meme question — d'ou deux libelles differents
+ * plutot qu'une valeur alignee de force.
+ *
+ * En periode courante et en All-Time, la fin de fenetre EST aujourd'hui : le libelle
+ * le dit alors simplement.
+ */
+function libelleDateAbonnes(periodIndex: number | undefined, sinceConnection: boolean | undefined, fin: Date): string {
+  if (sinceConnection || !periodIndex) return "aujourd'hui";
+  return `au ${fin.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'Europe/Paris' })}`;
+}
+
+/**
  * Bandeau « données disponibles depuis le … ».
  *
  * Les graphiques s'arrêtent à la date de démarrage de l'élève (un trou, pas un zéro),
@@ -885,7 +908,7 @@ type Period = 7 | 30;
 
 // ─── TAB "Vue générale (B)" — version épurée ─────────────────────────────────
 
-function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, calendlyStaticClicsFromDb, igLive, ytLive, sinceConnection, leads, lmHistory, integrationsReadyAt }: { ig: IGStats | null; yt: YTStats | null; msgs: IGMessages | null; calls: CallRecord[]; callsAllTime?: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; calendlyStaticClicsFromDb?: number; igLive?: IGStats | null; ytLive?: YTStats | null; sinceConnection?: boolean; leads?: MockLead[]; lmHistory?: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[]; integrationsReadyAt?: string | null }) {
+function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, calendlyStaticClicsFromDb, igLive, ytLive, sinceConnection, leads, lmHistory, integrationsReadyAt, allTimeStart }: { ig: IGStats | null; yt: YTStats | null; msgs: IGMessages | null; calls: CallRecord[]; callsAllTime?: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; calendlyStaticClicsFromDb?: number; igLive?: IGStats | null; ytLive?: YTStats | null; sinceConnection?: boolean; leads?: MockLead[]; lmHistory?: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[]; integrationsReadyAt?: string | null; allTimeStart?: string | null }) {
   // Etiquette de fenetre. En All-Time les cartes affichaient « 30j » alors que le
   // bandeau annonce « All-Time » — meme defaut que celui corrige dans les onglets
   // Instagram et YouTube (2026-08-22).
@@ -904,8 +927,25 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   // « total » : 503 personnes annoncees par la carte, 146 dans la courbe (2026-08-31).
   // Pire depuis le mode 7j, ou c'est la CARTE qui devenait fausse (voir igReach plus bas).
   // Meme branche que `igDaysSlice` dans TabInstagram, qui ne l'avait pas oubliee.
-  const ovPeriodStart = sinceConnection && integrationsReadyAt ? new Date(integrationsReadyAt) : ovSelStart;
-  const ovPeriodEnd   = sinceConnection ? new Date() : ovSelEnd;
+  //
+  // Les bornes sont calees sur la JOURNEE, jamais sur l'heure. `inOvWindow` situe chaque
+  // point a midi UTC ; une borne prise a l'heure exacte de `integrations_ready_at`
+  // excluait le premier jour de la courbe alors que le total de la carte le compte —
+  // la somme cessait d'egaler le total, c'est-a-dire le defaut meme qu'on corrige ici.
+  // Mesure au 2026-08-31 : trois eleves sur quatre ont une heure de demarrage posterieure
+  // a midi UTC (17h36, 12h56, 19h05). Seul le profil de test passait, a 08h13. Meme
+  // fenetre en DATES que le `customWindow` de fetchSnapshot, qui sert ces donnees.
+  //
+  // `allTimeStart` et non `integrationsReadyAt` : c'est lui qui porte le repli sur
+  // `connectedAt`, et un eleve sans `integrations_ready_at` existe en base. Sans ce repli,
+  // il retombait sur la fenetre du selecteur, c'est-a-dire sur le defaut d'origine.
+  const ovDebutAllTime = allTimeStart ?? integrationsReadyAt;
+  const ovPeriodStart = sinceConnection && ovDebutAllTime
+    ? new Date(parisDateStr(new Date(ovDebutAllTime)) + 'T00:00:00Z')
+    : ovSelStart;
+  const ovPeriodEnd = sinceConnection
+    ? new Date(parisDateStr(new Date()) + 'T23:59:59.999Z')
+    : ovSelEnd;
   const cutoff = ovPeriodStart;
 
   // Leads sur la période — remplace l'ancienne carte "Clics lien".
@@ -1809,7 +1849,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
           // du profil — l'etape charniere du tunnel, qui n'etait affichee nulle part
           // (demande de Chris, 2026-08-22). Meme principe que la carte YouTube, qui
           // porte deja « +0 (+0 -0) » a cote de son chiffre.
-          { label: 'Abonnés', value: fmt(ig.followers), sub: 'total', color: 'var(--ink)', key: 'Abonnés', badge: igFollowerDeltaP },
+          { label: 'Abonnés', value: fmt(ig.followers), sub: libelleDateAbonnes(periodIndex, sinceConnection, igPeriodEnd), color: 'var(--ink)', key: 'Abonnés', badge: igFollowerDeltaP },
           { label: 'Publications', value: fmt(postsInPeriod), sub: igEtiquettePeriode, color: IG_COLOR, key: 'Publications' },
           { label: 'Reach · personnes', value: fmt(igReachP), sub: igEtiquettePeriode, color: 'var(--ink)', key: 'Reach' },
           { label: 'Interactions posts', value: fmt(igInteractionsP), sub: igEtiquettePeriode, color: 'var(--ink)', key: 'Interactions posts' },
@@ -3172,7 +3212,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
           // Pas de sous-titre de periode : c'est le total actuel de la chaine, lu en
           // direct via la Data API v3. « all time » induisait en erreur — la carte ne
           // cumule rien sur une periode, elle affiche un compteur.
-          { label: 'Abonnés', value: fmt(yt.subscribers), color: 'var(--ink)', key: 'Abonnés YT' },
+          { label: 'Abonnés', value: fmt(yt.subscribers), sub: libelleDateAbonnes(periodIndex, sinceConnection, ytPeriodEnd), color: 'var(--ink)', key: 'Abonnés YT' },
           { label: 'Vidéos publiées', value: fmt(ytVideosInPeriodCount), sub: ytEtiquettePeriode, color: YT_COLOR, key: 'Vidéos publiées' },
           // Libelle « Abonnés nets » sans suffixe : on est dans l'onglet YouTube, a cote
           // d'une carte « Abonnés ». Le « YT » etait un reste de la cle technique, qui
@@ -10276,7 +10316,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
 
       {loading ? <InlineLoader /> : (
         <>
-          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} msgs={msgsEff} calls={callsEff} callsAllTime={callsAllTimeEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} />}
+          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} msgs={msgsEff} calls={callsEff} callsAllTime={callsAllTimeEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.yt?.snapshotError} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} allTimeStart={allTimeStart} profileId={profileId} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} premierClicLienProspect={premierClicLienProspect} />}
