@@ -154,9 +154,6 @@ interface CallRecord {
  * tous les statuts, remboursements compris. Un champ mort qui porte de l'argent finit
  * par etre branche ailleurs tel quel.
  */
-interface StripeStats {
-  recentPayments: { id: string; amount: number; currency: string; description: string; date: string; status: string }[];
-}
 interface IGMessages {
   totalThreads30d: number; repliedThreads: number; responseRate: number; leadCount: number;
   keywordCounts: Record<string, number>;
@@ -255,6 +252,23 @@ function CoverageNotice({ periodStartStr, integrationsReadyAt }: {
 /** Un deal, tel que le cash contracté en a besoin. `call_id` est null pour un deal
  *  créé hors pipeline (upsell, vente directe) — c'est précisément le cas que la somme
  *  des `calls.revenue` ne voyait pas. */
+/** Une journee ou de l'argent a bouge — sortie de get_encaissements_par_jour. */
+type JourEncaisse = { jour: string; encaisse: number | string; rembourse: number | string; conteste: number | string; nb_recus: number };
+/** Une vente de la periode et les sommes de TOUS ses paiements — get_ventes_de_la_periode. */
+type VenteCash = { deal_id: string; encaisse: number | string; rembourse: number | string; conteste: number | string };
+
+/**
+ * Les RPC renvoient des SOMMES par statut ; `calculerCash` attend des LIGNES.
+ * On lui en fabrique une par statut plutot que de recopier ici
+ * `encaisse - rembourse - conteste` : la regle du net reste ecrite une seule fois,
+ * dans lib/dealCash.ts, dont la copie Deno est tenue identique par un test de parite.
+ */
+const lignesDepuisSommes = (r: { encaisse: number | string; rembourse: number | string; conteste: number | string }): LignePaiement[] => [
+  { amount: r.encaisse, status: 'succeeded' },
+  { amount: r.rembourse, status: 'refunded' },
+  { amount: r.conteste, status: 'disputed' },
+];
+
 type DealRecord = {
   /** Sert à rapporter les paiements d'un deal à ce deal — taux de collecte par cohorte. */
   id?: string;
@@ -820,7 +834,7 @@ type Period = 7 | 30;
 
 // ─── TAB "Vue générale (B)" — version épurée ─────────────────────────────────
 
-function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, calendlyStaticClicsFromDb, igLive, ytLive, sinceConnection, leads, lmHistory, integrationsReadyAt }: { ig: IGStats | null; yt: YTStats | null; stripe: StripeStats | null; msgs: IGMessages | null; calls: CallRecord[]; callsAllTime?: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; calendlyStaticClicsFromDb?: number; igLive?: IGStats | null; ytLive?: YTStats | null; sinceConnection?: boolean; leads?: MockLead[]; lmHistory?: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[]; integrationsReadyAt?: string | null }) {
+function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, calendlyStaticClicsFromDb, igLive, ytLive, sinceConnection, leads, lmHistory, integrationsReadyAt }: { ig: IGStats | null; yt: YTStats | null; msgs: IGMessages | null; calls: CallRecord[]; callsAllTime?: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; calendlyStaticClicsFromDb?: number; igLive?: IGStats | null; ytLive?: YTStats | null; sinceConnection?: boolean; leads?: MockLead[]; lmHistory?: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[]; integrationsReadyAt?: string | null }) {
   // Etiquette de fenetre. En All-Time les cartes affichaient « 30j » alors que le
   // bandeau annonce « All-Time » — meme defaut que celui corrige dans les onglets
   // Instagram et YouTube (2026-08-22).
@@ -4014,7 +4028,7 @@ function periodLabel(period: number, index: number): string {
 }
 
 
-function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, onModalChange, leads: leadsFromProp, prospectLinksData, linkClickedByLeadId, clicksByUrl, sinceConnection, allTimeStart, profileId, joursCollectesShortio, premierJourCollecteShortio }: { msgs: IGMessages | null; calls: CallRecord[]; stripe: StripeStats | null; ig: IGStats | null; yt: YTStats | null; shortio: ShortioStats | null; period: Period; periodIndex: number; onModalChange?: (open: boolean) => void; leads?: MockLead[]; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; sinceConnection?: boolean; allTimeStart?: string | null; profileId?: string; joursCollectesShortio?: Set<string>; premierJourCollecteShortio?: string | null }) {
+function TabFunnel({ msgs, calls, ig, yt, shortio, period, periodIndex, onModalChange, leads: leadsFromProp, prospectLinksData, linkClickedByLeadId, clicksByUrl, sinceConnection, allTimeStart, profileId, joursCollectesShortio, premierJourCollecteShortio }: { msgs: IGMessages | null; calls: CallRecord[]; ig: IGStats | null; yt: YTStats | null; shortio: ShortioStats | null; period: Period; periodIndex: number; onModalChange?: (open: boolean) => void; leads?: MockLead[]; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; sinceConnection?: boolean; allTimeStart?: string | null; profileId?: string; joursCollectesShortio?: Set<string>; premierJourCollecteShortio?: string | null }) {
   const leads = leadsFromProp && leadsFromProp.length > 0 ? leadsFromProp : [];
   const [callsFilter, setCallsFilter] = useState<'all' | 'ig' | 'yt'>('all');
   // La table coupait à 20 lignes sans le dire : en All-Time sur un élève actif, la
@@ -5089,7 +5103,7 @@ const STATUT_VENTE: Record<string, { label: string; color: string }> = {
   canceled: { label: 'Annulée', color: 'var(--muted)' },
 };
 
-function TabRevenues({ stripe, paiementsCohorte, deals, period, periodIndex, onRefresh, refreshing, sinceConnection, profileId, allTimeStart, stripeConnected }: { stripe: StripeStats | null; paiementsCohorte?: { deal_id?: string; amount: number | string | null; status: string | null }[]; deals?: DealRecord[]; period: Period; periodIndex: number; onRefresh?: () => void; refreshing?: boolean; sinceConnection?: boolean; profileId?: string; allTimeStart?: string | null; stripeConnected?: boolean }) {
+function TabRevenues({ encaissementsParJour, cashParVente, deals, period, periodIndex, onRefresh, refreshing, sinceConnection, profileId, allTimeStart, stripeConnected }: { encaissementsParJour?: JourEncaisse[]; cashParVente?: VenteCash[]; deals?: DealRecord[]; period: Period; periodIndex: number; onRefresh?: () => void; refreshing?: boolean; sinceConnection?: boolean; profileId?: string; allTimeStart?: string | null; stripeConnected?: boolean }) {
   // Le test portait sur `stripe` — donc sur le succès d'un appel à l'API Stripe. Une
   // panne de cet appel affichait « Connecte ton compte Stripe » sur un compte pourtant
   // connecté, et emportait avec elle les montants des ventes, qui vivent en base et ne
@@ -5111,14 +5125,15 @@ function TabRevenues({ stripe, paiementsCohorte, deals, period, periodIndex, onR
 
   const { periodStart, periodEnd } = getPeriodWindow(periodIndex, period === 7 ? 'week' : 'month');
 
-  // En mode "depuis connexion", les paiements sont déjà bornés [connectedAt, aujourd'hui]
-  // par le fetch — ne pas re-clipper avec la fenêtre calendaire du mois/semaine en cours.
-  const paiements = stripe?.recentPayments ?? [];
-  const allInPeriod = sinceConnection ? paiements : paiements.filter(p => {
-    const d = new Date(p.date);
-    return d >= periodStart && d <= periodEnd;
-  });
-  const succeeded = allInPeriod.filter(p => p.status === 'succeeded');
+  // Trésorerie de la période — « combien est rentré ». Les journées arrivent déjà
+  // bornées ET groupées en heure de Paris par get_encaissements_par_jour : plus de
+  // filtrage ni de re-groupement ici, donc plus de risque que la fenêtre du composant
+  // et celle du fetch divergent (la classe de bug qui faisait afficher au tableau des
+  // paiements de mois que les cartes ne comptaient pas).
+  const jours: JourEncaisse[] = encaissementsParJour ?? [];
+  const cashParJour = new Map<string, number>();
+  for (const j of jours) cashParJour.set(j.jour, calculerCash(lignesDepuisSommes(j)).net);
+  const nbPaiementsRecus = jours.reduce((s, j) => s + (j.nb_recus ?? 0), 0);
   // (le tableau du bas liste les VENTES de la période — voir `ventesAffichees` plus bas)
 
   // Cash contracté : somme des DEALS signés dans la période.
@@ -5151,7 +5166,7 @@ function TabRevenues({ stripe, paiementsCohorte, deals, period, periodIndex, onR
   // où la page Paiements affichait 800 € sur le même deal. Number() est fait à
   // l'intérieur : les numeric Postgres arrivent en chaîne, et une concaténation
   // silencieuse ("10" + "20" = "1020") passerait le typage.
-  const cashCollecte = calculerCash(allInPeriod as unknown as LignePaiement[]).net;
+  const cashCollecte = [...cashParJour.values()].reduce((s, n) => s + n, 0);
 
   // ── Taux de collecte, par COHORTE de deals signés ────────────────────────────
   //
@@ -5169,11 +5184,8 @@ function TabRevenues({ stripe, paiementsCohorte, deals, period, periodIndex, onR
   // question posée (« sur ce que j'ai vendu ce mois-là, combien est rentré à ce
   // jour »). Décision de Chris, 2026-08-30.
   const parDeal = new Map<string, LignePaiement[]>();
-  for (const p of paiementsCohorte ?? []) {
-    if (!p.deal_id) continue;
-    const l = parDeal.get(p.deal_id) ?? [];
-    l.push({ amount: p.amount, status: p.status });
-    parDeal.set(p.deal_id, l);
+  for (const v of cashParVente ?? []) {
+    if (v.deal_id) parDeal.set(v.deal_id, lignesDepuisSommes(v));
   }
   // `encaisseRetenu` et non `.net` : un client peut verser PLUS que sa vente (double
   // prélèvement, montant baissé après paiement). Sans écrêtage vente par vente, le taux
@@ -5224,15 +5236,7 @@ function TabRevenues({ stripe, paiementsCohorte, deals, period, periodIndex, onR
     // Regroupement en un passage, sur le jour de Paris de chaque montant.
     // Net, comme la carte : un remboursement porte désormais la date du paiement
     // qu'il annule, il retombe donc dans la même barre et la creuse d'autant.
-    const lignesParJour = new Map<string, LignePaiement[]>();
-    for (const p of allInPeriod) {
-      const j = parisDateStr(new Date(p.date));
-      const l = lignesParJour.get(j) ?? [];
-      l.push({ amount: p.amount, status: p.status });
-      lignesParJour.set(j, l);
-    }
-    const caParJour = new Map<string, number>();
-    for (const [j, lignes] of lignesParJour) caParJour.set(j, calculerCash(lignes).net);
+    const caParJour = cashParJour;
     const contracteParJour = new Map<string, number>();
     for (const d of dealsInPeriod) {
       if (!d.signed_at) continue;
@@ -5335,7 +5339,7 @@ function TabRevenues({ stripe, paiementsCohorte, deals, period, periodIndex, onR
               en vert le ferait lire comme une bonne nouvelle. On n'y met pas non plus
               de plancher à 0 : le trou est réel et doit se voir. */}
           <div style={{ fontSize: 22, fontWeight: 800, color: cashCollecte < 0 ? AMBER : GREEN, lineHeight: 1 }}>{fmtEur(cashCollecte)}</div>
-          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>paiements reçus ({succeeded.length})</div>
+          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>paiements reçus ({nbPaiementsRecus})</div>
         </div>
         <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
           <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Panier moyen</div>
@@ -8225,7 +8229,6 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     igPostsRes,
     ytVideosRes,
     callsRes,
-    stripeRes,
     shortioResult,
     shortioClicksRes,
     dealsRes,
@@ -8273,19 +8276,6 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       .in('call_type', CALL_TYPES_VENTE)
       .neq('ignored', true)
       .order('scheduled_at', { ascending: false }),
-    // Cash collecté = paiements rattachés à un deal, pas l'encaissé Stripe brut :
-    // un élève peut encaisser hors Momentum, et compter ces paiements rendrait le
-    // taux collecté/contracté supérieur à 100 % (décision du 19/08/2026).
-    // `date` est conservé en alias de paid_at pour ne pas toucher aux consommateurs.
-    supabase
-      .from('deal_payments')
-      // `buyer_name` : la colonne « Description » du tableau des paiements affichait
-      // « — » sur toutes les lignes de ce chemin, faute d'etre selectionnee.
-      .select('id, deal_id, amount, status, date:paid_at, deals!inner(profile_id, buyer_name)')
-      .eq('deals.profile_id', targetId)
-      .gte('paid_at', periodStart.toISOString())
-      .lte('paid_at', periodEnd.toISOString())
-      .order('paid_at', { ascending: false }),
     fetch(`/api/shortio/snapshots?profileId=${encodeURIComponent(targetId)}&startDate=${startDateStr}&endDate=${endDateStr}`)
       .then(r => r.ok ? r.json() : null)
       .catch(() => null),
@@ -8319,7 +8309,6 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   const igPostsRows = igPostsRes.status === 'fulfilled' ? (igPostsRes.value.data ?? []) : [];
   if (ytVideosRes.status === 'fulfilled' && ytVideosRes.value.error) console.error('[PageClientStats] get_yt_videos_history a échoué:', ytVideosRes.value.error.message);
   const ytVideosRows = ytVideosRes.status === 'fulfilled' ? (ytVideosRes.value.data ?? []) : [];
-  const stripeRows = stripeRes.status === 'fulfilled' ? (stripeRes.value.data ?? []) : [];
   const shortioData = shortioResult.status === 'fulfilled' ? shortioResult.value : null;
   if (shortioClicksRes.status === 'fulfilled' && shortioClicksRes.value.error) console.error('[PageClientStats] get_shortio_clicks_by_url (fetchSnapshot) a échoué:', shortioClicksRes.value.error.message);
   const shortioClickRows = shortioClicksRes.status === 'fulfilled' ? (shortioClicksRes.value.data ?? []) : [];
@@ -8682,42 +8671,26 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     ? (shortioData as ShortioStats)
     : null;
 
-  // ── Stripe ──────────────────────────────────────────────────────────────────
-  // Plus conditionne a `snaps.length > 0` : les paiements viennent de `deal_payments`,
+  // ── Cash ────────────────────────────────────────────────────────────────────
+  // Rien ici n'est conditionne a `snaps.length > 0` : l'argent vient de `deal_payments`,
   // pas de `analytics_daily_snapshots`. Un mois sans snapshot Instagram/YouTube — donc
   // sans collecte de contenu — rendait tout l'onglet Revenus muet (« Connecte ton compte
   // Stripe ») alors que des ventes y avaient bien ete encaissees. Le cash ne depend pas
   // de la collecte des reseaux sociaux.
-  const stripeHist = {
-    recentPayments: stripeRows.map((r: any) => ({
-      id: r.id, amount: Number(r.amount ?? 0), currency: 'eur',
-      description: r.deals?.buyer_name ?? '', date: r.date, status: r.status,
-    })),
-  };
+  //
+  // Deux RPC bornées remplacent la lecture ligne à ligne des paiements — voir la
+  // migration 20260830190000 et le commentaire du chemin live (fetchSupabaseStats).
+  const fenetreRpc = { p_profile_id: targetId, p_start: periodStart.toISOString(), p_end: periodEnd.toISOString() };
+  const [joursRpc, ventesRpc] = await Promise.all([
+    supabase.rpc('get_encaissements_par_jour', fenetreRpc),
+    supabase.rpc('get_ventes_de_la_periode', fenetreRpc),
+  ]);
+  if (joursRpc.error) console.error('[PageClientStats] get_encaissements_par_jour (snapshot) a échoué:', joursRpc.error.message);
+  if (ventesRpc.error) console.error('[PageClientStats] get_ventes_de_la_periode (snapshot) a échoué:', ventesRpc.error.message);
+  const encaissementsParJour = joursRpc.data ?? [];
+  const cashParVente = ventesRpc.data ?? [];
 
-  // Paiements des deals de la période, TOUTES dates confondues.
-  //
-  // Le taux de collecte se lit par cohorte : « sur ce que j'ai vendu dans cette
-  // période, combien a été encaissé — quelle que soit la date de l'encaissement ».
-  // La requête ci-dessus, elle, est bornée sur la période : elle répond à une autre
-  // question (« combien est rentré pendant cette période ») et ne peut donc pas
-  // servir au taux. Une échéance de septembre sur un deal de juin en serait absente.
-  //
-  // Borné par la liste des deals de la période, donc jamais une lecture de tout
-  // l'historique. Découpé en paquets de 100 : une liste d'identifiants trop longue
-  // dépasse la taille d'URL admise et la requête échouerait — silencieusement, à
-  // partir d'un certain nombre de ventes dans le mois.
   const dealsHistRows: any[] = dealsRes.status === 'fulfilled' ? (dealsRes.value.data ?? []) : [];
-  const idsDealsHist = dealsHistRows.map(d => d.id).filter(Boolean);
-  const paiementsDesDeals: any[] = [];
-  for (let i = 0; i < idsDealsHist.length; i += 100) {
-    const paquet = idsDealsHist.slice(i, i + 100);
-    const lot = await fetchAllPages<any>(() => supabase
-      .from('deal_payments')
-      .select('deal_id, amount, status')
-      .in('deal_id', paquet));
-    paiementsDesDeals.push(...lot);
-  }
 
   // ── Messages IG (scalaires depuis snapshots) ─────────────────────────────────
   const msgsHist = snaps.length > 0 ? {
@@ -8735,8 +8708,8 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     shortioHist,
     callsHist: callsRes.status === 'fulfilled' ? (callsRes.value.data ?? []) : [],
     dealsHist: dealsHistRows,
-    paiementsDesDeals,
-    stripeHist,
+    encaissementsParJour,
+    cashParVente,
     msgsHist,
     snapshotDate: endDateStr,
     clicksByUrl: snapClicksByUrl,
@@ -9120,14 +9093,41 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
   // remboursement/litige la portent a NULL par conception (webhook Stripe,
   // recordPayment). Les exclure explicitement vaut mieux que de les perdre au detour
   // d'un `gte`.
-  const dealPaymentsRows = await fetchAllPages<any>(() => {
-    const q = supabase.from('deal_payments')
-      .select('id, deal_id, amount, status, paid_at, deals!inner(profile_id, buyer_name)')
-      .eq('deals.profile_id', targetId)
-      .not('paid_at', 'is', null)
-      .order('paid_at', { ascending: false });
-    return integrationsReadyAt ? q.gte('paid_at', integrationsReadyAt) : q;
-  });
+  // ⚠️ Ce bloc rapatriait TOUS les `deal_payments` depuis integrations_ready_at, sans
+  // borne haute, a CHAQUE ouverture de Mes Stats et quel que soit l'onglet regarde.
+  // Aujourd'hui 5 lignes. A 20 eleves vendant 20 fois par mois en 3x, ~1 500 lignes par
+  // eleve apres deux ans, telechargees a chaque chargement : rien ne plante, la page
+  // ralentit un peu plus chaque mois sans jamais rien signaler.
+  //
+  // Deux RPC bornees le remplacent (migration 20260830190000). Elles ne renvoient que
+  // des SOMMES par statut, jamais un net : la regle du cash reste ecrite une seule fois,
+  // dans lib/dealCash.ts, dont la copie Deno est tenue identique par un test de parite.
+  //
+  //   par jour  -> une ligne par journee ou de l'argent a bouge, groupee en heure de
+  //                Paris cote base. Sert la carte « Cash collecte », son compteur et les
+  //                barres. La reponse ne grossit plus avec le nombre d'echeances.
+  //   par vente -> une ligne par vente signee dans la fenetre, portant les sommes de
+  //                TOUS ses paiements quelle que soit leur date — la cohorte. Remplace
+  //                le decoupage en paquets de 100 identifiants, qui faisait autant
+  //                d'allers-retours SEQUENTIELS en All-Time.
+  //
+  // `deals` reste lu separement et plus largement : `callsEff` a besoin du montant des
+  // ventes de TOUS les calls affiches, pas seulement de celles de la periode courante.
+  // Le borner ici ferait disparaitre le revenu des calls des mois precedents sur les
+  // onglets Funnel et Business micro.
+  const fenetreRpc = {
+    p_profile_id: targetId,
+    p_start: (customWindow ? new Date(customWindow.start) : _periodStart).toISOString(),
+    p_end: (customWindow ? new Date(`${customWindow.end}T23:59:59.999`) : _periodEnd).toISOString(),
+  };
+  const [joursRpc, ventesRpc] = await Promise.all([
+    supabase.rpc('get_encaissements_par_jour', fenetreRpc),
+    supabase.rpc('get_ventes_de_la_periode', fenetreRpc),
+  ]);
+  if (joursRpc.error) console.error('[PageClientStats] get_encaissements_par_jour a échoué:', joursRpc.error.message);
+  if (ventesRpc.error) console.error('[PageClientStats] get_ventes_de_la_periode a échoué:', ventesRpc.error.message);
+  const encaissementsParJour = joursRpc.data ?? [];
+  const cashParVente = ventesRpc.data ?? [];
 
   // Déduplique leads par ig_user_id — dernière interaction
   const seen = new Set<string>();
@@ -9389,7 +9389,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     }
   }
 
-  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, deals: dealsRows, dealPayments: dealPaymentsRows, paiementsDesDeals: dealPaymentsRows, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, hookRepliedEvents, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, joursCollectesShortio, premierJourCollecteShortio, integrationsReadyAt };
+  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, deals: dealsRows, encaissementsParJour, cashParVente, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, hookRepliedEvents, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, joursCollectesShortio, premierJourCollecteShortio, integrationsReadyAt };
   } catch { return null; }
 }
 
@@ -9605,21 +9605,6 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   // Les periodes passees lisaient deja `deal_payments` ; la periode courante le fait
   // desormais aussi (voir fetchSupabaseStats). Le reste de la reponse de la route —
   // `mrr`, `activeSubscriptions`, `availableBalance` — n'etait lu nulle part.
-  const stripe: StripeStats | null = supaData?.dealPayments
-    ? {
-        recentPayments: (supaData.dealPayments as any[]).map(r => ({
-          id: r.id,
-          amount: Number(r.amount ?? 0),
-          currency: 'eur',
-          // `deal_payments` ne porte pas de libelle : Stripe en donnait un, souvent
-          // saisi a la volee sur le lien de paiement. Le nom de l'acheteur dit qui a
-          // paye, ce que la colonne « Description » cherchait a dire.
-          description: r.deals?.buyer_name ?? '',
-          date: r.paid_at,
-          status: r.status,
-        })),
-      }
-    : null;
 
   async function handleStripeRefresh() {
     setStripeRefreshing(true);
@@ -9826,14 +9811,17 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   // true quand yt est retombé sur ytRaw brut (pas de snapshot pour la période) — ytRaw agrège toujours sur 30j côté API
   const ytIsFallback = !sinceConnection && periodIndex === 0 && !ytCurrentPeriodTotals;
   const shortioEff = (sinceConnection ? (sinceConnSnap?.shortioHist ?? null) : (periodIndex > 0 ? (snapData?.shortioHist ?? null) : shortio)) as ShortioStats | null;
-  const stripeEff  = (sinceConnection ? (sinceConnSnap?.stripeHist  ?? null) : (periodIndex > 0 ? (snapData?.stripeHist  ?? null) : stripe))  as StripeStats | null;
-  // Paiements RATTACHES AUX DEALS de la periode, toutes dates confondues — source du
-  // taux de collecte par cohorte. Volontairement distinct de stripeEff, qui porte les
-  // paiements RECUS PENDANT la periode : les deux repondent a deux questions
-  // differentes, et les confondre etait ce qui rendait le taux capable de depasser 100 %.
-  const paiementsCohorte = (sinceConnection
-    ? (sinceConnSnap?.paiementsDesDeals ?? [])
-    : (periodIndex > 0 ? (snapData?.paiementsDesDeals ?? []) : (supaData?.dealPayments ?? []))) as { deal_id?: string; amount: number | string | null; status: string | null }[];
+  // Les deux lectures d'argent de l'onglet Revenus, chacune servie par sa RPC. Elles
+  // repondent a DEUX questions differentes, et les confondre etait ce qui rendait le
+  // taux capable de depasser 100 % :
+  //   par jour  -> « combien est rentre PENDANT la periode » (tresorerie)
+  //   par vente -> « combien est rentre sur les ventes DE la periode » (cohorte)
+  const encaissementsParJour = (sinceConnection
+    ? (sinceConnSnap?.encaissementsParJour ?? [])
+    : (periodIndex > 0 ? (snapData?.encaissementsParJour ?? []) : (supaData?.encaissementsParJour ?? []))) as JourEncaisse[];
+  const cashParVente = (sinceConnection
+    ? (sinceConnSnap?.cashParVente ?? [])
+    : (periodIndex > 0 ? (snapData?.cashParVente ?? []) : (supaData?.cashParVente ?? []))) as VenteCash[];
   const msgsEff    = (sinceConnection ? (sinceConnSnap?.msgsHist    ?? null) : (periodIndex > 0 ? (snapData?.msgsHist    ?? null) : msgs))    as IGMessages | null;
   const callsRaw   = sinceConnection ? (sinceConnSnap?.callsHist ?? []) : (periodIndex > 0 ? (snapData?.callsHist ?? []) : calls);
   const dealsEff   = (sinceConnection ? (sinceConnSnap?.dealsHist ?? []) : (periodIndex > 0 ? (snapData?.dealsHist ?? []) : deals)) as DealRecord[];
@@ -9999,12 +9987,12 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
 
       {loading ? <InlineLoader /> : (
         <>
-          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} stripe={stripeEff} msgs={msgsEff} calls={callsEff} callsAllTime={callsAllTimeEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} />}
+          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} msgs={msgsEff} calls={callsEff} callsAllTime={callsAllTimeEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} />}
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.yt?.snapshotError} />}
-          {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} allTimeStart={allTimeStart} profileId={profileId} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} />}
+          {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} allTimeStart={allTimeStart} profileId={profileId} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} />}
           {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} hookRepliedEvents={hookRepliedEvents} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={callsAllTimeEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} shortioChartHistoryStory={shortioChartHistoryStory} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
-          {tab === 5 && <TabRevenues stripe={stripeEff} paiementsCohorte={paiementsCohorte} deals={dealsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} allTimeStart={allTimeStart} stripeConnected={integStatus?.stripeConnected} />}
+          {tab === 5 && <TabRevenues encaissementsParJour={encaissementsParJour} cashParVente={cashParVente} deals={dealsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} allTimeStart={allTimeStart} stripeConnected={integStatus?.stripeConnected} />}
         </>
       )}
     </div>
