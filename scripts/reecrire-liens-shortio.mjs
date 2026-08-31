@@ -183,6 +183,33 @@ async function main() {
     (await supa('integrations?provider=eq.calendly&select=profile_id')).map(i => i.profile_id),
   );
 
+  // ── Lequel des deux liens homonymes est PUBLIÉ ? ─────────────────────────
+  //
+  // Un élève qui change de domaine Short.io régénère ses liens : le même chemin
+  // existe alors sur les DEUX domaines, un seul figure dans sa bio, et les deux
+  // répondent. Le nom ne les distingue pas — `bio-calendly-ig` des deux côtés — et
+  // rien dans la liste de Short.io ne dit lequel est en ligne.
+  //
+  // L'historique de clics, lui, tranche. Réécrire l'ancien « marche » sans rien
+  // prouver : la chaîne est correcte, mais elle est vérifiée sur un lien que
+  // personne n'ouvre. Constaté le 2026-08-31 — un lot de 1 lancé sur
+  // `ubizenai.s.gy/bio-calendly-ig` (0 clic) alors que les 3 clics de bio étaient
+  // sur `link.ubizenai.com/bio-calendly-ig`.
+  //
+  // ⚠️ On ne DÉCIDE pas à la place de l'opérateur : les deux liens restent à
+  // réécrire, l'ancien continuant d'être cliqué depuis les publications déjà en
+  // ligne (docs/shortio-api.md, piège n°1). On rend juste l'écart visible.
+  const clicsParLien = new Map();
+  for (const l of await supa(
+    'shortio_link_daily_snapshots?human_clicks=gt.0&select=path,short_url,date,human_clicks',
+  )) {
+    const cle = `${(l.short_url || '').replace(/^https?:\/\//, '').split('/')[0]}/${l.path}`;
+    const v = clicsParLien.get(cle) ?? { clics: 0, dernier: null };
+    v.clics += l.human_clicks;
+    if (!v.dernier || l.date > v.dernier) v.dernier = l.date;
+    clicsParLien.set(cle, v);
+  }
+
   const aFaire = [];
   const ignores = { dejaFait: 0, horsPerimetre: 0, dm: 0, autreProprietaire: 0, autreCanal: 0 };
 
@@ -302,8 +329,32 @@ Départagés par l'intégration Calendly (${departages.length}) :`);
     return;
   }
 
+  // Chemins presents sur plusieurs domaines : un seul est publie.
+  const domainesParChemin = new Map();
+  for (const [cle] of clicsParLien) {
+    const [hote, ...reste] = cle.split('/');
+    const chemin = reste.join('/');
+    if (!domainesParChemin.has(chemin)) domainesParChemin.set(chemin, new Set());
+    domainesParChemin.get(chemin).add(hote);
+  }
+  for (const t of aFaire) {
+    if (!domainesParChemin.has(t.chemin)) domainesParChemin.set(t.chemin, new Set());
+    domainesParChemin.get(t.chemin).add(t.hostname);
+  }
+
   for (const t of lot) {
-    console.log(`  ${t.hostname}/${t.chemin}  [${t.medium ?? 'canal inconnu'}]`);
+    const h = clicsParLien.get(`${t.hostname}/${t.chemin}`);
+    const activite = h ? `${h.clics} clic(s), dernier le ${h.dernier}` : 'aucun clic connu';
+    console.log(`  ${t.hostname}/${t.chemin}  [${t.medium ?? 'canal inconnu'}] — ${activite}`);
+    const jumeaux = [...(domainesParChemin.get(t.chemin) ?? [])].filter(d => d !== t.hostname);
+    if (jumeaux.length) {
+      console.log(`    ⚠ ce chemin existe aussi sur ${jumeaux.join(', ')} — un seul est publié :`);
+      for (const d of [t.hostname, ...jumeaux]) {
+        const x = clicsParLien.get(`${d}/${t.chemin}`);
+        console.log(`        ${d}  ${x ? `${x.clics} clic(s), dernier le ${x.dernier}` : 'aucun clic'}`);
+      }
+      console.log(`      L'historique de clics tranche mieux que le nom. Viser avec --chemin <domaine>/<path>.`);
+    }
     console.log(`    avant : ${t.avant}`);
     console.log(`    après : ${t.apres}`);
   }

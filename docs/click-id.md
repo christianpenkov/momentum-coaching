@@ -322,6 +322,44 @@ Options : `--medium <canal>`, `--chemin <path>` ou `<domaine>/<path>`, `--limite
 plusieurs domaines, le même chemin existe deux fois et le chemin seul ne dit pas lequel
 on réécrit.
 
+### ⚠️ Deux liens homonymes, un seul publié — l'historique de clics tranche
+
+Un élève qui change de domaine Short.io **régénère** ses liens de bio. Le même chemin
+existe alors sur les deux domaines, les deux répondent, et **un seul figure réellement
+dans son profil**. Les liens de l'ancien domaine restent actifs et continuent d'être
+cliqués depuis les publications déjà en ligne (`docs/shortio-api.md`, piège n°1).
+
+Rien dans le nom ne les distingue : `bio-calendly-ig` des deux côtés. Rien dans la liste
+de Short.io non plus. **L'historique de clics, lui, tranche.**
+
+Le cas s'est produit le 2026-08-31. Un lot de 1 a été lancé sur
+`ubizenai.s.gy/bio-calendly-ig` — 0 clic avant le test — alors que les 3 clics de bio
+étaient tous sur `link.ubizenai.com/bio-calendly-ig`, jusqu'au 19 août :
+
+| Domaine | Clics | Période |
+|---|---|---|
+| `link.ubizenai.com/bio-calendly-ig` | **3** | 18 → 19 août |
+| `ubizenai.s.gy/bio-calendly-ig` | 1 | 31 août (le clic de vérification lui-même) |
+
+La chaîne vérifiée était techniquement correcte — 2 sauts, `medium=bio`, `content_id`
+vide, attribution au bon profil. Elle portait simplement sur un lien que personne
+n'ouvre. **Une vérification juste sur un objet dormant ne prouve rien du parcours réel.**
+
+`--chemin <domaine>/<path>` était déjà la bonne parade ; encore fallait-il savoir sur
+quel domaine s'en servir. Le script **affiche donc maintenant l'activité de chaque
+lien**, et signale les homonymes avec leurs clics respectifs :
+
+```
+  link.ubizenai.com/bio-calendly-ig  [bio] — 3 clic(s), dernier le 2026-08-19
+    ⚠ ce chemin existe aussi sur ubizenai.s.gy — un seul est publié :
+        link.ubizenai.com  3 clic(s), dernier le 2026-08-19
+        ubizenai.s.gy      1 clic(s), dernier le 2026-08-31
+```
+
+Il **ne choisit pas** à la place de l'opérateur : les deux liens restent à réécrire,
+l'ancien continuant de recevoir des clics. Il rend l'écart visible, pour qu'on ne
+vérifie pas sur le mauvais.
+
 Réécrire avant que la route soit en ligne ferait pointer tous les liens de bio vers un
 404 pendant la fenêtre de déploiement.
 
