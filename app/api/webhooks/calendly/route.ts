@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { upsertProspect } from '@/lib/prospects';
 import { resolveUtmContent, resolveCallSource, resolveUtmMedium } from '@/lib/contentId';
+import { resolveClickId } from '@/lib/click-redirect';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -71,6 +72,13 @@ export async function POST(request: NextRequest) {
     // stocké jusqu'ici : l'information partait vers Calendly et se perdait. Voir
     // docs/utm-nomenclature.md (un rôle par champ).
     const utmTerm = resource.tracking?.utm_term || null;
+    // Click ID des liens PARTAGÉS (bio, description, story). Calendly n'accepte
+    // que les cinq UTM plus `salesforce_uuid` : tout paramètre sur mesure est
+    // supprimé, d'où ce champ. En base la colonne s'appelle `click_id` — le nom
+    // décrit ce que la donnée est, pas le champ qui l'a transportée.
+    // Validé avant écriture : Calendly rend la valeur telle qu'elle a été figée
+    // au moment du clic, donc n'importe qui peut y avoir mis n'importe quoi.
+    const clickId = resolveClickId(resource.tracking?.salesforce_uuid) ?? null;
     // Règle partagée : utm_source doit être la PLATEFORME (ig/yt), jamais le
     // domaine Short.io — sinon on produit des sources du type
     // `ubizenai.s.gy_description`, inexploitables pour l'attribution.
@@ -102,6 +110,11 @@ export async function POST(request: NextRequest) {
     let inheritedUtmCampaign: string | null = null;
     let inheritedUtmContent: string | null = null;
     let inheritedUtmTerm: string | null = null;
+    // click_id et clicked_at héritent comme les quatre autres champs
+    // d'attribution : sans ça, une reprogrammation effacerait le clic à l'origine
+    // du rendez-vous, et le taux clic → call perdrait un numérateur.
+    let inheritedClickId: string | null = null;
+    let inheritedClickedAt: string | null = null;
     let inheritedCoachId: string | null = null;
 
     if (oldInviteeUrl) {
@@ -109,7 +122,7 @@ export async function POST(request: NextRequest) {
       if (oldEventUuid) {
         const { data: oldCall } = await serviceSupabase
           .from('calls')
-          .select('id, ig_lead_id, prospect_link_id, source, utm_medium, utm_campaign, utm_content, utm_term, coach_id')
+          .select('id, ig_lead_id, prospect_link_id, source, utm_medium, utm_campaign, utm_content, utm_term, click_id, clicked_at, coach_id')
           .eq('calendly_event_uuid', oldEventUuid)
           .maybeSingle();
         if (oldCall) {
@@ -120,6 +133,8 @@ export async function POST(request: NextRequest) {
           inheritedUtmCampaign = oldCall.utm_campaign ?? null;
           inheritedUtmContent = oldCall.utm_content ?? null;
           inheritedUtmTerm = oldCall.utm_term ?? null;
+          inheritedClickId = oldCall.click_id ?? null;
+          inheritedClickedAt = oldCall.clicked_at ?? null;
           inheritedCoachId = oldCall.coach_id ?? null;
           await serviceSupabase.from('calls').update({ status: 'canceled' }).eq('id', oldCall.id);
         }
@@ -271,6 +286,22 @@ export async function POST(request: NextRequest) {
     const resolvedMedium = inheritedUtmMedium ?? resolveUtmMedium(utmMedium);
     if (resolvedMedium)                      baseUpsert.utm_medium = resolvedMedium;
     if (utmTerm || inheritedUtmTerm)         baseUpsert.utm_term = inheritedUtmTerm ?? utmTerm;
+    // Même règle d'héritage que les quatre champs ci-dessus : la valeur héritée
+    // prime, pour que tous décrivent le PREMIER contact et jamais un mélange de
+    // deux moments.
+    const effectiveClickId = inheritedClickId ?? clickId;
+    if (effectiveClickId) {
+      baseUpsert.click_id = effectiveClickId;
+      // `clicked_at` recopié sur le call au moment de la réservation : c'est ce
+      // qui rend la purge de link_clicks sans perte d'attribution (400 jours).
+      const clickedAt = inheritedClickId
+        ? inheritedClickedAt
+        : (await serviceSupabase.from('link_clicks')
+            .select('occurred_at').eq('id', effectiveClickId).maybeSingle()).data?.occurred_at ?? null;
+      // Champ vide plutôt que champ faux : un clic dont la ligne a été purgée, ou
+      // un identifiant fabriqué, laisse `clicked_at` vide — jamais une date inventée.
+      if (clickedAt) baseUpsert.clicked_at = clickedAt;
+    }
     const newUtmContent = utmContent ?? inheritedUtmContent;
     // Garde anti-écrasement : si la ligne existante a déjà un utm_content valide (vrai
     // ID de post/vidéo/séquence, ex: backfillé après le bug de PageLiens.tsx qui posait

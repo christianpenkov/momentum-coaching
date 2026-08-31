@@ -610,7 +610,10 @@ function TabDesc({ post, profileId, domain, canGenerate, showDisconnectedWarning
     if (postData.existed && shortId) {
       const patchRes = await fetch('/api/shortio/links', {
         method: 'PATCH', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ profileId, shortId, originalUrl: destUrl, title, utmSource: utms.source, utmMedium: utms.medium, utmCampaign: utms.campaign, utmContent: utms.content }),
+        // `path` transmis : sans lui le serveur ne peut pas faire passer la
+        // destination par la route qui pose le Click ID (lib/click-redirect.ts),
+        // et ce repli réécrirait un lien déjà instrumenté en lien direct.
+        body: JSON.stringify({ profileId, shortId, path, originalUrl: destUrl, title, utmSource: utms.source, utmMedium: utms.medium, utmCampaign: utms.campaign, utmContent: utms.content }),
       });
       const patchData = await patchRes.json();
       if (patchRes.ok) shortUrl = patchData.shortUrl;

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { construireDestinationShortio } from '@/lib/click-redirect';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
 
@@ -196,10 +197,18 @@ async function generateCalendlyLink(profileId: string, sequenceId: string, name:
   destUrl.searchParams.set('utm_campaign', slug);
   destUrl.searchParams.set('utm_content', sequenceId);
 
+  // Le lien de séquence est un lien PARTAGÉ : il passe par la route qui pose le
+  // Click ID, sans quoi les rendez-vous venus d'une story resteraient anonymes.
+  // Repli sur la destination directe si le domaine de redirection n'est pas
+  // configuré — même comportement qu'avant ce chantier.
+  const destFinale = construireDestinationShortio(
+    process.env.MOMENTUM_REDIRECT_ORIGIN, path, destUrl.toString(), profileId,
+  ) ?? destUrl.toString();
+
   const linkRes = await fetch('https://api.short.io/links', {
     method: 'POST',
     headers: { authorization: apiKey, 'content-type': 'application/json', accept: 'application/json' },
-    body: JSON.stringify({ domain, originalURL: destUrl.toString(), title: `Story — ${name}`, path }),
+    body: JSON.stringify({ domain, originalURL: destFinale, title: `Story — ${name}`, path }),
   });
   const linkData = await linkRes.json().catch(() => ({}));
   if (linkRes.ok || linkRes.status === 409) {

@@ -2,6 +2,26 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { buildDestUrl } from '@/lib/shortio-create';
+import { construireDestinationShortio } from '@/lib/click-redirect';
+
+/**
+ * Fait passer la destination d'un lien Calendry PARTAGÉ par la route qui pose le
+ * Click ID, quand c'est possible.
+ *
+ * Sans quoi le chantier Click ID se dégraderait tout seul : les liens existants
+ * seraient réécrits une fois par le script de migration, mais chaque nouveau
+ * contenu publié recréerait un lien pointant droit sur Calendly, donc sans
+ * identifiant de clic. La mesure s'éroderait sans que rien ne le signale.
+ *
+ * `construireDestinationShortio` renvoie `null` — et on garde alors la
+ * destination directe, exactement comme avant ce chantier — dans quatre cas :
+ * domaine de redirection non configuré, hôte hors liste blanche (lead magnet,
+ * paiement), canal non partagé (`dm`), destination déjà réécrite.
+ */
+function versLaRouteDeClic(destUrl: string, path: string | undefined, profileId: string): string {
+  if (!path) return destUrl;
+  return construireDestinationShortio(process.env.MOMENTUM_REDIRECT_ORIGIN, path, destUrl, profileId) ?? destUrl;
+}
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -47,7 +67,10 @@ export async function POST(request: Request) {
   if (!creds) return NextResponse.json({ error: 'no_token', profileId: targetProfileId }, { status: 400 });
   const { apiKey, domainId: numericDomainId } = creds;
 
-  const destUrl = buildDestUrl(originalUrl, { source: utmSource, medium: utmMedium, campaign: utmCampaign, content: utmContent, term: utmTerm });
+  const destUrl = versLaRouteDeClic(
+    buildDestUrl(originalUrl, { source: utmSource, medium: utmMedium, campaign: utmCampaign, content: utmContent, term: utmTerm }),
+    path, targetProfileId,
+  );
 
   const payload: Record<string, any> = {
     domain: domainId,
@@ -103,7 +126,9 @@ export async function PATCH(request: Request) {
   if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
   const body = await request.json();
-  const { profileId, shortId, originalUrl, title, utmSource, utmMedium, utmCampaign, utmContent, utmTerm } = body;
+  // `path` est facultatif : sans lui, la destination reste directe. Il est fourni
+  // par le repli 409 de PageLiens, seul chemin qui PATCHe un lien Calendly.
+  const { profileId, shortId, originalUrl, title, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, path } = body;
 
   if (!shortId) return NextResponse.json({ error: 'shortId requis' }, { status: 400 });
 
@@ -114,7 +139,10 @@ export async function PATCH(request: Request) {
   if (!creds) return NextResponse.json({ error: 'no_token' }, { status: 400 });
   const { apiKey } = creds;
 
-  const destUrl = buildDestUrl(originalUrl, { source: utmSource, medium: utmMedium, campaign: utmCampaign, content: utmContent, term: utmTerm });
+  const destUrl = versLaRouteDeClic(
+    buildDestUrl(originalUrl, { source: utmSource, medium: utmMedium, campaign: utmCampaign, content: utmContent, term: utmTerm }),
+    path, targetProfileId,
+  );
 
   const res = await fetch(`https://api.short.io/links/${shortId}`, {
     method: 'POST',

@@ -44,10 +44,23 @@ parameters ». Un `utm_post_id` serait purement et simplement supprimé.
 
 Chaque valeur est limitée à **255 caractères**.
 
-`salesforce_uuid` reste volontairement **libre**. Il est disponible pour un besoin futur,
-et résiste mieux aux redirections que les UTM d'après la documentation Calendly. On ne
-l'utilise pas aujourd'hui : un champ nommé « salesforce_uuid » contenant un identifiant
-Instagram recréerait exactement le problème de lisibilité que ce document corrige.
+`salesforce_uuid` porte le **Click ID** depuis le 2026-08-31 (`docs/click-id.md`).
+
+Il était resté libre pour une raison de lisibilité : un champ nommé « salesforce_uuid »
+contenant un identifiant Instagram recréerait exactement le problème que ce document
+corrige. Cette raison ne s'applique pas à un identifiant de clic **opaque**, qui ne
+répond à aucune des cinq questions ci-dessus — il ne dit ni où, ni comment, ni quoi, ni
+depuis quoi, ni qui, mais **quel clic**.
+
+Décisif : le Click ID **ajoute une redirection** dans la chaîne, et c'est précisément le
+cas où des utilisateurs rapportent des UTM supprimés alors que `salesforce_uuid` survit.
+
+⚠️ `utm_term` continue de porter « qui — le prospect ». Le Click ID ne le remplace pas :
+sur un lien **partagé** il n'y a pas de prospect connu, et sur un lien **de DM** il n'y a
+pas de Click ID (ces liens sont déjà instrumentés par `prospect_links`).
+
+En base, la colonne s'appelle **`calls.click_id`**, jamais `salesforce_uuid` : le nom
+décrit ce que la donnée est, pas le champ qui l'a transportée.
 
 ---
 
@@ -153,6 +166,7 @@ source       = inheritedSource       ?? source
 utm_campaign = inheritedUtmCampaign  ?? utmCampaign
 utm_medium   = inheritedUtmMedium    ?? utmMedium
 utm_term     = inheritedUtmTerm      ?? utmTerm
+click_id     = inheritedClickId      ?? clickId        // + clicked_at, qui le suit
 ```
 
 **Toute divergence entre ces quatre lignes recrée des rendez-vous contradictoires.**
@@ -206,6 +220,7 @@ correcte déjà en base.
 | `source` | oui | `plateforme_medium`, plateforme ∈ {`ig`, `yt`} |
 | `utm_campaign` | **non** | valeurs libres par conception (`lm-{keyword}`, `lead-{id}`…) |
 | `utm_term` | **non** | pseudo du prospect, forme libre |
+| `click_id` | oui | UUID — `resolveClickId` dans `lib/click-redirect.ts` |
 
 ### Les deux bugs qui ont produit cette règle (2026-08-19)
 

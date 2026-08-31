@@ -23,9 +23,21 @@ This version has breaking changes — APIs, conventions, and file structure may 
   chargement** → `docs/pastille-et-sauts-accueil.md`. Dix bugs, un seul
   mécanisme : une valeur inconnue lue comme une valeur connue. Contient aussi
   les requêtes de diagnostic de la chaîne push.
+- **Toucher un lien Short.io, la route `/r/`, ou l'attribution d'un rendez-vous
+  venu d'un lien PARTAGÉ** (bio, description, story) → `docs/click-id.md`. Les UTM
+  reportés sur la destination ne sont pas décoratifs : sans eux, les clics de bio
+  disparaissent des stats et ceux de description sont comptés en « Cold DM ».
 - **Auditer des chiffres affichés** → skill `audit-metrique-bout-en-bout`
   (`~/.claude/skills/`). La méthode API → base → écran, et les six pièges
   récurrents.
+
+# ⚠️ Un `profile_id` est PUBLIC
+
+Depuis le 2026-08-31, le `profile_id` de l'élève est inscrit dans la destination de
+chaque lien Calendly partagé (bio Instagram, description YouTube) — voir
+`docs/click-id.md`. **Un `profile_id` reçu d'un appelant n'est donc jamais une preuve
+d'identité** : authentifier d'abord, vérifier l'ownership ensuite, jamais un `.eq()` sur
+l'identifiant reçu tel quel. Détail et motif dans `docs/security-notes.md`.
 
 # Objectif permanent
 
@@ -98,6 +110,7 @@ select jobname, schedule, active from cron.job order by jobid;   -- côté Supab
 | `process-webhook-queue-1min` | `* * * * *` | Chemin critique à la minute |
 | `purge-debug-logs` | 3h30 | **SQL pur** — 14 j de `sw_logs`, `webhook_debug_log`, `cron_invocation_logs` |
 | `purge-webhook-queue-daily` | 3h35 | **SQL pur, aucune URL** |
+| `purge-link-clicks-daily` | 3h40 | **SQL pur** — 400 j de `link_clicks` (`docs/click-id.md`) |
 | `purge-call-rapport-drafts-daily` | 3h45 | **SQL pur, aucune URL** |
 | `purge-journaux-machine-daily` | 3h50 | **SQL pur** — 7 j de `cron.job_run_details`, **30 j de `cron_runs`** |
 | `vacuum-pg-net-daily` | 3h55 | **SQL pur** — empêche les tables pg_net de regonfler |
@@ -121,7 +134,7 @@ glissante au lieu de calendaire, invaliderait la règle — et la perte serait s
 `shortio_link_daily_snapshots` est **volontairement exclue** : elle alimente
 `get_shortio_clicks_by_day`, une vraie série quotidienne affichée en courbe.
 
-Les trois purges sont des `SELECT public.purge_*()`. Les déplacer sur un planificateur
+Les quatre purges sont des `SELECT public.purge_*()`. Les déplacer sur un planificateur
 externe imposerait de **créer une route HTTP pour chacune** et d'exposer sur Internet
 des opérations de purge — plus de code, plus de surface d'attaque, pour un ménage qui
 aujourd'hui ne dépend de rien. Les deux jobs à la minute restent ici pour la même
@@ -180,6 +193,7 @@ select * from stripe_sante_rattachement;        -- vide = chaque encaissement a 
 select * from ventes_sante_sur_encaissement;    -- vide = aucun deal n'a encaisse 2x
 select * from ig_sante_insights_posts;          -- 'ok' partout
 select * from base_sante_taille;                -- 'ok' = plafond de stockage loin
+select * from clics_sante_redirection;          -- 'ok' partout
 ```
 
 ⚠️ **`cron_runs` couvre désormais aussi `sync-calendly`** (ajouté le 2026-08-31 : ses
@@ -195,8 +209,10 @@ est l'Edge Function `sync-calendly`. Même piège que `notify-rapport`.
 `base_sante_taille` surveille le **plan Supabase**, qui est aujourd'hui le **gratuit**
 (500 Mo, base à 97 Mo le 2026-08-30). C'est le seul risque de la plateforme qui ne
 prévient pas : rien ne casse à l'avance, les écritures échouent d'un coup. La vue
-mesure la croissance réelle des trois tables « une ligne par contenu et par jour » et
-affiche les jours restants pour les deux plans — passer en Pro ne demande donc aucune
+mesure la croissance réelle des trois tables « une ligne par contenu et par jour »
+**et de `link_clicks`** (ajoutée le 2026-08-31 : une table qui grossit sans être
+comptée fait partir l'alerte trop tard) et affiche les jours restants pour les deux
+plans — passer en Pro ne demande donc aucune
 modification. À 40 élèves × 300 posts, le gratuit tient ~6 semaines ; le Pro, ~2,5 ans.
 
 **Et cette vue n'a pas besoin d'être regardée** : `/api/sante/alerte-stockage` envoie
@@ -254,6 +270,14 @@ d'un autre client dans les totaux.
 `ventes_sante_montants` compare les DEUX écritures du cash : le montant saisi dans le
 rapport de call et le deal qui en découle. Les écrans lisent `deals` ; une ligne ici
 signifie qu'un élève a saisi un montant que ses stats n'affichent pas.
+
+`clics_sante_redirection` compare, par lien, les clics comptés par Short.io à ceux
+comptés par la route `/r/` qui pose le Click ID sur les liens Calendly **partagés**
+(`docs/click-id.md`). ⚠️ Elle détecte une **panne**, pas une parité exacte : les deux
+filtres à robots ne classeront jamais identiquement, et prétendre à l'égalité
+produirait une alerte permanente. `lien non redirige` n'est **pas** une anomalie — la
+réécriture n'a pas encore atteint ce lien. C'est aussi cette vue qui rend un échec
+d'écriture non silencieux : on ne peut pas journaliser une panne de base dans la base.
 
 ⚠️ Sur les vues de santé, `etat <> 'ok'` n'est **pas** un filtre d'anomalie :
 `non_connectee` et `integration deconnectee` disent seulement que l'intégration n'est

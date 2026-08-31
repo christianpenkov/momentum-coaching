@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createLinkCategoryResolver, BUSINESS_CATEGORIES, CATEGORY_GROUPS } from './shortio-link-category.ts';
+import { construireDestinationShortio } from './click-redirect.ts';
 
 // Références réelles du profil de test a02e5927 (content_links + prospect_links),
 // relevées en base le 2026-08-28.
@@ -85,4 +86,52 @@ test('les groupes du graphique couvrent exactement BUSINESS_CATEGORIES', () => {
   for (const c of dansGroupes) {
     assert.ok((BUSINESS_CATEGORIES as readonly string[]).includes(c), `${c} apparaît dans un filtre du graphique mais n'est pas comptée dans « Clics totaux »`);
   }
+});
+
+// ── Non-régression : la réécriture vers /r/<chemin> ne change AUCUNE catégorie ──
+//
+// Les liens partagés (bio, description, story) voient leur destination Short.io
+// réécrite vers la route de redirection qui pose le Click ID (voir
+// lib/click-redirect.ts et docs/click-id.md). Ce résolveur lit `utm_medium`,
+// `utm_campaign` et `utm_source` SUR cette destination : une destination nue
+// casserait la catégorisation de deux façons, les deux silencieuses —
+//
+//   • `utm_medium = null` → la branche `bio` ne matche plus, le résolveur tombe
+//     sur `return null`, et les clics de bio disparaissent de « Clics totaux ».
+//     C'est exactement la régression mesurée le 2026-08-28 (9 clics sur 15).
+//   • pire, la branche `dm` attrape `medium === null && path.includes('prendre-rdv')`,
+//     or les liens de DESCRIPTION s'appellent `prendre-rdv-3457`, `prendre-rdv-jNJg`…
+//     Ils seraient reclassés en `calendly_dm_prospect` et iraient grossir la ligne
+//     « Cold DM » du Breakdown.
+//
+// D'où la règle : les UTM sont reportés à l'identique. Ce test la verrouille, pour
+// qu'on ne puisse pas « simplifier » l'URL de redirection sans casser les stats.
+test('réécrire une destination vers /r/ ne déplace aucun clic de catégorie', () => {
+  const ORIGINE = 'https://liens.momentum.test';
+  const PROFIL = 'a02e5927-0000-4000-8000-000000000001';
+  let reecrits = 0;
+
+  for (const [path, shortUrl, originalUrl, attendu] of CAS) {
+    const reecrit = construireDestinationShortio(ORIGINE, path, originalUrl, PROFIL);
+    if (!reecrit) continue;   // hors périmètre (DM, lead magnet, paiement…)
+    reecrits++;
+    assert.equal(resolve(path, shortUrl, reecrit), attendu, `path=${path}`);
+    assert.equal(resolve(path, shortUrl, reecrit), resolve(path, shortUrl, originalUrl), `path=${path}`);
+  }
+
+  // Sans ce garde-fou, le test passerait tout aussi bien en ne réécrivant RIEN.
+  assert.ok(reecrits >= 5, `seulement ${reecrits} liens réécrits — le test ne prouve plus rien`);
+});
+
+test('une destination nue casserait bien la catégorisation — la preuve du contraire', () => {
+  // Ce test documente ce qui se passerait SANS report des UTM. Il n'existe pas
+  // pour valider un comportement voulu, mais pour que la raison de la règle
+  // reste vérifiable plutôt que seulement écrite en commentaire.
+  const nue = 'https://liens.momentum.test/r/bio-calendly-ig?d=christianpenkov/30min';
+  assert.equal(resolve('bio-calendly-ig', 'https://ubizenai.s.gy/bio-calendly-ig', nue), null,
+    'les clics de bio disparaîtraient de « Clics totaux »');
+
+  const nueDesc = 'https://liens.momentum.test/r/prendre-rdv-3457?d=christianpenkov/30min';
+  assert.equal(resolve('prendre-rdv-3457', 'https://ubizenai.s.gy/prendre-rdv-3457', nueDesc), 'calendly_dm_prospect',
+    'un clic de DESCRIPTION serait reclassé en clic de DM prospect');
 });

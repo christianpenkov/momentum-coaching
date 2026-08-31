@@ -22,6 +22,22 @@ function isValidContentId(s: string | null | undefined): boolean {
 }
 
 /**
+ * ⚠️ Équivalent Deno de `resolveClickId` (lib/click-redirect.ts) — pas d'import
+ * cross-runtime possible, même contrainte que isValidContentId ci-dessus. Une
+ * copie qui se sait copie vaut mieux que deux implémentations qui s'ignorent.
+ *
+ * Calendly rend `salesforce_uuid` tel qu'il l'a figé au moment du clic :
+ * n'importe qui peut y avoir mis n'importe quoi en fabriquant une URL. Une
+ * valeur externe non conforme n'est jamais écrite (docs/utm-nomenclature.md).
+ */
+function resolveClickId(entrant: string | null | undefined): string | null {
+  if (!entrant) return null;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(entrant)
+    ? entrant.toLowerCase()
+    : null;
+}
+
+/**
  * ⚠️ Équivalent Deno de `resolveCallSource` (lib/contentId.ts) — pas d'import
  * cross-runtime possible. Toute modification de la règle doit être répercutée
  * dans les deux.
@@ -323,6 +339,10 @@ async function syncCalendlyEleve(
     const utmContent = tracking?.utm_content || null;
     // utm_term = le prospect (voir docs/utm-nomenclature.md, un rôle par champ).
     const utmTerm = tracking?.utm_term || null;
+    // Click ID des liens PARTAGÉS — troisième et dernier chemin d'écriture des
+    // rendez-vous. La migration UTM du 2026-08-19 avait dû traiter les trois :
+    // n'en corriger que deux laisse le cron effacer ce que le webhook a écrit.
+    const clickId = resolveClickId(tracking?.salesforce_uuid);
     const source = resolveCallSource(utmSource, utmMedium, utmContent) ?? null;
 
     const igUserIdFromUtm = utmCampaign?.startsWith('lead-') ? utmCampaign.slice(5) : null;
@@ -335,6 +355,10 @@ async function syncCalendlyEleve(
     let inheritedIgLeadId: string | null = null;
     let inheritedProspectLinkId: string | null = null;
     let inheritedSource: string | null = null;
+    // click_id et clicked_at héritent comme source : une reprogrammation ne doit
+    // pas effacer le clic à l'origine du rendez-vous.
+    let inheritedClickId: string | null = null;
+    let inheritedClickedAt: string | null = null;
     let resolvedIgLeadId: string | null = null;
     let resolvedProspectLinkId: string | null = null;
 
@@ -347,13 +371,15 @@ async function syncCalendlyEleve(
       if (oldEventUuid) {
         const { data: oldCall } = await supabase
           .from('calls')
-          .select('id, ig_lead_id, prospect_link_id, source')
+          .select('id, ig_lead_id, prospect_link_id, source, click_id, clicked_at')
           .eq('calendly_event_uuid', oldEventUuid)
           .maybeSingle();
         if (oldCall) {
           inheritedIgLeadId = oldCall.ig_lead_id ?? null;
           inheritedProspectLinkId = oldCall.prospect_link_id ?? null;
           inheritedSource = oldCall.source ?? null;
+          inheritedClickId = oldCall.click_id ?? null;
+          inheritedClickedAt = oldCall.clicked_at ?? null;
           await supabase.from('calls')
             .update({ status: 'canceled' })
             .eq('id', oldCall.id);
@@ -504,6 +530,22 @@ async function syncCalendlyEleve(
     const resolvedMedium = resolveUtmMedium(utmMedium);
     if (resolvedMedium)      upsertData.utm_medium      = resolvedMedium;
     if (utmTerm)             upsertData.utm_term        = utmTerm;
+    // L'hérité prime : on crédite le PREMIER contact (même règle que source).
+    const effectiveClickId = inheritedClickId ?? clickId;
+    if (effectiveClickId) {
+      upsertData.click_id = effectiveClickId;
+      // Recopié sur le call, ce qui rend la purge de link_clicks sans perte
+      // d'attribution (400 jours).
+      let clickedAt: string | null = inheritedClickId ? inheritedClickedAt : null;
+      if (!inheritedClickId) {
+        const { data: clic } = await supabase.from('link_clicks')
+          .select('occurred_at').eq('id', effectiveClickId).maybeSingle();
+        clickedAt = clic?.occurred_at ?? null;
+      }
+      // Champ vide plutôt que champ faux : ligne purgée ou identifiant fabriqué
+      // laissent `clicked_at` vide, jamais une date inventée.
+      if (clickedAt) upsertData.clicked_at = clickedAt;
+    }
     // ⚠️ short_link_path porte la MEME valeur qu'utm_content — c'est litteralement
     // `utmContent` (voir sa definition plus haut). Il recevait pourtant la valeur
     // BRUTE quand utm_content recevait la valeur VALIDEE : la garde ne protegeait

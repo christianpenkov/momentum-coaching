@@ -10,6 +10,34 @@ La quasi-totalité des correctifs suivent le même schéma, réutilisé partout 
 
 **Piège récurrent** : `calls.client_id` n'est PAS toujours un `clients.id` — pour les calls Calendly c'est bien `clients.id`, mais `app/api/calls/[id]/rapport/route.ts` compare `call.client_id === user.id` (donc traite parfois `client_id` comme un `auth.users.id` direct). Incohérence documentée en commentaire dans ce fichier, jamais corrigée (seul le coach utilise cette route en pratique aujourd'hui — confirmé, pas un bug actif). **Ne pas supposer que `client_id` a le même sens partout dans la table `calls`** sans vérifier le flux (Calendly vs Google Meet) concerné.
 
+## ⚠️ Un `profile_id` est une donnée PUBLIQUE depuis le 2026-08-31
+
+Le Click ID (`docs/click-id.md`) inscrit le `profile_id` de l'élève dans la destination
+de chaque lien Calendly partagé, via le paramètre `p`. Ces liens sont en **bio
+Instagram** et en **description de vidéos YouTube** : n'importe qui peut donc lire un
+`profile_id`. Ce n'était pas vrai avant.
+
+**Règle permanente : un `profile_id` reçu d'un appelant n'est jamais une preuve
+d'identité.** Authentifier d'abord (`auth.getUser()`), puis vérifier l'ownership — le
+pattern d'ownership ci-dessus, jamais un `.eq()` sur l'identifiant reçu tel quel.
+
+```ts
+// ❌ le profil vient de l'exterieur, il ne prouve rien
+const { profileId } = await request.json();
+const { data } = await supa.from('calls').select('*').eq('coach_id', profileId);
+```
+
+La règle était déjà respectée partout au moment où ce choix a été fait, et c'est ce qui
+a permis de le valider plutôt que de le supposer sans risque : `/api/shortio/snapshots`,
+`/api/instagram/stats` et `/api/client/prospect-links` authentifient tous avant de
+filtrer sur `user.id`. Ce qui change, c'est qu'une entorse future ne serait plus une
+faille théorique — l'identifiant est publié.
+
+Le choix a été fait pour que l'écriture d'une ligne de clic tienne en un seul `INSERT`,
+sans lecture en base : c'est ce qui rend la redirection insensible à une panne de la
+base. La contrainte tient même si la route `/r/` disparaît un jour — les liens déjà
+publiés, eux, ne disparaissent pas.
+
 ## RLS vs service-role : deux mondes qui ne se croisent jamais
 
 Le repo n'a pas de `lib/supabaseAdmin.ts` centralisé — chaque route qui a besoin d'un accès large instancie son propre client `service_role` inline. **Le service-role bypass RLS et tous les GRANT/REVOKE par construction.** Concrètement :

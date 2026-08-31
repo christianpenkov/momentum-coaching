@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveUtmContent, resolveCallSource, resolveUtmMedium } from '@/lib/contentId';
+import { resolveClickId } from '@/lib/click-redirect';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -147,6 +148,11 @@ export async function syncCalendlyEleve(
       const utmContent = tracking?.utm_content || null;
       // utm_term = le prospect (voir docs/utm-nomenclature.md, un rôle par champ).
       const utmTerm = tracking?.utm_term || null;
+      // Click ID des liens PARTAGÉS — voir app/api/webhooks/calendly/route.ts.
+      // Ce chemin DOIT le lire aussi : un rendez-vous récupéré par « Rafraîchir »
+      // plutôt que par le webhook perdrait sinon son attribution au clic, comme
+      // utm_term se perdait avant la migration du 2026-08-19.
+      const clickId = resolveClickId(tracking?.salesforce_uuid) ?? null;
       // Règle partagée : utm_source doit être la PLATEFORME (ig/yt), jamais le
       // domaine Short.io — sinon on produit des sources du type
       // `ubizenai.s.gy_description`, inexploitables pour l'attribution.
@@ -167,6 +173,10 @@ export async function syncCalendlyEleve(
       let inheritedIgLeadId: string | null = null;
       let inheritedProspectLinkId: string | null = null;
       let inheritedSource: string | null = null;
+      // click_id et clicked_at héritent comme source : une reprogrammation ne doit
+      // pas effacer le clic à l'origine du rendez-vous.
+      let inheritedClickId: string | null = null;
+      let inheritedClickedAt: string | null = null;
       let resolvedIgLeadId: string | null = null;
       let resolvedProspectLinkId: string | null = null;
 
@@ -182,13 +192,15 @@ export async function syncCalendlyEleve(
         if (oldEventUuid) {
           const { data: oldCall } = await serviceSupabase
             .from('calls')
-            .select('id, ig_lead_id, prospect_link_id, source')
+            .select('id, ig_lead_id, prospect_link_id, source, click_id, clicked_at')
             .eq('calendly_event_uuid', oldEventUuid)
             .maybeSingle();
           if (oldCall) {
             inheritedIgLeadId = oldCall.ig_lead_id ?? null;
             inheritedProspectLinkId = oldCall.prospect_link_id ?? null;
             inheritedSource = oldCall.source ?? null;
+            inheritedClickId = oldCall.click_id ?? null;
+            inheritedClickedAt = oldCall.clicked_at ?? null;
             await serviceSupabase.from('calls')
               .update({ status: 'canceled' })
               .eq('id', oldCall.id);
@@ -298,6 +310,19 @@ export async function syncCalendlyEleve(
       const resolvedMedium = resolveUtmMedium(utmMedium);
       if (resolvedMedium)       upsertData.utm_medium      = resolvedMedium;
       if (utmTerm)              upsertData.utm_term        = utmTerm;
+      // L'hérité prime : on crédite le PREMIER contact (même règle que source).
+      const effectiveClickId = inheritedClickId ?? clickId;
+      if (effectiveClickId) {
+        upsertData.click_id = effectiveClickId;
+        // Recopié sur le call, ce qui rend la purge de link_clicks sans perte.
+        const clickedAt = inheritedClickId
+          ? inheritedClickedAt
+          : (await serviceSupabase.from('link_clicks')
+              .select('occurred_at').eq('id', effectiveClickId).maybeSingle()).data?.occurred_at ?? null;
+        // Champ vide plutôt que champ faux : ligne purgée ou identifiant fabriqué
+        // laissent `clicked_at` vide, jamais une date inventée.
+        if (clickedAt) upsertData.clicked_at = clickedAt;
+      }
       // ⚠️ short_link_path porte la MEME valeur qu'utm_content — c'est litteralement
       // `utmContent` (voir sa definition plus haut). Il recevait pourtant la valeur
       // BRUTE quand utm_content recevait la valeur VALIDEE : la garde ne protegeait
