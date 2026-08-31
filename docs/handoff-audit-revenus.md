@@ -450,9 +450,54 @@ Le bloc « Cash encaissé par origine » s'arrête à 4 lignes avant « Voir plu
 une note de rapprochement : son total est l'argent REÇU, pas l'argent VENDU — c'est ce
 qui explique 2 600 € ici sous 10 200 € en carte, et rien ne le disait.
 
+### Les six arbitrages du 2026-08-30, tous livres et verifies
+
+| | Decision | Ou |
+|---|---|---|
+| 1 | Le trop-percu est **plafonne vente par vente** dans tout total rapporte au contracte | `encaisseRetenu()` dans `lib/dealCash.ts` |
+| 2 | Une vente **terminee garde son montant entier** — l'arret se lit dans le taux, pas dans le contracte | rien a faire, deja le cas partout |
+| 3 | Le **ruban de la page Paiements** cesse de compter les ventes annulees | `app/api/payments/route.ts` |
+| 4 | L'addition des paiements passe **cote base** | migration `20260830190000` |
+| 5 | Le tableau des ventes **affiche le trop-percu** sur la ligne | `TabRevenues` |
+| 6 | La **ligne d'un client** et sa fiche disent ce qu'il a **vraiment verse** | `FicheClient` |
+
+Plus une decision anterieure : un **cash collecte negatif** s'affiche en ambre, jamais
+en vert, et sans plancher a zero.
+
+#### Les deux notions du cash, a ne jamais confondre
+
+C'est le point le plus facile a casser en relisant ce code dans six mois.
+
+- **`cash.net`** — « combien cette personne a **verse** ». Ecrans d'action : la ligne
+  d'un client, sa fiche, le cash encaisse d'une periode, la ventilation par origine.
+  Peut depasser le montant de la vente, et c'est un fait, pas une erreur.
+- **`encaisseRetenu()`** — « quelle part de cette **vente** est rentree ». Ecrans de
+  pilotage : taux de collecte, reste a encaisser, tout total rapporte au contracte.
+
+Consequence assumee : sur une periode avec un trop-percu, la carte « Cash collecte » de
+l'onglet Revenus annonce plus que le total de la colonne « Encaisse » du tableau. C'est
+la mention « +X EUR a rendre » sur la ligne concernee qui explique l'ecart — sans elle,
+l'ecran aurait l'air faux et l'argent du au client disparaitrait de la vue.
+
+#### Comment ca a ete verifie
+
+Aucun trop-percu, aucune vente annulee et aucun mois negatif n'existent en base. Les
+trois cas ont donc ete **crees en base**, verifies a l'ecran sur les quatre vues et sur
+les deux pages, puis **restaures** — les chiffres sont revenus identiques a l'octet.
+La regle elle-meme est couverte par sept tests unitaires, seule verification possible
+tant qu'aucun client n'aura paye deux fois.
+
 ### Ce qui reste ouvert
 
-1. **Trois encaissements Stripe (60 €) existent chez Stripe et nulle part chez nous.**
+1. **`lib/supabase/useCoachData.ts` compte le cash brut, sans deduire les
+   remboursements.** Deux requetes y font `.eq('status','succeeded')` puis somment,
+   au lieu de passer par `calculerCash`. Mesure le 2026-08-30 sur le profil de test :
+   **2 800 EUR au lieu de 2 600 EUR** — l'accueil du coach affiche 200 EUR qui ont ete
+   rendus. C'est le meme defaut que celui corrige aujourd'hui sur `/api/payments/by-origin`
+   et sur l'onglet Revenus ; c'est le dernier site connu a ne pas lire la regle partagee.
+   La seconde des deux requetes n'a par ailleurs **aucune borne de date**, donc le meme
+   probleme d'echelle que celui corrige ici. Hors perimetre de cet audit.
+2. **Trois encaissements Stripe (60 €) existent chez Stripe et nulle part chez nous.**
    Vus le 2026-08-30 dans `charges.list` du compte de test (25 €, 25 €, 10 €, datés du
    19/08), ils sont absents de `stripe_payments`, qui ne compte que 6 lignes en tout. Ce
    n'est donc pas un problème d'affichage : la page Paiements a bien un onglet
@@ -460,7 +505,7 @@ qui explique 2 600 € ici sous 10 200 € en carte, et rien ne le disait.
    n'y sont pas. Le webhook ne les a jamais enregistrées — cause non établie (livraison
    d'événement, ou charges antérieures à l'enregistrement du endpoint). Il faut le
    journal de livraison des webhooks côté Stripe pour trancher.
-2. **Deux lignes pour un même encaissement dans `stripe_payments`** : `in_1U6dWUG…` et
+3. **Deux lignes pour un même encaissement dans `stripe_payments`** : `in_1U6dWUG…` et
    `pi_3U6dWUG…`, 1 000 € chacune, même horodatage à la seconde. `deal_payments` n'en
    porte qu'une. La file « À rattacher » lit `stripe_payments` — à vérifier qu'elle ne
    propose pas de rattacher un paiement déjà rattaché sous son autre identifiant.
@@ -485,7 +530,7 @@ dur. Corrigé le 2026-08-30, en reprenant la résolution de « Performance par c
 ⚠️ J'avais d'abord conclu, en voyant un UUID, à une attribution mal écrite en amont.
 C'était faux : la forme d'un identifiant ne dit rien tant qu'on n'a pas cherché quel type
 de contenu l'utilise. L'écran voisin le savait déjà.
-3. **Neuf `ResponsiveContainer` sans `initialDimension`** produisent encore des
+4. **Neuf `ResponsiveContainer` sans `initialDimension`** produisent encore des
    `width(-1)` en console : huit en ligne dans `PageClientStats` (un dans
    `TabOverviewV2`, deux dans `TabInstagram`, cinq dans `TabYouTube`) et le composant
    partagé `components/charts/LineChart.tsx`, qui vaut pour tous ses appelants.
