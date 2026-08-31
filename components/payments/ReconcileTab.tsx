@@ -33,9 +33,57 @@ export default function ReconcileTab({ orphans, onDone }: { orphans: Orphan[]; o
   return (
     <div>
       <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16, maxWidth: 640, lineHeight: 1.6 }}>
-        Chaque bloc est un paiement reçu que Momentum n&apos;a pas su rattacher — lien créé directement dans Stripe, ou vente antérieure à la fonctionnalité.
+        {/* L'explication générique vivait ici parce qu'on ne savait pas distinguer
+            les cas. Chaque bloc porte désormais SA cause, et la cause décide du
+            geste : la garder ici en plus ne ferait que répéter du vague. */}
+        Chaque bloc est un encaissement réel qu&apos;aucune vente ne revendique. La cause est indiquée sur chacun — c&apos;est elle qui dit quoi faire.
       </div>
       {orphans.map(o => <OrphanCard key={o.paymentId} orphan={o} onDone={onDone} />)}
+    </div>
+  );
+}
+
+/**
+ * Pourquoi CE paiement n'appartient à aucune vente, et ce que ça change à faire.
+ *
+ * Une étiquette qui nommerait la cause sans dire l'action ne vaudrait pas mieux
+ * que l'explication générique qu'elle remplace : les trois causes n'appellent pas
+ * le même geste.
+ *
+ * ⚠️ `abonnement_inconnu` est le seul cas où rattacher le paiement NE RÈGLE PAS le
+ * problème. L'abonnement continue de prélever sans être relié à une vente : la
+ * prochaine échéance retombera ici, et celle d'après. Sans cet avertissement,
+ * l'élève rattache un versement par mois pendant un an sans comprendre pourquoi
+ * ça revient — et conclut que l'écran est cassé.
+ */
+function CauseDeLOrphelinat({ cause }: { cause: Orphan['cause'] }) {
+  // `null` = on ne sait pas, et surtout PAS « aucune cause ». Le dire, plutôt que
+  // de n'afficher rien : un blanc se lit comme une absence de problème.
+  const c = cause === 'metadata_absente'
+    ? { ton: 'neutre' as const, titre: 'Encaissé hors des liens Momentum',
+        texte: 'Lien créé directement dans Stripe, ou virement saisi à la main. Rattache-le à la bonne vente.' }
+    : cause === 'deal_supprime'
+    ? { ton: 'attention' as const, titre: 'La vente visée n’existe plus',
+        texte: 'Ce paiement désignait une vente qui a été supprimée depuis. Avant de le rattacher ailleurs, vérifie ce qui a été supprimé — l’argent, lui, a bien été encaissé.' }
+    : cause === 'abonnement_inconnu'
+    ? { ton: 'grave' as const, titre: 'Prélèvement d’un abonnement sans vente',
+        texte: 'Rattacher ce paiement ne suffira pas : l’abonnement n’est relié à aucune vente, donc la prochaine échéance reviendra ici, et les suivantes aussi. Rattache-le, puis relie l’abonnement à cette vente depuis Stripe.' }
+    : { ton: 'neutre' as const, titre: 'Cause inconnue',
+        texte: 'Cet encaissement est antérieur à l’enregistrement des causes, ou trop ancien pour que Stripe le renseigne encore. On ne sait pas pourquoi il est orphelin — ce n’est pas la preuve qu’il n’y a rien à comprendre.' };
+
+  const teinte = c.ton === 'grave'
+    ? { fond: 'var(--red-soft)', bord: 'rgba(205,91,63,.28)', ink: 'var(--red)' }
+    : c.ton === 'attention'
+    ? { fond: 'var(--amber-soft)', bord: 'rgba(181,128,37,.28)', ink: 'var(--amber-ink)' }
+    : { fond: 'var(--surface)', bord: 'var(--border-soft)', ink: 'var(--ink-2)' };
+
+  return (
+    <div style={{
+      padding: '11px 18px', background: teinte.fond,
+      borderBottom: `1px solid ${teinte.bord}`, fontSize: 12.5, lineHeight: 1.6,
+    }}>
+      <span style={{ fontWeight: 600, color: teinte.ink }}>{c.titre}</span>
+      <span style={{ color: 'var(--ink-2)' }}> — {c.texte}</span>
     </div>
   );
 }
@@ -91,6 +139,8 @@ function OrphanCard({ orphan, onDone }: { orphan: Orphan; onDone: () => void }) 
         </span>
         <Pill label="Non rattaché" tone="amber" />
       </div>
+
+      <CauseDeLOrphelinat cause={orphan.cause} />
 
       <div style={{ padding: '2px 18px 14px' }}>
         {!candidates && (

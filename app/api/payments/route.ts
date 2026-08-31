@@ -403,7 +403,7 @@ export async function GET(request: NextRequest) {
 
   const { data: allPayments } = await supa
     .from('stripe_payments')
-    .select('payment_id, amount, currency, date, description, status')
+    .select('payment_id, amount, currency, date, description, status, orphan_cause')
     .eq('profile_id', profileId)
     .gte('date', since)
     .is('dismissed_at', null)   // écartés par l'élève : ne remontent plus
@@ -477,6 +477,9 @@ export async function GET(request: NextRequest) {
       currency: o.currency,
       date: o.date,
       description: o.description,
+      // null n'est pas « aucune cause » : c'est « on ne sait pas ». Un orphelin
+      // trop ancien pour que Stripe le serve encore n'en portera jamais.
+      cause: o.orphan_cause ?? null,
     })),
     // Détail par deal, pour le panneau latéral et l'échéancier déplié.
     details: Object.fromEntries((deals ?? []).map((d: any) => [d.id, {

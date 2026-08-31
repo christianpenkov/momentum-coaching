@@ -103,12 +103,28 @@ export interface DealDetail {
   events?: DealEvent[];
 }
 
+/**
+ * Pourquoi un encaissement n'appartient à aucune vente.
+ *
+ * Écrit par le filet (`sync-stripe-payments`) et par le webhook, au moment précis
+ * où ils tranchent — c'est le seul endroit qui le sache. Rien en aval ne peut le
+ * reconstituer : `stripe_payments` ne garde aucune metadata Stripe.
+ */
+export type CauseOrphelin = 'metadata_absente' | 'deal_supprime' | 'abonnement_inconnu';
+
 export interface Orphan {
   paymentId: string;
   amount: number;
   currency: string;
   date: string;
   description: string | null;
+  /**
+   * ⚠️ `null` ne veut PAS dire « aucune cause » : il veut dire « on ne sait pas ».
+   * Les encaissements antérieurs à la colonne, et ceux trop anciens pour que
+   * Stripe les serve encore, n'en porteront jamais. L'écran doit distinguer les
+   * deux, sinon il affirme une absence de problème là où il y a une ignorance.
+   */
+  cause: CauseOrphelin | null;
 }
 
 export interface PaymentsData {

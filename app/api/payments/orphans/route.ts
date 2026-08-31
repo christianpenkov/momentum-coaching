@@ -147,7 +147,7 @@ export async function GET(request: NextRequest) {
 
   const { data: payment } = await supa
     .from('stripe_payments')
-    .select('payment_id, amount, currency, date, description, buyer_email')
+    .select('payment_id, amount, currency, date, description, buyer_email, orphan_cause')
     .eq('profile_id', profileId)
     .eq('payment_id', paymentId)
     .maybeSingle();
@@ -317,6 +317,18 @@ export async function POST(request: NextRequest) {
     match_method: 'manual',
   });
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
+
+  // La cause d'orphelinat décrit un état RÉVOLU dès que le paiement est rattaché.
+  // La laisser en place la ferait afficher comme un fait actuel — « ce paiement
+  // visait une vente supprimée » alors qu'il en a désormais une. C'est le défaut
+  // de la colonne qui garde la dernière valeur connue au lieu de l'état réel.
+  //
+  // `dismissed_at` n'est PAS touché ici, volontairement : il dit ce que
+  // l'utilisateur a décidé, et rattacher plus tard n'efface pas cette décision.
+  await supa.from('stripe_payments')
+    .update({ orphan_cause: null })
+    .eq('profile_id', profileId)
+    .eq('payment_id', payment.payment_id);
 
   await refreshDealStatus(deal.id);
 
