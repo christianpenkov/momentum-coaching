@@ -4178,31 +4178,45 @@ function FiltresPlateforme({ value, onChange, compact, contentCount, compteurs, 
 }
 
 /** Sous-onglets Stories / Séquences — visibles uniquement sous le filtre Stories. */
-function SousOngletsStories({ value, onChange, compact }: {
-  value: 'stories' | 'sequences';
-  onChange: (t: 'stories' | 'sequences') => void;
+/**
+ * Sous-onglets d'un filtre de plateforme — Stories/Séquences, Vidéos/Shorts.
+ *
+ * En retrait, rayon plus faible que les filtres au-dessus : ils sont subordonnés
+ * au filtre choisi, la forme doit le dire. Le « ↳ » rend cette subordination
+ * explicite au lieu de la laisser deviner.
+ */
+function SousOnglets<T extends string>({ options, value, onChange, compact }: {
+  options: readonly { cle: T; libelle: string; compte?: number }[];
+  value: T;
+  onChange: (t: T) => void;
   compact: boolean;
 }) {
-  // Sous-onglets en retrait, rayon plus faible que les filtres au-dessus : ils
-  // sont subordonnés au filtre Stories, la forme doit le dire. Le « ↳ » du hi-fi
-  // rend cette subordination explicite au lieu de la laisser deviner.
   return (
-    <div style={{ display: 'flex', gap: compact ? 4 : 7, alignItems: 'center', paddingLeft: 3 }}>
+    <div style={{ display: 'flex', gap: compact ? 4 : 7, alignItems: 'center', paddingLeft: 3, flexWrap: 'wrap' }}>
       <span style={{ color: FAINT, fontSize: 12, flexShrink: 0 }}>↳</span>
-      {(['stories', 'sequences'] as const).map(t => (
-        <button key={t} onClick={() => onChange(t)} style={{
+      {options.map(o => (
+        <button key={o.cle} onClick={() => onChange(o.cle)} style={{
           borderRadius: 8, cursor: 'pointer', fontWeight: 600,
+          display: 'flex', alignItems: 'center', gap: 5,
           padding: compact ? '4px 11px' : '6px 13px',
           fontSize: compact ? 11 : 12.5,
-          border: `1px solid ${value === t ? INK : BORDER}`,
-          background: value === t ? INK : SURFACE,
-          color: value === t ? 'var(--bg)' : MUTED,
+          border: `1px solid ${value === o.cle ? INK : BORDER}`,
+          background: value === o.cle ? INK : SURFACE,
+          color: value === o.cle ? 'var(--bg)' : MUTED,
           transition: `all var(--dur-instant) var(--ease-out)`,
-        }}>{t === 'stories' ? 'Stories' : 'Séquences'}</button>
+        }}>
+          {o.libelle}
+          {o.compte != null && <span style={{ opacity: 0.55, fontSize: compact ? 10 : 11 }}>{o.compte}</span>}
+        </button>
       ))}
     </div>
   );
 }
+
+const SOUS_ONGLETS_STORIES = [
+  { cle: 'stories' as const, libelle: 'Stories' },
+  { cle: 'sequences' as const, libelle: 'Séquences' },
+];
 
 /** Barre d'actions des stories : sélection en cours, ou création / actualisation. */
 function ActionsStories({ selectionMode, selectedCount, compact, onStartSelection, onCancelSelection, onContinue, onRefresh }: {
@@ -4296,7 +4310,7 @@ function RailBouton({ children, title, actif, accent, onClick }: {
  */
 function RailContenus({ posts, rightView, ouvert, epingle, onRetour, onEpingler, onOuvrirPost, onSurvol,
   filterPlatform, onFilterPlatform, compteurs, sansSequence, onSansSequence,
-  search, onSearch, storiesSubTab, onStoriesSubTab }: {
+  search, onSearch, storiesSubTab, onStoriesSubTab, sousOngletsYt, ytSubTab, onYtSubTab }: {
   posts: Post[];
   rightView: RightView;
   ouvert: boolean;
@@ -4317,6 +4331,9 @@ function RailContenus({ posts, rightView, ouvert, epingle, onRetour, onEpingler,
   onSearch: (v: string) => void;
   storiesSubTab: 'stories' | 'sequences';
   onStoriesSubTab: (t: 'stories' | 'sequences') => void;
+  sousOngletsYt: readonly { cle: 'tout' | 'videos' | 'shorts'; libelle: string; compte?: number }[];
+  ytSubTab: 'tout' | 'videos' | 'shorts';
+  onYtSubTab: (t: 'tout' | 'videos' | 'shorts') => void;
 }) {
   const idCourant = rightView && (rightView.type === 'post' || rightView.type === 'story') ? rightView.post.id : null;
   const reduit = useReducedMotion();
@@ -4412,7 +4429,10 @@ function RailContenus({ posts, rightView, ouvert, epingle, onRetour, onEpingler,
             />
 
             {filterPlatform === 'STORY' && (
-              <SousOngletsStories value={storiesSubTab} onChange={onStoriesSubTab} compact />
+              <SousOnglets options={SOUS_ONGLETS_STORIES} value={storiesSubTab} onChange={onStoriesSubTab} compact />
+            )}
+            {filterPlatform === 'YT' && (
+              <SousOnglets options={sousOngletsYt} value={ytSubTab} onChange={onYtSubTab} compact />
             )}
           </m.div>
         )}
@@ -5385,11 +5405,20 @@ export default function PageLiens() {
   // Déclaré ici, avec les autres états de filtrage : `filteredPosts` en dépend
   // juste en dessous, et le `useState` vivait plus bas dans le composant.
   const [storiesSubTab, setStoriesSubTab] = useState<'stories' | 'sequences'>('stories');
+  const [ytSubTab, setYtSubTab] = useState<'tout' | 'videos' | 'shorts'>('tout');
 
   const filteredPosts = posts.filter(p => {
     if (filterPlatform !== 'all' && p.platform !== filterPlatform) return false;
     if (sansSequence && p.lmKeyword) return false;
     if (search.trim() && !p.caption.toLowerCase().includes(search.toLowerCase())) return false;
+    // Un Short et une vidéo longue ne se travaillent pas pareil — durée, format,
+    // audience. La distinction vient de la durée côté API YouTube (≤ 60 s), pas
+    // d'un champ déclaratif : `mediaType` vaut donc SHORT ou VIDEO, jamais rien
+    // d'autre pour un contenu YouTube.
+    if (filterPlatform === 'YT' && ytSubTab !== 'tout') {
+      const estShort = p.mediaType === 'SHORT';
+      if (ytSubTab === 'shorts' ? !estShort : estShort) return false;
+    }
     // Sous-onglet « Séquences » : seules les stories qui appartiennent à une
     // séquence ont leur place dans la liste. La liste large s'en tirait en
     // remplaçant tout son rendu par celui des séquences, mais le rail, lui,
@@ -5408,6 +5437,19 @@ export default function PageLiens() {
     STORY: posts.filter(p => p.platform === 'STORY').length,
     sansSequence: posts.filter(p => !p.lmKeyword).length,
   }), [posts]);
+
+  // Mêmes règles que les compteurs de plateforme : comptés sur `posts`, jamais
+  // sur `filteredPosts`. Le compte est ce qui rend le sous-onglet utile — sans
+  // lui, on clique sur « Shorts » pour découvrir qu'il n'y en a aucun.
+  const sousOngletsYt = useMemo(() => {
+    const yt = posts.filter(p => p.platform === 'YT');
+    const shorts = yt.filter(p => p.mediaType === 'SHORT').length;
+    return [
+      { cle: 'tout' as const,   libelle: 'Tout',    compte: yt.length },
+      { cle: 'videos' as const, libelle: 'Vidéos',  compte: yt.length - shorts },
+      { cle: 'shorts' as const, libelle: 'Shorts',  compte: shorts },
+    ];
+  }, [posts]);
 
   // Résout le post depuis l'array live (enrichi) plutôt que rightView (copie figée)
   const selectedPost = rightView?.type === 'post'
@@ -5717,10 +5759,15 @@ export default function PageLiens() {
               />
 
               {filterPlatform === 'STORY' && (
-                <SousOngletsStories
+                <SousOnglets
+                  options={SOUS_ONGLETS_STORIES}
                   value={storiesSubTab} compact={false}
                   onChange={t => { setStoriesSubTab(t); if (t === 'sequences') { setSelectionMode(false); setSelectedStoryIds(new Set()); } }}
                 />
+              )}
+
+              {filterPlatform === 'YT' && (
+                <SousOnglets options={sousOngletsYt} value={ytSubTab} onChange={setYtSubTab} compact={false} />
               )}
 
               {filterPlatform === 'STORY' && storiesSubTab === 'stories' && (
@@ -5966,6 +6013,7 @@ export default function PageLiens() {
               onSurvol={survolRail}
               filterPlatform={filterPlatform} onFilterPlatform={setFilterPlatform}
               compteurs={compteurs}
+              sousOngletsYt={sousOngletsYt} ytSubTab={ytSubTab} onYtSubTab={setYtSubTab}
               sansSequence={sansSequence} onSansSequence={setSansSequence}
               search={search} onSearch={setSearch}
               storiesSubTab={storiesSubTab}
@@ -6014,10 +6062,15 @@ export default function PageLiens() {
               </div>
 
               {filterPlatform === 'STORY' && (
-                <SousOngletsStories
+                <SousOnglets
+                  options={SOUS_ONGLETS_STORIES}
                   value={storiesSubTab} compact={false}
                   onChange={t => { setStoriesSubTab(t); if (t === 'sequences') { setSelectionMode(false); setSelectedStoryIds(new Set()); } }}
                 />
+              )}
+
+              {filterPlatform === 'YT' && (
+                <SousOnglets options={sousOngletsYt} value={ytSubTab} onChange={setYtSubTab} compact={false} />
               )}
 
               {filterPlatform === 'STORY' && storiesSubTab === 'stories' && (
