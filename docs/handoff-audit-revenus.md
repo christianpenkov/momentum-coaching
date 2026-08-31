@@ -489,26 +489,47 @@ tant qu'aucun client n'aura paye deux fois.
 
 ### Ce qui reste ouvert
 
-1. **`lib/supabase/useCoachData.ts` compte le cash brut, sans deduire les
-   remboursements.** Deux requetes y font `.eq('status','succeeded')` puis somment,
-   au lieu de passer par `calculerCash`. Mesure le 2026-08-30 sur le profil de test :
-   **2 800 EUR au lieu de 2 600 EUR** — l'accueil du coach affiche 200 EUR qui ont ete
-   rendus. C'est le meme defaut que celui corrige aujourd'hui sur `/api/payments/by-origin`
-   et sur l'onglet Revenus ; c'est le dernier site connu a ne pas lire la regle partagee.
-   La seconde des deux requetes n'a par ailleurs **aucune borne de date**, donc le meme
-   probleme d'echelle que celui corrige ici. Hors perimetre de cet audit.
-2. **Trois encaissements Stripe (60 €) existent chez Stripe et nulle part chez nous.**
-   Vus le 2026-08-30 dans `charges.list` du compte de test (25 €, 25 €, 10 €, datés du
-   19/08), ils sont absents de `stripe_payments`, qui ne compte que 6 lignes en tout. Ce
-   n'est donc pas un problème d'affichage : la page Paiements a bien un onglet
-   « À rattacher » alimenté par cette table, mais il ne peut pas montrer des lignes qui
-   n'y sont pas. Le webhook ne les a jamais enregistrées — cause non établie (livraison
-   d'événement, ou charges antérieures à l'enregistrement du endpoint). Il faut le
-   journal de livraison des webhooks côté Stripe pour trancher.
-3. **Deux lignes pour un même encaissement dans `stripe_payments`** : `in_1U6dWUG…` et
-   `pi_3U6dWUG…`, 1 000 € chacune, même horodatage à la seconde. `deal_payments` n'en
-   porte qu'une. La file « À rattacher » lit `stripe_payments` — à vérifier qu'elle ne
-   propose pas de rattacher un paiement déjà rattaché sous son autre identifiant.
+Un seul point, et c'est le plus serieux de tout l'audit.
+
+**Un compte Stripe branche en OAuth n'a AUCUN filet de rattrapage.** Verifie dans le
+code le 2026-08-30 : `supabase/functions/sync-stripe-payments` — la seule fonction qui
+relit les paiements chez Stripe — **ignore volontairement les comptes OAuth**, au motif
+que « leur webhook fait deja le travail en temps reel ». Pour ces comptes, le webhook
+est donc l'unique chemin d'ecriture. Un evenement non delivre, ou une erreur pendant son
+traitement, et le paiement n'existe nulle part : ni dans le cash, ni dans « A rattacher »
+(qui lit `stripe_payments`, donc ce que le webhook a ecrit), ni dans aucune vue de sante.
+
+Ce n'est pas theorique. Trois encaissements vus dans `charges.list` du compte de test
+(25 €, 25 €, 10 €, dates du 19/08) sont absents de `stripe_payments`, qui ne compte que
+6 lignes en tout. Le compte etait connecte depuis le 18/08 a 23 h 13 et le webhook
+ecrivait bien le 19/08 a 00 h 30 : ils sont donc posterieurs au branchement. La cause
+exacte demande le journal de livraison des webhooks cote Stripe, hors de portee d'ici.
+
+**La correction tient en une ligne de perimetre** : cesser d'exclure les comptes OAuth
+de `sync-stripe-payments`, et la faire tourner une fois par jour comme filet. Elle sait
+deja lire les charges, les rattacher par metadata et ne pas creer de doublon (garde
+`existing` sur `(deal_id, stripe_payment_id)`). C'est le motif « fenetre de rattrapage
+plus large que l'intervalle » de `docs/checklist-scalabilite.md`, applique au seul
+chemin d'ecriture qui n'en a pas.
+
+⚠️ C'est une Edge Function : elle ne part **pas** avec `git push`. Deploiement separe
+obligatoire, et `npx deno check` avant.
+
+### Ce qui a ete clos depuis, et comment
+
+- **Le cash brut** — quatre lectures sommaient les paiements `succeeded` sans deduire
+  les remboursements : `useCoachData`, `SupabaseClientsContext` (x4 requetes),
+  `salesCallStats.fetchDealsForStats`. 2 800 € affiches pour 2 600 € en caisse sur
+  l'accueil coach, la liste des clients et la fiche eleve. Toutes passent desormais par
+  `calculerCash`. Le commentaire de `computeDealTotals` affirmait qu'un remboursement
+  etait une ligne NEGATIVE — c'est faux, et c'est ce qui a fait survivre le defaut.
+- **Le doublon `in_` / `pi_` dans `stripe_payments`** — deja gere : `/api/payments`
+  ecarte tout paiement dont le montant ET l'instant coincident avec un paiement deja
+  rattache. Verifie a l'ecran : « Tout est rattache », zero faux orphelin.
+- **Les `width(-1)`** — 11 conteneurs corriges (10 dans `PageClientStats`, plus le
+  composant partage `LineChart`). Console a zero sur les six onglets.
+- **Les sequences de stories** — voir plus haut, `first_touch_content_id` porte trois
+  formes d'identifiant.
 
 ### `first_touch_content_id` porte TROIS formes d'identifiant, pas deux
 
