@@ -146,6 +146,7 @@ select * from yt_sante_donnees;                 -- 'ok' partout
 select * from integrations_sante;               -- 'ok' ou 'non_connectee'
 select * from ventes_sante_montants;            -- vide = rapport et deal concordent
 select * from stripe_sante_rattachement;        -- vide = chaque encaissement a sa vente
+select * from ventes_sante_sur_encaissement;    -- vide = aucun deal n'a encaisse 2x
 select * from ig_sante_insights_posts;          -- 'ok' partout
 select * from base_sante_taille;                -- 'ok' = plafond de stockage loin
 ```
@@ -202,6 +203,14 @@ vente ne revendique. ⚠️ Elle ne voit QUE ce qu'un chemin d'écriture a déj�
 un webhook jamais délivré ne laisse aucune trace et reste invisible ici. Seule la passe
 quotidienne de `sync-stripe-payments` ferme ce trou-là, en rapportant chez nous ce que
 Stripe sait. Les deux sont complémentaires, ni l'un ni l'autre ne suffit.
+
+⚠️ **Stripe a retiré le lien charge ↔ facture.** Mesuré contre l'API réelle le
+2026-08-31 sur `2026-04-22.dahlia` : `charge.invoice`, `invoice.charge`,
+`invoice.payment_intent` et `payment_intent.invoice` sont **tous absents**. Le seul lien
+restant est `invoice.payments` sous `expand`, au prix d'un appel par facture. Ne pas
+réessayer de rattacher une charge à sa facture — et ne pas s'en inquiéter : une charge
+d'abonnement porte `metadata: {}`, donc elle ne se rattache à aucun deal et n'écrit rien.
+C'est `ventes_sante_sur_encaissement` qui garde le cash, pas une garde à l'écriture.
 
 ⚠️ **Le cash a UNE seule règle : `lib/dealCash.ts`.** Ne jamais sommer des paiements à
 la main. Sept lectures le faisaient encore le 2026-08-30 (`.eq('status','succeeded')`
