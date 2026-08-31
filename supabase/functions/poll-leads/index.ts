@@ -1300,6 +1300,25 @@ async function snapshotOldDomainLinks(
   // les appels Short.io du run, ce qui traite la cause (rafale au-delà du quota)
   // plutôt que le seul symptôme observé ici.
 
+  // Etat des lignes DU JOUR pour ce profil — meme raison que dans snapshotShortioLinks :
+  // n'appeler la RPC que si elle changerait quelque chose.
+  //
+  // Ce chemin-ci avait ete oublie lors du premier correctif, et c'est lui qui expliquait
+  // les 93 ecritures par passage qui restaient inexpliquees le 2026-08-31 : reparties
+  // 67 / 13 / 13 sur les trois profils ayant d'anciens domaines, et 0 sur le seul qui
+  // n'en a pas. Deux chemins d'ecriture vers la meme table, un seul corrige — le motif
+  // recurrent de ce projet.
+  const etatDuJour = new Map<string, any>();
+  {
+    const { data: rows, error: errRows } = await supa
+      .from('shortio_link_daily_snapshots')
+      .select('link_id, path, short_url, original_url, human_clicks, total_clicks, link_type, link_category, backfill_source')
+      .eq('profile_id', profileId)
+      .eq('date', dateToday);
+    if (errRows) errors.push(`old_domain_etat_du_jour: ${errRows.message}`);
+    for (const r of rows ?? []) etatDuJour.set(String(r.link_id), r);
+  }
+
   for (const oldDomain of oldDomains) {
     try {
       const links = await fetchShortioLinks({ apiKey, domainId: String(oldDomain.id) });
@@ -1341,16 +1360,36 @@ async function snapshotOldDomainLinks(
         try { linkType = new URL(l.originalURL || '').searchParams.get('utm_medium') || null; } catch { /* lien sans URL exploitable */ }
         const humanClicks = clicksByPath.get(path) ?? 0;
 
+        const originalUrl = l.originalURL || '';
+        const linkCategory = resolveLinkCategory(path, shortUrl, originalUrl);
+
+        // Rien a ecrire si la RPC ne changerait rien. Ce chemin ecrit TOUJOURS le jour
+        // courant, donc jamais en mode ecrasement : les clics suivent GREATEST, et une
+        // valeur qui n'augmente pas ne bouge pas la ligne.
+        const existant = etatDuJour.get(linkId);
+        if (existant) {
+          const sourceStable = existant.backfill_source === 'cron' || existant.backfill_source === 'manual';
+          const clicsInchanges =
+            humanClicks <= (existant.human_clicks ?? 0) && humanClicks <= (existant.total_clicks ?? 0);
+          const metadonneesInchangees =
+            existant.path === path &&
+            existant.short_url === shortUrl &&
+            existant.original_url === originalUrl &&
+            (linkType === null || existant.link_type === linkType) &&
+            (linkCategory === null || existant.link_category === linkCategory);
+          if (sourceStable && clicsInchanges && metadonneesInchangees) continue;
+        }
+
         // top_*/utm_* à null (pas []) : la RPC fait COALESCE(EXCLUDED.x, existant.x) — null
         // laisse les stats détaillées d'un run précédent intactes, [] les écraserait à vide.
         await supa.rpc('upsert_shortio_link_snapshot', {
           p_profile_id: profileId, p_link_id: linkId, p_path: path, p_short_url: shortUrl,
-          p_original_url: l.originalURL || '', p_date: dateToday, p_human_clicks: humanClicks, p_total_clicks: humanClicks,
+          p_original_url: originalUrl, p_date: dateToday, p_human_clicks: humanClicks, p_total_clicks: humanClicks,
           p_link_type: linkType,
           p_top_countries: null, p_top_referrers: null, p_top_browsers: null, p_top_os: null, p_top_social: null, p_top_cities: null,
           p_utm_sources: null, p_utm_mediums: null,
           p_backfill_source: 'cron',
-          p_link_category: resolveLinkCategory(path, shortUrl, l.originalURL || ''),
+          p_link_category: linkCategory,
         });
       }
     } catch (e: any) {
