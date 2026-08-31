@@ -243,15 +243,42 @@ configuré, hôte hors liste blanche, canal non partagé (`dm`), destination dé
 
 | Variable | Rôle | Absente ? |
 |---|---|---|
-| `MOMENTUM_REDIRECT_ORIGIN` | Origine qui sert `/r/` — **`https://prendre-rdv.app`** | **Rien n'est réécrit**, tout fonctionne comme avant. Pas de Click ID. |
+| `MOMENTUM_REDIRECT_ORIGIN` | Origine qui sert `/r/`. Aujourd'hui `https://momentum-plateforme.vercel.app` | **Rien n'est réécrit**, tout fonctionne comme avant. Pas de Click ID. |
 | `CLICK_IP_HASH_SECRET` | Sel serveur de l'empreinte d'IP | `ip_hash` reste vide. |
 
-Le domaine retenu est **`prendre-rdv.app`** (décidé le 2026-08-31, pas encore acheté à
-cette date). Il est **neutre à dessein** : c'est le seul domaine que voit le prospect
-dans le funnel d'un coach, et y afficher le nom de la plateforme ferait apparaître un
-outil là où le coach doit être seul en scène. Un domaine unique partagé par tous les
-élèves, jamais un sous-domaine par coach — à 40 élèves ce serait autant de domaines à
-brancher et renouveler, ce qui contredit l'objectif zéro maintenance.
+### L'origine se change en relançant le script
+
+Deux étapes assumées, décidées le 2026-08-31 :
+
+| Quand | Origine | Pourquoi |
+|---|---|---|
+| Aujourd'hui | `https://momentum-plateforme.vercel.app` | Le domaine définitif n'est pas acheté, et attendre bloquerait la mise en service du mécanisme |
+| Avant la livraison chez Quennel | `https://prendre-rdv.app` | **Neutre à dessein** — c'est le seul domaine que voit le prospect dans le funnel d'un coach, et y afficher le nom de la plateforme ferait apparaître un outil là où le coach doit être seul en scène |
+
+Un domaine unique partagé par tous les élèves, jamais un sous-domaine par coach : à
+40 élèves ce serait autant de domaines à brancher et renouveler, ce qui contredit
+l'objectif zéro maintenance.
+
+**La bascule est une relance du script**, rien de plus :
+
+```bash
+# après avoir changé MOMENTUM_REDIRECT_ORIGIN
+node scripts/reecrire-liens-shortio.mjs              # liste les liens à déménager
+node scripts/reecrire-liens-shortio.mjs --appliquer
+```
+
+⚠️ **Ça n'a pas toujours été vrai.** `construireDestinationShortio` refusait tout ce qui
+n'était pas une destination Calendly : un lien déjà réécrit sur l'ancienne origine
+n'était plus une URL Calendly, donc il tombait en « hors périmètre » et le script
+passait à côté **sans rien dire**. Le déménagement est maintenant un cas traité —
+chemin et paramètres conservés à l'identique, seul l'hôte change — et trois tests le
+verrouillent, dont un qui vérifie qu'un `/r/` étranger sans `d` n'est pas pris pour une
+des nôtres.
+
+⚠️ **Ne jamais remplacer ce réglage par un repli automatique** sur
+`NEXT_PUBLIC_PLATFORM_URL` ou sur l'URL de déploiement. Poser l'origine explicitement
+est un choix, écrit et changeable ; un repli inscrirait une adresse dans des liens de
+bio publiés sans que personne ne l'ait décidé, et cette adresse-là ne se reprend pas.
 
 `MOMENTUM_REDIRECT_ORIGIN` est **volontairement distincte** de
 `NEXT_PUBLIC_PLATFORM_URL` : elle est inscrite dans la destination de chaque lien
@@ -271,7 +298,8 @@ corrompt la valeur.
 ## Déploiement — l'ordre n'est pas négociable
 
 1. Déployer la route `/r/` et **la vérifier** en production.
-2. Poser `MOMENTUM_REDIRECT_ORIGIN` (et `CLICK_IP_HASH_SECRET`).
+2. Poser `MOMENTUM_REDIRECT_ORIGIN` (et `CLICK_IP_HASH_SECRET`), puis redéployer —
+   une variable d'environnement n'atteint pas un déploiement déjà en ligne.
 3. Réécrire **par lots**, en simulation d'abord :
 
 ```bash

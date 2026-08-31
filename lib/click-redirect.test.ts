@@ -222,3 +222,51 @@ test('champsDuClic n’écrit jamais un canal hors nomenclature', () => {
   // `dm` n'est pas un canal partagé : un lien de DM ne devrait jamais passer ici.
   assert.equal(champsDuClic(new URLSearchParams('utm_medium=dm')).medium, null);
 });
+
+// ── Changement d'origine ────────────────────────────────────────────────────
+//
+// Scénario réel prévu : on démarre sur l'adresse Vercel, on bascule sur le domaine
+// définitif avant la mise en service. La bascule se fait en relançant le script —
+// encore faut-il qu'il VOIE les liens à déplacer.
+
+const ANCIENNE = 'https://momentum-plateforme.vercel.test';
+const NOUVELLE = 'https://prendre-rdv.test';
+
+test('changer d’origine déménage le lien au lieu de l’ignorer', () => {
+  const surAncienne = construireDestinationShortio(ANCIENNE, 'bio-calendly-ig', CALENDLY_BIO, PROFIL)!;
+  const surNouvelle = construireDestinationShortio(NOUVELLE, 'bio-calendly-ig', surAncienne, PROFIL);
+
+  // Le piège : sans traitement dédié, la destination n'est plus une URL Calendly,
+  // donc elle tombe en « hors périmètre » et le script passe à côté EN SILENCE.
+  assert.notEqual(surNouvelle, null, 'le lien doit être déplacé, pas ignoré');
+
+  const avant = new URL(surAncienne);
+  const apres = new URL(surNouvelle!);
+  assert.equal(apres.origin, NOUVELLE);
+  assert.equal(apres.pathname, avant.pathname);
+  // Chemin et paramètres sont conservés à l'identique : seul l'hôte change.
+  assert.deepEqual([...apres.searchParams].sort(), [...avant.searchParams].sort());
+});
+
+test('un lien de description déménage aussi, utm_content compris', () => {
+  const surAncienne = construireDestinationShortio(ANCIENNE, 'prendre-rdv-3457', CALENDLY_DESC, PROFIL)!;
+  const url = new URL(construireDestinationShortio(NOUVELLE, 'prendre-rdv-3457', surAncienne, PROFIL)!);
+  assert.equal(url.origin, NOUVELLE);
+  assert.equal(url.searchParams.get('utm_content'), '18056185901693457');
+  assert.equal(url.searchParams.get('d'), 'christianpenkov/30min');
+  assert.equal(url.searchParams.get('p'), PROFIL);
+});
+
+test('sur la MÊME origine, rien ne bouge — le script reste rejouable', () => {
+  const une = construireDestinationShortio(ANCIENNE, 'bio-calendly-ig', CALENDLY_BIO, PROFIL)!;
+  assert.equal(construireDestinationShortio(ANCIENNE, 'bio-calendly-ig', une, PROFIL), null);
+});
+
+test('un /r/ étranger sans `d` n’est pas pris pour une de nos redirections', () => {
+  // Le chemin `/r/` seul ne prouve rien : n'importe quel site peut en avoir un.
+  // Sans `d`, la route ne saurait pas où rediriger — ce n'est donc pas une des nôtres.
+  assert.equal(
+    construireDestinationShortio(NOUVELLE, 'x', 'https://exemple.test/r/quelque-chose?utm_medium=bio', PROFIL),
+    null,
+  );
+});

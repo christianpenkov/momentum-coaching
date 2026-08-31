@@ -260,13 +260,31 @@ export function champsDuClic(parametres: URLSearchParams): {
  * DM prospect par la branche `medium === null && path.includes('prendre-rdv')`.
  * Verrouillé par un test dans `lib/shortio-link-category.test.ts`.
  *
+ * ⚠️ **Gère aussi le CHANGEMENT d'origine.** Une destination déjà réécrite sur une
+ * autre origine est reconstruite sur la nouvelle, à l'identique. Sans ça, changer de
+ * domaine (adresse de test → domaine définitif) ne réécrirait RIEN : la destination
+ * n'étant plus une URL Calendly, elle serait classée « hors périmètre » et le script
+ * passerait à côté sans le dire. C'est le genre de défaut qui ne se découvre que le
+ * jour de la bascule, quand tous les liens pointent encore vers l'ancien domaine.
+ *
  * Retourne `null` quand il ne faut PAS réécrire — l'appelant garde alors la
  * destination directe, qui fonctionne exactement comme aujourd'hui :
  *  - pas d'origine de redirection configurée (le domaine n'est pas encore branché)
  *  - destination hors liste blanche (lead magnet, page de paiement Stripe…)
  *  - canal non partagé (`dm` : déjà instrumenté par prospect_links)
- *  - destination déjà réécrite (le script de migration est rejouable sans effet)
+ *  - destination déjà réécrite SUR LA MÊME origine (le script est rejouable sans effet)
  */
+/**
+ * Cette URL est-elle déjà une destination de redirection Click ID ?
+ *
+ * Le chemin `/r/` seul ne suffit pas — n'importe quel site peut en avoir un. La
+ * présence de `d` est ce qui identifie nos URL : c'est le paramètre sans lequel la
+ * route ne saurait pas où rediriger.
+ */
+function estUneRedirection(url: URL): boolean {
+  return url.pathname.startsWith('/r/') && url.searchParams.has('d');
+}
+
 export function construireDestinationShortio(
   origineRedirection: string | null | undefined,
   cheminShortio: string,
@@ -284,8 +302,16 @@ export function construireDestinationShortio(
     return null;
   }
 
-  // Déjà réécrite : idempotence du script de migration.
-  if (source.origin === origine.origin) return null;
+  // Déjà réécrite. Deux cas très différents, et les confondre coûte cher.
+  if (estUneRedirection(source)) {
+    // Même origine : rien à faire, le script est rejouable sans effet.
+    if (source.origin === origine.origin) return null;
+    // Origine différente : on DÉMÉNAGE le lien, en conservant chemin et paramètres
+    // à l'identique. `d`, `h` et `p` sont déjà là et restent justes — seul l'hôte
+    // qui sert la route change.
+    const demenage = new URL(source.pathname + source.search, origine.origin);
+    return demenage.toString();
+  }
 
   const cleHote = (Object.keys(HOTES_AUTORISES) as CleHote[])
     .find(cle => HOTES_AUTORISES[cle] === source.origin);
