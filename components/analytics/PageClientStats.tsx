@@ -229,6 +229,12 @@ function CoverageNotice({ periodStartStr, integrationsReadyAt }: {
   // « le debut de la periode affichee n'est pas couvert » etait exact mais ne
   // disait ni ce que ca change, ni quoi en faire (retour de Chris, 2026-08-27).
   //
+  // Puis « et n'ont aucune donnee / cet historique n'existe pas » s'est revele FAUX
+  // (2026-08-31) : la recuperation d'historique Instagram remonte avant la mise en route
+  // — les 8 premiers jours de juin pesent 11 de reach et 13 vues dans les totaux affiches
+  // juste en dessous du bandeau. Ce qui s'arrete vraiment a la mise en route, c'est le
+  // pipeline : leads, calls, revenus. Le texte distingue donc les deux.
+  //
   // Ce qui compte pour qui lit les chiffres : les totaux de cette periode portent
   // sur MOINS de jours qu'une periode complete. Les comparer a un autre mois
   // conduirait a voir une baisse la ou il n'y a qu'un historique plus court. On
@@ -246,9 +252,10 @@ function CoverageNotice({ periodStartStr, integrationsReadyAt }: {
         Les comptes de cet élève ont été connectés le{' '}
         <strong style={{ color: 'var(--ink-2)' }}>{dateLisible}</strong>
         {' '}: les <strong style={{ color: 'var(--ink-2)' }}>{joursManquants} premiers jours</strong>{' '}de cette période
-        sont antérieurs et n&apos;ont aucune donnée.
-        Les totaux ci-dessous sont donc à lire sur une période plus courte — ils ne se comparent pas
-        à un mois complet. Rien à faire, cet historique n&apos;existe pas.
+        précèdent la mise en route. Momentum n&apos;y a produit ni lead, ni call, ni revenu — ces
+        totaux portent donc sur une période plus courte et ne se comparent pas à un mois complet.
+        Le reach et les vues, eux, peuvent remonter plus tôt : ils viennent de la récupération
+        d&apos;historique.
       </span>
     </div>
   );
@@ -8281,15 +8288,36 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, connectedA
   period: Period; setPeriod: (p: Period) => void;
   periodIndex: number; setPeriodIndex: (fn: (i: number) => number) => void;
   connectedAt?: string | null;
-  /** Début RÉEL de la fenêtre All-Time (integrations_ready_at), à ne pas confondre
-   *  avec connectedAt, qui borne seulement la navigation arrière. Les deux divergent :
-   *  29/05 contre 09/06 sur le profil de test, soit 11 jours annoncés à tort. */
+  /** Début RÉEL de la fenêtre All-Time (integrations_ready_at). Borne AUSSI la
+   *  navigation arrière depuis le 2026-08-31 — voir maxIndex ci-dessous. */
   allTimeStart?: string | null;
   sinceConnection?: boolean; setSinceConnection?: (v: boolean) => void;
 }) {
-  const maxIndex = connectedAt
-    ? Math.max(0, Math.floor((Date.now() - new Date(connectedAt).getTime()) / (period * 86400000)))
-    : 12;
+  // Jusqu'où la flèche « ‹ » peut reculer. Deux corrections en une, le 2026-08-31 :
+  //
+  // - la référence était `connectedAt` — la plus ancienne connexion IG/YT, 29/05 sur le
+  //   profil de test — au lieu de `integrations_ready_at`, 09/06. C'est la règle 1 du
+  //   référentiel de périmètre : la date de démarrage, jamais une autre. L'écart rendait
+  //   MAI atteignable, un mois entièrement antérieur à la mise en route, où le bandeau de
+  //   couverture annonçait « les 39 premiers jours » d'un mois qui en compte 31 ;
+  // - le calcul comptait des périodes GLISSANTES de `period` jours, alors que les périodes
+  //   affichées sont des semaines et des mois CALENDAIRES (lib/period.ts). Les deux ne
+  //   coïncident pas, et selon le jour du mois l'écart laissait passer une période de trop.
+  //   Corriger la seule date sans corriger le grain aurait reproduit le défaut ailleurs.
+  //
+  // On compare donc la vraie fenêtre calendaire à la date de démarrage : une période reste
+  // atteignable tant qu'elle se termine après. Le cas « période entièrement antérieure »
+  // devient inatteignable par construction, plutôt que rattrapé par un texte.
+  const debutMesure = allTimeStart ?? connectedAt;
+  const maxIndex = (() => {
+    if (!debutMesure) return 12;
+    const plancher = new Date(debutMesure).getTime();
+    const grain = period === 7 ? 'week' : 'month';
+    let i = 0;
+    // Garde-fou de boucle : 120 périodes, soit 10 ans de mois ou 2 ans de semaines.
+    while (i < 120 && getPeriodWindow(i + 1, grain).periodEnd.getTime() >= plancher) i++;
+    return i;
+  })();
   return (
     <div
       style={{
