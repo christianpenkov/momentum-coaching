@@ -2025,34 +2025,58 @@ async function majPeriodesIg(profileId: string, token: string, igAccountId: stri
   //
   // Un mois par passage : le rattrapage n'est pas urgent, et la retention laisse des
   // semaines. On part du plus recent, celui qui interesse le plus.
+  // Les SEMAINES sont rattrapees comme les mois. Elles ne l'etaient pas : l'etape ne
+  // traitait que 'mois', si bien qu'en basculant sur 7 jours la carte « Composition
+  // de ton reach » ne montrait que les deux dernieres semaines, alors que douze
+  // etaient disponibles depuis l'arrivee de l'eleve (constate le 2026-08-31 : les
+  // trois profils s'arretaient au 24 aout).
+  //
+  // Un rattrapage par granularite et par passage, soit deux appels Meta par heure et
+  // par profil au maximum, et zero une fois l'historique complet.
   if (departHistorique) {
-    try {
-      const { data: moisPresents } = await supa.from('analytics_ig_periodes')
-        .select('debut')
-        .eq('profile_id', profileId).eq('type', 'mois')
-        .is('archived_at', null);
-      const connus = new Set((moisPresents || []).map((m: { debut: string }) => m.debut));
+    for (const type of ['mois', 'semaine'] as const) {
+      try {
+        const { data: presents } = await supa.from('analytics_ig_periodes')
+          .select('debut')
+          .eq('profile_id', profileId).eq('type', type)
+          .is('archived_at', null);
+        const connus = new Set((presents || []).map((m: { debut: string }) => m.debut));
 
-      const [ay, am] = aujourdhui.split('-').map(Number);
-      let aEcrire: { debut: string; fin: string } | null = null;
-      let restants = 0;
-      for (let recul = 1; recul <= 12; recul++) {
-        const d = new Date(Date.UTC(ay, am - 1 - recul, 1));
-        const debut = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-01`;
-        // Le mois de l'arrivee compte : l'eleve a pu produire de la portee des son
-        // premier jour. On s'arrete au mois PRECEDENT son arrivee.
-        if (debut < departHistorique.slice(0, 7) + '-01') break;
-        if (connus.has(debut)) continue;
-        const dernier = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
-        const fin = `${debut.slice(0, 8)}${String(dernier).padStart(2, '0')}`;
-        if (!aEcrire) aEcrire = { debut, fin }; else restants++;
+        const [ay, am, ad] = aujourdhui.split('-').map(Number);
+        let aEcrire: { debut: string; fin: string } | null = null;
+        let restants = 0;
+
+        // 12 mois ou 53 semaines : au-dela, Meta ne sert plus la ventilation par type
+        // d'audience et la ligne serait fausse sans le dire.
+        const reculMax = type === 'mois' ? 12 : 53;
+        for (let recul = 1; recul <= reculMax; recul++) {
+          let debut: string, fin: string;
+          if (type === 'mois') {
+            const d = new Date(Date.UTC(ay, am - 1 - recul, 1));
+            debut = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-01`;
+            // Le mois de l'arrivee compte : l'eleve a pu produire de la portee des son
+            // premier jour. On s'arrete au mois PRECEDENT son arrivee.
+            if (debut < departHistorique.slice(0, 7) + '-01') break;
+            const dernier = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+            fin = `${debut.slice(0, 8)}${String(dernier).padStart(2, '0')}`;
+          } else {
+            const ref = new Date(Date.UTC(ay, am - 1, ad - recul * 7)).toISOString().slice(0, 10);
+            ({ debut, fin } = bornes('semaine', ref));
+            // Une semaine qui se TERMINE avant l'arrivee est entierement anterieure :
+            // on s'arrete. Celle qui l'enjambe compte, comme le mois d'arrivee.
+            if (fin < departHistorique) break;
+          }
+          if (connus.has(debut)) continue;
+          if (!aEcrire) aEcrire = { debut, fin }; else restants++;
+        }
+
+        if (aEcrire) {
+          await ecrire(type, aEcrire.debut, aEcrire.fin, true);
+          console.log(`[poll-leads] ig_periode_${type} rattrape profile=${profileId}: ${aEcrire.debut} (${restants} restant(s))`);
+        }
+      } catch (e: any) {
+        errors.push(`ig_periode_rattrapage_${type}: ${e?.message || 'unknown'}`);
       }
-      if (aEcrire) {
-        await ecrire('mois', aEcrire.debut, aEcrire.fin, true);
-        console.log(`[poll-leads] ig_periode_mois rattrape profile=${profileId}: ${aEcrire.debut} (${restants} restant(s))`);
-      }
-    } catch (e: any) {
-      errors.push(`ig_periode_rattrapage: ${e?.message || 'unknown'}`);
     }
   }
 
