@@ -270,7 +270,7 @@ export async function POST(request: NextRequest) {
 
   const { data: payment } = await supa
     .from('stripe_payments')
-    .select('payment_id, amount, currency, date')
+    .select('payment_id, amount, currency, date, subscription_id')
     .eq('profile_id', profileId)
     .eq('payment_id', body.paymentId)
     .maybeSingle();
@@ -330,9 +330,29 @@ export async function POST(request: NextRequest) {
     .eq('profile_id', profileId)
     .eq('payment_id', payment.payment_id);
 
+  // ── Relier l'abonnement, et pas seulement ce versement ────────────────────
+  // Sans ça, rattacher ne règle rien de durable : l'abonnement continue de
+  // prélever sans appartenir à une vente, et chaque échéance suivante revient
+  // dans « À rattacher ». L'élève referait le même geste tous les mois.
+  //
+  // ⚠️ Jamais d'écrasement. Si la vente porte DÉJÀ un autre abonnement, le
+  // remplacer ferait pointer ses prélèvements ailleurs — on rattache le paiement
+  // quand même, et on dit pourquoi le lien n'a pas été posé.
+  let abonnement: 'lie' | 'deja_un_autre' | null = null;
+  if (body.lierAbonnement && payment.subscription_id) {
+    if (deal.stripe_subscription_id && deal.stripe_subscription_id !== payment.subscription_id) {
+      abonnement = 'deja_un_autre';
+    } else if (!deal.stripe_subscription_id) {
+      await supa.from('deals')
+        .update({ stripe_subscription_id: payment.subscription_id })
+        .eq('id', deal.id);
+      abonnement = 'lie';
+    }
+  }
+
   await refreshDealStatus(deal.id);
 
-  return NextResponse.json({ ok: true, dealId: deal.id });
+  return NextResponse.json({ ok: true, dealId: deal.id, abonnement });
 }
 
 async function refreshDealStatus(dealId: string) {

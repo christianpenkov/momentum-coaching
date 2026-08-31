@@ -133,6 +133,16 @@ export interface Orphan {
    * deux cartes auraient permis de rattacher deux fois le même argent.
    */
   autresIdentifiants: string[];
+  /**
+   * L'abonnement d'où vient ce prélèvement, si le filet a su le nommer.
+   *
+   * ⚠️ C'est CE champ, et non `cause`, qui commande l'offre de relier
+   * l'abonnement à une vente. Le filet le pose dès qu'un abonnement a été vu sans
+   * permettre le rattachement, quelle que soit la cause finalement retenue — les
+   * seules lignes qui en portent un sont en `deal_supprime`, pas en
+   * `abonnement_inconnu`. Conditionner sur la cause n'afficherait jamais rien.
+   */
+  subscriptionId: string | null;
 }
 
 export interface PaymentsData {

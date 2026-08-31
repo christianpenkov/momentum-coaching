@@ -50,11 +50,13 @@ export default function ReconcileTab({ orphans, onDone }: { orphans: Orphan[]; o
  * que l'explication générique qu'elle remplace : les trois causes n'appellent pas
  * le même geste.
  *
- * ⚠️ `abonnement_inconnu` est le seul cas où rattacher le paiement NE RÈGLE PAS le
- * problème. L'abonnement continue de prélever sans être relié à une vente : la
- * prochaine échéance retombera ici, et celle d'après. Sans cet avertissement,
+ * ⚠️ Quand un abonnement est en jeu, rattacher le paiement NE RÈGLE PAS le
+ * problème : l'abonnement continue de prélever sans être relié à une vente, la
+ * prochaine échéance retombe ici, et celle d'après. Sans cet avertissement,
  * l'élève rattache un versement par mois pendant un an sans comprendre pourquoi
- * ça revient — et conclut que l'écran est cassé.
+ * ça revient — et conclut que l'écran est cassé. La case « Relier aussi
+ * l'abonnement » ferme ça, et elle est commandée par la PRÉSENCE de
+ * `subscriptionId`, jamais par la cause — voir son commentaire plus bas.
  */
 function CauseDeLOrphelinat({ cause }: { cause: Orphan['cause'] }) {
   // `null` = on ne sait pas, et surtout PAS « aucune cause ». Le dire, plutôt que
@@ -67,7 +69,7 @@ function CauseDeLOrphelinat({ cause }: { cause: Orphan['cause'] }) {
         texte: 'Ce paiement désignait une vente qui a été supprimée depuis. Avant de le rattacher ailleurs, vérifie ce qui a été supprimé — l’argent, lui, a bien été encaissé.' }
     : cause === 'abonnement_inconnu'
     ? { ton: 'grave' as const, titre: 'Prélèvement d’un abonnement sans vente',
-        texte: 'Rattacher ce paiement ne suffira pas : l’abonnement n’est relié à aucune vente, donc la prochaine échéance reviendra ici, et les suivantes aussi. Rattache-le, puis relie l’abonnement à cette vente depuis Stripe.' }
+        texte: 'Rattacher ce seul versement ne suffirait pas : l’abonnement n’appartient à aucune vente, donc la prochaine échéance reviendrait ici, et les suivantes aussi. Laisse la case « Relier aussi l’abonnement » cochée en rattachant, et c’est réglé pour de bon.' }
     : { ton: 'neutre' as const, titre: 'Cause inconnue',
         texte: 'Cet encaissement est antérieur à l’enregistrement des causes, ou trop ancien pour que Stripe le renseigne encore. On ne sait pas pourquoi il est orphelin — ce n’est pas la preuve qu’il n’y a rien à comprendre.' };
 
@@ -93,6 +95,11 @@ function OrphanCard({ orphan, onDone }: { orphan: Orphan; onDone: () => void }) 
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Cochée d'office : c'est le geste juste dans la quasi-totalité des cas, et la
+  // décocher est un choix conscient. Laissée vide, elle reproduirait en silence
+  // le problème qu'elle existe pour clore — l'échéance suivante reviendrait ici.
+  const [lierAbonnement, setLierAbonnement] = useState(true);
+  const [avertissement, setAvertissement] = useState<string | null>(null);
 
   async function load() {
     if (candidates || loading) return;
@@ -117,9 +124,18 @@ function OrphanCard({ orphan, onDone }: { orphan: Orphan; onDone: () => void }) 
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ paymentId: orphan.paymentId, ...body }),
       });
-      if (!r.ok) {
-        const d = await r.json().catch(() => ({}));
-        throw new Error(d.error || 'Échec du rattachement');
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'Échec du rattachement');
+
+      // Le paiement est rattaché, mais l'abonnement ne l'a pas été : la vente en
+      // portait déjà un autre, et l'écraser aurait fait pointer ses prélèvements
+      // ailleurs. On s'arrête pour le DIRE — recharger tout de suite ferait
+      // disparaître la carte, et avec elle la seule trace que la moitié du geste
+      // demandé n'a pas eu lieu.
+      if (d.abonnement === 'deja_un_autre') {
+        setAvertissement('Le paiement est rattaché, mais l’abonnement ne l’a pas été : cette vente en porte déjà un autre. Le remplacer aurait détourné ses prélèvements. Les prochaines échéances de cet abonnement reviendront donc ici.');
+        setBusy(false);
+        return;
       }
       onDone();
     } catch (e) {
@@ -161,6 +177,40 @@ function OrphanCard({ orphan, onDone }: { orphan: Orphan; onDone: () => void }) 
           </button>
         )}
 
+        {/* ── Relier l'abonnement, pas seulement ce versement ─────────────────
+            ⚠️ Conditionné à la PRÉSENCE de l'abonnement, jamais à la cause. Le
+            filet pose `subscription_id` dès qu'un abonnement a été vu sans
+            permettre le rattachement, quelle que soit la cause retenue : les
+            seules lignes qui en portent un sont en `deal_supprime`. Câblée sur
+            `cause === 'abonnement_inconnu'`, cette case ne s'afficherait jamais.
+
+            Sans elle, rattacher ne règle rien de durable : l'abonnement continue
+            de prélever sans appartenir à une vente, et l'élève referait le même
+            geste tous les mois sans comprendre pourquoi ça revient. */}
+        {candidates && candidates.length > 0 && orphan.subscriptionId && (
+          <button onClick={() => setLierAbonnement(v => !v)} style={{
+            display: 'flex', alignItems: 'flex-start', gap: 10, width: '100%', textAlign: 'left',
+            background: lierAbonnement ? 'var(--green-soft)' : 'var(--surface-2)',
+            border: `1px solid ${lierAbonnement ? 'var(--green)' : 'var(--border)'}`,
+            borderRadius: 9, padding: '11px 13px', marginTop: 4, marginBottom: 2,
+            cursor: 'pointer', fontFamily: 'inherit',
+          }}>
+            <span style={{
+              width: 16, height: 16, borderRadius: 5, flexShrink: 0, marginTop: 1,
+              border: `1.5px solid ${lierAbonnement ? 'var(--green)' : 'var(--faint)'}`,
+              background: lierAbonnement ? 'var(--green)' : 'transparent',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              {lierAbonnement && <Icon name="check" size={10} color="#fff" />}
+            </span>
+            <span style={{ fontSize: 12.5, lineHeight: 1.55, color: 'var(--ink-2)' }}>
+              <span style={{ fontWeight: 600 }}>Relier aussi l&apos;abonnement à cette vente.</span>{' '}
+              Les prochaines échéances se rattacheront toutes seules. Sans ça, chacune
+              reviendra ici, mois après mois.
+            </span>
+          </button>
+        )}
+
         {candidates?.map(c => (
           <div key={c.dealId} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 0', borderTop: '1px solid var(--border-soft)', flexWrap: 'wrap' }}>
             <span style={{ width: 78, flexShrink: 0 }}>
@@ -177,7 +227,10 @@ function OrphanCard({ orphan, onDone }: { orphan: Orphan; onDone: () => void }) 
               className={c.confidence === 'certain' ? 'btn-primary-brand' : 'btn-ghost'}
               style={{ fontSize: 12, flexShrink: 0, ...(c.confidence !== 'certain' ? { border: '1px solid var(--border)', borderRadius: 7, padding: '7px 13px' } : {}) }}
               disabled={busy}
-              onClick={() => act({ dealId: c.dealId })}>
+              onClick={() => act({
+                dealId: c.dealId,
+                lierAbonnement: lierAbonnement && !!orphan.subscriptionId,
+              })}>
               Rattacher
             </button>
           </div>
@@ -194,6 +247,21 @@ function OrphanCard({ orphan, onDone }: { orphan: Orphan; onDone: () => void }) 
               onClick={() => act({ action: 'ignore' })}>
               Ignorer
             </button>
+          </div>
+        )}
+
+        {avertissement && (
+          <div style={{
+            marginTop: 10, padding: '12px 14px', borderRadius: 9,
+            background: 'var(--amber-soft)', border: '1px solid rgba(181,128,37,.28)',
+            fontSize: 12.5, lineHeight: 1.6, color: 'var(--ink-2)',
+          }}>
+            {avertissement}
+            <div style={{ marginTop: 10 }}>
+              <button className="btn-ghost" style={{ fontSize: 12 }} onClick={onDone}>
+                J&apos;ai compris
+              </button>
+            </div>
           </div>
         )}
 

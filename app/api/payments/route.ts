@@ -403,7 +403,7 @@ export async function GET(request: NextRequest) {
 
   const { data: allPayments } = await supa
     .from('stripe_payments')
-    .select('payment_id, amount, currency, date, description, status, orphan_cause')
+    .select('payment_id, amount, currency, date, description, status, orphan_cause, subscription_id')
     .eq('profile_id', profileId)
     .gte('date', since)
     .is('dismissed_at', null)   // écartés par l'élève : ne remontent plus
@@ -516,6 +516,12 @@ export async function GET(request: NextRequest) {
       // null n'est pas « aucune cause » : c'est « on ne sait pas ». Un orphelin
       // trop ancien pour que Stripe le serve encore n'en portera jamais.
       cause: o.orphan_cause ?? null,
+      // L'abonnement d'où vient ce prélèvement, quand le filet a su le nommer.
+      // ⚠️ Écrit dès qu'un abonnement a été vu sans permettre le rattachement —
+      // PAS seulement sur la cause `abonnement_inconnu`. C'est donc lui, et non
+      // la cause, qui décide si l'on peut proposer de relier l'abonnement : les
+      // seules lignes qui en portent un aujourd'hui sont en `deal_supprime`.
+      subscriptionId: o.subscription_id ?? null,
     })),
     // Détail par deal, pour le panneau latéral et l'échéancier déplié.
     details: Object.fromEntries((deals ?? []).map((d: any) => [d.id, {
