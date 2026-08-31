@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { CALL_COLUMNS, type Client, type Task, type Call, type SessionReport } from '@/lib/supabase/types';
 import { computeSalesCallStats, fetchAllLeadsCount } from '@/lib/salesCallStats';
 import { getPeriodWindow } from '@/lib/period';
+import { calculerCash, type LignePaiement } from '@/lib/dealCash';
 
 export interface CurrentStats {
   followersIg: number;
@@ -165,18 +166,27 @@ export function useClientSelfData() {
           : Promise.resolve({ data: null }),
         // Cash collecté = paiements rattachés à un deal, pas l'encaissé Stripe brut
         // (même règle que SupabaseClientsContext — décision du 19/08/2026).
+        //
+        // ⚠️ TOUS les statuts, pas seulement `succeeded` : le net est calculé plus bas
+        // par `calculerCash`, la règle partagée de lib/dealCash.ts. Ne garder que
+        // `succeeded` revenait à ne JAMAIS déduire un remboursement — mesuré le
+        // 2026-08-30 sur le profil de test : 2 800 € affichés sur l'accueil du coach
+        // contre 2 600 € réellement en caisse. C'était le dernier écran de la
+        // plateforme à sommer le cash brut.
+        //
+        // `paid_at` non nul sur la requête du mois : c'est la date qui borne la
+        // fenêtre, et un paiement en échec ou en attente n'en porte pas.
         clientRow.profile_id
           ? supabase.from('deal_payments')
-              .select('amount, deals!inner(profile_id)')
+              .select('amount, status, deals!inner(profile_id)')
               .eq('deals.profile_id', clientRow.profile_id)
-              .eq('status', 'succeeded')
+              .not('paid_at', 'is', null)
               .gte('paid_at', startOfMonth)
           : Promise.resolve({ data: [] }),
         clientRow.profile_id
           ? supabase.from('deal_payments')
-              .select('amount, deals!inner(profile_id)')
+              .select('amount, status, deals!inner(profile_id)')
               .eq('deals.profile_id', clientRow.profile_id)
-              .eq('status', 'succeeded')
           : Promise.resolve({ data: [] }),
         clientRow.profile_id
           ? supabase.from('profiles').select('avatar_url').eq('id', clientRow.profile_id).maybeSingle()
@@ -257,12 +267,15 @@ export function useClientSelfData() {
       // identique entre les 3 écrans.
 
       const stripeConnected = !!(stripeIntegRes as { data: { id: string } | null }).data;
-      // Number() explicite : Postgres renvoie les numeric en chaîne.
+      // `calculerCash().net` et non une somme des montants : encaissé − remboursé −
+      // contesté, la règle partagée. Elle fait le Number() elle-même — les numeric
+      // Postgres arrivent en chaîne, et une concaténation silencieuse
+      // ("10" + "20" = "1020") passerait le typage.
       const cashCollectedAllTime = stripeConnected
-        ? (stripePaymentsAllTimeRes.data || []).reduce((s: number, p: any) => s + Number(p.amount || 0), 0)
+        ? calculerCash((stripePaymentsAllTimeRes.data || []) as unknown as LignePaiement[]).net
         : null;
       const cashCollectedThisMonth = stripeConnected
-        ? (stripePaymentsRes.data || []).reduce((s: number, p: any) => s + Number(p.amount || 0), 0)
+        ? calculerCash((stripePaymentsRes.data || []) as unknown as LignePaiement[]).net
         : null;
 
       const next = {

@@ -6,6 +6,7 @@
 // Neuf écarts entre écrans ont été corrigés le 2026-08-19, tous causés par une de
 // ces règles appliquée ici mais pas là. À lire avant de modifier un compteur.
 import { isCallHonored } from '@/lib/callHonored';
+import { calculerCash } from '@/lib/dealCash';
 import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import type { Call } from '@/lib/supabase/types';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -45,7 +46,13 @@ export interface DealForStats {
  *
  * Les deals annulés sont exclus du contracté : une vente annulée n'a pas été
  * signée. En revanche ce qui a déjà été encaissé dessus reste compté — l'argent
- * est bien entré, et un remboursement passe par un `deal_payments` négatif.
+ * est bien entré.
+ *
+ * ⚠️ Ce commentaire affirmait qu'« un remboursement passe par un `deal_payments`
+ * négatif ». C'est FAUX, et c'est ce qui a fait vivre le défaut : un remboursement
+ * est une ligne de statut `refunded` portant un montant POSITIF, vérifié en base le
+ * 2026-08-30. Le `collected` fourni ici doit donc être un NET calculé par
+ * `calculerCash`, jamais une somme de montants — voir fetchDealsForStats.
  */
 function computeDealTotals(deals: DealForStats[]): { contracted: number; collected: number } {
   const active = deals.filter(d => d.status !== 'canceled');
@@ -107,9 +114,11 @@ export async function fetchDealsForStats(
   return (data ?? []).map((d: any) => ({
     amount_total: d.amount_total,
     status: d.status,
-    collected: (d.deal_payments ?? [])
-      .filter((p: any) => p.status === 'succeeded')
-      .reduce((s: number, p: any) => s + Number(p.amount), 0),
+    // `calculerCash().net` et non une somme des `succeeded` : encaissé − remboursé
+    // − contesté, la règle partagée de lib/dealCash.ts. Ce filtre affichait
+    // 2 800 € sur la fiche d'un élève qui en avait 2 600 en caisse — 200 € rendus
+    // que l'écran comptait encore (mesuré le 2026-08-30).
+    collected: calculerCash(d.deal_payments ?? []).net,
   }));
 }
 

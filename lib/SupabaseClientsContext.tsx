@@ -4,6 +4,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef, ty
 import { isCoachingCall } from '@/lib/sessionRapport';
 import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import { createClient } from '@/lib/supabase/client';
+import { calculerCash, type LignePaiement } from '@/lib/dealCash';
 import { resolveUser } from '@/lib/waitForSession';
 import { CALL_COLUMNS } from '@/lib/supabase/types';
 import type { Task } from '@/lib/supabase/types';
@@ -147,21 +148,20 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
           ? supabase.from('deal_payments')
               .select('amount, status, paid_at, deals!inner(profile_id)')
               .in('deals.profile_id', profileIds)
-              .eq('status', 'succeeded')
+              .not('paid_at', 'is', null)
               .gte('paid_at', startOfMonth)
           : { data: [], error: null },
         profileIds.length > 0
           ? supabase.from('deal_payments')
               .select('amount, status, deals!inner(profile_id)')
               .in('deals.profile_id', profileIds)
-              .eq('status', 'succeeded')
           : { data: [], error: null },
         // Cash collecté all-time par élève (agrégat + tendance sparkbar, PageClients.tsx)
         profileIds.length > 0
           ? supabase.from('deal_payments')
-              .select('amount, paid_at, deals!inner(profile_id)')
+              .select('amount, status, paid_at, deals!inner(profile_id)')
               .in('deals.profile_id', profileIds)
-              .eq('status', 'succeeded')
+              .not('paid_at', 'is', null)
               .order('paid_at', { ascending: true })
           : { data: [], error: null },
         // Deals par élève — source du cash contracté, en remplacement de la somme
@@ -201,9 +201,9 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         // Même règle que pour les élèves : le cash collecté du coach compte les
         // paiements rattachés à ses deals, pas son encaissé Stripe brut.
         supabase.from('deal_payments')
-          .select('amount, paid_at, deals!inner(profile_id)')
+          .select('amount, status, paid_at, deals!inner(profile_id)')
           .eq('deals.profile_id', user.id)
-          .eq('status', 'succeeded')
+          .not('paid_at', 'is', null)
           .order('paid_at', { ascending: true }),
       ]);
 
@@ -238,12 +238,12 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       // Paiements triés asc par élève — sert au total all-time et à la sparkbar cumulative.
       // Le profile_id vient de la jointure `deals` : la table deal_payments ne le
       // porte pas, elle est rattachée au deal qui, lui, appartient à un profil.
-      const paymentsByProfile: Record<string, { amount: number; date: string }[]> = {};
+      const paymentsByProfile: Record<string, { amount: number; status: string; date: string }[]> = {};
       (clientPaymentsRes.data || []).forEach((p: any) => {
         const pid = p.deals?.profile_id;
         if (!pid) return;
         if (!paymentsByProfile[pid]) paymentsByProfile[pid] = [];
-        paymentsByProfile[pid].push({ amount: Number(p.amount), date: p.paid_at });
+        paymentsByProfile[pid].push({ amount: Number(p.amount), status: p.status, date: p.paid_at });
       });
 
       // Deals groupés par élève — passés à computeSalesCallStats pour que le cash
@@ -346,12 +346,18 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
           closingRate: stats!.closingRate,
         } : null;
         const payments = c.profile_id ? (paymentsByProfile[c.profile_id] || []) : [];
-        const cashCollectedAllTimeForClient = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
+        // `calculerCash().net` et non une somme : encaissé − remboursé − contesté, la
+        // règle partagée de lib/dealCash.ts. Sommer les seuls `succeeded` ne déduisait
+        // JAMAIS un remboursement — 2 800 € affichés pour 2 600 € en caisse sur le
+        // profil de test (2026-08-30).
+        const cashCollectedAllTimeForClient = calculerCash(payments as unknown as LignePaiement[]).net;
         // Tendance = cash COLLECTÉ cumulé. C'était le contracté jusqu'ici, faute de
         // lien fiable deal↔paiement ; ce lien existe maintenant (deal_payments), donc
         // la sparkbar montre l'argent réellement entré plutôt que l'argent promis.
+        // Cumul NET : un remboursement porte la date du paiement qu'il annule, la
+        // courbe redescend donc au bon endroit au lieu de rester à un plateau faux.
         let runningCollected = 0;
-        const cashContractedTrend = payments.map(p => (runningCollected += Number(p.amount || 0)));
+        const cashContractedTrend = payments.map(p => (runningCollected += calculerCash([p] as unknown as LignePaiement[]).net));
         const hasFailedIntegration = c.profile_id ? (failedProvidersByProfile[c.profile_id]?.size ?? 0) > 0 : false;
         const onboardingStatus: 'invited' | 'account_created' | 'integrating' | 'reconnect_needed' | 'active' =
           !c.profile_id ? 'invited'
@@ -401,12 +407,11 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       const coachStripeConnected = (coachIntegrationsRes.data || []).some((row: any) => row.provider === 'stripe');
       const coachPayments = coachStripePaymentsAllTimeRes.data || [];
       const cashCollectedAllTime = coachStripeConnected
-        ? coachPayments.reduce((s: number, p: any) => s + Number(p.amount || 0), 0)
+        ? calculerCash(coachPayments as unknown as LignePaiement[]).net
         : null;
       // paid_at et non date : deal_payments date le moment de l'encaissement réel.
       const cashCollected = coachStripeConnected
-        ? coachPayments.filter((p: any) => (p.paid_at ?? '') >= startOfMonth)
-            .reduce((s: number, p: any) => s + Number(p.amount || 0), 0)
+        ? calculerCash(coachPayments.filter((p: any) => (p.paid_at ?? '') >= startOfMonth) as unknown as LignePaiement[]).net
         : null;
 
       // Cash collecté par TOUS LES ÉLÈVES — Stripe connecté sur au moins un profil élève.
@@ -414,10 +419,10 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       // Number() explicite : Postgres renvoie les numeric en chaîne, et une
       // concaténation silencieuse ("10" + "20" = "1020") passerait le typage.
       const studentsCashCollectedAllTime = studentsStripeConnected
-        ? (stripePaymentsAllTimeRes.data || []).reduce((s: number, p: any) => s + Number(p.amount || 0), 0)
+        ? calculerCash((stripePaymentsAllTimeRes.data || []) as unknown as LignePaiement[]).net
         : null;
       const studentsCashCollectedThisMonth = studentsStripeConnected
-        ? (stripePaymentsRes.data || []).reduce((s: number, p: any) => s + Number(p.amount || 0), 0)
+        ? calculerCash((stripePaymentsRes.data || []) as unknown as LignePaiement[]).net
         : null;
 
       setBusiness({
