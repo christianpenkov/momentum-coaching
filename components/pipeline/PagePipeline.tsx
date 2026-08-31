@@ -470,9 +470,34 @@ export function resolveProspectContext(
   data: PipelineData,
 ): ProspectContext | null {
   if (platform === 'ig') {
-    // cardKey peut être soit un username IG, soit `ig_link_${call.id}` (calls description/bio)
+    // cardKey peut être soit un username IG, soit `ig_link_${clé}` (calls
+    // description/bio), où la clé est le `prospect_id` de la personne — ou, à
+    // défaut, l'identifiant du call racine de sa chaîne de reprogrammation.
+    //
+    // ⚠️ CES DEUX FORMES DOIVENT ÊTRE LUES ICI, sinon le panneau de détail se
+    // casse. La carte et cette fonction lisent la même clé : changer la façon de
+    // la fabriquer sans changer la façon de la lire rendait `null`, et la fiche
+    // ne s'ouvrait plus du tout.
     if (cardKey.startsWith('ig_link_')) {
-      const callId = cardKey.slice('ig_link_'.length);
+      const cle = cardKey.slice('ig_link_'.length);
+
+      // Forme actuelle : la clé est un `prospect_id`. On rend TOUS ses
+      // rendez-vous — c'est ce qui fait qu'un 2e call apparaît dans la
+      // chronologie au lieu de fabriquer une deuxième fiche.
+      const parProspect = data.calls
+        .filter(c => c.prospect_id === cle)
+        .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
+      if (parProspect.length > 0) {
+        return {
+          platform, cardKey, lead: null, prospect: null, calls: parProspect,
+          events: [], lmHistory: [], ytVideoTitles: data.ytVideoTitles,
+          igPostMeta: data.igPostMeta, storySequenceByMediaId: data.storySequenceByMediaId,
+        };
+      }
+
+      // Repli : la clé est un identifiant de call — un call sans `prospect_id`,
+      // ou une clé encore en vol au moment d'un déploiement.
+      const callId = cle;
       const call = data.calls.find(c => c.id === callId);
       if (!call) return null;
 
@@ -2760,14 +2785,29 @@ export default function PagePipeline() {
       }
     };
 
+    // ── `prospect_id` D'ABORD, LA CHAÎNE EN REPLI ───────────────────────────
+    //
+    // Ce bloc ne regroupait que sur la chaîne de reprogrammation. Or un 2e
+    // rendez-vous n'est PAS une reprogrammation : Calendly ne pose alors aucun
+    // `next_rescheduled_uri`, la chaîne ne relie rien, et la même personne
+    // fabriquait deux fiches.
+    //
+    // Constaté sur « Testrapportpassé » : deux calls, même `prospect_id`, l'un
+    // en « RDV pris » et l'autre en « À recontacter » — donc dans deux colonnes
+    // à la fois, et compté deux fois dans le total (19 au lieu de 18).
+    //
+    // Son bloc jumeau, cent lignes plus bas, faisait déjà le bon regroupement et
+    // portait même le commentaire qui décrit ce défaut. Les deux disent la même
+    // chose maintenant : `prospect_id` est la fiche persistante, la chaîne ne
+    // sert qu'aux calls qui n'en ont pas.
     const igLinkGroups = new Map<string, typeof igLinkCalls>();
     for (const c of igLinkCalls) {
-      const k = igLinkChainRoot(c.id);
+      const k = c.prospect_id ?? igLinkChainRoot(c.id);
       if (!igLinkGroups.has(k)) igLinkGroups.set(k, []);
       igLinkGroups.get(k)!.push(c);
     }
 
-    for (const groupCalls of igLinkGroups.values()) {
+    for (const [groupKey, groupCalls] of igLinkGroups) {
       // Call affiché : le dernier RÉSERVÉ, pas celui dont la date est la plus
       // tardive — un report vers une date antérieure inverse les deux.
       const call = groupCalls.slice().sort((a, b) =>
@@ -2775,7 +2815,13 @@ export default function PagePipeline() {
         - new Date(a.booked_at ?? a.scheduled_at).getTime()
       )[0];
 
-      const cardKey = `ig_link_${call.id}`;
+      // La clé vient du GROUPE, plus du call affiché. Elle suivait le dernier
+      // rendez-vous réservé : prendre un 2e rendez-vous changeait l'identité de
+      // la fiche, et un déplacement manuel enregistré avant se retrouvait
+      // orphelin. Sur `prospect_id` elle ne bouge plus.
+      // (Vérifié en base : aucun override ne porte une clé `ig_link_`, la
+      // bascule ne perd donc rien.)
+      const cardKey = `ig_link_${groupKey}`;
       const override = effectiveOverrides.find(o => o.prospect_key === cardKey && o.platform === 'ig');
 
       // Toute la chaîne est passée à la fonction, pas seulement le call affiché :
