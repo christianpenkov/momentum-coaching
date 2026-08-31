@@ -93,6 +93,31 @@ function readInvoiceSubscription(inv: Stripe.Invoice): {
 }
 
 /**
+ * Le deal désigné par des metadata Stripe existe-t-il encore chez nous ?
+ *
+ * ⚠️ Les metadata d'une facture sont un INSTANTANÉ figé à sa finalisation : elles
+ * gardent l'identifiant du deal pour toujours, même si la vente a été supprimée
+ * depuis. Insérer sans vérifier lève une violation de clé étrangère, donc un 500 —
+ * et Stripe REJOUE un webhook en échec, pendant des jours. La boucle ne s'arrête
+ * jamais d'elle-même : chaque tentative échoue au même endroit.
+ *
+ * Constaté le 2026-08-31 sur le chemin jumeau (`sync-stripe-payments`), où deux
+ * factures pointant vers des deals disparus figeaient le rattrapage à chaque passage.
+ * Le webhook a exactement la même faiblesse, avec une conséquence pire : Stripe insiste.
+ *
+ * Un deal introuvable n'est pas une erreur de traitement — c'est un paiement ORPHELIN,
+ * comme un paiement sans metadata. Il garde sa trace dans `stripe_payments` et remonte
+ * dans « À rattacher ».
+ */
+async function dealExiste(supabase: Supa, dealId: string): Promise<boolean> {
+  // Une metadata se saisit à la main dans le dashboard Stripe : elle peut ne pas être
+  // un UUID du tout, et Postgres répondrait 22P02 au lieu de « rien trouvé ».
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(dealId)) return false;
+  const { data } = await supabase.from('deals').select('id').eq('id', dealId).maybeSingle();
+  return !!data;
+}
+
+/**
  * Enregistre un paiement sur son deal.
  *
  * Rattachement par ordre de certitude :
@@ -113,12 +138,19 @@ async function recordPayment(supabase: Supa, params: {
   failureReason?: string | null;
   metadata?: Record<string, string> | null;
   subscriptionId?: string | null;
+  /** Lu sur charge.billing_details.email / invoice.customer_email / session. */
+  buyerEmail?: string | null;
 }) {
   const dealId = params.metadata?.[METADATA_KEYS.deal] ?? null;
   const installmentId = params.metadata?.[METADATA_KEYS.installment] ?? null;
 
   let resolvedDealId = dealId;
   let matchMethod: 'metadata' | 'subscription' = 'metadata';
+
+  // La vente a pu disparaître depuis que Stripe a figé ces metadata — voir
+  // dealExiste(). On retombe alors sur la résolution par abonnement, puis sur
+  // « orphelin », au lieu de lever un 500 que Stripe rejouerait sans fin.
+  if (resolvedDealId && !(await dealExiste(supabase, resolvedDealId))) resolvedDealId = null;
 
   if (!resolvedDealId && params.subscriptionId) {
     const { data } = await supabase
@@ -138,6 +170,16 @@ async function recordPayment(supabase: Supa, params: {
     currency: params.currency,
     date: params.paidAt,
     status: params.status,
+    // ⚠️ SANS CET E-MAIL, L'ÉCRAN DE RATTACHEMENT NE SERT À RIEN.
+    // Le niveau « Certain » l'exige — c'est le seul signal qui identifie une
+    // personne. Sans lui aucun candidat ne dépasse « Possible », et sur une
+    // échéance le montant ne correspond pas non plus : l'écran affiche « Aucun
+    // deal ne correspond », avec « Ignorer » pour seul bouton.
+    //
+    // Colonne dédiée, et non `description` : l'extraire d'un texte libre par
+    // expression régulière casse en silence au premier changement de libellé côté
+    // Stripe. On ne devine pas ce qu'on peut stocker.
+    buyer_email: params.buyerEmail ?? null,
   }, { onConflict: 'profile_id,payment_id' });
   if (payErr) throw payErr;
 
@@ -475,6 +517,7 @@ async function handleEvent(event: Stripe.Event) {
           paidAt: new Date(session.created * 1000).toISOString(),
           status: 'succeeded',
           metadata: session.metadata as Record<string, string> | null,
+          buyerEmail: session.customer_details?.email ?? session.customer_email ?? null,
         });
       }
 
@@ -496,6 +539,7 @@ async function handleEvent(event: Stripe.Event) {
         status: 'succeeded',
         metadata: meta,
         subscriptionId,
+        buyerEmail: inv.customer_email ?? null,
       });
 
       // Rattrapage : si le bornage n'a pas pu être posé au checkout (webhook perdu,
@@ -517,6 +561,7 @@ async function handleEvent(event: Stripe.Event) {
         failureReason: (inv as any).last_finalization_error?.message ?? 'Paiement refusé',
         metadata: meta,
         subscriptionId,
+        buyerEmail: inv.customer_email ?? null,
       });
       break;
     }
@@ -531,6 +576,27 @@ async function handleEvent(event: Stripe.Event) {
     case 'charge.succeeded': {
       const charge = event.data.object as Stripe.Charge;
       if (charge.refunded) break;
+      // ⚠️ NE PAS tenter de rattacher cette charge à une facture. Mesuré contre
+      // l'API réelle le 2026-08-31, version `2026-04-22.dahlia` :
+      //
+      //   • `charge.invoice` N'EXISTE PLUS — champ absent de la réponse, y compris
+      //     sur une charge d'abonnement. Le SDK ne le type pas : ce n'est pas un
+      //     trou de génération, c'est un retrait d'API. `invoice.charge` et
+      //     `payment_intent.invoice` ont disparu aussi. Le seul lien restant est
+      //     `invoice.payments` sous `expand`, donc au prix d'un appel par facture.
+      //
+      //   • Et le doublon que ce rattachement viserait NE PEUT PAS se produire :
+      //     une charge d'abonnement porte `metadata: {}`, donc recordPayment ne lui
+      //     trouve aucun deal et n'écrit rien dans `deal_payments`. Les seules
+      //     charges qui portent nos metadata sont des paiements COMPTANT, qui n'ont
+      //     pas de facture. `invoice.paid` écrit `in_…`, cette branche `pi_…`, et
+      //     les deux ne visent jamais le même argent.
+      //
+      // Ce qui protège vraiment, si les metadata voyageaient un jour jusqu'à la
+      // charge : la vue `ventes_sante_sur_encaissement`, qui alarme dès qu'un deal
+      // encaisse plus que son montant — quelle que soit la SOURCE du doublement.
+      // Une garde qui dépend d'un champ d'API se périme ; un invariant sur nos
+      // propres données, non.
       const paymentRef = typeof charge.payment_intent === 'string'
         ? charge.payment_intent
         : charge.payment_intent?.id ?? charge.id;
@@ -542,6 +608,7 @@ async function handleEvent(event: Stripe.Event) {
         paidAt: new Date(charge.created * 1000).toISOString(),
         status: 'succeeded',
         metadata: charge.metadata as Record<string, string> | null,
+        buyerEmail: charge.billing_details?.email ?? null,
       });
       break;
     }
@@ -556,6 +623,7 @@ async function handleEvent(event: Stripe.Event) {
         paidAt: new Date(charge.created * 1000).toISOString(),
         status: 'refunded',
         metadata: charge.metadata as Record<string, string> | null,
+        buyerEmail: charge.billing_details?.email ?? null,
       });
       break;
     }

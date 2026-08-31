@@ -190,6 +190,8 @@ async function upsertPayment(profileId: string, p: {
   paidAt: string;
   metadata: Record<string, string> | null;
   subscriptionId: string | null;
+  /** Lu sur charge.billing_details.email / invoice.customer_email — voir plus bas. */
+  buyerEmail: string | null;
 }, touchedDeals: Set<string>): Promise<boolean> {
   const { error: payErr } = await supabase.from('stripe_payments').upsert({
     profile_id: profileId,
@@ -198,6 +200,13 @@ async function upsertPayment(profileId: string, p: {
     currency: p.currency,
     date: p.paidAt,
     status: 'succeeded',
+    // ⚠️ SANS CET E-MAIL, L'ÉCRAN DE RATTACHEMENT NE SERT À RIEN.
+    // Le niveau « Certain » l'exige — c'est le seul signal qui identifie une
+    // personne. Sans lui, aucun candidat ne dépasse « Possible », et sur une
+    // échéance (300 € sur une vente de 900 €) le montant ne correspond pas non
+    // plus : l'écran affiche « Aucun deal ne correspond » avec « Ignorer » pour
+    // seul bouton. Ce filet ramènerait l'argent et l'écran inviterait à l'écarter.
+    buyer_email: p.buyerEmail,
   }, { onConflict: 'profile_id,payment_id' });
   if (payErr) throw payErr;
 
@@ -277,7 +286,7 @@ async function upsertPayment(profileId: string, p: {
  */
 async function upsertRefund(
   profileId: string,
-  charge: { id: string; amount_refunded: number; currency: string; metadata?: Record<string, string> | null },
+  charge: { id: string; amount_refunded: number; currency: string; metadata?: Record<string, string> | null; billing_details?: { email?: string | null } | null },
   touchedDeals: Set<string>,
 ): Promise<void> {
   // `charge.id` et non `refund_${charge.id}` : c'est ce qu'écrit le webhook sur son
@@ -298,6 +307,7 @@ async function upsertRefund(
     currency: charge.currency,
     date: quand,
     status: 'refunded',
+    buyer_email: charge.billing_details?.email ?? null,
   }, { onConflict: 'profile_id,payment_id' });
 
   const dealId = charge.metadata?.[MD_DEAL] ?? null;
@@ -363,26 +373,25 @@ async function syncProfile(profileId: string, acces: AccesStripe, lastSyncedAt: 
   // faisaient jusqu'à 400 allers-retours en file d'attente. Borné, et non
   // `Promise.all`, pour ne pas ouvrir 100 connexions Postgres d'un coup.
   const chargeResults = await mapWithConcurrency(charges, 4, async (charge: any) => {
-    // ⚠️ TROIS familles d'identifiants, exactement celles du webhook — c'est ce qui
-    // empêche le cash d'être compté deux fois quand les deux chemins visent le même
-    // compte (le cas depuis que ce filet couvre aussi l'OAuth) :
+    // ⚠️ L'IDENTIFIANT DOIT ÊTRE CELUI DU WEBHOOK, sinon le même argent s'écrit deux
+    // fois dès que les deux chemins visent le même compte — le cas depuis que ce filet
+    // couvre aussi l'OAuth. Les trois familles du webhook :
     //
     //   invoice.paid      → inv.id                          → `in_…`
     //   charge.succeeded  → charge.payment_intent ?? id      → `pi_…`
     //   charge.refunded   → charge.id                        → `ch_…`
     //
-    // L'index unique porte sur (deal_id, stripe_payment_id) : deux identifiants
-    // différents pour le même argent coexisteraient légalement, et calculerCash les
-    // sommerait tous les deux. Écrire `charge.id` ici doublait donc CHAQUE paiement
-    // comptant (déjà en `pi_…`) et CHAQUE échéance d'abonnement (déjà en `in_…`) —
-    // le mode de paiement principal du produit.
+    // Écrire `charge.id` ici doublait donc chaque paiement comptant, déjà écrit en
+    // `pi_…` par le webhook. L'index unique porte sur (deal_id, stripe_payment_id) :
+    // deux identifiants différents pour le même argent coexistent légalement, et
+    // `calculerCash` les somme tous les deux.
     //
-    // `charge.invoice` d'abord : une charge adossée à une facture est le MÊME argent
-    // que la ligne facture écrite juste en dessous. C'est ce qui rend enfin vrai le
-    // commentaire « le dédoublonnage se fait en base » plus haut. Aucun appel
-    // supplémentaire : les deux champs sont déjà sur l'objet charge.
-    const refCharge = (typeof charge.invoice === 'string' ? charge.invoice : charge.invoice?.id)
-      ?? (typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id)
+    // ⚠️ Ne PAS chercher à rattacher une charge à sa facture ici non plus : mesuré
+    // contre l'API réelle le 2026-08-31, `charge.invoice` n'existe plus sur
+    // `2026-04-22.dahlia`, et une charge d'abonnement porte `metadata: {}` — donc
+    // elle ne se rattache à aucun deal et n'écrit rien. Voir le commentaire détaillé
+    // dans app/api/webhooks/stripe/route.ts, case `charge.succeeded`.
+    const refCharge = (typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id)
       ?? charge.id;
     const attache = await upsertPayment(profileId, {
       paymentId: refCharge,
@@ -391,6 +400,7 @@ async function syncProfile(profileId: string, acces: AccesStripe, lastSyncedAt: 
       paidAt: new Date(charge.created * 1000).toISOString(),
       metadata: charge.metadata ?? null,
       subscriptionId: null,
+      buyerEmail: charge.billing_details?.email ?? null,
     }, touchedDeals);
 
     // `amount_refunded` est CUMULATIF : deux remboursements partiels de 200 puis
@@ -427,6 +437,7 @@ async function syncProfile(profileId: string, acces: AccesStripe, lastSyncedAt: 
       paidAt: new Date((inv.status_transitions?.paid_at ?? inv.created) * 1000).toISOString(),
       metadata: details?.metadata ?? inv.metadata ?? null,
       subscriptionId: typeof sub === 'string' ? sub : sub?.id ?? null,
+      buyerEmail: inv.customer_email ?? null,
     }, touchedDeals);
   });
   invoiceResults.forEach((r, i) => {
