@@ -80,7 +80,9 @@ function Portal({ children }: { children: React.ReactNode }) {
 interface IGStats {
   username: string; name: string; profilePicture: string | null;
   followers: number; following: number; mediaCount: number; biography: string;
-  reach30d: number; reach28dDedupFollowers?: number | null; reach28dDedupNonFollowers?: number | null; accountsEngaged30d: number; totalInteractions30d: number;
+  reach30d: number; reach28dDedupFollowers?: number | null; reach28dDedupNonFollowers?: number | null;
+  /** Nombre d'abonnes MOYEN sur la periode, fige par le cron. Absent = periode courante. */
+  abonnesPeriode?: number | null; accountsEngaged30d: number; totalInteractions30d: number;
   /** Fenetre reellement interrogee pour les deux cartes de portee, en jours (30 ou 365). */
   fenetreJours?: number;
   followsUnfollows30d: number; profileLinksTaps30d: number; websiteClicks30d: number;
@@ -1520,7 +1522,12 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
   // en period historique (ex: 79% en juin alors que la vraie donnée dédupliquée
   // n'existe que pour la fenêtre glissante actuelle) — null (N/D) explicite plutôt
   // qu'un chiffre qui a l'air fiable mais ne l'est pas.
-  const reachRate = ig.reach28dDedupFollowers != null ? pct(ig.reach28dDedupFollowers, ig.followers) : null;
+  // Denominateur : la moyenne d'abonnes de la periode quand elle est connue (periode
+  // close, lue dans analytics_ig_periodes), le compte actuel sinon. Diviser un reach
+  // de juin par les abonnes d'aujourd'hui ferait bouger un taux passe tout seul.
+  const reachRate = ig.reach28dDedupFollowers != null
+    ? pct(ig.reach28dDedupFollowers, ig.abonnesPeriode ?? ig.followers)
+    : null;
   // % de non-abonnés parmi le reach dédupliqué (comptes uniques), pas parmi les vues
   // (viewsFollowerBreakdown compte les revisionnages, incohérent avec le graphique
   // "Reach Non-Followers" juste en dessous qui utilise reach, pas views) — confirmé
@@ -8232,6 +8239,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     shortioResult,
     shortioClicksRes,
     dealsRes,
+    igPeriodeRes,
   ] = await Promise.allSettled([
     // archived_at : les lignes d'un compte Instagram précédent sont archivées à la
     // bascule (app/api/oauth/instagram/callback/route.ts). Sans ce filtre, tout cet
@@ -8302,6 +8310,27 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       .eq('profile_id', targetId)
       .gte('signed_at', periodStart.toISOString())
       .lte('signed_at', periodEnd.toISOString()),
+    // Portee dedupliquee de la periode, lue dans analytics_ig_periodes.
+    //
+    // Les deux cartes « Abonnes touches » et « Non-abonnes touches » affichaient N/D
+    // des qu'on quittait la periode courante : `igHist` ne construisait pas les deux
+    // champs, et il est la source de igEff en All-Time comme sur toute periode passee
+    // (constate par Chris le 2026-08-31, alors que juin et juillet existaient bien en
+    // base).
+    //
+    // Cette valeur ne se recalcule pas depuis les journalieres : la deduplication de
+    // Meta ne s'additionne pas. Elle ne peut venir que de la ligne ecrite par le cron
+    // sur cette periode exacte.
+    supabase
+      .from('analytics_ig_periodes')
+      .select('reach_total, reach_abonnes, reach_non_abonnes, abonnes')
+      .eq('profile_id', targetId)
+      .is('archived_at', null)
+      .eq('type', customWindow ? 'all_time' : (period === 7 ? 'semaine' : 'mois'))
+      // all_time : une seule ligne vivante par profil, dont le `debut` glisse — on ne
+      // le vise donc pas. Les autres types sont identifies par leur date de debut.
+      .match(customWindow ? {} : { debut: startDateStr })
+      .maybeSingle(),
   ]);
 
   const snaps = snapsRes.status === 'fulfilled' ? (snapsRes.value.data ?? []) : [];
@@ -8530,9 +8559,27 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   // disparaît et l'ordre affiché devient arbitraire.
   })).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
+  // Portee dedupliquee de la periode. Elle ne se calcule PAS a partir des lignes
+  // journalieres : la deduplication de Meta ne s'additionne pas d'un jour a l'autre
+  // (sur le profil de test, la somme des jours donne 502 la ou la fenetre complete
+  // en mesure 207). Elle vient donc de la ligne ecrite par le cron pour cette periode
+  // exacte, ou de rien.
+  const igPeriode = igPeriodeRes.status === 'fulfilled' ? (igPeriodeRes.value.data as any) : null;
+
   const igHist = snaps.length > 0 ? {
     reach30d:             igReachTotal,
     views30d:             igViewsTotal,
+    // Sans ces deux lignes, les cartes « Abonnes touches » et « Non-abonnes touches »
+    // affichaient N/D des qu'on quittait la periode courante — y compris en All-Time,
+    // alors que la donnee etait bien en base (constate par Chris le 2026-08-31).
+    reach28dDedupFollowers:    igPeriode?.reach_abonnes ?? null,
+    reach28dDedupNonFollowers: igPeriode?.reach_non_abonnes ?? null,
+    // Denominateur de « Abonnes touches », fige avec la periode par le cron : c'est
+    // la MOYENNE d'abonnes sur la fenetre, pas le compte d'aujourd'hui. Sur un compte
+    // en croissance l'ecart n'est pas neutre — 300 abonnes touches sur un mois passant
+    // de 1000 a 1500 donnent 30 % au debut, 24 % en moyenne, 20 % a la fin. Sans lui,
+    // un taux ancien serait recalcule sur l'audience actuelle et changerait tout seul.
+    abonnesPeriode:            igPeriode?.abonnes ?? null,
     // Le snapshot le plus récent qui porte RÉELLEMENT un nombre d'abonnés, pas
     // simplement le plus récent — même garde que `lastSnapWithYtSubs` plus haut, dont
     // Instagram n'avait jamais hérité.
