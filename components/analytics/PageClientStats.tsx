@@ -157,7 +157,10 @@ interface CallRecord {
  * par etre branche ailleurs tel quel.
  */
 interface IGMessages {
-  totalThreads30d: number; repliedThreads: number; responseRate: number; leadCount: number;
+  // null = inconnu, et non zero. Sur le chemin instantane ces deux champs se lisent
+  // dans `ig_response_rate`, une colonne que RIEN n'ecrit (260 lignes, 0 valeur au
+  // 2026-08-31) : un `?? 0` y fabriquait un taux de reponse nul.
+  totalThreads30d: number; repliedThreads: number | null; responseRate: number | null; leadCount: number;
   keywordCounts: Record<string, number>;
   threads: { threadId: string; updatedAt: string; messageCount: number; hasReply: boolean; participant: string; preview: string; isLead: boolean }[];
 }
@@ -1063,7 +1066,11 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   if (nextCall) signalData.push({ type: 'green', text: `Prochain call : ${nextCall.invitee_name} — ${new Date(nextCall.scheduled_at).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` });
   if (dealsCloses > 0) signalData.push({ type: 'green', text: `${dealsCloses} deal${dealsCloses > 1 ? 's' : ''} closé${dealsCloses > 1 ? 's' : ''} sur ${sinceConnection ? 'toute la période' : period + ' jours'} — ${fmtEur(totalRev)} générés` });
   if (noShowRate > 20) signalData.push({ type: 'red', text: `Taux no-show élevé : ${fmt(noShowRate, 1)} % des calls bookés` });
-  if (msgs && msgs.responseRate < 70) signalData.push({ type: 'amber', text: `Taux de réponse DM bas : ${fmt(msgs.responseRate, 1)} % — ${msgs.totalThreads30d - msgs.repliedThreads} conversations sans réponse` });
+  // `msgs.responseRate != null` : sans cette garde, le zero fabrique par le chemin
+  // instantane declenchait « Taux de reponse DM bas : 0 % » sur TOUTE periode passee,
+  // alors que la donnee n'a jamais ete collectee. Une alerte qui se declenche toujours
+  // cesse d'etre lue.
+  if (msgs && msgs.responseRate != null && msgs.repliedThreads != null && msgs.responseRate < 70) signalData.push({ type: 'amber', text: `Taux de réponse DM bas : ${fmt(msgs.responseRate, 1)} % — ${msgs.totalThreads30d - msgs.repliedThreads} conversations sans réponse` });
   if (closingRate > 0 && closingRate < 20) signalData.push({ type: 'amber', text: `Taux de closing à ${fmt(closingRate, 1)} % — sous le seuil cible de 25 %` });
 
   // ── Top contenus ──────────────────────────────────────────────────────────
@@ -8842,8 +8849,12 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   // ── Messages IG (scalaires depuis snapshots) ─────────────────────────────────
   const msgsHist = snaps.length > 0 ? {
     totalThreads30d: igLeadTotal,
-    responseRate:    lastSnap?.ig_response_rate ?? 0,
-    repliedThreads:  Math.round((lastSnap?.ig_response_rate ?? 0) * igLeadTotal / 100),
+    // `?? 0` retire : la colonne n'est alimentee par aucun cron, donc le zero etait
+    // invente. Un trou dit « on ne sait pas », un zero affirme « personne n'a repondu ».
+    responseRate:    lastSnap?.ig_response_rate ?? null,
+    repliedThreads:  lastSnap?.ig_response_rate != null
+      ? Math.round(lastSnap.ig_response_rate * igLeadTotal / 100)
+      : null,
     leadCount:       igLeadTotal,
     keywordCounts:   {},
     threads:         [],
