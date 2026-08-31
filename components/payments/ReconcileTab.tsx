@@ -222,10 +222,16 @@ function OrphanCard({ orphan, onDone }: { orphan: Orphan; onDone: () => void }) 
               </span>
               <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{c.reason}</span>
             </span>
-            {/* Un seul bouton ardoise par bloc : le candidat certain. */}
+            {/* Deux niveaux de bleu, jamais deux boutons pleins par bloc.
+                « Certain » : bleu plein — l'e-mail identifie la personne, on peut
+                cliquer sans vérifier. « Possible » : bleu en contour — le montant
+                concorde, l'identité non ; l'action est offerte, pas recommandée.
+                Le contour plutôt que le gris parce qu'un bouton gris se lit comme
+                désactivé sur de l'argent qu'il FAUT rattacher ; mais pas le plein,
+                qui effacerait la seule nuance disant de vérifier avant de cliquer. */}
             <button
               className={c.confidence === 'certain' ? 'btn-primary-brand' : 'btn-ghost'}
-              style={{ fontSize: 12, flexShrink: 0, ...(c.confidence !== 'certain' ? { border: '1px solid var(--border)', borderRadius: 7, padding: '7px 13px' } : {}) }}
+              style={{ fontSize: 12, flexShrink: 0, ...(c.confidence !== 'certain' ? { border: '1px solid var(--accent-brand)', borderRadius: 7, padding: '7px 13px', color: 'var(--accent-brand)', fontWeight: 500 } : {}) }}
               disabled={busy}
               onClick={() => act({
                 dealId: c.dealId,
