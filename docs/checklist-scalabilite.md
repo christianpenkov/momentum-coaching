@@ -18,7 +18,7 @@ Le détail de cet audit est dans [`youtube-scalabilite.md`](./youtube-scalabilit
 | Instagram — métriques de compte | ✅ 2026-08-22 | quota par utilisateur (non partagé) | [instagram-scalabilite.md](./instagram-scalabilite.md) |
 | Instagram — contenus | ✅ 2026-08-30 | **~6 appels / 100 posts / nuit** (était 801) | [handoff-appels-instagram-scalabilite.md](./handoff-appels-instagram-scalabilite.md) |
 | Short.io | ✅ 2026-08-31 | **coût indépendant du nombre d'élèves** | [shortio-api.md](./shortio-api.md) |
-| Calendly | ❌ à faire | inconnue | — |
+| Calendly | ✅ 2026-08-31 | **quota par jeton (non partagé)** — 60 req/min/élève | — |
 | Stripe | ❌ à faire | inconnue | — |
 
 ---

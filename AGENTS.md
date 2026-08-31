@@ -141,6 +141,16 @@ select * from ig_sante_insights_posts;          -- 'ok' partout
 select * from base_sante_taille;                -- 'ok' = plafond de stockage loin
 ```
 
+⚠️ **`cron_runs` couvre désormais aussi `sync-calendly`** (ajouté le 2026-08-31 : ses
+erreurs partaient dans une réponse HTTP que cron-job.org jette). Filtrer par
+`fonction` pour savoir qui a échoué.
+
+⚠️ **`/api/calendly/cron-sync` est du CODE MORT** malgré son commentaire « Cron
+Vercel 6h » — zéro appel en 24 h dans les logs Vercel le 2026-08-31. Le vrai chemin
+est l'Edge Function `sync-calendly`. Même piège que `notify-rapport`.
+
+
+
 `base_sante_taille` surveille le **plan Supabase**, qui est aujourd'hui le **gratuit**
 (500 Mo, base à 97 Mo le 2026-08-30). C'est le seul risque de la plateforme qui ne
 prévient pas : rien ne casse à l'avance, les écritures échouent d'un coup. La vue
