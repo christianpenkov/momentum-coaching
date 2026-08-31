@@ -63,6 +63,11 @@ const args = process.argv.slice(2);
 const appliquer = args.includes('--appliquer');
 const limite = Number(args[args.indexOf('--limite') + 1]) || Infinity;
 const profilCible = args.includes('--profil') ? args[args.indexOf('--profil') + 1] : null;
+// Restreint le lot a un canal (`bio`, `description`, `story`). Sert au deroule
+// progressif : on demontre la chaine complete sur un canal avant d'ouvrir les
+// autres. Sans ce filtre, le decoupage en lots depend de l'ORDRE de listage de
+// Short.io — donc du hasard, et « la bio attend » ne serait pas une garantie.
+const mediumCible = args.includes('--medium') ? args[args.indexOf('--medium') + 1] : null;
 
 // ── Accès Supabase (REST, pas de dépendance à installer) ────────────────────
 
@@ -153,7 +158,7 @@ async function main() {
   }
 
   const aFaire = [];
-  const ignores = { dejaFait: 0, horsPerimetre: 0, dm: 0, autreProprietaire: 0 };
+  const ignores = { dejaFait: 0, horsPerimetre: 0, dm: 0, autreProprietaire: 0, autreCanal: 0 };
 
   for (const integ of integrations) {
     if (!integ.api_key) continue;
@@ -195,12 +200,15 @@ async function main() {
         }
         const proprio = proprietaire.get(chemin.toLowerCase());
         if (proprio && proprio !== integ.profile_id) { ignores.autreProprietaire++; continue; }
+        const medium = /utm_medium=([a-z]+)/.exec(lien.originalURL || '')?.[1] ?? null;
+        if (mediumCible && medium !== mediumCible) { ignores.autreCanal++; continue; }
         aFaire.push({
           profileId: integ.profile_id,
           apiKey: integ.api_key,
           linkId: lien.idString || lien.id,
           hostname: domaine.hostname ?? domaine.id,
           chemin,
+          medium,
           avant: lien.originalURL,
           apres: cible,
         });
@@ -231,6 +239,7 @@ async function main() {
   console.log(`Hors périmètre         : ${ignores.horsPerimetre}  (lead magnet, paiement, lien manuel…)`);
   console.log(`Liens de DM protégés   : ${ignores.dm}`);
   console.log(`Appartiennent à un autre profil : ${ignores.autreProprietaire}`);
+  if (mediumCible) console.log(`Hors du canal « ${mediumCible} »            : ${ignores.autreCanal}`);
   console.log(`À réécrire             : ${retenus.length}${lot.length < retenus.length ? ` (ce lot : ${lot.length})` : ''}`);
   if (conflits.length) {
     console.log(`
@@ -246,7 +255,7 @@ async function main() {
   }
 
   for (const t of lot) {
-    console.log(`  ${t.hostname}/${t.chemin}`);
+    console.log(`  ${t.hostname}/${t.chemin}  [${t.medium ?? 'canal inconnu'}]`);
     console.log(`    avant : ${t.avant}`);
     console.log(`    après : ${t.apres}`);
   }

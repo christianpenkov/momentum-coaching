@@ -303,10 +303,20 @@ corrompt la valeur.
 3. Réécrire **par lots**, en simulation d'abord :
 
 ```bash
-node scripts/reecrire-liens-shortio.mjs --limite 5              # liste, n'écrit rien
-node scripts/reecrire-liens-shortio.mjs --limite 5 --appliquer
+node scripts/reecrire-liens-shortio.mjs --medium description --limite 2              # liste, n'écrit rien
+node scripts/reecrire-liens-shortio.mjs --medium description --limite 2 --appliquer
 select * from clics_sante_redirection where etat like 'ALERTE%';   -- entre chaque lot
 ```
+
+⚠️ **Découper par CANAL, pas seulement par nombre.** `--limite` seul prend les premiers
+liens dans l'ordre où Short.io les liste — donc au hasard : « la bio attend » ne serait
+alors garanti par rien. `--medium bio|description|story` rend le périmètre du lot
+explicite. Commencer par `description` : c'est le canal où un lien de moins fait le
+moins de dégâts si quelque chose cloche, la bio étant le seul lien permanent d'un
+profil.
+
+Options : `--medium <canal>`, `--limite N`, `--profil <uuid>` (tranche un conflit de
+propriétaire), `--appliquer` (sans quoi le script ne fait que lister).
 
 Réécrire avant que la route soit en ligne ferait pointer tous les liens de bio vers un
 404 pendant la fenêtre de déploiement.
@@ -407,8 +417,9 @@ existe pour fermer.
 
 ## Vérification
 
-1. Cliquer un lien réécrit : on arrive bien sur Calendly, et mesurer le temps ajouté par
-   le saut supplémentaire.
+1. ✅ **2026-08-31** — Cliquer un lien réécrit : `ubizenai.s.gy/prendre-rdv-4807` →
+   `/r/` → Calendly, 2 sauts, `salesforce_uuid` posé, ligne de clic écrite avec le bon
+   `content_id`. Le saut ajouté coûte **100 à 250 ms**.
 2. Réserver : `calls.click_id` est rempli et correspond à la ligne `link_clicks`,
    `calls.clicked_at` porte l'heure du clic.
 3. Reprogrammer : `click_id` et `clicked_at` ont bien été hérités.
