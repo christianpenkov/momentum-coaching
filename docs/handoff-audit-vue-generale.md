@@ -67,7 +67,8 @@ en ciblant ce qui a changé (§6).
 
 ### Hors périmètre
 
-- Funnel & Calls (onglet 3) — clos le 2026-08-30, **une réserve**, voir §5.
+- Funnel & Calls (onglet 3) — **clos sans réserve** le 2026-08-31. Lire quand même
+  la §5 : le piège qu'il a laissé vaut pour tout l'audit.
 - Business micro (onglet 4) et Revenus (onglet 5) — chantiers distincts, ce dernier a
   son propre `docs/handoff-audit-revenus.md`.
 - La page Paiements, le webhook Stripe, les crons — sauf si l'audit établit qu'une
