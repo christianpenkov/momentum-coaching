@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { resolveTargetProfile } from '@/lib/stripe-account';
-import { calculerCash } from '@/lib/dealCash';
+import { calculerCash, encaisseRetenu, aRembourser } from '@/lib/dealCash';
 
 /**
  * Données de la page Paiements — les trois onglets en une requête.
@@ -32,7 +32,11 @@ export interface DealRow {
   /** Photo Instagram du lead, ou avatar de l'élève côté coach. */
   avatarUrl: string | null;
   amountTotal: number;
+  /** Ce que la personne a VERSÉ, net des remboursements. Peut dépasser amountTotal. */
   collected: number;
+  /** Ce qui compte comme RECOUVREMENT de cette vente : `collected` plafonné à
+   *  amountTotal. Voir encaisseRetenu() dans lib/dealCash.ts. */
+  collectedRetenu: number;
   status: string;
   paymentPlan: string;
   installmentsCount: number | null;
@@ -219,7 +223,10 @@ export async function GET(request: NextRequest) {
     // ignoraient les remboursements : un deal remboursé restait « payé » et son
     // montant restait dans le cash collecté du ruban.
     const cash = calculerCash(payments);
+    // DEUX notions, volontairement distinctes — voir encaisseRetenu() dans
+    // lib/dealCash.ts pour laquelle sert à quoi.
     const collected = cash.net;
+    const collectedRetenu = encaisseRetenu(cash, d.amount_total);
     // Compte les paiements ENTRÉS, remboursements non déduits : c'est ce que
     // l'écran affiche (« 2 échéances payées »), et une échéance remboursée a
     // bien été payée.
@@ -262,6 +269,7 @@ export async function GET(request: NextRequest) {
         ?? null,
       amountTotal: Number(d.amount_total),
       collected,
+      collectedRetenu,
       status: d.status,
       paymentPlan: d.payment_plan,
       installmentsCount: d.installments_count,
@@ -291,6 +299,10 @@ export async function GET(request: NextRequest) {
       unexpectedPaymentAt: d.unexpected_payment_at ?? null,
       refunded: cash.rembourse,
       disputed: cash.conteste,
+      // Versé AU-DELÀ du montant de la vente. Le ruban plafonne (`collectedRetenu`),
+      // donc sans ce chiffre affiché sur la vente, l'argent en trop disparaîtrait de
+      // l'écran : le total ne le compterait plus et rien ne dirait où il est passé.
+      aRendre: aRembourser(cash, d.amount_total),
       overdue: enRetard(d, cash.net, cash.aEchoue),
     };
   });
@@ -352,18 +364,36 @@ export async function GET(request: NextRequest) {
   // Contracté = tout ce qui a été signé. Collecté = ce qui est réellement encaissé.
   // Impayés = ce qu'un échec de prélèvement a laissé en suspens, pas le reste dû :
   // une échéance à venir n'est pas un impayé.
-  const contracted = rows.reduce((s, r) => s + r.amountTotal, 0);
-  const collected = rows.reduce((s, r) => s + r.collected, 0);
-  const unpaid = rows.reduce((s, r) => s + r.overdue, 0);
+  //
+  // ⚠️ DEUX corrections ici, toutes deux invisibles sur les données du jour.
+  //
+  // 1. LES VENTES ANNULÉES SORTENT DU RUBAN. Elles sortaient déjà de la liste par
+  //    personne juste au-dessus (`contracted: r.status === 'canceled' ? 0 : …`),
+  //    mais pas d'ici : le total du haut et la somme des lignes du bas
+  //    divergeaient donc dès la première annulation, sur la même page. Même règle
+  //    que l'onglet Revenus et que lib/dealCash.ts — « une vente annulée n'a pas
+  //    été signée ».
+  //
+  // 2. LE COLLECTÉ EST PLAFONNÉ VENTE PAR VENTE (`collectedRetenu`). Sommer les
+  //    nets bruts laissait le trop-perçu d'un client soustraire la dette d'un
+  //    autre : deux ventes de 1 000 €, l'une payée 1 200 €, l'autre rien, et
+  //    « Reste à encaisser » affichait 800 € au lieu de 1 000 € — sur l'écran qui
+  //    sert à savoir qui relancer. Le taux pouvait aussi dépasser 100 %.
+  //    La LIGNE d'un client, elle, continue d'afficher `collected`, ce qu'il a
+  //    vraiment versé : c'est là qu'on va le rembourser.
+  const actifs = rows.filter(r => r.status !== 'canceled');
+  const contracted = actifs.reduce((s, r) => s + r.amountTotal, 0);
+  const collected = actifs.reduce((s, r) => s + r.collectedRetenu, 0);
+  const unpaid = actifs.reduce((s, r) => s + r.overdue, 0);
 
   const kpis = {
     contracted,
     collected,
     remaining: contracted - collected - unpaid,
     unpaid,
-    dealsCount: rows.length,
+    dealsCount: actifs.length,
     collectedRate: contracted > 0 ? Math.round((collected / contracted) * 100) : 0,
-    failedCount: rows.filter(r => r.overdue > 0).length,
+    failedCount: actifs.filter(r => r.overdue > 0).length,
   };
 
   // ── Onglet « À rattacher » ─────────────────────────────────────────────────

@@ -37,6 +37,8 @@ export interface DealRow {
   unexpectedPaymentAt: string | null;
   refunded: number;
   disputed: number;
+  /** Versé au-delà du montant de la vente — à rendre au client. Voir aRembourser(). */
+  aRendre: number;
   /** Argent attendu à ce jour et non rentré — échéance dépassée ou prélèvement refusé. */
   overdue: number;
 }

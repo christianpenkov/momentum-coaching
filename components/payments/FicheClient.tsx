@@ -338,9 +338,17 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
         </div>
 
         {/* Ce que les totaux ne montrent pas : l'argent rendu ou repris. */}
-        {(deal.refunded > 0.005 || deal.disputed > 0.005) && (
+        {(deal.refunded > 0.005 || deal.disputed > 0.005 || deal.aRendre > 0.005) && (
           <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7, lineHeight: 1.6 }}>
             {deal.refunded > 0.005 && <div>{fmtEurExact(deal.refunded)} remboursés — déjà déduits ci-dessus.</div>}
+            {/* Le ruban du haut plafonne le cash encaissé au montant de chaque vente :
+                sans cette ligne, l'argent versé en trop ne serait nulle part. Il est ici
+                parce que c'est ici qu'on le rend. */}
+            {deal.aRendre > 0.005 && (
+              <div style={{ color: 'var(--amber, #b58025)' }}>
+                {fmtEurExact(deal.aRendre)} versés en trop — à rendre, non comptés dans le cash encaissé.
+              </div>
+            )}
             {deal.disputed > 0.005 && (
               <div style={{ color: 'var(--red)' }}>
                 {fmtEurExact(deal.disputed)} contestés — Stripe a repris cet argent le temps du litige.
