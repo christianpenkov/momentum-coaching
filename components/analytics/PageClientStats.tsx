@@ -1501,13 +1501,27 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
-              {((): string[] => {
-                if (contentSort === 'views') return ['', 'Contenu', 'Plateforme', 'Vues totales'];
-                if (contentSort === 'watchTime') return ['', 'Contenu', 'Plateforme', 'Watch time total', 'Watch time moyen'];
-                if (contentSort === 'calls') return ['', 'Contenu', 'Plateforme', 'Calls bookés', 'Calls honorés', 'No-show', 'Closé'];
-                return ['', 'Contenu', 'Plateforme', 'Calls bookés', 'Revenue / call', 'Cash / vue', 'Revenue total'];
+              {/* Les colonnes qui comptent des calls portent la MEME aide que les cartes du
+                  haut de l'ecran : « Calls bookes » et « No-show » y designent exactement la
+                  meme chose, et un lecteur qui descend de trente centimetres ne doit pas avoir
+                  a le redecouvrir. Elles reutilisent donc les constantes AIDE_*, jamais un
+                  texte recopie — c'est cette recopie qui fait diverger les libelles.
+
+                  Sur ce tableau, l'aide du no-show gagne meme en utilite : sa cellule affiche
+                  « 1/3 rdv », un denominateur different de la colonne « Calls bookes » juste a
+                  cote, et l'aide dit pourquoi. */}
+              {((): { label: string; aide?: string }[] => {
+                const c = (label: string, aide?: string) => ({ label, aide });
+                if (contentSort === 'views') return [c(''), c('Contenu'), c('Plateforme'), c('Vues totales')];
+                if (contentSort === 'watchTime') return [c(''), c('Contenu'), c('Plateforme'), c('Watch time total'), c('Watch time moyen')];
+                if (contentSort === 'calls') return [c(''), c('Contenu'), c('Plateforme'), c('Calls bookés', AIDE_CALLS_BOOKES), c('Calls honorés', AIDE_CALLS_HONORES), c('No-show', AIDE_NO_SHOW), c('Closé', AIDE_CLOSING)];
+                return [c(''), c('Contenu'), c('Plateforme'), c('Calls bookés', AIDE_CALLS_BOOKES), c('Revenue / call', AIDE_REV_PAR_CALL), c('Cash / vue'), c('Revenue total')];
               })().map((h, i) => (
-                <th key={i} className="eyebrow-sm" style={{ textAlign: i <= 1 ? 'left' : 'right', color: 'var(--muted)', padding: '0 8px 8px', borderBottom: '1px solid var(--border)' }}>{h}</th>
+                <th key={i} className="eyebrow-sm" style={{ textAlign: i <= 1 ? 'left' : 'right', color: 'var(--muted)', padding: '0 8px 8px', borderBottom: '1px solid var(--border)' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: i <= 1 ? 'flex-start' : 'flex-end' }}>
+                    {h.label}{h.aide ? <AideColonne texte={h.aide} /> : null}
+                  </span>
+                </th>
               ))}
             </tr>
           </thead>
