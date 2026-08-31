@@ -157,9 +157,10 @@ interface CallRecord {
  * par etre branche ailleurs tel quel.
  */
 interface IGMessages {
-  // null = inconnu, et non zero. Sur le chemin instantane ces deux champs se lisent
-  // dans `ig_response_rate`, une colonne que RIEN n'ecrit (260 lignes, 0 valeur au
-  // 2026-08-31) : un `?? 0` y fabriquait un taux de reponse nul.
+  // null = inconnu, et non zero. Le chemin HISTORIQUE ne sait rien de ces deux champs :
+  // il les lisait dans `ig_response_rate`, colonne supprimee le 2026-09-01 apres avoir
+  // ete mesuree vide sur 100 % de ses lignes depuis l'origine. Seul le chemin instantane
+  // (/api/instagram/messages) calcule un vrai taux, a partir des conversations reelles.
   totalThreads30d: number; repliedThreads: number | null; responseRate: number | null; leadCount: number;
   keywordCounts: Record<string, number>;
   threads: { threadId: string; updatedAt: string; messageCount: number; hasReply: boolean; participant: string; preview: string; isLead: boolean }[];
@@ -9064,12 +9065,15 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   // ── Messages IG (scalaires depuis snapshots) ─────────────────────────────────
   const msgsHist = snaps.length > 0 ? {
     totalThreads30d: igLeadTotal,
-    // `?? 0` retire : la colonne n'est alimentee par aucun cron, donc le zero etait
-    // invente. Un trou dit « on ne sait pas », un zero affirme « personne n'a repondu ».
-    responseRate:    lastSnap?.ig_response_rate ?? null,
-    repliedThreads:  lastSnap?.ig_response_rate != null
-      ? Math.round(lastSnap.ig_response_rate * igLeadTotal / 100)
-      : null,
+    // Le taux de reponse aux DM n'existe PAS en historique, et c'est desormais explicite
+    // plutot qu'accidentel : il se lisait dans `ig_response_rate`, supprimee le
+    // 2026-09-01 — vide sur 100 % de ses lignes depuis l'origine, ecrite `null` en dur
+    // par les trois chemins de collecte. Le signal « Taux de reponse DM bas » ne se
+    // declenche donc que sur la periode courante, servie par /api/instagram/messages,
+    // qui compte de vraies conversations. `null` et non `0` : un trou dit « on ne sait
+    // pas », un zero affirmerait « personne n'a repondu ».
+    responseRate:    null,
+    repliedThreads:  null,
     leadCount:       igLeadTotal,
     keywordCounts:   {},
     threads:         [],

@@ -481,7 +481,6 @@ async function fetchIgDayMetrics(token: string, igAccountId: string, date: strin
     // ira combler.
     ig_reach_follower:     reachFollower ?? (reachTotalJour === 0 ? 0 : null),
     ig_reach_non_follower: reachNonFollower ?? (reachTotalJour === 0 ? 0 : null),
-    ig_response_rate:      null,
    },
    // N'ecrire QUE sur la ligne du jour courant. Voir le commentaire ci-dessus.
    compte: {

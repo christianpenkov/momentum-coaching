@@ -166,22 +166,58 @@ Notés ici pour ne pas les réinstruire :
 
 ---
 
-## Colonnes mortes — décision en attente
+## Colonnes mortes — remesuré le 2026-09-01
 
-| Colonne | Remplissage | Lue par l'UI ? |
+⚠️ **Une colonne « morte » peut revenir à la vie. Remesurer avant de supprimer.**
+
+La version précédente de ce tableau donnait sept colonnes pour vides, sur 107 lignes.
+Remesuré sur les 356 lignes d'aujourd'hui, **trois d'entre elles se sont remplies** :
+les supprimer sur la foi du tableau aurait détruit de la donnée réelle. C'est le même
+piège que les « parades documentées » — un constat daté qu'on relit comme une propriété
+permanente.
+
+| Colonne | Remplissage 2026-09-01 | État |
 |---|---|---|
-| `ig_impressions` | 0/107 | non — métrique **supprimée** de l'API |
-| `ig_profile_taps` | 0/107 | oui (champ jamais affiché) |
-| `ig_website_clicks` | 0/107 | oui (champ jamais affiché) |
-| `ig_follows_unfollows` | 0/107 | oui — pilotait une couleur, corrigé |
-| `ig_demographics` | 0/107 | oui — API renvoie 0 série |
-| `ig_response_rate` | 0/107 | oui |
-| `ig_lead_count` | 0/107 | oui |
+| `ig_profile_taps` | **142/356** | **VIVANTE** — ne pas supprimer |
+| `ig_website_clicks` | **142/356** | **VIVANTE** — ne pas supprimer |
+| `ig_follows_unfollows` | **45/356** | **VIVANTE** — ne pas supprimer |
+| `ig_demographics` | 0/356 | morte — l'API renvoie 0 série |
+| `ig_response_rate` | 0/356 | **SUPPRIMÉE le 2026-09-01** — voir ci-dessous |
+| `ig_impressions` | — | déjà supprimée (colonne absente du schéma) |
+| `ig_lead_count` | — | déjà supprimée (colonne absente du schéma) |
 | `video_duration_sec` (posts) | 0/971 | **aucune référence dans le code** |
 
 Quatre colonnes de stories jamais demandées au cron : `total_views`, `replies`,
 `reposts`, `link_clicks`. **Non conclu** — aucune story active au moment de
 l'audit, donc impossible de tester si Meta les fournit.
+
+### `ig_response_rate` — pourquoi elle est partie, et dans quel ordre
+
+Vide sur **100 % de ses lignes depuis l'origine**, et pas par accident : les trois
+chemins de collecte (`lib/ig-fetch.ts` ×2, `lib/ig-metrics-core.ts`, et la copie de
+l'Edge Function `poll-leads`) l'écrivaient **`null` en dur**. Aucun code ne calculait
+jamais de valeur.
+
+Son unique lecteur en faisait un `?? 0`, et ce zéro alimentait le seuil d'une alerte :
+« Taux de réponse DM bas : 0 % — 0 conversations sans réponse » s'affichait sur **toute
+période passée**. Une alerte qui se déclenche toujours cesse d'être lue.
+
+Le taux de réponse **existe toujours sur la période courante** : `/api/instagram/messages`
+le calcule à partir des conversations réelles (100 % mesuré sur le profil de test, 7 fils
+sur 7 répondus). Ce qui disparaît, c'est uniquement sa version historique, qui n'a jamais
+contenu autre chose que du vide.
+
+⚠️ **L'ordre de suppression n'est pas négociable**, et vaut pour toute colonne écrite par
+un cron :
+
+1. retirer la colonne de **tous les écrivains** ;
+2. déployer le site **et** l'Edge Function — ce sont deux déploiements distincts, `git push`
+   n'emporte pas `supabase/functions/` ;
+3. prouver par le **contenu du bundle** que la fonction déployée ne l'écrit plus ;
+4. **seulement ensuite**, `drop column`.
+
+Inverser 3 et 4 casse `poll-leads` à chaque passage, soit toutes les 5 minutes : un INSERT
+qui nomme une colonne absente échoue en entier.
 
 ---
 
