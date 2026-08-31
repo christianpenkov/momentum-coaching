@@ -42,7 +42,7 @@ import { isCallHonored } from '@/lib/callHonored';
 import { contenuConversion, acquisitionParContenu, contenuActivation, SANS_CONTENU } from '@/lib/attribution-roles';
 import { isCallCanceled } from '@/lib/sessionRapport';
 import { usePeriodesIg, porteeDeLaPeriode, typePeriodePour, type TypePeriodeIg } from '@/lib/porteeIg';
-import { bucketCallsByBookedDay, parisDayRange, tauxOuTrou, idsDeContinuation } from '@/lib/callSeries';
+import { bucketCallsByBookedDay, parisDayRange, tauxOuTrou, idsDeContinuation, representantDOpportunite } from '@/lib/callSeries';
 // Icones des en-tetes de colonne — source unique pour les trois tableaux de Business
 // micro. Quatorze colonnes portent le meme nom d'un tableau a l'autre et doivent donc
 // porter le meme symbole.
@@ -1092,7 +1092,24 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   // pour qu'aucun lecteur ne tente de le retrouver a partir de « Calls bookes ».
   const rendezVous   = callsInPeriod.filter(c => c.status === 'active').length;
   const noShows      = callsInPeriod.filter(c => c.status === 'active' && c.no_show).length;
-  const dealsCloses  = callsInPeriod.filter(c => c.deal_closed).length;
+  // Un deal se compte dans la periode de SON OPPORTUNITE, pas dans celle du rendez-vous
+  // ou il a ete signe. Sans ca, un deal signe au 2e rendez-vous atterrit dans une periode
+  // dont le denominateur — les opportunites honorees — ne le contient pas, puisque
+  // l'opportunite est comptee dans la periode du PREMIER rendez-vous. Le taux de closing
+  // de la seconde periode a alors un numerateur sans denominateur, et peut depasser 100 %.
+  //
+  // La configuration existe deja en base : « Testrapportpasse », 1er call reserve le 21/08
+  // (semaine du 17 au 23), continuation reservee le 29/08 (semaine du 24 au 30). Elle n'a
+  // rien close a ce jour, donc aucun chiffre faux n'a ete affiche — c'est un defaut qui
+  // attendait son premier rapport de vente.
+  //
+  // Regle de cohorte, docs/perimetre-stats-referentiel.md regle 2 : numerateur et
+  // denominateur portent sur la meme population.
+  const representantOv = representantDOpportunite(callsAllTime ?? calls);
+  const idsDansLaPeriode = new Set(callsInPeriod.map(c => c.id));
+  const dealsCloses = (callsAllTime ?? calls).filter(c =>
+    c.deal_closed && idsDansLaPeriode.has(representantOv.get(c.id) ?? c.id)
+  ).length;
   const totalRev     = callsInPeriod.reduce((s, c) => s + (c.revenue || 0), 0);
   const noShowRate   = rendezVous > 0 ? pct(noShows, rendezVous) : 0;
   const closingRate  = callsHonores > 0 ? pct(dealsCloses, callsHonores) : 0;
@@ -1377,6 +1394,11 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
           { label: 'Reach Instagram', value: fmt(igReach), unit: 'personnes', color: IG_COLOR, data: regrouperPourCourbe(igChartSlice.map(d => ({ date: d.date, v: d.pending ? null : d.reach }))) },
           { label: 'Vues YouTube', value: fmt(ytViews), unit: 'vues', color: YT_COLOR, data: regrouperPourCourbe(ytChartSlice.map(d => ({ date: d.date, v: d.pending ? null : d.views }))) },
         ].map((item, i) => {
+          // Quand AUCUN jour n'est mesure, le grand chiffre valait « 0 » — il affirmait
+          // « zero personne touchee » la ou la courbe disait deja « pas encore de donnees ».
+          // Vu en production le 2026-09-01 : la ligne du jour existe en base avec ig_reach
+          // a NULL, et la carte annoncait « 0 personnes » pour le mois qui commence. Le
+          // cas se represente le 1er de chaque mois.
           const allPending = item.data.every(d => d.v === null);
           return (
           <div key={i} className="stats-hover-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 20px 12px' }}>
@@ -1384,8 +1406,8 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
               <div>
                 <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 4 }}>{item.label}</div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                  <span style={{ fontSize: 26, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{item.value}</span>
-                  <span style={{ fontSize: 10, color: 'var(--muted)' }}>{item.unit}</span>
+                  <span style={{ fontSize: 26, fontWeight: 800, color: allPending ? 'var(--faint)' : 'var(--ink)', lineHeight: 1 }}>{allPending ? '—' : item.value}</span>
+                  {!allPending && <span style={{ fontSize: 10, color: 'var(--muted)' }}>{item.unit}</span>}
                 </div>
                 <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 2 }}>{ovEtiquettePeriode}</div>
               </div>

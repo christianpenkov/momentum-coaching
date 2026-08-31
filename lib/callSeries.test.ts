@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { callDayKey, bucketCallsByBookedDay, parisDayRange, tauxOuTrou, idsDeContinuation } from './callSeries.ts';
+import { callDayKey, bucketCallsByBookedDay, parisDayRange, tauxOuTrou, idsDeContinuation, representantDOpportunite } from './callSeries.ts';
 
 // Cas qui a motivé la fonction : un call réservé entre minuit et 2 h heure de Paris
 // tombe la VEILLE en UTC. Le découpage précédent (`new Date('YYYY-MM-DD')`, donc
@@ -219,4 +219,52 @@ test('deux prospects sans identite commune ne fusionnent jamais', () => {
     { id: 'b', booked_at: '2026-08-20T10:00:00.000Z', outcome: 'closed', invitee_name: 'Sophie', invitee_email: 'sophie@x.fr' },
   ]);
   assert.equal(ids.size, 0);
+});
+
+// ─── representantDOpportunite ────────────────────────────────────────────────
+//
+// Le defaut qu'elle ferme : un 1er call reserve en semaine A, sa continuation
+// reservee en semaine B et closee. Sans reattribution, le deal compte en B alors
+// que l'opportunite compte en A — la semaine B a un numerateur sans denominateur,
+// et son taux de closing depasse 100 %. Configuration presente en base au
+// 2026-08-31 (1er call le 21/08, continuation le 29/08).
+test('un deal signe au 2e rendez-vous se rattache a la periode du premier', () => {
+  const calls = [
+    { id: 'premier', booked_at: '2026-08-21T04:59:00.000Z', outcome: 'second_call',
+      invitee_name: 'Test', invitee_email: 'test@a.fr' },
+    { id: 'suite', booked_at: '2026-08-29T23:17:00.000Z', outcome: 'closed',
+      invitee_name: 'Test', invitee_email: 'test@a.fr' },
+  ];
+  const rep = representantDOpportunite(calls);
+  assert.equal(rep.get('suite'), 'premier');
+  assert.equal(rep.get('premier'), 'premier');
+});
+
+// L'invariant qui relie les deux fonctions. S'il casse, un call peut etre retire du
+// denominateur sans que son deal soit reattribue — c'est exactement le trou qu'on ferme.
+test('idsDeContinuation = les calls dont le representant n est pas eux-memes', () => {
+  const calls = [
+    { id: 'a1', booked_at: '2026-06-01T10:00:00.000Z', outcome: 'second_call', invitee_email: 'a@x.fr' },
+    { id: 'a2', booked_at: '2026-06-05T10:00:00.000Z', outcome: 'closed',      invitee_email: 'a@x.fr' },
+    { id: 'b1', booked_at: '2026-06-02T10:00:00.000Z', outcome: 'to_recontact', invitee_email: 'b@x.fr' },
+    { id: 'b2', booked_at: '2026-07-02T10:00:00.000Z', outcome: 'closed',       invitee_email: 'b@x.fr' },
+  ];
+  const ids = idsDeContinuation(calls);
+  const rep = representantDOpportunite(calls);
+  const depuisRep = new Set([...rep.entries()].filter(([id, r]) => id !== r).map(([id]) => id));
+  assert.deepEqual([...ids].sort(), [...depuisRep].sort());
+  // Et le cas metier : 'b2' rebooke apres un `to_recontact`, il ouvre une NOUVELLE
+  // opportunite — son deal reste dans sa propre periode.
+  assert.equal(rep.get('b2'), 'b2');
+});
+
+// Trois rendez-vous d'affilee : tous rattaches au premier, pas au precedent.
+test('une chaine de trois rendez-vous se rattache toute au premier', () => {
+  const rep = representantDOpportunite([
+    { id: 'un',    booked_at: '2026-06-01T10:00:00.000Z', outcome: 'second_call', invitee_email: 'c@x.fr' },
+    { id: 'deux',  booked_at: '2026-06-10T10:00:00.000Z', outcome: 'second_call', invitee_email: 'c@x.fr' },
+    { id: 'trois', booked_at: '2026-07-05T10:00:00.000Z', outcome: 'closed',      invitee_email: 'c@x.fr' },
+  ]);
+  assert.equal(rep.get('deux'), 'un');
+  assert.equal(rep.get('trois'), 'un');
 });

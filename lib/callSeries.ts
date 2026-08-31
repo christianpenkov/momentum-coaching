@@ -167,6 +167,42 @@ function groupesDeProspects(calls: CallPourContinuation[]): CallPourContinuation
   return [...parEmail.values(), ...parNomSeul.values()];
 }
 
+/**
+ * Pour chaque call, l'identifiant du call qui REPRESENTE son opportunite : lui-meme
+ * s'il l'ouvre, sinon le premier rendez-vous de la chaine.
+ *
+ * Sert a rattacher un DEAL a la periode de son opportunite, et non a celle du
+ * rendez-vous ou il a ete signe. Sans ce rattachement, un deal signe lors d'un 2e
+ * rendez-vous compte dans la periode de ce 2e rendez-vous, alors que l'opportunite qui
+ * le porte est comptee dans la periode du premier. Quand les deux tombent dans des
+ * periodes differentes, le taux de closing de la seconde a un numerateur sans
+ * denominateur : il peut depasser 100 %.
+ *
+ * C'est la regle de COHORTE du referentiel de perimetre (regle 2) : numerateur et
+ * denominateur portent sur la meme population. Elle ne contredit pas « le deal se
+ * compte la ou il a ete signe » : le deal reste attache a SON call, c'est la PERIODE
+ * de comptage qui suit l'opportunite.
+ *
+ * Invariant avec la fonction voisine : `idsDeContinuation` contient exactement les
+ * calls dont le representant n'est pas eux-memes.
+ */
+export function representantDOpportunite(calls: CallPourContinuation[]): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const groupe of groupesDeProspects(calls)) {
+    const ordonne = [...groupe].sort((a, b) => (callDayKey(a) ?? '').localeCompare(callDayKey(b) ?? ''));
+    let representant: string | undefined;
+    for (let i = 0; i < ordonne.length; i++) {
+      // Une chaine ne se prolonge que si le call PRECEDENT a declare « 2eme call ».
+      // Meme condition, au meme endroit, que idsDeContinuation : les deux fonctions
+      // doivent decrire la meme chaine, sinon un call serait exclu du denominateur
+      // sans que son deal soit reattribue.
+      if (i === 0 || ordonne[i - 1].outcome !== 'second_call') representant = ordonne[i].id;
+      if (representant) m.set(ordonne[i].id, representant);
+    }
+  }
+  return m;
+}
+
 /** Identifiants des calls qui CONTINUENT une opportunite deja ouverte. */
 export function idsDeContinuation(calls: CallPourContinuation[]): Set<string> {
   const parProspect = groupesDeProspects(calls);
