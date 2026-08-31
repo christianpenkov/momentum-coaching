@@ -114,11 +114,23 @@ Sync Calendly (30 min) · Notify rapport call (30 min) · `poll-leads` (5 min) �
 `poll-stories` (30 min) · `installment-reminders` (1×/jour) ·
 `/api/stripe/cron-health` (1×/jour).
 
-⚠️ **`sync-stripe-payments` est À CRÉER — 4 h 00 UTC.** C'est le filet du cash : il
-relit les paiements chez Stripe pour rattraper ce qu'un webhook non délivré a manqué.
-Sans lui, le webhook est l'unique chemin d'écriture et un événement perdu l'est pour
-toujours, sans aucun signal — trois encaissements du compte de test étaient dans ce
-cas, et le premier passage réel les a ramenés.
+`sync-stripe-payments` **existe et tourne toutes les 30 minutes** (créé le
+2026-08-31). ⚠️ **Ne pas en recréer un** : c'est le filet du cash, un doublon ferait
+passer deux exécutions simultanées sur les mêmes fenêtres.
+
+Il relit les paiements chez Stripe pour rattraper ce qu'un webhook non délivré a
+manqué. Sans lui, le webhook est l'unique chemin d'écriture et un événement perdu
+l'est pour toujours, sans aucun signal — trois encaissements du compte de test étaient
+dans ce cas, et le premier passage l'a prouvé en les ramenant.
+
+La cadence de 30 min n'est pas arbitraire : `OVERLAP_MINUTES = 30` dans le code, donc
+chaque fenêtre couvre l'intervalle **plus** son recouvrement. Un passage manqué est
+rattrapé par le suivant sans aucun trou. À une passe par jour, ce recouvrement de
+30 minutes n'aurait servi à rien.
+
+⚠️ **Ne pas la déclencher à la main pendant une fenêtre d'observation** : chaque
+lancement avance `integrations.metadata.stripe_synced_at`, le filigrane qui sert
+justement à prouver qu'un passage autonome a eu lieu.
 
 Le secret `STRIPE_SECRET_KEY` est **posé** côté Edge Functions (clé de TEST au
 2026-08-31 — à reposer avec la clé live lors de la migration chez Quennel). La clé de
