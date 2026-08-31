@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { mapWithConcurrency } from '../_shared/rate-limit.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -106,6 +107,54 @@ async function getCalendlyToken(profileId: string): Promise<string | null> {
   return data.access_token;
 }
 
+/** Lit une liste Calendly EN ENTIER, en suivant `pagination.next_page`.
+ *
+ *  Avant : un seul appel `count=100`, et tout ce qui depassait etait perdu sans le
+ *  moindre signal. La fenetre couvrant les 60 prochains jours, un eleve qui remplit
+ *  son agenda depassait la borne et ses rendez-vous n'entraient en base qu'une fois
+ *  les precedents passes — donc parfois apres l'heure du rendez-vous lui-meme.
+ *
+ *  ⚠️ La reponse HTTP est VERIFIEE. Sans ce controle, un 429 (Calendly limite a
+ *  60 requetes/minute et par jeton) rendait `collection` undefined : zero event, zero
+ *  erreur, et `last_synced_at` avancait quand meme. La marge de 48 h absorbait le coup,
+ *  mais rien ne l'aurait signale si la panne avait dure plus longtemps.
+ *
+ *  Rend une ERREUR plutot qu'une liste partielle : mieux vaut ne rien conclure et
+ *  reprendre au cycle suivant, la borne basse n'ayant pas bouge. */
+const PAGES_CALENDLY_MAX = 10;
+
+async function listerEventsCalendly(
+  url: string,
+  accessToken: string,
+): Promise<{ events: any[]; erreur: string | null }> {
+  const events: any[] = [];
+  let suivante: string | null = url;
+
+  for (let page = 0; page < PAGES_CALENDLY_MAX && suivante; page++) {
+    let res: Response;
+    try {
+      res = await fetch(suivante, { headers: { Authorization: `Bearer ${accessToken}` } });
+    } catch (e: any) {
+      return { events, erreur: `calendly_reseau: ${e?.message || 'unknown'}` };
+    }
+    if (!res.ok) {
+      // 429 : Calendly renvoie `Retry-After`. On ne retente pas ici — le cycle suivant
+      // arrive dans 30 minutes et la borne basse n'aura pas avance.
+      const apres = res.headers.get('retry-after');
+      return { events, erreur: `calendly_http_${res.status}${apres ? `_retry_after_${apres}s` : ''}` };
+    }
+    const data = await res.json().catch(() => null);
+    if (!data) return { events, erreur: 'calendly_reponse_illisible' };
+    events.push(...(data.collection || []));
+    suivante = data.pagination?.next_page ?? null;
+  }
+
+  // Borne atteinte avec une page suivante en attente : on le DIT, au lieu de tronquer
+  // en silence.
+  if (suivante) return { events, erreur: `calendly_pagination_bornee_${PAGES_CALENDLY_MAX}_pages` };
+  return { events, erreur: null };
+}
+
 async function syncCalendlyEleve(
   profileId: string,
   connectedAt: string,
@@ -115,17 +164,38 @@ async function syncCalendlyEleve(
   const accessToken = await getCalendlyToken(profileId);
   if (!accessToken) return { synced: 0, skipped: 0, errors: ['no_token'] };
 
-  const meRes = await fetch('https://api.calendly.com/users/me', {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  const meData = await meRes.json();
-  const userUri = meData?.resource?.uri;
-  if (!userUri) return { synced: 0, skipped: 0, errors: ['user_uri_not_found'] };
-
-  await supabase.from('integrations')
-    .update({ metadata: { ...meData?.resource, user_uri: userUri } })
+  // `user_uri` identifie le compte Calendly : il ne change JAMAIS pour une intégration
+  // donnée. Il était pourtant redemandé à `/users/me` à chaque passage, et `metadata`
+  // réécrit dans la foulée — un appel réseau et une écriture par élève et par passage,
+  // soit 1 920 de chaque par jour à 40 élèves, pour une valeur identique.
+  //
+  // C'est le profil « donnée immuable » de docs/checklist-scalabilite.md : à collecter
+  // une fois, jamais à rafraîchir. On ne redemande que si elle manque.
+  const { data: integMeta } = await supabase
+    .from('integrations')
+    .select('metadata')
     .eq('profile_id', profileId)
-    .eq('provider', 'calendly');
+    .eq('provider', 'calendly')
+    .maybeSingle();
+
+  let userUri: string | null = (integMeta?.metadata as any)?.user_uri ?? null;
+
+  if (!userUri) {
+    const meRes = await fetch('https://api.calendly.com/users/me', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    // Vérifiée, contrairement à avant : un 429 tombait sur `user_uri_not_found`, un
+    // message qui accusait le compte alors que c'était la limite de débit.
+    if (!meRes.ok) return { synced: 0, skipped: 0, errors: [`calendly_users_me_http_${meRes.status}`] };
+    const meData = await meRes.json().catch(() => null);
+    userUri = meData?.resource?.uri ?? null;
+    if (!userUri) return { synced: 0, skipped: 0, errors: ['user_uri_not_found'] };
+
+    await supabase.from('integrations')
+      .update({ metadata: { ...meData?.resource, user_uri: userUri } })
+      .eq('profile_id', profileId)
+      .eq('provider', 'calendly');
+  }
 
   // Marge de sécurité : le vrai tri "call généré par Momentum ou pas" se fait en aval sur
   // booked_at vs first_connected_at, donc élargir la fenêtre d'ingestion ici ne coûte rien
@@ -150,24 +220,22 @@ async function syncCalendlyEleve(
   // au-delà entrera dans la fenêtre bien avant sa date. Réversible si un cas réel apparaît.
   const maxStartTime = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
 
-  // Fetch events actifs + annulés en parallèle
-  const [eventsRes, canceledRes] = await Promise.all([
-    fetch(
-      `https://api.calendly.com/scheduled_events?user=${encodeURIComponent(userUri)}&count=100&min_start_time=${minStartTime}&max_start_time=${maxStartTime}`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    ),
-    fetch(
-      `https://api.calendly.com/scheduled_events?user=${encodeURIComponent(userUri)}&status=canceled&count=50&min_start_time=${minStartTime}&max_start_time=${maxStartTime}`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    ),
+  // Fetch events actifs + annulés en parallèle, paginés et vérifiés.
+  const base = `https://api.calendly.com/scheduled_events?user=${encodeURIComponent(userUri)}&count=100&min_start_time=${minStartTime}&max_start_time=${maxStartTime}`;
+  const [actifs, annules] = await Promise.all([
+    listerEventsCalendly(base, accessToken),
+    listerEventsCalendly(`${base}&status=canceled`, accessToken),
   ]);
 
-  const eventsData = await eventsRes.json();
-  const canceledData = await canceledRes.json();
-  const allEvents = [
-    ...(eventsData?.collection || []),
-    ...(canceledData?.collection || []),
-  ];
+  // ⚠️ On SORT si Calendly a refusé, sans rien écrire et sans laisser avancer la borne.
+  // L'appelant n'horodate que les profils sans erreur : la fenêtre reste donc en place
+  // et le cycle suivant reprend tout. Écrire ici sur une liste partielle marquerait des
+  // journées comme traitées alors qu'elles ne l'ont pas été.
+  if (actifs.erreur || annules.erreur) {
+    return { synced: 0, skipped: 0, errors: [actifs.erreur, annules.erreur].filter(Boolean) as string[] };
+  }
+
+  const allEvents = [...actifs.events, ...annules.events];
 
   // Skip des events en état TERMINAL : un call annulé et déjà enregistré comme tel
   // ne changera plus jamais côté Calendly. Sans ce filtre, on refaisait un fetch
@@ -554,15 +622,24 @@ Deno.serve(async (req: Request) => {
   // l'exécution sera repris au cycle suivant (la marge de 48 h le garantit).
   const runStartedAt = new Date().toISOString();
 
-  // Tous les profils en parallèle — 150s de timeout = largement suffisant pour 20 élèves
-  const results = await Promise.all(
-    integrations.map((integ: any) => {
-      const connectedAt = integ.connected_at || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-      return syncCalendlyEleve(integ.profile_id, connectedAt, integ.last_synced_at ?? null)
-        .then(r => ({ profile_id: integ.profile_id, ...r }))
-        .catch((e: any) => ({ profile_id: integ.profile_id, synced: 0, skipped: 0, errors: [e?.message || 'unknown'] }));
-    })
-  );
+  // Concurrence BORNÉE à 5, comme poll-leads.
+  //
+  // `Promise.all` lançait tous les profils d'un coup — le commentaire disait
+  // « largement suffisant pour 20 élèves », ce qui est vrai et cesse de l'être à 40 :
+  // chaque profil enchaîne un appel `/invitees` par rendez-vous non terminal, et 40
+  // profils simultanés ouvrent autant de rafales concurrentes dans une fonction qui
+  // dispose de 150 s.
+  //
+  // Le quota Calendly, lui, n'est pas en cause : 60 requêtes par minute et par JETON,
+  // donc par élève. Ce qui se partage ici, c'est le temps d'exécution, pas le quota.
+  const settled = await mapWithConcurrency(integrations as any[], 5, (integ: any) => {
+    const connectedAt = integ.connected_at || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    return syncCalendlyEleve(integ.profile_id, connectedAt, integ.last_synced_at ?? null)
+      .then(r => ({ profile_id: integ.profile_id, ...r }));
+  });
+  const results = settled.map((r, i) => r.status === 'fulfilled'
+    ? r.value
+    : { profile_id: (integrations as any[])[i].profile_id, synced: 0, skipped: 0, errors: [String((r as any).reason?.message || 'unknown')] });
 
   // Avancer last_synced_at UNIQUEMENT pour les profils sans erreur. Un profil en échec
   // garde son ancienne borne et rattrapera la fenêtre complète au cycle suivant — c'est
@@ -581,6 +658,27 @@ Deno.serve(async (req: Request) => {
   const allErrors: Record<string, string[]> = {};
   for (const r of results) {
     if (r.errors.length) allErrors[r.profile_id] = r.errors;
+  }
+
+  // Trace EN BASE, pas seulement dans la réponse HTTP.
+  //
+  // Les erreurs partaient dans le corps de la réponse, que cron-job.org jette. La
+  // fonction pouvait donc échouer sur tous les profils pendant des jours sans que rien
+  // ne l'indique — et c'est le chemin qui alimente les calls, donc le tunnel de vente.
+  // Convention du projet (AGENTS.md) : n'écrire QUE les passages en échec, la table se
+  // purge seule à 30 jours.
+  //
+  // Ne jamais faire échouer un passage à cause de sa propre journalisation.
+  if (Object.keys(allErrors).length) {
+    try {
+      await supabase.from('cron_runs').insert({
+        fonction: 'sync-calendly',
+        profils_en_erreur: Object.keys(allErrors).length,
+        erreurs: allErrors,
+      });
+    } catch (e) {
+      console.error('[sync-calendly] cron_runs insert failed', e);
+    }
   }
 
   return new Response(JSON.stringify({
