@@ -207,27 +207,22 @@ const isYTCall = (c: { source?: string | null }) => {
 };
 
 /**
- * Sous-titre de la carte « Abonnes » sur les onglets Instagram et YouTube.
+ * LES ABONNES SONT UN ETAT, PAS UNE ACTIVITE — et c'est vrai sur les trois onglets.
  *
- * Ces deux ecrans sont bornes a une periode : tout ce qu'ils montrent — portee,
- * publications, interactions — concerne la fenetre choisie. La carte y affiche donc
- * le nombre d'abonnes A LA FIN de cette fenetre, ce qui est coherent avec le reste.
+ * Arbitrage de Chris, 2026-09-01. Ces ecrans ont porte trois versions de la meme
+ * carte : « total » (le mot n'apprenait rien et laissait croire a un cumul),
+ * « au 30 juin » (le compte a la fin de la fenetre consultee), et « aujourd'hui ».
+ * Un lecteur qui passait de Vue generale a l'onglet Instagram sur un mois passe voyait
+ * donc DEUX nombres differents — 255 et 253 — pour ce qu'il lit comme la meme carte.
  *
- * Ce n'est pas une valeur du jour, et « total » ne le disait pas — le mot n'apprenait
- * rien et laissait croire a un cumul (signale le 2026-08-31).
+ * La regle retenue est celle qui existait deja ailleurs sur ces ecrans : « publications »
+ * est une ACTIVITE, elle suit la periode ; « abonnes » est un ETAT, il ne se cumule pas
+ * et n'a pas de sens historique dans une vue de periode. Les trois onglets affichent
+ * donc le compte du JOUR, lu sur l'appel live, qui ne depend d'aucune fenetre.
  *
- * Vue generale, elle, affiche volontairement le compte du JOUR avec « aujourd'hui » :
- * c'est un tableau de bord d'etat, pas un ecran de periode. Les deux sont justes, ils
- * ne repondent simplement pas a la meme question — d'ou deux libelles differents
- * plutot qu'une valeur alignee de force.
- *
- * En periode courante et en All-Time, la fin de fenetre EST aujourd'hui : le libelle
- * le dit alors simplement.
+ * Ce que la periode continue de dire reste dit — par le BADGE de variation a cote du
+ * chiffre (« +1 sur 30j »), qui lui est bien une activite.
  */
-function libelleDateAbonnes(periodIndex: number | undefined, sinceConnection: boolean | undefined, fin: Date): string {
-  if (sinceConnection || !periodIndex) return "aujourd'hui";
-  return `au ${fin.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'Europe/Paris' })}`;
-}
 
 /**
  * Bandeau « données disponibles depuis le … ».
@@ -1567,7 +1562,7 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
 
 // ─── TAB 2 : Instagram ────────────────────────────────────────────────────────
 
-function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, connexionCassee }: { ig: IGStats | null; period: Period; periodIndex?: number; profileId?: string; sinceConnection?: boolean; connexionCassee?: boolean }) {
+function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, connexionCassee, abonnesAujourdHui }: { ig: IGStats | null; period: Period; periodIndex?: number; profileId?: string; sinceConnection?: boolean; connexionCassee?: boolean; abonnesAujourdHui?: number | null }) {
   const [selectedPost, setSelectedPost] = useState<IGPost | null>(null);
   const [statModal, setStatModal] = useState<{ label: string; value: string; color: string; data: { date: string; v: number }[]; unit?: string } | null>(null);
   const [contentSubTab, setContentSubTab] = useState<'posts' | 'stories'>('posts');
@@ -1871,7 +1866,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
           // du profil — l'etape charniere du tunnel, qui n'etait affichee nulle part
           // (demande de Chris, 2026-08-22). Meme principe que la carte YouTube, qui
           // porte deja « +0 (+0 -0) » a cote de son chiffre.
-          { label: 'Abonnés', value: fmt(ig.followers), sub: libelleDateAbonnes(periodIndex, sinceConnection, igPeriodEnd), color: 'var(--ink)', key: 'Abonnés', badge: igFollowerDeltaP },
+          { label: 'Abonnés', value: abonnesAujourdHui != null ? fmt(abonnesAujourdHui) : '—', sub: "aujourd'hui", color: 'var(--ink)', key: 'Abonnés', badge: igFollowerDeltaP },
           { label: 'Publications', value: fmt(postsInPeriod), sub: igEtiquettePeriode, color: IG_COLOR, key: 'Publications' },
           { label: 'Reach · personnes', value: fmt(igReachP), sub: igEtiquettePeriode, color: 'var(--ink)', key: 'Reach' },
           { label: 'Interactions posts', value: fmt(igInteractionsP), sub: igEtiquettePeriode, color: 'var(--ink)', key: 'Interactions posts' },
@@ -2748,7 +2743,7 @@ function StorySequenceDetailModal({ profileId, sequence, onClose }: { profileId?
 
 // ─── TAB 3 : YouTube ──────────────────────────────────────────────────────────
 
-function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceConnection, connexionCassee }: { yt: YTStats | null; period: Period; profileId?: string; periodIndex?: number; ytIsFallback?: boolean; sinceConnection?: boolean; connexionCassee?: boolean }) {
+function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceConnection, connexionCassee, abonnesAujourdHui }: { yt: YTStats | null; period: Period; profileId?: string; periodIndex?: number; ytIsFallback?: boolean; sinceConnection?: boolean; connexionCassee?: boolean; abonnesAujourdHui?: number | null }) {
   const [selectedVideo, setSelectedVideo] = useState<YTVideo | null>(null);
   useEscapeKey(() => setSelectedVideo(null), !!selectedVideo);
   const [videosTypeFilter, setVideosTypeFilter] = useState<'all' | 'short' | 'long'>('all');
@@ -3234,7 +3229,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
           // Pas de sous-titre de periode : c'est le total actuel de la chaine, lu en
           // direct via la Data API v3. « all time » induisait en erreur — la carte ne
           // cumule rien sur une periode, elle affiche un compteur.
-          { label: 'Abonnés', value: fmt(yt.subscribers), sub: libelleDateAbonnes(periodIndex, sinceConnection, ytPeriodEnd), color: 'var(--ink)', key: 'Abonnés YT' },
+          { label: 'Abonnés', value: abonnesAujourdHui != null ? fmt(abonnesAujourdHui) : '—', sub: "aujourd'hui", color: 'var(--ink)', key: 'Abonnés YT' },
           { label: 'Vidéos publiées', value: fmt(ytVideosInPeriodCount), sub: ytEtiquettePeriode, color: YT_COLOR, key: 'Vidéos publiées' },
           // Libelle « Abonnés nets » sans suffixe : on est dans l'onglet YouTube, a cote
           // d'une carte « Abonnés ». Le « YT » etait un reste de la cle technique, qui
@@ -9484,8 +9479,32 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
   // un mécanisme resté à zéro ligne en un an et retiré le 2026-08-27.
   const callsData = callsRes.data ?? [];
 
+  // Un prospect ecarte depuis le Pipeline (« Non, pas un lead ») doit disparaitre de
+  // TOUTES les cartes de Mes stats. `instagram_leads` porte la colonne et la filtre
+  // deja, juste au-dessus ; `instagram_lead_lm_history` ne l'a pas — elle journalise
+  // les reclamations de lead magnet, une ligne par interaction, et rien ne la reliait
+  // a la decision prise sur la fiche.
+  //
+  // Or c'est ELLE que lit le grand chiffre « Leads » de Vue generale. Un prospect
+  // ecarte y serait donc reste compte, alors que le Pipeline ne l'affiche plus et que
+  // le badge « nouveaux » de la meme carte, qui lit l'autre table, l'excluait deja :
+  // le badge aurait pu depasser le chiffre qu'il est cense detailler.
+  //
+  // Zero cas au 2026-09-01 — les deux prospects ecartes viennent de cold DM et n'ont
+  // aucune ligne d'historique LM. Le trou n'attendait qu'un prospect venu d'un
+  // COMMENTAIRE, seul chemin qui ecrit dans cette table, pour s'ouvrir.
+  const { data: ecartesRows, error: ecartesErr } = await supabase
+    .from('instagram_leads')
+    .select('ig_user_id')
+    .eq('profile_id', targetId)
+    .eq('not_a_lead', true);
+  // Sans ce log, une requete refusee laisserait un ensemble vide, qui se lit
+  // « personne n'est ecarte » au lieu de « je ne sais pas qui l'est ».
+  if (ecartesErr) console.error('[PageClientStats] lecture des prospects ecartes (not_a_lead) a echoue:', ecartesErr.message);
+  const igUsersEcartes = new Set((ecartesRows ?? []).map((l: any) => l.ig_user_id).filter(Boolean));
+
   const lmHistory: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[] =
-    lmHistoryRows.filter((h: any) => h.ig_user_id && h.keyword_matched);
+    lmHistoryRows.filter((h: any) => h.ig_user_id && h.keyword_matched && !igUsersEcartes.has(h.ig_user_id));
 
   // Map ig_lead_id (UUID) → media_id pour attribution réelle calls/contenu
   const leadIdToMediaId = new Map<string, string>();
@@ -10339,8 +10358,8 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
       {loading ? <InlineLoader /> : (
         <>
           {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} msgs={msgsEff} calls={callsEff} callsAllTime={callsAllTimeEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
-          {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} />}
-          {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.yt?.snapshotError} />}
+          {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} abonnesAujourdHui={ig?.followers ?? null} />}
+          {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.yt?.snapshotError} abonnesAujourdHui={yt?.subscribers ?? null} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} allTimeStart={allTimeStart} profileId={profileId} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} premierClicLienProspect={premierClicLienProspect} />}
           {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} hookRepliedEvents={hookRepliedEvents} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={callsAllTimeEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} shortioChartHistoryStory={shortioChartHistoryStory} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
           {tab === 5 && <TabRevenues encaissementsParJour={encaissementsParJour} cashParVente={cashParVente} deals={dealsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} allTimeStart={allTimeStart} stripeConnected={integStatus?.stripeConnected} />}
