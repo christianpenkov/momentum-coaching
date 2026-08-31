@@ -45,7 +45,7 @@ export async function GET() {
     );
   }
 
-  const [leadsRes, prospectsRes, nonIgProspectsRes, callsRes, overridesRes, clicksRes, eventsRes, lmHistoryRes, fusionsRes] = await Promise.all([
+  const [leadsRes, prospectsRes, nonIgProspectsRes, callsRes, overridesRes, clicksRes, eventsRes, lmHistoryRes, fusionsRes, dealsRes] = await Promise.all([
     supa.from('instagram_leads')
       .select('id, ig_username, ig_user_id, keyword_matched, lead_magnet_sent, hook_replied, hook_replied_at, tracking_link, detected_at, media_id, source, avatar_url')
       .eq('profile_id', user.id)
@@ -99,7 +99,22 @@ export async function GET() {
     // chargement une paire sur laquelle l'élève a déjà répondu.
     supa.from('fusions_fiches')
       .select('ig_lead_id, prospect_id, statut, call_ids, decided_at')
+      .eq('profile_id', user.id),
+    // ── LE MONTANT D'UNE VENTE VIENT DE `deals`, PAS DE `calls.revenue` ───────
+    // `calls.revenue` est la trace du montant DÉCLARÉ dans le rapport de call.
+    // Corriger une vente depuis la page Paiements écrit dans `deals`,
+    // `deal_installments` et `deal_events` — jamais dans `calls`, et c'est
+    // volontaire : la trace du rapport doit rester telle qu'elle a été saisie,
+    // c'est sur elle que `ventes_sante_montants` repère les écarts inexpliqués.
+    //
+    // Tant que personne ne corrige un montant, les deux coïncident et rien ne se
+    // voit. Dès qu'on en corrige un, le pipeline annonce l'ancien.
+    //
+    // `status <> 'canceled'` : une vente annulée ne compte pas.
+    supa.from('deals')
+      .select('call_id, amount_total, status')
       .eq('profile_id', user.id)
+      .neq('status', 'canceled')
   ]);
 
   // Map ig_story_id → nom de séquence, pour distinguer un media_id "post" (permalink
@@ -161,6 +176,7 @@ export async function GET() {
     prospects,
     nonIgProspects: nonIgProspectsRes.data ?? [],
     fusions: fusionsRes.data ?? [],
+    deals: dealsRes.data ?? [],
     calls: callsRes.data ?? [],
     overrides: overridesRes.data ?? [],
     events: eventsRes.data ?? [],

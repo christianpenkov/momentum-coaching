@@ -111,6 +111,13 @@ interface Call {
   relance_at: string | null;
 }
 
+/** Le montant CONTRACTÉ d'une vente. Voir `venteContractee` sur la carte. */
+interface VenteLue {
+  call_id: string | null;
+  amount_total: number | string | null;
+  status: string | null;
+}
+
 /** Une décision déjà prise sur un doublon soupçonné. Voir lib/fusionFiches.ts. */
 interface DecisionFusionLue {
   ig_lead_id: string;
@@ -171,6 +178,7 @@ interface PipelineData {
   prospects: ProspectLink[];
   nonIgProspects: NonIgProspect[];
   fusions: DecisionFusionLue[];
+  deals: VenteLue[];
   calls: Call[];
   overrides: Override[];
   events: ProspectEvent[];
@@ -608,6 +616,19 @@ interface CardData {
   derniereRelanceAt?: string | null;
   /** Quand le lead est entré dans son issue. `null` tant qu'il est actif. */
   classedAt?: string | null;
+  /**
+   * Le montant CONTRACTÉ de la vente, depuis `deals`.
+   *
+   * Distinct de `callRevenue`, qui est le montant DÉCLARÉ dans le rapport de
+   * call. Les deux coïncident tant que personne ne corrige une vente ; dès qu'on
+   * en corrige une depuis la page Paiements, seul `deals` bouge — c'est
+   * volontaire, la trace du rapport doit rester telle qu'elle a été saisie.
+   *
+   * Deux champs et non un seul écrasé : le rapport doit continuer de se rouvrir
+   * sur ce qu'on y avait écrit, et `ventes_sante_montants` s'appuie sur l'écart
+   * entre les deux pour signaler ce qu'aucune édition n'explique.
+   */
+  venteContractee?: number | null;
   /**
    * Dernier signe de vie, quelle qu'en soit la nature : commentaire, réponse en
    * DM, clic, rendez-vous, relance. C'est ce qui permet de trier par « ça dort
@@ -1210,8 +1231,12 @@ function contexteIssue(key: string, liste: CardData[]): string {
       return rebookes === 1 ? '1 a rebooké' : `${rebookes} ont rebooké`;
     }
     case 'closed': {
-      const total = liste.reduce((n, c) => n + (c.callRevenue ?? 0), 0);
-      return total > 0 ? `${total.toLocaleString('fr-FR')} € encaissés` : 'aucun montant saisi';
+      // CONTRACTÉ, et le mot le dit. « Encaissé » désignait du contracté : sur le
+      // profil de test, 9 200 € étaient annoncés « encaissés » alors que 1 800 €
+      // seulement étaient rentrés. L'encaissé est le métier de la page Paiements,
+      // qui suit les échéances ; ici on annonce ce qui a été signé.
+      const total = liste.reduce((n, c) => n + (c.venteContractee ?? c.callRevenue ?? 0), 0);
+      return total > 0 ? `${total.toLocaleString('fr-FR')} € contractés` : 'aucun montant saisi';
     }
     case 'lost': {
       const sansReponse = liste.filter(c => c.issueReason === 'sans_reponse').length;
@@ -2541,6 +2566,28 @@ export default function PagePipeline() {
 
   const events = data?.events ?? [];
 
+  /**
+   * Le montant contracté de chaque vente, par rendez-vous.
+   *
+   * Somme et non premier deal trouvé : un call peut en porter plusieurs (un
+   * avenant signé sur le même rendez-vous). Aucun cas en base aujourd'hui, mais
+   * rien ne l'interdit — et une somme fausse ne se verrait pas.
+   *
+   * Un call qui n'a AUCUNE vente garde `calls.revenue` : mieux vaut le montant
+   * du rapport que zéro. Même choix que « Mes Stats », pour que les deux écrans
+   * annoncent la même chose.
+   */
+  const venteParCall = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const d of data?.deals ?? []) {
+      if (!d.call_id || d.status === 'canceled') continue;
+      m.set(d.call_id, (m.get(d.call_id) ?? 0) + Number(d.amount_total || 0));
+    }
+    return m;
+  }, [data]);
+  const contractee = (c: { id: string; revenue?: number | null } | null | undefined) =>
+    c ? (venteParCall.get(c.id) ?? c.revenue ?? null) : null;
+
   const igCards: CardData[] = [];
   if (data) {
     const seen = new Set<string>();
@@ -2726,6 +2773,7 @@ export default function PagePipeline() {
         callStatus: call?.status ?? undefined,
         callOutcome: call?.outcome ?? null,
         callRevenue: call?.revenue ?? null,
+        venteContractee: contractee(call),
         callComment: call?.lead_rapport_comment ?? null,
         callQualified: (call as { qualified?: boolean | null } | undefined)?.qualified ?? null,
         callObjection: call?.objection ?? null,
@@ -2881,6 +2929,7 @@ export default function PagePipeline() {
         callStatus: call.status,
         callOutcome: call.outcome ?? null,
         callRevenue: call.revenue ?? null,
+        venteContractee: contractee(call),
         callComment: call.lead_rapport_comment ?? null,
         callQualified: (call as { qualified?: boolean | null }).qualified ?? null,
         callObjection: call.objection ?? null,
@@ -3048,7 +3097,10 @@ export default function PagePipeline() {
         lastMoveAt: latestOf(...calls.map(c => c.booked_at ?? c.scheduled_at)),
         nextDue: computeNextDue(state, latestCall.scheduled_at,
                   latestOf(...calls.map(c => c.booked_at ?? c.scheduled_at)), new Date()),
-        extra: latestCall.revenue ? `${latestCall.revenue.toLocaleString('fr-FR')} €` : undefined,
+        // Le CONTRACTÉ, pas le montant du rapport : sur le profil de test,
+        // TestBIO affichait 3 000 € alors que la vente vaut 1 200 € depuis
+        // qu'elle a été corrigée dans Paiements.
+        extra: (() => { const v = contractee(latestCall); return v ? `${v.toLocaleString('fr-FR')} €` : undefined; })(),
         noSource,
         badge,
         callId: latestCall.id,
@@ -3056,6 +3108,7 @@ export default function PagePipeline() {
         callStatus: latestCall.status,
         callOutcome: latestCall.outcome ?? null,
         callRevenue: latestCall.revenue ?? null,
+        venteContractee: contractee(latestCall),
         callComment: latestCall.lead_rapport_comment ?? null,
         callQualified: (latestCall as { qualified?: boolean | null }).qualified ?? null,
         callObjection: latestCall.objection ?? null,

@@ -633,7 +633,9 @@ function ConfirmSuppressionLot({
             margin: '0 17px 12px', padding: '9px 11px', fontSize: 11.5,
             background: '#cd5b3f18', border: '1px solid #e2b3a5', borderRadius: 8, color: 'var(--ink-2)',
           }}>
-            <b>{avecDeal}</b> {avecDeal > 1 ? 'portent un montant encaissé' : 'porte un montant encaissé'}.
+            {/* « encaissé » désignait du contracté ici aussi. Ce qu'on s'apprête à
+                supprimer, c'est une vente signée — encaissée ou non. */}
+            <b>{avecDeal}</b> {avecDeal > 1 ? 'portent une vente' : 'porte une vente'}.
             Ce chiffre d’affaires quittera tes statistiques.
           </div>
         )}
