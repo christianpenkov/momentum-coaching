@@ -360,6 +360,37 @@ Il **ne choisit pas** à la place de l'opérateur : les deux liens restent à r�
 l'ancien continuant de recevoir des clics. Il rend l'écart visible, pour qu'on ne
 vérifie pas sur le mauvais.
 
+**Sur ce compte (2026-08-31) : la bio Instagram pointe sur `link.ubizenai.com`.**
+`ubizenai.s.gy` est l'**ancien** domaine — ses liens de bio sont dormants. Ils restent
+à réécrire, puisqu'ils peuvent encore être ouverts depuis d'anciennes publications, mais
+**ils ne valent rien comme test** : y vérifier la chaîne ne dit rien du parcours réel.
+
+### L'opération est réversible, et c'est ce qui autorise à toucher une bio
+
+Un lien publié dans un profil Instagram ne se corrige pas en éditant un post. On ne le
+modifierait donc pas s'il fallait ensuite reconstruire sa destination de mémoire.
+
+Ce n'est pas le cas : **l'URL réécrite contient tout ce qu'il faut pour revenir en
+arrière.** `d` porte le chemin Calendly, les cinq UTM sont reportés à l'identique, et
+l'hôte est dans la liste blanche du code.
+
+```
+https://momentum-plateforme.vercel.app/r/bio-calendly-ig
+  ?utm_source=ig&utm_medium=bio&utm_campaign=bio-instagram
+  &d=christianpenkov%2F30min&p=a02e5927-…
+```
+
+se reconstruit exactement en :
+
+```
+https://calendly.com/christianpenkov/30min
+  ?utm_source=ig&utm_medium=bio&utm_campaign=bio-instagram
+```
+
+Aucune information n'est perdue à la réécriture, donc aucune n'est à retrouver ailleurs
+pour l'annuler. C'est la même propriété qui rend le changement d'origine possible, et
+c'est elle qui justifie qu'on touche à un lien qu'on ne contrôle plus une fois publié.
+
 Réécrire avant que la route soit en ligne ferait pointer tous les liens de bio vers un
 404 pendant la fenêtre de déploiement.
 
