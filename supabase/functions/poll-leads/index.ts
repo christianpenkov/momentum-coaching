@@ -1127,15 +1127,32 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
   // tous les liens à chaque passage (28 000 écritures à 40 élèves) pour ne corriger
   // qu'une poignée de lignes.
   const dejaAvecClics = new Set<string>();
+  // Etat REEL des lignes de la fenetre, pas seulement « porte-t-elle des clics ».
+  //
+  // Cette lecture est ce qui permet de n'ecrire que ce qui CHANGE (voir snapshotLink).
+  // Avant, la garde ne couvrait que les journees closes : aujourd'hui et hier etaient
+  // reecrits pour CHAQUE lien a CHAQUE passage, soit ~286 ecritures toutes les 5
+  // minutes, ~82 000 par jour, dont la quasi-totalite reecrivaient des valeurs
+  // identiques. Mesure du 2026-08-31 sur pg_stat_statements : 2,9 millions d'appels et
+  // 2 520 Mo de WAL, de loin le premier consommateur d'entrees/sorties disque du projet
+  // — c'est ce qui a fait sonner l'alerte Disk IO de Supabase.
+  //
+  // Une lecture indexee par profil (quelques centaines de lignes, toutes en cache)
+  // remplace des centaines d'ecritures journalisees. Une lecture qui tient en memoire
+  // ne coute rien au disque ; une ecriture le fait toujours, meme quand elle n'ecrit
+  // rien de nouveau.
+  const etatExistant = new Map<string, any>();
   if (joursAEcrire.length) {
     const { data: rows, error: errRows } = await supa
       .from('shortio_link_daily_snapshots')
-      .select('link_id, date')
+      .select('link_id, date, path, short_url, original_url, human_clicks, total_clicks, link_type, link_category, backfill_source')
       .eq('profile_id', profileId)
-      .gte('date', joursAEcrire[0])
-      .gt('human_clicks', 0);
+      .gte('date', joursAEcrire[0]);
     if (errRows) errors.push(`lignes_a_corriger: ${errRows.message}`);
-    for (const r of rows ?? []) dejaAvecClics.add(`${r.link_id}|${r.date}`);
+    for (const r of rows ?? []) {
+      etatExistant.set(`${r.link_id}|${r.date}`, r);
+      if ((r.human_clicks ?? 0) > 0) dejaAvecClics.add(`${r.link_id}|${r.date}`);
+    }
   }
 
   // Construit un index path → link_id pour mapper last_clicks vers les liens
@@ -1172,6 +1189,39 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
     // clic, et un passage qui ne le voit pas encore ne doit pas ramener le compteur
     // à 0 — régression reproduite et confirmée le 2026-08-14.
     const journeeTerminee = date < dateToday;
+
+    // ── Ne rien ecrire quand la RPC ne changerait rien ────────────────────────
+    //
+    // La RPC est deterministe : on peut calculer ici la ligne qu'elle produirait et la
+    // comparer a celle deja en base. Si elles sont identiques, l'appel n'ecrirait que
+    // `updated_at` — pour un enregistrement au journal des transactions a chaque fois.
+    // Verifie : aucun code ni aucune vue ne lit `updated_at` de cette table.
+    //
+    // Les regles reproduites sont exactement celles du `on conflict do update` :
+    //   • clics : ecrasement direct si `p_ecraser` ET source non 'manual', sinon
+    //     GREATEST — donc rien ne bouge si la nouvelle valeur n'est pas superieure ;
+    //   • link_type / link_category / original_url : COALESCE, un null ne change rien ;
+    //   • backfill_source : 'manual' est collant, tout le reste devient 'cron'.
+    //
+    // Toute divergence future de la RPC rendrait cette comparaison fausse : les deux
+    // doivent evoluer ensemble.
+    const existant = etatExistant.get(`${linkId}|${date}`);
+    if (existant) {
+      const sourceStable = existant.backfill_source === 'cron' || existant.backfill_source === 'manual';
+      const ecraseraitLesClics = journeeTerminee && existant.backfill_source !== 'manual';
+      const clicsInchanges = ecraseraitLesClics
+        ? (existant.human_clicks ?? 0) === compte.human && (existant.total_clicks ?? 0) === compte.total
+        : compte.human <= (existant.human_clicks ?? 0) && compte.total <= (existant.total_clicks ?? 0);
+      const metadonneesInchangees =
+        existant.path === path &&
+        existant.short_url === shortUrl &&
+        // Egalite stricte : `originalUrl` vaut '' et non null quand le lien n'en a pas,
+        // et le COALESCE de la RPC ecrirait donc bien cette chaine vide par-dessus.
+        existant.original_url === originalUrl &&
+        (link_type === null || existant.link_type === link_type) &&
+        (link_category === null || existant.link_category === link_category);
+      if (sourceStable && clicsInchanges && metadonneesInchangees) return;
+    }
 
     await supa.rpc('upsert_shortio_link_snapshot', {
       p_profile_id: profileId, p_link_id: linkId, p_path: path, p_short_url: shortUrl,
