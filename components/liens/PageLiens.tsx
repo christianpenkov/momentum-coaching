@@ -289,9 +289,11 @@ function ContentGridSkeleton({ rows = 8 }: { rows?: number }) {
 
 // ─── Modal Paramètres ─────────────────────────────────────────────────────────
 
-function ModalParametres({ open, onClose, profileId, activeDomain, domainsLoaded, onCalendlyChange, initialCalendly, leadMagnets, onLmUpdated }: {
+function ModalParametres({ open, onClose, profileId, activeDomain, domainsLoaded, reglagesCharges, onCalendlyChange, initialCalendly, leadMagnets, onLmUpdated }: {
   open: boolean; onClose: () => void;
   profileId: string; activeDomain: ShortDomain | null; domainsLoaded: boolean;
+  /** Les réglages sont arrivés — distingue « pas de lien Calendly » de « pas encore lu ». */
+  reglagesCharges: boolean;
   onCalendlyChange: (url: string) => void; initialCalendly: string;
   leadMagnets: LeadMagnet[];
   onLmUpdated: (lm: LeadMagnet) => void;
@@ -313,6 +315,9 @@ function ModalParametres({ open, onClose, profileId, activeDomain, domainsLoaded
   const domain = activeDomain?.hostname || '';
   const canGenerate = domainsLoaded && !!domain;
   const isValid = calendlyUrl.trim().startsWith('http');
+  // Ouvrir les paramètres pendant le chargement est le cas courant sur mobile :
+  // on tape avant que les requêtes ne reviennent.
+  const enChargement = !domainsLoaded || !reglagesCharges;
 
   useEffect(() => { setCalendlyUrl(initialCalendly); }, [initialCalendly]);
 
@@ -327,14 +332,25 @@ function ModalParametres({ open, onClose, profileId, activeDomain, domainsLoaded
     setLmBioUrls(init);
   }, [leadMagnets]);
 
-  // Génère automatiquement les liens bio au montage si Calendly déjà configuré
+  // Génère automatiquement les liens bio dès que les deux ingrédients sont là.
+  //
+  // `initialCalendly` manquait dans les dépendances. Ouvrir les paramètres AVANT
+  // que les réglages soient revenus laissait donc les liens bio vides pour de
+  // bon : l'effet tournait une fois avec un lien Calendly vide, échouait sa
+  // condition, et ne rejouait jamais quand le lien arrivait. Il fallait fermer
+  // et rouvrir. Sur mobile c'est le cas courant — on tape plus vite que la
+  // requête ne revient — d'où l'impression que le bug était propre au mobile.
   useEffect(() => {
     if (open && initialCalendly.trim().startsWith('http') && canGenerate && !bioIg && !bioYt) {
-      genBio('instagram', setBioIg, setGenIg);
-      genBio('youtube', setBioYt, setGenYt);
+      // Le lien est passé explicitement : `setCalendlyUrl(initialCalendly)` est un
+      // autre effet du MÊME commit, donc `calendlyUrl` vaut encore la chaîne vide
+      // ici. Lire l'état aurait fait échouer la génération au moment précis où on
+      // vient de la débloquer.
+      genBio('instagram', setBioIg, setGenIg, initialCalendly);
+      genBio('youtube', setBioYt, setGenYt, initialCalendly);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, canGenerate]);
+  }, [open, canGenerate, initialCalendly]);
 
   const save = async () => {
     if (!isValid) return;
@@ -351,13 +367,14 @@ function ModalParametres({ open, onClose, profileId, activeDomain, domainsLoaded
     } catch { setError('Erreur sauvegarde'); } finally { setSaving(false); }
   };
 
-  const genBio = async (platform: 'instagram' | 'youtube', setResult: (v: string) => void, setLoading: (v: boolean) => void) => {
-    if (!isValid || !canGenerate) return;
+  const genBio = async (platform: 'instagram' | 'youtube', setResult: (v: string) => void, setLoading: (v: boolean) => void, urlSource = calendlyUrl) => {
+    const cible = urlSource.trim();
+    if (!cible.startsWith('http') || !canGenerate) return;
     setLoading(true); setError(null);
     try {
       const bioLabel = 'Prendre RDV';
       const bioPath = platform === 'instagram' ? 'bio-calendly-ig' : 'bio-calendly-yt';
-      const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: calendlyUrl.trim(), title: bioLabel, utmSource: platform === 'instagram' ? 'ig' : 'yt', utmMedium: 'bio', utmCampaign: `bio-${platform}`, path: bioPath });
+      const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: cible, title: bioLabel, utmSource: platform === 'instagram' ? 'ig' : 'yt', utmMedium: 'bio', utmCampaign: `bio-${platform}`, path: bioPath });
       setResult(shortUrl);
     } catch (e: any) { setError(e.message); } finally { setLoading(false); }
   };
@@ -423,20 +440,29 @@ function ModalParametres({ open, onClose, profileId, activeDomain, domainsLoaded
               <div key={platform} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderRadius: 8, background: SURFACE2, border: `1px solid ${BORDER}` }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>{label}</div>
+                  {/* Un tiret disait deux choses : « pas de lien » et « pas encore
+                      lu ». Tant que les réglages ou les domaines Short.io ne sont
+                      pas revenus, on le dit — sinon l'écran affirme une absence
+                      qu'il ne connaît pas encore. */}
                   <div style={{ fontSize: 11, color: result ? INK : FAINT, fontWeight: result ? 600 : 400, wordBreak: 'break-all' }}>
-                    {result || (domain ? `${domain}/bio-calendly-${platform === 'instagram' ? 'ig' : 'yt'}` : '—')}
+                    {result
+                      || (enChargement ? 'Chargement…'
+                        : domain ? `${domain}/bio-calendly-${platform === 'instagram' ? 'ig' : 'yt'}`
+                        : '—')}
                   </div>
                 </div>
                 {result
                   ? <CopyBtn url={result} />
-                  : loading
-                    ? <span style={{ fontSize: 11, color: FAINT }}>...</span>
+                  : (loading || enChargement)
+                    ? <Spinner />
                     : <span style={{ fontSize: 11, color: FAINT }}>—</span>
                 }
               </div>
             ))}
           </div>
-          {!isValid && <div style={{ fontSize: 11, color: AMBER, marginTop: 8 }}>⚠ Sauvegarde d'abord ton lien Calendly.</div>}
+          {/* Les avertissements attendent la fin du chargement : reprocher un lien
+              Calendly manquant avant de l'avoir lu, c'est accuser à tort. */}
+          {!isValid && !enChargement && <div style={{ fontSize: 11, color: AMBER, marginTop: 8 }}>⚠ Sauvegarde d'abord ton lien Calendly.</div>}
           {!canGenerate && domainsLoaded && <div style={{ fontSize: 11, color: RED, marginTop: 8 }}>⚠ Short.io non connecté — va dans Réglages.</div>}
           {error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '6px 10px', marginTop: 8 }}>{error}</div>}
         </div>
@@ -5546,6 +5572,7 @@ export default function PageLiens() {
       <ModalParametres
         open={paramOpen} onClose={() => { setParamOpen(false); }}
         profileId={profileId} activeDomain={activeDomain} domainsLoaded={domainsLoaded}
+        reglagesCharges={!!settingsData}
         onCalendlyChange={(url: string) => setCalendlyOverride(url)} initialCalendly={calendlyUrl}
         leadMagnets={leadMagnets}
         onLmUpdated={(lm: LeadMagnet) => setLmOverrides(prev => (prev ?? leadMagnetsFromQuery).map(l => l.id === lm.id ? lm : l))}
