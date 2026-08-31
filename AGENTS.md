@@ -89,18 +89,37 @@ notification part en double.
 select jobname, schedule, active from cron.job order by jobid;   -- côté Supabase
 ```
 
-## pg_cron — dans la base (relevé le 2026-08-30)
+## pg_cron — dans la base (relevé le 2026-08-31)
 
 | Job | Fréquence | Pourquoi ici et pas ailleurs |
 |-----|-----------|------------------------------|
 | `call-reminders-15min` | `*/15 * * * *` | Edge Function, pas de dépendance externe |
 | `send-pending-dm3-1min` | `* * * * *` | Chemin critique à la minute |
 | `process-webhook-queue-1min` | `* * * * *` | Chemin critique à la minute |
-| `purge-debug-logs` | 3h30 | **SQL pur, aucune URL** |
+| `purge-debug-logs` | 3h30 | **SQL pur** — 14 j de `sw_logs`, `webhook_debug_log`, `cron_invocation_logs` |
 | `purge-webhook-queue-daily` | 3h35 | **SQL pur, aucune URL** |
 | `purge-call-rapport-drafts-daily` | 3h45 | **SQL pur, aucune URL** |
-| `purge-journaux-machine-daily` | 3h50 | **SQL pur** — retient 7 j de `cron.job_run_details` |
+| `purge-journaux-machine-daily` | 3h50 | **SQL pur** — 7 j de `cron.job_run_details`, **30 j de `cron_runs`** |
 | `vacuum-pg-net-daily` | 3h55 | **SQL pur** — empêche les tables pg_net de regonfler |
+| `degrossir-historiques-analytics-daily` | 4h05 | **SQL pur** — rétention sans perte des historiques par contenu |
+
+⚠️ **`degrossir_historiques_analytics()` n'est pas une purge ordinaire : elle ne perd
+RIEN.** `analytics_ig_posts_history` et `analytics_yt_videos_history` écrivaient une
+ligne par contenu et par jour, pour toujours — 3,6 Go/an à 40 élèves, sans aucune
+borne. Or leurs seuls lecteurs font tous `distinct on (contenu) … snapshot_date desc`
+sur une fenêtre, et `lib/period.ts` garantit que les fenêtres sont des semaines ou des
+mois **calendaires**. Garder le dernier instantané de chaque semaine et de chaque mois
+reproduit donc à l'identique toute requête que l'interface peut émettre : les lignes
+supprimées sont celles qu'aucune fenêtre ne peut atteindre. Vérifié par comparaison
+exhaustive avant/après (0 divergence sur 253 puis 725 combinaisons, puis 216 lignes du
+RPC réel colonne par colonne).
+
+**Avant de toucher à `get_ig_posts_history`, `get_yt_videos_history` ou `lib/period.ts` :
+cette garantie repose sur eux.** Un lecteur qui agrégerait jour par jour, ou une fenêtre
+glissante au lieu de calendaire, invaliderait la règle — et la perte serait silencieuse.
+
+`shortio_link_daily_snapshots` est **volontairement exclue** : elle alimente
+`get_shortio_clicks_by_day`, une vraie série quotidienne affichée en courbe.
 
 Les trois purges sont des `SELECT public.purge_*()`. Les déplacer sur un planificateur
 externe imposerait de **créer une route HTTP pour chacune** et d'exposer sur Internet

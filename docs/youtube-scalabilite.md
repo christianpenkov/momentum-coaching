@@ -119,7 +119,14 @@ quand ce retard dépasse 4 jours** — au-delà, on sort de la fenêtre de rattr
 (`isoDate(3) → hier`) et les journées perdues le sont définitivement. Elle a
 immédiatement trouvé six jours absents en juin sur un second profil.
 
-`cron_runs` n'écrit **que** quand un passage échoue, et se purge seule à 30 jours.
+`cron_runs` n'écrit **que** quand un passage échoue, et se purge à 30 jours via
+`purge_journaux_machine()` (job pg_cron de 3h50).
+
+⚠️ Cette rétention était affirmée ici et dans quatre autres fichiers depuis la création
+de la table, **sans qu'aucun mécanisme ne l'applique** : ni `delete`, ni trigger, ni job.
+Corrigée le 2026-08-31. Elle était invisible précisément parce que la table ne journalise
+que les échecs — une table qui reste vide quand tout va bien ne révèle son absence de
+purge qu'une fois quelque chose cassé.
 Avant, les erreurs n'existaient que dans les logs Supabase — que personne ne consulte.
 
 ---
