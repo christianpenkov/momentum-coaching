@@ -967,6 +967,78 @@ async function getShortioLinkCreds(profileId: string): Promise<{ apiKey: string;
   return { apiKey: integ.api_key, domain, domainId: String(domainId), allDomains };
 }
 
+// ── Mutualisation des appels Short.io par DOMAINE ────────────────────────────
+//
+// `fetchShortioLinks` et `fetchClicsShortio` prennent un DOMAINE, pas un profil : deux
+// eleves qui partagent le meme domaine recuperent exactement la meme liste de liens et
+// le meme flux de clics. Le cron les demandait une fois PAR PROFIL — quarante eleves
+// sur un domaine, c'etaient quarante fois le meme appel.
+//
+// Mesure du 2026-08-31 : 2 a 9 appels Short.io par profil et par passage (1 pour les
+// liens, jusqu'a 8 pages pour les clics), contre un budget de 50 requetes par minute et
+// par domaine (voir createShortioLimiter). A 40 eleves cela faisait 80 a 360 appels par
+// passage, soit 1,6 a 7 minutes d'attente au limiteur — au-dela des 150 s de la
+// fonction. C'etait le vrai mur du passage a l'echelle, avant meme le quota.
+//
+// Mutualise, le cout ne depend PLUS du nombre d'eleves : il depend du nombre de
+// domaines, qui lui ne bouge pas.
+//
+// Les caches vivent le temps d'UNE invocation et sont vides a son demarrage : ils
+// mutualisent un passage, ils ne mettent rien en cache d'un passage a l'autre.
+//
+// On memorise la PROMESSE, pas le resultat : les profils sont traites en parallele
+// (mapWithConcurrency 5), et deux profils partant en meme temps doivent attendre le
+// meme appel plutot que d'en lancer deux.
+const cacheLiensShortio = new Map<string, Promise<any[]>>();
+const cacheClicsShortio = new Map<string, Promise<{ clics: ClicShortio[]; tronque: boolean }>>();
+
+// Cle : le DOMAINE seul, jamais la cle d'API.
+//
+// Mesure du 2026-08-31 : les trois profils qui partagent `ubizenai.s.gy` ont TROIS cles
+// d'API differentes. Inclure la cle dans l'identifiant de cache aurait donc empeche tout
+// partage — le correctif n'aurait rien corrige.
+//
+// C'est sans risque : un identifiant de domaine Short.io est unique et appartient a UN
+// compte. Trois cles qui lisent le domaine 1796576 sont trois cles du meme compte, sinon
+// l'appel serait refuse. C'est d'ailleurs pourquoi le limiteur de debit est deja indexe
+// par domaine et non par cle : le quota est celui du compte.
+//
+// Un ECHEC n'est jamais conserve : on retire l'entree du cache pour que le profil suivant
+// retente avec SES identifiants. Sans cela, une cle revoquee sur un profil ferait echouer
+// tous les autres profils du meme domaine pendant ce passage.
+function liensShortioPartages(creds: { apiKey: string; domainId: string }): Promise<any[]> {
+  const cle = String(creds.domainId);
+  let p = cacheLiensShortio.get(cle);
+  if (!p) {
+    p = fetchShortioLinks(creds).catch((e) => { cacheLiensShortio.delete(cle); throw e; });
+    cacheLiensShortio.set(cle, p);
+  }
+  return p;
+}
+
+/** `joursFenetre` fait partie de la cle : deux profils dont la fenetre de reparation
+ *  differe (l'un rattrape un retard, l'autre non) ne demandent pas la meme chose. En
+ *  regime normal ils partagent tous la meme fenetre, donc le meme appel.
+ *
+ *  `depuis` est calcule ICI et non par l'appelant : sinon deux profils auraient des
+ *  horodatages distants de quelques millisecondes et ne partageraient jamais rien. */
+function clicsShortioPartages(
+  domainId: string | number,
+  apiKey: string,
+  joursFenetre: number,
+): Promise<{ clics: ClicShortio[]; tronque: boolean }> {
+  const cle = `${domainId}|${joursFenetre}`;
+  let p = cacheClicsShortio.get(cle);
+  if (!p) {
+    const depuis = new Date(Date.now() - joursFenetre * 24 * 60 * 60 * 1000).toISOString();
+    // Meme regle que pour les liens : un echec n'est pas mis en cache.
+    p = fetchClicsShortio(domainId, apiKey, depuis, fn => shortio(domainId).run(fn))
+      .catch((e) => { cacheClicsShortio.delete(cle); throw e; });
+    cacheClicsShortio.set(cle, p);
+  }
+  return p;
+}
+
 async function fetchShortioLinks(creds: { apiKey: string; domainId: string }) {
   const allLinks: any[] = [];
   let beforeId: string | null = null;
@@ -998,7 +1070,7 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
   const dateYesterday = isoDate(1);
   const noopCategory = (): LinkCategory | null => null;
   let links: any[];
-  try { links = await fetchShortioLinks(creds); } catch (e: any) { return { errors: [`fetch_links: ${e?.message}`], rawClicks: [], resolveLinkCategory: noopCategory, dateToday }; }
+  try { links = await liensShortioPartages(creds); } catch (e: any) { return { errors: [`fetch_links: ${e?.message}`], rawClicks: [], resolveLinkCategory: noopCategory, dateToday }; }
   if (!links.length) return { errors: [], rawClicks: [], resolveLinkCategory: noopCategory, dateToday };
 
   // Préchargement des tables de référence pour le calcul de link_category
@@ -1101,8 +1173,7 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
   let jourLePlusAncienVu: string | null = null;
   let fluxIncomplet = true;
   try {
-    const depuis = new Date(Date.now() - FENETRE_REPARATION_JOURS * 24 * 60 * 60 * 1000).toISOString();
-    const { clics, tronque } = await fetchClicsShortio(creds.domainId, creds.apiKey, depuis, fn => shortio(creds.domainId).run(fn));
+    const { clics, tronque } = await clicsShortioPartages(creds.domainId, creds.apiKey, FENETRE_REPARATION_JOURS);
     rawClicks = clics as { path: string; dt: string; human: boolean }[];
     fluxIncomplet = tronque;
     const agg = agregerClics(clics, isoDateFromInstant);
@@ -1321,7 +1392,7 @@ async function snapshotOldDomainLinks(
 
   for (const oldDomain of oldDomains) {
     try {
-      const links = await fetchShortioLinks({ apiKey, domainId: String(oldDomain.id) });
+      const links = await liensShortioPartages({ apiKey, domainId: String(oldDomain.id) });
       if (!links.length) continue;
 
       const momentumLinks = links.filter((l: any) => {
@@ -1330,13 +1401,15 @@ async function snapshotOldDomainLinks(
       });
       if (!momentumLinks.length) continue;
 
-      const afterDate48h = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+      // Fenetre exprimee en JOURS pour que le cache la partage : un horodatage calcule
+      // par profil ne serait jamais deux fois le meme.
+      const FENETRE_ANCIEN_DOMAINE_JOURS = 2;
       // Même lecture paginée et même filtrage du bruit 404 que pour le domaine actif :
       // sans pagination, un domaine scanné saturait le plafond de 500 avec des requêtes
       // sur `/*` et les vrais clics passaient à la trappe.
       let rawClicks: ClicShortio[];
       try {
-        const r = await fetchClicsShortio(oldDomain.id, apiKey, afterDate48h, fn => shortio(oldDomain.id).run(fn));
+        const r = await clicsShortioPartages(oldDomain.id, apiKey, FENETRE_ANCIEN_DOMAINE_JOURS);
         rawClicks = r.clics;
         if (r.tronque) errors.push(`old_domain_${oldDomain.id}_flux_tronque`);
       } catch (e: any) {
@@ -2515,21 +2588,28 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
     revenue:        calls.reduce((s: number, c: any) => s + (c.revenue || 0), 0),
   }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
 
-  // Stripe J-1 (appel vers l'API Vercel — non bloquant, avec timeout)
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-    const stripeRes = await fetch(`${PLATFORM_URL}/api/stripe/client-data?profile_id=${profileId}`, { headers: { authorization: `Bearer ${CRON_SECRET}` }, signal: controller.signal });
-    clearTimeout(timeout);
-    if (stripeRes.ok) {
-      const stripe = await safeJson(stripeRes);
-      if (stripe?.recentPayments?.length) {
-        const stripeRows = stripe.recentPayments.filter((p: any) => p.status === 'succeeded').map((p: any) => ({ profile_id: profileId, payment_id: p.id, amount: p.amount, currency: p.currency ?? 'eur', description: p.description || null, date: p.date, status: p.status }));
-        if (stripeRows.length) await supa.from('stripe_payments').upsert(stripeRows, { onConflict: 'profile_id,payment_id' });
-      }
-      if (stripe) await supa.from('analytics_daily_snapshots').upsert({ profile_id: profileId, date: yesterday, mrr: stripe.mrr ?? null, stripe_active_subs: stripe.activeSubscriptions ?? null }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
-    }
-  } catch (e: any) { errors.push(`stripe_fetch: ${e?.message || 'unknown'}`); }
+  // ── Stripe J-1 : appel RETIRE le 2026-08-31, il n'a jamais rien ecrit ────────
+  //
+  // Ce bloc appelait `${PLATFORM_URL}/api/stripe/client-data` avec
+  // `Authorization: Bearer CRON_SECRET`. Or cette route s'authentifie par SESSION
+  // UTILISATEUR (`supabase.auth.getUser()`, route.ts ligne 13) et n'a jamais reconnu
+  // ce jeton : elle repondait 401 a chaque appel.
+  //
+  // L'echec etait avale en silence par un `if (stripeRes.ok)` sans branche `else` —
+  // exactement le motif que decrit le point 7 de docs/checklist-scalabilite.md.
+  //
+  // Preuve en base le 2026-08-31 : la colonne `mrr` de analytics_daily_snapshots est
+  // vide sur TOUTES les lignes, tous profils confondus. `stripe_active_subs` aussi.
+  // Ce bloc n'a donc jamais alimente quoi que ce soit.
+  //
+  // Cout de ce silence : une invocation Vercel par profil et par passage, soit 34 560
+  // par mois a 4 profils et 345 600 a 40 eleves — 35 % du quota gratuit depense en
+  // reponses 401.
+  //
+  // Le vrai filet de securite du cash est ailleurs : le webhook Stripe en temps reel,
+  // et l'Edge Function `sync-stripe-payments` en rattrapage. Voir
+  // docs/stripe-paiements.md. Si le MRR doit un jour etre collecte, il faut une route
+  // acceptant CRON_SECRET, pas celle-ci.
 
   // Deux niveaux de gravite.
   //
@@ -2586,6 +2666,11 @@ const estIncidentPassager = (e: string) =>
 Deno.serve(async (req: Request) => {
   // Depart du chronometre du rattrapage — voir BUDGET_RATTRAPAGE_MS en tete.
   debutInvocation = Date.now();
+  // Les caches Short.io mutualisent UN passage, jamais deux : un isolat Deno peut etre
+  // reutilise d'une invocation a l'autre, et sans ce vidage on servirait des clics
+  // vieux de plusieurs minutes en croyant les avoir demandes.
+  cacheLiensShortio.clear();
+  cacheClicsShortio.clear();
   const authHeader = req.headers.get('authorization');
   if (authHeader !== `Bearer ${CRON_SECRET}`) {
     return new Response(JSON.stringify({ error: 'Non autorisé' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
