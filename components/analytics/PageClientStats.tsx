@@ -21,7 +21,7 @@ import { getPeriodWindow, parisDateStr, parisAddDays } from '@/lib/period';
 // La regle unique de « l'argent reellement encaisse » : encaisse - rembourse -
 // conteste. Cet ecran la recopiait implicitement en ne gardant que `succeeded`,
 // donc sans jamais deduire un remboursement.
-import { calculerCash, type LignePaiement } from '@/lib/dealCash';
+import { calculerCash, encaisseRetenu, aRembourser, type LignePaiement } from '@/lib/dealCash';
 import { granulariteFenetre, regrouperComptage, regrouperTaux, libelleBucket, type Granularite } from '@/lib/chart-buckets';
 // Listes de catégories : UNE seule définition (lib/shortio-link-category.ts). Elles
 // étaient recopiées trois fois dans ce fichier (TOTAL_CLICS_CATS, SNAP_BUSINESS_CATS,
@@ -5175,8 +5175,15 @@ function TabRevenues({ stripe, paiementsCohorte, deals, period, periodIndex, onR
     l.push({ amount: p.amount, status: p.status });
     parDeal.set(p.deal_id, l);
   }
-  const cashCollecteCohorte = dealsInPeriod.reduce(
-    (s, d) => s + (d.id ? calculerCash(parDeal.get(d.id) ?? []).net : 0), 0);
+  // `encaisseRetenu` et non `.net` : un client peut verser PLUS que sa vente (double
+  // prélèvement, montant baissé après paiement). Sans écrêtage vente par vente, le taux
+  // dépasse 100 % — affiché en vert, donc lu comme une performance alors que c'est de
+  // l'argent dû au client — et le surplus d'une vente vient masquer l'impayé d'une
+  // autre dans le total. Le surplus n'est pas perdu : `aRendre` ci-dessous l'affiche
+  // sur la ligne concernée. Voir lib/dealCash.ts pour la règle et ses deux usages.
+  const cashDeLaVente = (d: DealRecord) =>
+    d.id ? encaisseRetenu(calculerCash(parDeal.get(d.id) ?? []), d.amount_total) : 0;
+  const cashCollecteCohorte = dealsInPeriod.reduce((s, d) => s + cashDeLaVente(d), 0);
   // Panier moyen = ce que vaut une VENTE, donc sur le contracté et le nombre de deals —
   // pas sur le collecté divisé par le nombre de paiements, qui ferait chuter la moyenne
   // dès qu'un deal est payé en 3× (3 paiements pour 1 vente).
@@ -5293,7 +5300,11 @@ function TabRevenues({ stripe, paiementsCohorte, deals, period, periodIndex, onR
       signedAt: d.signed_at ?? null,
       client: d.buyer_name ?? '',
       contracte: Number(d.amount_total || 0),
-      encaisse: d.id ? calculerCash(parDeal.get(d.id) ?? []).net : 0,
+      encaisse: cashDeLaVente(d),
+      // Ce qui a été versé AU-DELÀ du montant de la vente. Nul dans l'immense
+      // majorité des cas ; quand il ne l'est pas, il explique à lui seul pourquoi la
+      // carte « Cash collecté » du haut annonce plus que le total de cette colonne.
+      aRendre: d.id ? aRembourser(calculerCash(parDeal.get(d.id) ?? []), d.amount_total) : 0,
       statut: d.status ?? 'open',
     }));
 
@@ -5317,7 +5328,13 @@ function TabRevenues({ stripe, paiementsCohorte, deals, period, periodIndex, onR
         </div>
         <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
           <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Cash collecté</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: GREEN, lineHeight: 1 }}>{fmtEur(cashCollecte)}</div>
+          {/* La couleur suit le SIGNE, pas le libellé de la carte. Depuis qu'un
+              remboursement porte la date du paiement qu'il annule, une période peut
+              sortir plus d'argent qu'elle n'en fait entrer — typiquement un mois
+              ancien dont l'unique vente a été remboursée depuis. Peindre « − 200 € »
+              en vert le ferait lire comme une bonne nouvelle. On n'y met pas non plus
+              de plancher à 0 : le trou est réel et doit se voir. */}
+          <div style={{ fontSize: 22, fontWeight: 800, color: cashCollecte < 0 ? AMBER : GREEN, lineHeight: 1 }}>{fmtEur(cashCollecte)}</div>
           <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>paiements reçus ({succeeded.length})</div>
         </div>
         <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
@@ -5398,7 +5415,19 @@ function TabRevenues({ stripe, paiementsCohorte, deals, period, periodIndex, onR
                 <td style={{ padding: '10px', fontSize: 13, fontWeight: 700, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtEur(v.contracte)}</td>
                 {/* Soldé en vert, rien d'encaissé en muted : un 0 € noir au milieu de
                     montants noirs ne se distingue pas de ce qui est payé. */}
-                <td style={{ padding: '10px', fontSize: 13, fontWeight: 700, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: v.encaisse <= 0 ? 'var(--muted)' : v.encaisse >= v.contracte - 0.01 ? GREEN : 'var(--ink)' }}>{fmtEur(v.encaisse)}</td>
+                <td style={{ padding: '10px', fontSize: 13, fontWeight: 700, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: v.encaisse <= 0 ? 'var(--muted)' : v.encaisse >= v.contracte - 0.01 ? GREEN : 'var(--ink)' }}>
+                  {fmtEur(v.encaisse)}
+                  {/* Le montant affiché est plafonné au contrat : sans cette mention,
+                      un client qui a versé 1 200 € sur une vente de 1 000 € verrait
+                      « 1 000 € » ici et « 1 200 € » sur la carte du haut, sans que rien
+                      n'explique l'écart. Et 200 € qu'il faut lui rendre disparaîtraient
+                      de l'écran. */}
+                  {v.aRendre > 0 && (
+                    <div style={{ fontSize: 10, fontWeight: 600, color: AMBER, marginTop: 2, whiteSpace: 'nowrap' }}>
+                      +{fmtEur(v.aRendre)} à rendre
+                    </div>
+                  )}
+                </td>
                 <td style={{ padding: '10px' }}>
                   <span style={{ fontSize: 11, color: st.color, fontWeight: 600 }}>{st.label}</span>
                 </td>
