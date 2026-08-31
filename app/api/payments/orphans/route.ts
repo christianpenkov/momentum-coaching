@@ -318,18 +318,6 @@ export async function POST(request: NextRequest) {
   });
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
 
-  // La cause d'orphelinat décrit un état RÉVOLU dès que le paiement est rattaché.
-  // La laisser en place la ferait afficher comme un fait actuel — « ce paiement
-  // visait une vente supprimée » alors qu'il en a désormais une. C'est le défaut
-  // de la colonne qui garde la dernière valeur connue au lieu de l'état réel.
-  //
-  // `dismissed_at` n'est PAS touché ici, volontairement : il dit ce que
-  // l'utilisateur a décidé, et rattacher plus tard n'efface pas cette décision.
-  await supa.from('stripe_payments')
-    .update({ orphan_cause: null })
-    .eq('profile_id', profileId)
-    .eq('payment_id', payment.payment_id);
-
   // ── Relier l'abonnement, et pas seulement ce versement ────────────────────
   // Sans ça, rattacher ne règle rien de durable : l'abonnement continue de
   // prélever sans appartenir à une vente, et chaque échéance suivante revient
@@ -349,6 +337,28 @@ export async function POST(request: NextRequest) {
       abonnement = 'lie';
     }
   }
+
+  // ── Les marques d'orphelin décrivent un état RÉVOLU ───────────────────────
+  // `orphan_cause` la laisser en place la ferait afficher comme un fait actuel —
+  // « ce paiement visait une vente supprimée » alors qu'il en a désormais une.
+  // `subscription_id` ne veut dire qu'une chose : « ce paiement NON rattaché
+  // porte un abonnement qu'on n'a pas pu relier ». Rattaché, la phrase n'a plus
+  // de sujet.
+  //
+  // Nettoyé ICI et pas plus haut : le bloc précédent lit `payment.subscription_id`
+  // pour poser le lien sur la vente. Le vider avant le rendrait inopérant.
+  //
+  // Le passage de `sync-stripe-payments` remettait déjà les deux à null, mais
+  // jusqu'à 30 minutes plus tard : la base contredisait l'écran pendant tout cet
+  // intervalle. Une invariante tenue par un cron n'est pas une invariante, c'est
+  // une convergence — et rien n'obligeait un futur lecteur à connaître le délai.
+  //
+  // `dismissed_at` n'est PAS touché, volontairement : il dit ce que l'utilisateur
+  // a décidé, et rattacher plus tard n'efface pas cette décision.
+  await supa.from('stripe_payments')
+    .update({ orphan_cause: null, subscription_id: null })
+    .eq('profile_id', profileId)
+    .eq('payment_id', payment.payment_id);
 
   await refreshDealStatus(deal.id);
 
