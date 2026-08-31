@@ -18,7 +18,14 @@ import { calculerCash, statutDeal } from '../_shared/dealCash.ts';
  * part — ni dans le cash, ni dans « À rattacher », ni dans aucune vue de santé, sans
  * aucun signal et définitivement. Trois charges du compte de test étaient dans ce cas.
  *
- * Le webhook reste le chemin nominal. Ceci passe une fois par jour derrière lui.
+ * Le webhook reste le chemin nominal. Ceci passe TOUTES LES 30 MINUTES derrière lui
+ * (cron-job.org, passage autonome vérifié le 2026-08-31 à 14:01 puis 14:30 UTC).
+ *
+ * La cadence n'est pas arbitraire : `OVERLAP_MINUTES = 30` fait que chaque fenêtre
+ * couvre l'intervalle PLUS son recouvrement. À 30 minutes, un passage manqué est
+ * intégralement rattrapé par le suivant. À une passe quotidienne — la cadence prévue
+ * à l'origine — ce même recouvrement de 30 minutes laissait un trou de 23 h 30 sans
+ * filet. Changer l'un sans l'autre rouvre ce trou.
  *
  * ⚠️ Les identifiants écrits ici DOIVENT être ceux du webhook, sinon le même argent
  * s'écrit deux fois et le cash double — voir `refCharge` et `refundId`.
