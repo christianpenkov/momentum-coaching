@@ -99,6 +99,12 @@ interface SyncResult { seen: number; attached: number; errors: string[]; tronque
  */
 interface AccesStripe { cle: string; compte: string | null }
 
+/**
+ * Pourquoi un encaissement n'est rattaché à aucune vente. `null` = il l'est.
+ * Valeurs tenues par la contrainte CHECK de `stripe_payments.orphan_cause`.
+ */
+type OrphanCause = 'metadata_absente' | 'deal_supprime' | 'abonnement_inconnu' | null;
+
 /** Un appel Stripe. */
 async function stripeGet(acces: AccesStripe, path: string, params: Record<string, string>): Promise<any> {
   const qs = new URLSearchParams(params).toString();
@@ -193,6 +199,33 @@ async function upsertPayment(profileId: string, p: {
   /** Lu sur charge.billing_details.email / invoice.customer_email — voir plus bas. */
   buyerEmail: string | null;
 }, touchedDeals: Set<string>): Promise<boolean> {
+  // ── Résoudre AVANT d'écrire ──────────────────────────────────────────────────
+  // L'ordre a changé : la trace brute porte désormais la CAUSE de l'orphelinat, et
+  // cette cause est un produit de la résolution. L'écrire ensuite aurait demandé une
+  // seconde écriture, donc un instant où la ligne existe sans sa cause.
+  let dealId = p.metadata?.[MD_DEAL] ?? null;
+  let matchMethod: 'metadata' | 'subscription' = 'metadata';
+  let cause: OrphanCause = null;
+
+  // Le deal des metadata a pu disparaître — voir dealExiste(). On retombe alors sur
+  // la résolution par abonnement, puis sur « orphelin », au lieu de lever.
+  if (dealId && !(await dealExiste(dealId))) { dealId = null; cause = 'deal_supprime'; }
+
+  if (!dealId && p.subscriptionId) {
+    const { data } = await supabase
+      .from('deals').select('id')
+      .eq('stripe_subscription_id', p.subscriptionId)
+      .maybeSingle();
+    if (data) { dealId = data.id; matchMethod = 'subscription'; cause = null; }
+    // `deal_supprime` l'emporte s'il a déjà été posé : il est plus précis et plus
+    // actionnable qu'« abonnement inconnu », qui n'en serait que la conséquence.
+    else if (!cause) cause = 'abonnement_inconnu';
+  }
+
+  // Ni metadata exploitable, ni abonnement : l'objet Stripe ne portait simplement
+  // rien qui nous désigne.
+  if (!dealId && !cause) cause = 'metadata_absente';
+
   const { error: payErr } = await supabase.from('stripe_payments').upsert({
     profile_id: profileId,
     payment_id: p.paymentId,
@@ -207,23 +240,13 @@ async function upsertPayment(profileId: string, p: {
     // plus : l'écran affiche « Aucun deal ne correspond » avec « Ignorer » pour
     // seul bouton. Ce filet ramènerait l'argent et l'écran inviterait à l'écarter.
     buyer_email: p.buyerEmail,
+    // ⚠️ TOUJOURS écrite, y compris à `null` quand le paiement EST rattaché.
+    // C'est ce qui fait la remise à zéro : un passage qui trouve enfin le deal
+    // efface la cause de l'orphelinat précédent. Sans ça, elle survivrait au
+    // rattachement et s'afficherait comme un fait actuel alors qu'elle est périmée.
+    orphan_cause: cause,
   }, { onConflict: 'profile_id,payment_id' });
   if (payErr) throw payErr;
-
-  let dealId = p.metadata?.[MD_DEAL] ?? null;
-  let matchMethod: 'metadata' | 'subscription' = 'metadata';
-
-  // Le deal des metadata a pu disparaître — voir dealExiste(). On retombe alors sur
-  // la résolution par abonnement, puis sur « orphelin », au lieu de lever.
-  if (dealId && !(await dealExiste(dealId))) dealId = null;
-
-  if (!dealId && p.subscriptionId) {
-    const { data } = await supabase
-      .from('deals').select('id')
-      .eq('stripe_subscription_id', p.subscriptionId)
-      .maybeSingle();
-    if (data) { dealId = data.id; matchMethod = 'subscription'; }
-  }
 
   if (!dealId) return false;
 

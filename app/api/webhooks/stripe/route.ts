@@ -33,6 +33,17 @@ function getServiceSupabase() {
 
 type Supa = ReturnType<typeof getServiceSupabase>;
 
+/**
+ * Pourquoi un encaissement n'est rattaché à aucune vente. `null` = il l'est.
+ * Valeurs tenues par la contrainte CHECK de `stripe_payments.orphan_cause`.
+ *
+ * L'écran de rattachement ne pouvait que deviner : depuis `stripe_payments`,
+ * « aucune metadata » et « le deal a été supprimé » sont indistinguables, alors
+ * qu'ils n'appellent pas la même action. Deviner une cause est pire qu'un en-tête
+ * générique — ça oriente vers la mauvaise action avec l'assurance d'un fait.
+ */
+type OrphanCause = 'metadata_absente' | 'deal_supprime' | 'abonnement_inconnu' | null;
+
 /** Résout le profile_id du compte connecté (OAuth) qui a émis l'événement. */
 async function resolveProfileId(supabase: Supa, accountId: string | undefined): Promise<string | null> {
   if (!accountId) return null;
@@ -147,10 +158,15 @@ async function recordPayment(supabase: Supa, params: {
   let resolvedDealId = dealId;
   let matchMethod: 'metadata' | 'subscription' = 'metadata';
 
+  let cause: OrphanCause = null;
+
   // La vente a pu disparaître depuis que Stripe a figé ces metadata — voir
   // dealExiste(). On retombe alors sur la résolution par abonnement, puis sur
   // « orphelin », au lieu de lever un 500 que Stripe rejouerait sans fin.
-  if (resolvedDealId && !(await dealExiste(supabase, resolvedDealId))) resolvedDealId = null;
+  if (resolvedDealId && !(await dealExiste(supabase, resolvedDealId))) {
+    resolvedDealId = null;
+    cause = 'deal_supprime';
+  }
 
   if (!resolvedDealId && params.subscriptionId) {
     const { data } = await supabase
@@ -158,8 +174,15 @@ async function recordPayment(supabase: Supa, params: {
       .select('id')
       .eq('stripe_subscription_id', params.subscriptionId)
       .maybeSingle();
-    if (data) { resolvedDealId = data.id; matchMethod = 'subscription'; }
+    if (data) { resolvedDealId = data.id; matchMethod = 'subscription'; cause = null; }
+    // `deal_supprime` l'emporte s'il a déjà été posé : plus précis et plus
+    // actionnable qu'« abonnement inconnu », qui n'en serait que la conséquence.
+    else if (!cause) cause = 'abonnement_inconnu';
   }
+
+  // Ni metadata exploitable, ni abonnement : l'objet Stripe ne portait rien qui
+  // nous désigne.
+  if (!resolvedDealId && !cause) cause = 'metadata_absente';
 
   // Toujours conserver la trace brute : c'est elle qui alimente « À rattacher »
   // quand aucun deal n'a pu être résolu.
@@ -180,6 +203,11 @@ async function recordPayment(supabase: Supa, params: {
     // expression régulière casse en silence au premier changement de libellé côté
     // Stripe. On ne devine pas ce qu'on peut stocker.
     buyer_email: params.buyerEmail ?? null,
+    // ⚠️ TOUJOURS écrite, y compris à `null` quand le paiement EST rattaché.
+    // C'est ce qui fait la remise à zéro : un événement qui trouve enfin le deal
+    // efface la cause de l'orphelinat précédent. Sans ça, elle survivrait au
+    // rattachement et s'afficherait comme un fait actuel alors qu'elle est périmée.
+    orphan_cause: cause,
   }, { onConflict: 'profile_id,payment_id' });
   if (payErr) throw payErr;
 
