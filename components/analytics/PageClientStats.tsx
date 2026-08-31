@@ -245,7 +245,7 @@ function CoverageNotice({ periodStartStr, integrationsReadyAt }: {
       <span>
         Les comptes de cet élève ont été connectés le{' '}
         <strong style={{ color: 'var(--ink-2)' }}>{dateLisible}</strong>
-        {' '}: les <strong style={{ color: 'var(--ink-2)' }}>{joursManquants} premiers jours</strong> de cette période
+        {' '}: les <strong style={{ color: 'var(--ink-2)' }}>{joursManquants} premiers jours</strong>{' '}de cette période
         sont antérieurs et n&apos;ont aucune donnée.
         Les totaux ci-dessous sont donc à lire sur une période plus courte — ils ne se comparent pas
         à un mois complet. Rien à faire, cet historique n&apos;existe pas.
@@ -295,6 +295,45 @@ const callPeriodDate = (c: { booked_at?: string | null; scheduled_at?: string | 
   c.booked_at ?? c.scheduled_at ?? '';
 
 function pct(a: number, b: number) { return b > 0 ? Math.round((a / b) * 100) : 0; }
+
+const libelleJourCourbe = (iso: string) =>
+  new Date(iso + 'T12:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+
+/**
+ * Regroupe une serie journaliere pour qu'une courbe reste lisible quelle que soit la
+ * longueur de la fenetre. En « Depuis la connexion » la serie fait 84 jours sur le profil
+ * de test et grandit tous les jours : point par point, elle devient un trait.
+ *
+ * Deux proprietes sont tenues, et ce sont elles qui rendent le regroupement sans risque :
+ *
+ * - **La somme est conservee.** Un groupe additionne ses jours, donc l'invariant « la somme
+ *   des points egale le total de la carte » reste vrai apres regroupement. C'est cet
+ *   invariant qui a revele que les courbes d'All-Time ne tracaient qu'un mois.
+ * - **Un groupe n'est « pas encore de donnees » que si AUCUN de ses jours ne l'est.**
+ *   Sinon un seul jour non collecte effacerait tout le groupe, et un trou de collecte
+ *   d'un jour se lirait comme trois jours sans activite.
+ */
+function regrouperPourCourbe(
+  points: { date: string; v: number | null }[],
+  maxPoints = 31,
+): { date: string; v: number | null; libelle: string }[] {
+  const pas = Math.max(1, Math.ceil(points.length / maxPoints));
+  if (pas === 1) return points.map(p => ({ ...p, libelle: libelleJourCourbe(p.date) }));
+  const out: { date: string; v: number | null; libelle: string }[] = [];
+  for (let i = 0; i < points.length; i += pas) {
+    const groupe = points.slice(i, i + pas);
+    const connus = groupe.filter(p => p.v !== null) as { date: string; v: number }[];
+    const fin = groupe[groupe.length - 1];
+    out.push({
+      date: groupe[0].date,
+      v: connus.length > 0 ? connus.reduce((s, p) => s + p.v, 0) : null,
+      libelle: groupe.length > 1
+        ? `${libelleJourCourbe(groupe[0].date)} – ${libelleJourCourbe(fin.date)}`
+        : libelleJourCourbe(groupe[0].date),
+    });
+  }
+  return out;
+}
 
 // « Ce lien Calendly a-t-il été envoyé au prospect ? » — source unique pour toutes les
 // cartes qui comptent des liens envoyés (voir docs/tracking-prospect.md).
@@ -851,7 +890,15 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   // Bornes calendaires réelles (semaine lundi-dimanche / mois calendaire) via
   // lib/period.ts — remplace l'ancien calcul en heure locale du navigateur (pas UTC
   // strict), source potentielle de décalage d'un jour vs les autres composants.
-  const { periodStart: ovPeriodStart, periodEnd: ovPeriodEnd } = getPeriodWindow(_ovPIdx, period === 7 ? 'week' : 'month');
+  const { periodStart: ovSelStart, periodEnd: ovSelEnd } = getPeriodWindow(_ovPIdx, period === 7 ? 'week' : 'month');
+  // « Depuis la connexion » n'est PAS une periode du selecteur : sa fenetre va de la mise
+  // en route a aujourd'hui. Sans cette branche, les bornes restaient celles du selecteur
+  // et les deux courbes tracaient le mois (ou la semaine) en cours sous l'etiquette
+  // « total » : 503 personnes annoncees par la carte, 146 dans la courbe (2026-08-31).
+  // Pire depuis le mode 7j, ou c'est la CARTE qui devenait fausse (voir igReach plus bas).
+  // Meme branche que `igDaysSlice` dans TabInstagram, qui ne l'avait pas oubliee.
+  const ovPeriodStart = sinceConnection && integrationsReadyAt ? new Date(integrationsReadyAt) : ovSelStart;
+  const ovPeriodEnd   = sinceConnection ? new Date() : ovSelEnd;
   const cutoff = ovPeriodStart;
 
   // Leads sur la période — remplace l'ancienne carte "Clics lien".
@@ -1052,12 +1099,29 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
     return days;
   })();
 
-  const igReach = period === 7
+  // En All-Time, `reach30d` porte deja le total de toute la fenetre (503 sur le profil
+  // de test) : le sommer depuis la courbe redonnerait la seule periode du selecteur.
+  // C'est ce que faisait la branche `period === 7`, qui affichait « 4 personnes · total »
+  // quand on entrait en All-Time depuis le mode 7 jours.
+  const igReach = (!sinceConnection && period === 7)
     ? igChartSlice.reduce((s, d) => s + d.reach, 0)
     : (ig?.reach30d || 0);
-  const ytViews = period === 7
+  const ytViews = (!sinceConnection && period === 7)
     ? ytChartSlice.reduce((s, d) => s + d.views, 0)
     : (yt?.views30d || 0);
+  // ── Abonnes : un ETAT, pas une mesure de periode ──────────────────────────
+  // Un nombre d'abonnes ne se cumule pas ; le sous-titre « total » laissait pourtant
+  // croire a une somme, et la carte changeait de valeur en naviguant (255 en aout,
+  // 253 en juin). On affiche le compte du jour, lu sur l'appel live, qui ne depend
+  // d'aucune fenetre.
+  //
+  // Ce que ca corrige aussi : l'ancienne lecture prenait le dernier jour de la periode
+  // consultee, en passant par `?? 0` cote base. Mai 2026 n'a aucune mesure d'abonnes
+  // YouTube sur ses 25 jours, et la carte affichait « 0 » — ce qui affirme que la chaine
+  // etait vide. Un tiret dit « on ne sait pas ».
+  const abonnesIg = igLive?.followers ?? null;
+  const abonnesYt = ytLive?.subscribers ?? null;
+
   // ── Prochain call ─────────────────────────────────────────────────────────
   const nextCall = calls.filter(c => new Date(c.scheduled_at) > new Date()).sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime())[0];
 
@@ -1065,13 +1129,18 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   const signalData: { type: SignalType; text: string }[] = [];
   if (nextCall) signalData.push({ type: 'green', text: `Prochain call : ${nextCall.invitee_name} — ${new Date(nextCall.scheduled_at).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` });
   if (dealsCloses > 0) signalData.push({ type: 'green', text: `${dealsCloses} deal${dealsCloses > 1 ? 's' : ''} closé${dealsCloses > 1 ? 's' : ''} sur ${sinceConnection ? 'toute la période' : period + ' jours'} — ${fmtEur(totalRev)} générés` });
-  if (noShowRate > 20) signalData.push({ type: 'red', text: `Taux no-show élevé : ${fmt(noShowRate, 1)} % des calls bookés` });
+  // « des calls bookés » etait faux : le no-show est le seul compteur de Mes stats qui
+  // parle en RENDEZ-VOUS, et son aide insiste precisement sur cette distinction. Le
+  // signal disait donc l'inverse de la carte qu'il commente. On nomme le denominateur.
+  if (rendezVous > 0 && noShowRate > 20) signalData.push({ type: 'red', text: `Taux no-show élevé : ${fmt(noShowRate, 1)} % — ${noShows} sur ${rendezVous} rendez-vous` });
   // `msgs.responseRate != null` : sans cette garde, le zero fabrique par le chemin
   // instantane declenchait « Taux de reponse DM bas : 0 % » sur TOUTE periode passee,
   // alors que la donnee n'a jamais ete collectee. Une alerte qui se declenche toujours
   // cesse d'etre lue.
   if (msgs && msgs.responseRate != null && msgs.repliedThreads != null && msgs.responseRate < 70) signalData.push({ type: 'amber', text: `Taux de réponse DM bas : ${fmt(msgs.responseRate, 1)} % — ${msgs.totalThreads30d - msgs.repliedThreads} conversations sans réponse` });
-  if (closingRate > 0 && closingRate < 20) signalData.push({ type: 'amber', text: `Taux de closing à ${fmt(closingRate, 1)} % — sous le seuil cible de 25 %` });
+  // Signal de closing retire avec le seuil de couleur de la carte : il annoncait un
+  // « seuil cible de 25 % » qui n'etait calibre sur rien. Un objectif invente, repete en
+  // alerte, apprend surtout a ne plus lire les alertes.
 
   // ── Top contenus ──────────────────────────────────────────────────────────
   // Ce bloc est all-time — callsAllTime (jamais filtré par période), PAS calls (= callsEff, qui EST
@@ -1178,8 +1247,8 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
       {/* ── BLOC 1 : KPIs — 2 lignes de 5 ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
         {([
-          { label: 'Abonnés IG', value: fmt(ig?.followers || 0), sub: 'total', color: IG_COLOR },
-          { label: 'Abonnés YT', value: fmt(yt?.subscribers || 0), sub: 'total', color: YT_COLOR },
+          { label: 'Abonnés IG', value: abonnesIg !== null ? fmt(abonnesIg) : '—', sub: "aujourd'hui", color: (abonnesIg !== null ? IG_COLOR : 'var(--faint)') as string },
+          { label: 'Abonnés YT', value: abonnesYt !== null ? fmt(abonnesYt) : '—', sub: "aujourd'hui", color: (abonnesYt !== null ? YT_COLOR : 'var(--faint)') as string },
           null, // carte Publications custom
           'leads', // carte Leads custom (badge nouveaux à droite du chiffre)
           { label: 'Calls bookés', value: fmt(callsBookes), sub: ovEtiquettePeriode, color: 'var(--ink)' as string, aide: AIDE_CALLS_BOOKES },
@@ -1235,10 +1304,17 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
         {[
           { label: 'Calls honorés', value: fmt(callsHonores), sub: ovEtiquettePeriode, color: AMBER, aide: AIDE_CALLS_HONORES },
-          { label: 'No-show', value: `${fmt(noShowRate, 0)} %`, sub: `${noShows} sur ${rendezVous} rendez-vous`, color: noShowRate > 20 ? RED : noShowRate > 10 ? AMBER : GREEN, aide: AIDE_NO_SHOW },
-          { label: 'Closing', value: `${fmt(closingRate, 0)} %`, sub: `${dealsCloses} deals closés`, color: closingRate >= 25 ? GREEN : closingRate >= 15 ? AMBER : RED, aide: AIDE_CLOSING },
-          { label: 'Rev / call', value: fmtEur(revPerCall), sub: 'par call booké', color: GREEN, aide: AIDE_REV_PAR_CALL },
-          { label: 'Revenue', value: fmtEur(totalRev), sub: ovEtiquettePeriode, color: GREEN },
+          // Un mois sans le moindre rendez-vous affichait « 0 % » partout : vert sur le
+          // no-show (fiabilite parfaite) et ROUGE sur le closing (contre-performance).
+          // Un mois ou il ne s'est rien passe n'est ni bon ni mauvais — il est vide, et
+          // c'est un tiret qui le dit. Mesure : mai 2026 sur le profil de test.
+          { label: 'No-show', value: rendezVous > 0 ? `${fmt(noShowRate, 0)} %` : '—', sub: rendezVous > 0 ? `${noShows} sur ${rendezVous} rendez-vous` : 'aucun rendez-vous', color: (rendezVous === 0 ? 'var(--faint)' : noShowRate > 20 ? RED : noShowRate > 10 ? AMBER : GREEN) as string, aide: AIDE_NO_SHOW },
+          // Plus de seuil de couleur sur le closing : le 25 % / 15 % n'etait calibre sur
+          // rien de tracable, et un seuil invente colore en rouge une performance normale.
+          // Le chiffre se lit maintenant comme « Calls bookes » et « Calls honores ».
+          { label: 'Closing', value: callsHonores > 0 ? `${fmt(closingRate, 0)} %` : '—', sub: callsHonores > 0 ? `${dealsCloses} deal${dealsCloses > 1 ? 's' : ''} closé${dealsCloses > 1 ? 's' : ''}` : dealsCloses > 0 ? `${dealsCloses} deal${dealsCloses > 1 ? 's' : ''} closé${dealsCloses > 1 ? 's' : ''}, aucun call honoré` : 'aucun call honoré', color: (callsHonores > 0 ? 'var(--ink)' : 'var(--faint)') as string, aide: AIDE_CLOSING },
+          { label: 'Rev / call', value: callsBookes > 0 ? fmtEur(revPerCall) : '—', sub: callsBookes > 0 ? 'par call booké' : 'aucun call booké', color: (callsBookes > 0 ? GREEN : 'var(--faint)') as string, aide: AIDE_REV_PAR_CALL },
+          { label: 'Revenue', value: fmtEur(totalRev), sub: ovEtiquettePeriode, color: (totalRev > 0 ? GREEN : 'var(--faint)') as string },
         ].map((item, i) => (
           <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
             <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8, display: 'flex', alignItems: 'center' }}>{item.label}{'aide' in item && item.aide ? <AideColonne texte={item.aide} /> : null}</div>
@@ -1251,8 +1327,8 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
       {/* ── BLOC 2 : Santé contenu — 2 sparklines côte à côte ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         {[
-          { label: 'Reach Instagram', value: fmt(igReach), unit: 'personnes', color: IG_COLOR, data: igChartSlice.map(d => ({ date: d.date, v: d.pending ? null : d.reach })) },
-          { label: 'Vues YouTube', value: fmt(ytViews), unit: 'vues', color: YT_COLOR, data: ytChartSlice.map(d => ({ date: d.date, v: d.pending ? null : d.views })) },
+          { label: 'Reach Instagram', value: fmt(igReach), unit: 'personnes', color: IG_COLOR, data: regrouperPourCourbe(igChartSlice.map(d => ({ date: d.date, v: d.pending ? null : d.reach }))) },
+          { label: 'Vues YouTube', value: fmt(ytViews), unit: 'vues', color: YT_COLOR, data: regrouperPourCourbe(ytChartSlice.map(d => ({ date: d.date, v: d.pending ? null : d.views }))) },
         ].map((item, i) => {
           const allPending = item.data.every(d => d.v === null);
           return (
@@ -1288,11 +1364,15 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(item.data.length, period)} />
+                  <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={!sinceConnection && period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(item.data.length, sinceConnection ? 30 : period)} />
                   <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} allowDecimals={false} width={30} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.15 : Math.max(1, Math.abs(dataMax) * 0.1 || 1); return [Math.max(0, dataMin - margin), dataMax + margin]; }} />
                   <Tooltip content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
-                    return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{fmt(payload[0].value as number)}</strong></div></div>;
+                    // `libelle` porte la plage reelle du point (« 9 juin – 11 juin ») des que
+                    // les jours sont regroupes. Sans lui l'infobulle n'annoncerait que le
+                    // premier jour du groupe pour une valeur qui en couvre trois.
+                    const plage = (payload[0].payload as any)?.libelle;
+                    return <div className="chart-tooltip"><div className="chart-tooltip-label">{plage ?? label}</div><div className="chart-tooltip-row"><strong>{fmt(payload[0].value as number)}</strong></div></div>;
                   }} />
                   <Area type="monotone" dataKey="v" stroke={item.color} strokeWidth={2} fill={`url(#grad-v2-${i})`} dot={todayDotFactory(item.color, 'date', lastRealPointKey(item.data, 'date', 'v'))} activeDot={{ r: 4, strokeWidth: 0, fill: item.color }} isAnimationActive={false} />
                 </ReAreaChart>
