@@ -3,16 +3,25 @@ import { RateLimiter, mapWithConcurrency } from '../_shared/rate-limit.ts';
 import { calculerCash, statutDeal } from '../_shared/dealCash.ts';
 
 /**
- * Lecture des paiements Stripe pour les comptes connectés par CLÉ RESTREINTE.
+ * Le FILET du cash : relit les paiements chez Stripe, pour TOUS les comptes.
  *
- * Le webhook Connect (app/api/webhooks/stripe) ne reçoit d'événements que pour les
- * comptes reliés en OAuth : c'est `event.account` qui permet de retrouver le profil.
- * Un élève dont le compte Stripe est déjà contrôlé par une autre plateforme ne peut
- * pas passer par OAuth (restriction Stripe de juin 2021) et n'a que la clé — d'où
- * cette fonction, qui lit ses paiements et les rattache par les MÊMES metadata.
+ * Deux modes de connexion coexistent. En OAuth, le webhook Connect
+ * (app/api/webhooks/stripe) reçoit les événements en temps réel — `event.account`
+ * donne le profil. En clé restreinte, il n'y a pas de webhook du tout : un élève dont
+ * le compte Stripe est déjà contrôlé par une autre plateforme ne peut pas passer par
+ * OAuth (restriction Stripe de juin 2021), et cette fonction est son seul chemin.
  *
- * Les comptes OAuth sont ignorés ici : leur webhook fait déjà le travail en temps
- * réel, les traiter aussi doublerait les appels pour rien.
+ * ⚠️ ELLE COUVRE AUSSI L'OAUTH DEPUIS LE 2026-08-30, et c'est le point important.
+ * Les comptes OAuth en étaient exclus au motif que « leur webhook fait déjà le travail
+ * en temps réel ». Vrai du temps réel, faux du RATTRAPAGE : le webhook était pour eux
+ * l'unique chemin d'écriture. Un événement non délivré, et le paiement n'existait nulle
+ * part — ni dans le cash, ni dans « À rattacher », ni dans aucune vue de santé, sans
+ * aucun signal et définitivement. Trois charges du compte de test étaient dans ce cas.
+ *
+ * Le webhook reste le chemin nominal. Ceci passe une fois par jour derrière lui.
+ *
+ * ⚠️ Les identifiants écrits ici DOIVENT être ceux du webhook, sinon le même argent
+ * s'écrit deux fois et le cash double — voir `refCharge` et `refundId`.
  *
  * Appel : cron-job.org, header `Authorization: Bearer ${CRON_SECRET}`.
  * NE PAS toucher vercel.json — les crons du projet vivent sur cron-job.org.
@@ -24,6 +33,9 @@ import { calculerCash, statutDeal } from '../_shared/dealCash.ts';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const CRON_SECRET = Deno.env.get('CRON_SECRET')!;
+// Clé PLATEFORME — sert aux comptes OAuth, avec l'en-tête `Stripe-Account`. Les
+// comptes en clé restreinte utilisent la leur. Même dualité que lib/stripe-account.ts.
+const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY') ?? '';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -52,16 +64,24 @@ const MAX_LOOKBACK_DAYS = 30;
  *  plutôt que zéro. Le dédoublonnage se fait en base, le coût est nul. */
 const OVERLAP_MINUTES = 30;
 
-interface SyncResult { seen: number; attached: number; errors: string[] }
+interface SyncResult { seen: number; attached: number; errors: string[]; tronque: boolean }
 
-/** Un appel Stripe. La clé EST celle du compte : pas d'en-tête Stripe-Account. */
-async function stripeGet(apiKey: string, path: string, params: Record<string, string>): Promise<any> {
+/**
+ * Comment joindre le compte Stripe d'un élève. Deux modes, comme lib/stripe-account.ts :
+ *   clé restreinte → la clé EST celle du compte, aucun en-tête à poser ;
+ *   OAuth          → notre clé PLATEFORME, plus l'en-tête `Stripe-Account: acct_…`.
+ */
+interface AccesStripe { cle: string; compte: string | null }
+
+/** Un appel Stripe. */
+async function stripeGet(acces: AccesStripe, path: string, params: Record<string, string>): Promise<any> {
   const qs = new URLSearchParams(params).toString();
   // Passe par le limiteur partagé : sémaphore + token bucket + backoff sur 429.
   const res = await stripeLimiter.run(() => fetch(`https://api.stripe.com/v1/${path}?${qs}`, {
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${acces.cle}`,
       'Stripe-Version': '2026-04-22.dahlia',
+      ...(acces.compte ? { 'Stripe-Account': acces.compte } : {}),
     },
   }));
   const body = await res.json();
@@ -75,12 +95,13 @@ async function stripeGet(apiKey: string, path: string, params: Record<string, st
  * shortio_link_daily_snapshots (limite implicite silencieuse, aucune erreur levée).
  * Borne dure à 10 pages pour ne jamais saturer le temps d'exécution.
  */
-async function stripeList(apiKey: string, path: string, since: number, extra: Record<string, string> = {}): Promise<any[]> {
+async function stripeList(acces: AccesStripe, path: string, since: number, extra: Record<string, string> = {}): Promise<{ data: any[]; tronque: boolean }> {
   const out: any[] = [];
   let startingAfter: string | undefined;
+  let tronque = false;
 
   for (let page = 0; page < 10; page++) {
-    const body = await stripeGet(apiKey, path, {
+    const body = await stripeGet(acces, path, {
       'created[gte]': String(since),
       limit: '100',
       ...extra,
@@ -90,9 +111,12 @@ async function stripeList(apiKey: string, path: string, since: number, extra: Re
     out.push(...data);
     if (!body.has_more || !data.length) break;
     startingAfter = data[data.length - 1].id;
+    // Dixième page ET il en reste : on s'arrête sur la borne, pas sur la fin des
+    // données. Le drapeau remonte jusqu'au curseur, qui ne bougera pas.
+    if (page === 9) tronque = true;
   }
 
-  return out;
+  return { data: out, tronque };
 }
 
 /**
@@ -210,22 +234,30 @@ async function upsertPayment(profileId: string, p: {
  *
  * ⚠️ L'IDENTIFIANT NE DOIT JAMAIS ÊTRE CELUI DU PAIEMENT ⚠️
  *
- * Ici les paiements sont enregistrés sous l'id de la charge (`ch_…`). Réutiliser
- * ce même id pour le remboursement remplacerait la ligne du paiement au lieu
- * d'en ajouter une — et le net (encaissé − remboursé) partirait EN NÉGATIF, sans
- * qu'aucune erreur ne le signale. D'où le préfixe `refund_`, qui ne peut entrer
- * en collision avec aucun identifiant Stripe.
+ * Le remboursement porte `ch_…` (l'id de la charge) et le paiement `in_…` ou `pi_…` —
+ * exactement comme le webhook. Deux identifiants différents, donc deux lignes qui
+ * coexistent, et lib/dealCash.ts soustrait la seconde de la première.
  *
- * Le webhook obtient le même résultat autrement : il enregistre le paiement sous
- * `pi_…` et le remboursement sous `ch_…`. Deux chemins, une seule règle — les
- * deux lignes coexistent, et lib/dealCash.ts les soustrait.
+ * Réutiliser le MÊME id pour les deux remplacerait la ligne du paiement au lieu d'en
+ * ajouter une, et le net partirait EN NÉGATIF sans qu'aucune erreur ne le signale.
+ *
+ * Cette divergence d'identifiants a l'air d'une incohérence à corriger. Elle ne l'est
+ * pas : c'est elle qui rend la soustraction juste. Voir le même avertissement dans
+ * _shared/dealCash.ts.
  */
 async function upsertRefund(
   profileId: string,
   charge: { id: string; amount_refunded: number; currency: string; metadata?: Record<string, string> | null },
   touchedDeals: Set<string>,
 ): Promise<void> {
-  const refundId = `refund_${charge.id}`;
+  // `charge.id` et non `refund_${charge.id}` : c'est ce qu'écrit le webhook sur son
+  // cas `charge.refunded`. Un préfixe différent aurait fait coexister DEUX lignes de
+  // remboursement pour le même argent dès que les deux chemins visent le même compte,
+  // et un remboursement compté deux fois se SOUSTRAIT deux fois — pire que le défaut
+  // qu'on ferme. L'identifiant reste distinct de celui du paiement (`pi_…` / `in_…`),
+  // ce qui est voulu : la ligne de remboursement doit coexister avec celle du
+  // paiement, jamais la remplacer.
+  const refundId = charge.id;
   const montant = Number(charge.amount_refunded ?? 0) / 100;
   const quand = new Date().toISOString();
 
@@ -262,10 +294,11 @@ async function upsertRefund(
   touchedDeals.add(dealId);
 }
 
-async function syncProfile(profileId: string, apiKey: string, lastSyncedAt: string | null): Promise<SyncResult> {
+async function syncProfile(profileId: string, acces: AccesStripe, lastSyncedAt: string | null): Promise<SyncResult> {
   const errors: string[] = [];
   let seen = 0;
   let attached = 0;
+  let tronque = false;
 
   // Fenêtre incrémentale : on repart du dernier passage réussi, moins un
   // recouvrement. Sans borne basse (première passe), on remonte 30 jours.
@@ -288,8 +321,9 @@ async function syncProfile(profileId: string, apiKey: string, lastSyncedAt: stri
   // compte en clé restreinte n'avait jamais aucune ligne `refunded` en base —
   // donc le cash encaissé ne bougeait pas d'un remboursement.
   // On les garde, et le remboursement est enregistré à part (upsertRefund).
-  const charges = (await stripeList(apiKey, 'charges', since))
-    .filter((c: any) => c.status === 'succeeded');
+  const lotCharges = await stripeList(acces, 'charges', since);
+  tronque = tronque || lotCharges.tronque;
+  const charges = lotCharges.data.filter((c: any) => c.status === 'succeeded');
   seen += charges.length;
 
   // Concurrence bornée (4) au lieu d'un `for await` strictement séquentiel :
@@ -297,8 +331,29 @@ async function syncProfile(profileId: string, apiKey: string, lastSyncedAt: stri
   // faisaient jusqu'à 400 allers-retours en file d'attente. Borné, et non
   // `Promise.all`, pour ne pas ouvrir 100 connexions Postgres d'un coup.
   const chargeResults = await mapWithConcurrency(charges, 4, async (charge: any) => {
+    // ⚠️ TROIS familles d'identifiants, exactement celles du webhook — c'est ce qui
+    // empêche le cash d'être compté deux fois quand les deux chemins visent le même
+    // compte (le cas depuis que ce filet couvre aussi l'OAuth) :
+    //
+    //   invoice.paid      → inv.id                          → `in_…`
+    //   charge.succeeded  → charge.payment_intent ?? id      → `pi_…`
+    //   charge.refunded   → charge.id                        → `ch_…`
+    //
+    // L'index unique porte sur (deal_id, stripe_payment_id) : deux identifiants
+    // différents pour le même argent coexisteraient légalement, et calculerCash les
+    // sommerait tous les deux. Écrire `charge.id` ici doublait donc CHAQUE paiement
+    // comptant (déjà en `pi_…`) et CHAQUE échéance d'abonnement (déjà en `in_…`) —
+    // le mode de paiement principal du produit.
+    //
+    // `charge.invoice` d'abord : une charge adossée à une facture est le MÊME argent
+    // que la ligne facture écrite juste en dessous. C'est ce qui rend enfin vrai le
+    // commentaire « le dédoublonnage se fait en base » plus haut. Aucun appel
+    // supplémentaire : les deux champs sont déjà sur l'objet charge.
+    const refCharge = (typeof charge.invoice === 'string' ? charge.invoice : charge.invoice?.id)
+      ?? (typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id)
+      ?? charge.id;
     const attache = await upsertPayment(profileId, {
-      paymentId: charge.id,
+      paymentId: refCharge,
       amountMinor: charge.amount,
       currency: charge.currency,
       paidAt: new Date(charge.created * 1000).toISOString(),
@@ -319,8 +374,9 @@ async function syncProfile(profileId: string, apiKey: string, lastSyncedAt: stri
     else errors.push(`charge ${charges[i].id}: ${r.reason?.message || 'unknown'}`);
   });
 
-  const invoices = (await stripeList(apiKey, 'invoices', since, { status: 'paid' }))
-    .filter((inv: any) => !!inv.id);
+  const lotFactures = await stripeList(acces, 'invoices', since, { status: 'paid' });
+  tronque = tronque || lotFactures.tronque;
+  const invoices = lotFactures.data.filter((inv: any) => !!inv.id);
   seen += invoices.length;
 
   const invoiceResults = await mapWithConcurrency(invoices, 4, (inv: any) => {
@@ -356,7 +412,7 @@ async function syncProfile(profileId: string, apiKey: string, lastSyncedAt: stri
     }
   }
 
-  return { seen, attached, errors };
+  return { seen, attached, errors, tronque };
 }
 
 Deno.serve(async (req: Request) => {
@@ -365,13 +421,25 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ error: 'Non autorisé' }), { status: 401 });
   }
 
-  // Uniquement les comptes SANS access_token : ceux en OAuth passent par le webhook.
+  // ⚠️ Les comptes OAuth ne sont PLUS exclus.
+  //
+  // Ils l'étaient au motif que « leur webhook fait déjà le travail en temps réel ».
+  // C'était vrai du temps réel, faux du rattrapage : pour eux le webhook était
+  // l'UNIQUE chemin d'écriture du cash. Un événement non délivré, et le paiement
+  // n'existait nulle part — ni dans le cash, ni dans « À rattacher » (qui lit ce que
+  // le webhook a écrit), ni dans aucune vue de santé. Aucun signal, définitivement.
+  // Constaté le 2026-08-30 : trois charges du compte de test absentes de
+  // `stripe_payments`, postérieures au branchement du webhook.
+  //
+  // Le webhook reste le chemin nominal et temps réel. Ceci est un filet quotidien :
+  // il ne rattrape que ce que le webhook a manqué, et l'index unique
+  // (deal_id, stripe_payment_id) fait le reste — à condition que les identifiants
+  // soient les mêmes des deux côtés, voir `refCharge` et `refundId`.
   const { data: integrations, error } = await supabase
     .from('integrations')
-    .select('profile_id, api_key, metadata')
+    .select('profile_id, api_key, access_token, account_label, metadata')
     .eq('provider', 'stripe')
-    .is('access_token', null)
-    .not('api_key', 'is', null);
+    .or('api_key.not.is.null,access_token.not.is.null');
 
   if (error) {
     return new Response(JSON.stringify({ error: error.message }), { status: 500 });
@@ -390,10 +458,31 @@ Deno.serve(async (req: Request) => {
   // ensuite le débit fin, ce plafond évite d'empiler 30 files d'attente.
   // last_synced_at est déjà utilisée par sync-calendly : on isole la borne Stripe
   // dans metadata pour que les deux crons ne se marchent jamais dessus.
-  const settled = await mapWithConcurrency(integrations as any[], 5, (integ) =>
-    syncProfile(integ.profile_id, integ.api_key, integ.metadata?.stripe_synced_at ?? null)
-      .then(r => ({ profile_id: integ.profile_id, ...r }))
-  );
+  // Même ordre de préférence que lib/stripe-account.ts : OAuth d'abord (le callback
+  // efface api_key en s'installant), clé restreinte ensuite.
+  //
+  // ⚠️ La clé PLATEFORME doit exister dans l'environnement de la FONCTION — celle de
+  // Vercel ne la lui donne pas. Sans elle, Stripe répond « Invalid API Key provided:
+  // undefined », un message qui ne dit pas où chercher. On nomme donc la cause :
+  //   npx supabase secrets set STRIPE_SECRET_KEY=sk_… --project-ref <ref>
+  const acces = (integ: any): AccesStripe | null =>
+    integ.access_token && integ.account_label?.startsWith('acct_')
+      ? (STRIPE_SECRET_KEY ? { cle: STRIPE_SECRET_KEY, compte: integ.account_label } : null)
+      : integ.api_key ? { cle: integ.api_key, compte: null }
+      : null;
+
+  const settled = await mapWithConcurrency(integrations as any[], 5, (integ) => {
+    const a = acces(integ);
+    if (!a) {
+      const cause = integ.access_token && !STRIPE_SECRET_KEY
+        ? "compte OAuth mais STRIPE_SECRET_KEY absente de l'environnement de la fonction "
+          + "(supabase secrets set STRIPE_SECRET_KEY=…)"
+        : 'aucune clé exploitable';
+      return Promise.resolve({ profile_id: integ.profile_id, seen: 0, attached: 0, errors: [cause], tronque: false });
+    }
+    return syncProfile(integ.profile_id, a, integ.metadata?.stripe_synced_at ?? null)
+      .then(r => ({ profile_id: integ.profile_id, ...r }));
+  });
 
   const results = settled.map((r, i) =>
     r.status === 'fulfilled'
@@ -402,6 +491,7 @@ Deno.serve(async (req: Request) => {
           profile_id: (integrations as any[])[i].profile_id,
           seen: 0, attached: 0,
           errors: [r.reason?.message || 'unknown'],
+          tronque: false,
         }
   );
 
@@ -413,8 +503,16 @@ Deno.serve(async (req: Request) => {
   // dans integrations.metadata (user_uri, resource). Relire ici l'objet chargé en
   // début de run puis le réécrire écrasait toute clé posée entre-temps par l'autre
   // cron. jsonb_set côté serveur ne touche que la clé visée, sous verrou de ligne.
+  //
+  // ⚠️ NI pour les profils TRONQUÉS. Stripe renvoie ses listes du plus RÉCENT au plus
+  // ancien : quand on s'arrête à la 10ᵉ page, ce qui manque est le plus ANCIEN de la
+  // fenêtre. Avancer la borne le perdrait pour toujours — exactement la classe de
+  // défaut de `jourLePlusAncienVu` côté Short.io (« ne jamais réécrire une journée que
+  // le flux n'a pas couverte »). On laisse donc la borne où elle est : la passe
+  // suivante rejoue la même fenêtre, le retraitement est idempotent (garde `existing`
+  // + index unique), et la troncature est journalisée pour qu'elle se voie.
   for (const r of results) {
-    if (r.errors.length) continue;
+    if (r.errors.length || r.tronque) continue;
     const { error: stampErr } = await supabase.rpc('set_integration_metadata_key', {
       p_profile_id: r.profile_id,
       p_provider: 'stripe',
@@ -426,6 +524,32 @@ Deno.serve(async (req: Request) => {
 
   const allErrors: Record<string, string[]> = {};
   for (const r of results) if (r.errors.length) allErrors[r.profile_id] = r.errors;
+
+  // ── Journal en base, pas dans la réponse HTTP ──────────────────────────────
+  // Un filet dont les échecs partent dans un corps de réponse que personne ne lit
+  // n'est pas un filet. Convention du projet (AGENTS.md) : n'écrire QUE les passages
+  // en échec — un cron quotidien qui va bien ne doit rien laisser derrière lui — et
+  // laisser la purge automatique faire le ménage.
+  //
+  // La troncature compte comme un incident : elle signifie qu'une partie de la
+  // fenêtre n'a PAS été lue, et c'est le seul endroit où ça se voit.
+  const tronques = results.filter(r => r.tronque).map(r => r.profile_id);
+  const enErreur = Object.keys(allErrors);
+  if (enErreur.length || tronques.length) {
+    const { error: journalErr } = await supabase.from('cron_runs').insert({
+      fonction: 'sync-stripe-payments',
+      profils_en_erreur: enErreur.length + tronques.length,
+      erreurs: {
+        ...(enErreur.length ? { echecs: allErrors } : {}),
+        ...(tronques.length ? {
+          tronques,
+          note: "borne de 10 pages atteinte : la fenêtre n'a pas été lue en entier, "
+              + "stripe_synced_at n'a PAS été avancé, la passe suivante la rejouera.",
+        } : {}),
+      },
+    });
+    if (journalErr) console.error('[sync-stripe-payments] cron_runs:', journalErr.message);
+  }
 
   return new Response(JSON.stringify({
     ok: true,
