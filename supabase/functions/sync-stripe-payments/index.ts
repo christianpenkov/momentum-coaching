@@ -245,6 +245,17 @@ async function upsertPayment(profileId: string, p: {
     // efface la cause de l'orphelinat précédent. Sans ça, elle survivrait au
     // rattachement et s'afficherait comme un fait actuel alors qu'elle est périmée.
     orphan_cause: cause,
+    // ⚠️ L'ABONNEMENT NON RÉSOLU, pour que le rattachement soit DURABLE.
+    //
+    // `abonnement_inconnu` dit pourquoi ce paiement est orphelin ; ceci dit quoi
+    // faire. Au rattachement, l'écran peut proposer d'écrire aussi
+    // `deals.stripe_subscription_id` — et toutes les échéances suivantes se
+    // rattachent seules. Sans ça, un abonnement non relié ramène un orphelin
+    // chaque mois, et le même geste est à refaire indéfiniment.
+    //
+    // `null` quand le paiement est rattaché : la vente porte alors elle-même
+    // l'abonnement, et deux sources pour un même fait se périmeraient.
+    subscription_id: dealId ? null : p.subscriptionId,
   }, { onConflict: 'profile_id,payment_id' });
   if (payErr) throw payErr;
 
