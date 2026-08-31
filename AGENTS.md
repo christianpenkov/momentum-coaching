@@ -117,10 +117,19 @@ Sync Calendly (30 min) · Notify rapport call (30 min) · `poll-leads` (5 min) �
 ⚠️ **`sync-stripe-payments` est À CRÉER — 4 h 00 UTC.** C'est le filet du cash : il
 relit les paiements chez Stripe pour rattraper ce qu'un webhook non délivré a manqué.
 Sans lui, le webhook est l'unique chemin d'écriture et un événement perdu l'est pour
-toujours, sans aucun signal. Il lui faut aussi son secret :
-`npx supabase secrets set STRIPE_SECRET_KEY=sk_… --project-ref nvjgwtetyuatnkjihmtw`
-— la clé de Vercel ne parvient pas aux Edge Functions. Tant que ce secret manque, la
-fonction échoue sur les comptes OAuth en le disant explicitement dans `cron_runs`.
+toujours, sans aucun signal — trois encaissements du compte de test étaient dans ce
+cas, et le premier passage réel les a ramenés.
+
+Le secret `STRIPE_SECRET_KEY` est **posé** côté Edge Functions (clé de TEST au
+2026-08-31 — à reposer avec la clé live lors de la migration chez Quennel). La clé de
+Vercel ne parvient pas aux Edge Functions, ce sont deux environnements distincts :
+
+```bash
+npx supabase secrets set STRIPE_SECRET_KEY=sk_… --project-ref nvjgwtetyuatnkjihmtw
+```
+
+Sans lui, la fonction échoue sur les comptes OAuth en le disant explicitement dans
+`cron_runs`, plutôt que de renvoyer le « Invalid API Key provided: undefined » de Stripe.
 
 ⚠️ Ne rien mettre dans `vercel.json` — il est volontairement vide.
 
