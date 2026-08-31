@@ -114,6 +114,14 @@ Sync Calendly (30 min) · Notify rapport call (30 min) · `poll-leads` (5 min) �
 `poll-stories` (30 min) · `installment-reminders` (1×/jour) ·
 `/api/stripe/cron-health` (1×/jour).
 
+⚠️ **`sync-stripe-payments` est À CRÉER — 4 h 00 UTC.** C'est le filet du cash : il
+relit les paiements chez Stripe pour rattraper ce qu'un webhook non délivré a manqué.
+Sans lui, le webhook est l'unique chemin d'écriture et un événement perdu l'est pour
+toujours, sans aucun signal. Il lui faut aussi son secret :
+`npx supabase secrets set STRIPE_SECRET_KEY=sk_… --project-ref nvjgwtetyuatnkjihmtw`
+— la clé de Vercel ne parvient pas aux Edge Functions. Tant que ce secret manque, la
+fonction échoue sur les comptes OAuth en le disant explicitement dans `cron_runs`.
+
 ⚠️ Ne rien mettre dans `vercel.json` — il est volontairement vide.
 
 Le ping de santé Stripe ne déclare une panne qu'en cas d'échec d'appel — un silence
@@ -128,6 +136,7 @@ select * from cron_runs order by ran_at desc;   -- vide = aucun incident (30j)
 select * from yt_sante_donnees;                 -- 'ok' partout
 select * from integrations_sante;               -- 'ok' ou 'non_connectee'
 select * from ventes_sante_montants;            -- vide = rapport et deal concordent
+select * from stripe_sante_rattachement;        -- vide = chaque encaissement a sa vente
 select * from ig_sante_insights_posts;          -- 'ok' partout
 select * from base_sante_taille;                -- 'ok' = plafond de stockage loin
 ```
@@ -168,6 +177,20 @@ from pg_stat_all_tables order by pg_total_relation_size(relid) desc limit 10;
 plateforme a déjà encaissé la perte toute seule, c'est une information, pas une
 panne. `posts_muets_definitif` n'est **pas** une anomalie : Meta ne rend aucune
 statistique sur les publications antérieures au passage en compte pro.
+
+`stripe_sante_rattachement` liste les encaissements que Stripe connaît et qu'aucune
+vente ne revendique. ⚠️ Elle ne voit QUE ce qu'un chemin d'écriture a déjà enregistré :
+un webhook jamais délivré ne laisse aucune trace et reste invisible ici. Seule la passe
+quotidienne de `sync-stripe-payments` ferme ce trou-là, en rapportant chez nous ce que
+Stripe sait. Les deux sont complémentaires, ni l'un ni l'autre ne suffit.
+
+⚠️ **Le cash a UNE seule règle : `lib/dealCash.ts`.** Ne jamais sommer des paiements à
+la main. Sept lectures le faisaient encore le 2026-08-30 (`.eq('status','succeeded')`
+puis une somme) et n'ont donc JAMAIS déduit un remboursement : 2 800 € affichés pour
+2 600 € en caisse. `calculerCash().net` pour « ce qu'une personne a versé »,
+`encaisseRetenu()` pour « quelle part d'une vente est rentrée » — la seconde plafonne
+au montant contracté, sinon un trop-perçu fait dépasser 100 % et vient effacer la dette
+d'un autre client dans les totaux.
 
 `ventes_sante_montants` compare les DEUX écritures du cash : le montant saisi dans le
 rapport de call et le deal qui en découle. Les écrans lisent `deals` ; une ligne ici
