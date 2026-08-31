@@ -145,34 +145,35 @@ dans un jour futur, aucun sans date.
 
 ---
 
-## 5. La réserve laissée sur Funnel & Calls — à trancher en premier
+## 5. Le cash affiché vient des deals — le piège qui a coûté une demi-journée
 
-Quatre constats vérifiés le 2026-08-31, **incompatibles entre eux** :
+**Tout composant qui semble sommer `calls.revenue` somme en réalité des montants de
+deals.** `callsEff` (~ligne 9892) réécrit `c.revenue` avec le montant du deal
+rattaché, avant que le moindre onglet ne le lise :
 
-| Constat | Valeur |
-|---|---|
-| `calls.revenue`, Instagram août | **6 500 €** |
-| `deals.amount_total`, Instagram août | **4 700 €** |
-| Entonnoir IG « Revenue » à l'écran | **4 700 €** |
-| Le code : `igRev = igCallsLive.rev`, somme de `c.revenue` | devrait donner **6 500 €** |
+```ts
+byCall.set(d.call_id, … Number(d.amount_total || 0));
+return callsRaw.map(c => byCall.has(c.id) ? { ...c, revenue: byCall.get(c.id)! } : c);
+```
 
-Aucun endroit du composant ne remplace `calls.revenue` par le montant du deal — mais
-la recherche n'a pas été exhaustive. **L'un de ces quatre constats est faux ou
-incomplet, et ce n'est pas tranché.**
+Introduit le 2026-08-20 (`cf3743e`, « PageClientStats lit le cash depuis deals »),
+étendu à l'historique complet le 2026-08-28 (`e3a8bf1`). `callsAllTimeEff` fait de
+même.
 
-Ça compte au-delà de Funnel & Calls : **Vue générale a son propre `totalRev`**, et il
-somme `calls.revenue` (`callsInPeriod.reduce(…c.revenue…)`). Si l'entonnoir affiche du
-deal et Vue générale du `calls.revenue`, **les deux onglets montrent deux revenus
-différents pour la même période** — 4 700 € contre 6 500 € sur août. C'est la première
-chose à établir.
+**Conséquence pour cet audit** : Vue générale reçoit `callsEff`, donc son `totalRev`
+et celui de l'entonnoir portent la même valeur. Il n'y a **pas** de divergence à
+chercher entre les deux onglets — c'était une fausse piste, écartée le 2026-08-31.
 
-Point de départ : sur le profil de test, un seul call diverge (`TestBIO`, 3 000 € au
-rapport pour un deal à 1 200 €), et c'est un écart **légitime** — le deal a été édité
-depuis la page Paiements, et `app/api/payments/deals/[id]/amount` ne réécrit
-délibérément pas `calls.revenue`. La règle du projet : **`deals` est la source du
-cash**, `calls.revenue` n'est que la trace du montant déclaré dans le rapport.
+⚠️ **La leçon vaut pour tout l'audit.** Chercher `amount_total` ne trouve pas cette
+ligne : la valeur y vient d'une `Map`, et le mot est trente lignes plus haut. **Partir
+du chiffre AFFICHÉ et remonter la chaîne, jamais du nom de la variable et de ses
+occurrences.** C'est le piège « chercher le remède au lieu du symptôme », appliqué à
+soi-même.
 
----
+En base, `calls.revenue` et `deals.amount_total` peuvent légitimement diverger — le
+montant d'un deal s'édite depuis la page Paiements, et `calls.revenue` reste la trace
+de ce qui avait été déclaré dans le rapport. La vue `ventes_sante_montants` ne signale
+que les écarts qu'aucune édition n'explique.
 
 ## 6. Ce qui a changé depuis la clôture d'Instagram et de YouTube
 

@@ -226,9 +226,22 @@ deal sans call gonflerait le numérateur seul ; un call closé sans deal gonfler
 dénominateur seul. Le sous-titre de la carte « Cash contracté » annonce d'ailleurs
 « deals closés (N) » alors que N compte des **calls**.
 
-*Point de départ mesuré le 2026-08-30 sur le profil de test `a02e5927` : 8 deals pour
-**10 200 €**, contre 8 calls closés portant **12 000 €** de `calls.revenue`. L'écart
-de 1 800 € est un fait ; sa cause ne l'est pas — à établir.*
+⚠️ **Ne pas partir en chasse d'un écart entre `calls.revenue` et `deals` : il
+n'existe pas côté écran.** `callsEff` (~ligne 9892) remplace `c.revenue` par le
+montant du deal avant que le moindre onglet ne le lise — introduit le 2026-08-20
+(`cf3743e`), étendu à l'historique complet le 2026-08-28 (`e3a8bf1`). Un composant qui
+« somme `calls.revenue` » somme donc en réalité des montants de deals. La base garde
+bien deux valeurs distinctes (3 000 € au rapport contre 1 200 € au deal sur le profil
+de test), et c'est légitime : le deal a été édité depuis la page Paiements, et
+`app/api/payments/deals/[id]/amount` ne réécrit délibérément pas `calls.revenue`.
+
+*Ce piège a coûté une demi-journée : chercher `amount_total` ne trouve pas la ligne,
+qui s'écrit `{ ...c, revenue: byCall.get(c.id)! }`. Partir du chiffre AFFICHÉ et
+remonter, jamais du nom de la variable.*
+
+La piste ci-dessus reste entière malgré ça : elle ne porte pas sur la valeur mais sur
+le **mélange de deux populations et de deux dates** — deals sur `signed_at` au
+numérateur, calls sur `booked_at` au dénominateur.
 
 ### Le taux de cash collecté pourrait dépasser 100 %
 
