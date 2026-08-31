@@ -1267,7 +1267,7 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
                   </span>
                 </div>
               )}
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 600, height: 140 }}>
                 <ReAreaChart data={item.data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id={`grad-v2-${i}`} x1="0" y1="0" x2="0" y2="1">
@@ -1799,7 +1799,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
           <AreaChart data={igDaysForChart} areas={[{ key: 'reach', label: 'Reach', color: 'var(--accent-brand)' }]} xKey="date" height={220} showWeekday={period === 7} pendingKey="pending" />
         </Card>
         <Card title="Abonnés / jour" sub={`${sinceConnection ? 'Depuis la connexion' : period + ' jours'}`}>
-          <ResponsiveContainer width="100%" height={220}>
+          <ResponsiveContainer width="100%" height={220} initialDimension={{ width: 600, height: 220 }}>
             <ReAreaChart data={igDays} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
               <defs>
                 <linearGradient id="grad-ig-subs" x1="0" y1="0" x2="0" y2="1">
@@ -1992,7 +1992,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
             {(() => {
               const statModalTickInterval = period === 7 ? 0 : Math.max(1, Math.ceil(statModal.data.length / 9) - 1);
               return (
-            <ResponsiveContainer width="100%" height={220}>
+            <ResponsiveContainer width="100%" height={220} initialDimension={{ width: 600, height: 220 }}>
               {/* Rendu « abonnés nets » : axe pouvant descendre sous zéro, signe + explicite
                   dans l'infobulle, courbe linéaire sans lissage. Les DEUX cartes y ont
                   droit — Instagram et YouTube mesurent la même chose, il n'y a aucune
@@ -3305,7 +3305,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             // Même formule que le composant partagé AreaChart (components/charts/AreaChart.tsx) :
             // ~9 labels max en vue mois, tous les jours affichés en vue semaine.
             return (
-              <ResponsiveContainer width="100%" height={220}>
+              <ResponsiveContainer width="100%" height={220} initialDimension={{ width: 600, height: 220 }}>
                 <ComposedChart data={viewsForChart} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                   <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} ticks={datesAxe(viewsForChart.map(d => d.date), period, largeurGraphiques * 0.62)} />
@@ -3325,7 +3325,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             Rien ne le disait a l'ecran : tout le reste de la page suit la periode, ces
             blocs non — l'ecart etait invisible (constate le 2026-08-21). */}
         <Card title="Appareils" sub="30 derniers jours">
-          <ResponsiveContainer width="100%" height={220}>
+          <ResponsiveContainer width="100%" height={220} initialDimension={{ width: 600, height: 220 }}>
             <PieChart>
               <Pie data={deviceData} cx="50%" cy="50%" outerRadius={80} dataKey="views" nameKey="name" label={({ name, percent }: { name?: string; percent?: number }) => `${name ?? ''} ${((percent ?? 0) * 100).toFixed(0)}%`} labelLine={false}>
                 {deviceData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i]} />)}
@@ -3356,7 +3356,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
           // signalant « je vois absolument rien, aucun graphique ». L'axe symetrique
           // ci-dessous rend justement cette ligne plate lisible, centree sur zero.
           return (
-            <ResponsiveContainer width="100%" height={160}>
+            <ResponsiveContainer width="100%" height={160} initialDimension={{ width: 600, height: 160 }}>
               <ReAreaChart data={netSubsForChart} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="grad-yt-netsubs" x1="0" y1="0" x2="0" y2="1">
@@ -3649,7 +3649,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                       <span style={{ fontSize: 28, fontWeight: 800, color: 'var(--ink)' }}>{val2}</span>
                     </div>
                   </div>
-                  <ResponsiveContainer width="100%" height={220}>
+                  <ResponsiveContainer width="100%" height={220} initialDimension={{ width: 600, height: 220 }}>
                     <ReAreaChart data={merged} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                       <defs>
                         <linearGradient id="grad-yt-shorts" x1="0" y1="0" x2="0" y2="1">
@@ -3718,7 +3718,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
               // Même formule que le composant partagé AreaChart (components/charts/AreaChart.tsx).
               const generalTickInterval = period === 7 ? 0 : Math.max(1, Math.ceil(statModal.data.length / 9) - 1);
               return (
-              <ResponsiveContainer width="100%" height={220}>
+              <ResponsiveContainer width="100%" height={220} initialDimension={{ width: 600, height: 220 }}>
                 <ReAreaChart data={statModal.data} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                   <defs>
                     <linearGradient id="grad-yt-stat-modal" x1="0" y1="0" x2="0" y2="1">
@@ -3873,7 +3873,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 // Recharts avertissait alors « width(-1) and height(-1) » (constate dans
                 // la console du navigateur le 2026-08-21). La valeur reste celle de la
                 // zone, les deux doivent donc rester alignees.
-                <ResponsiveContainer width="100%" height={160}>
+                <ResponsiveContainer width="100%" height={160} initialDimension={{ width: 600, height: 160 }}>
                   <ReAreaChart data={retData} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                     <defs>
                       <linearGradient id="grad-retention" x1="0" y1="0" x2="0" y2="1">
@@ -6796,7 +6796,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         )}
         {selectedMetric === 'activation' && (
           <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
-            <ResponsiveContainer width="100%" height={160}>
+            <ResponsiveContainer width="100%" height={160} initialDimension={{ width: 600, height: 160 }}>
               {/* BARRES et non courbes. Un taux d'activation n'existe que les jours ou
                   quelque chose a ete envoye — quelques colonnes isolees sur un mois.
                   Depuis que regrouperTaux rend un TROU (et non 0 %) sur denominateur nul,

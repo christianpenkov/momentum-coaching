@@ -41,7 +41,7 @@ const CustomTooltip = ({ active, payload, label, formatter }: { active?: boolean
 export default function LineChart({ data, lines, xKey, height = 220, formatter, yLabel }: LineChartProps) {
   return (
     <div className="chart-wrapper" style={{ height }}>
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 600, height: height }}>
         <ReLineChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
           <XAxis dataKey={xKey} tick={{ fontSize: 11, fill: 'var(--muted)', fontFamily: 'var(--font-inter)' }} axisLine={false} tickLine={false} />
