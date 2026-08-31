@@ -56,6 +56,32 @@ const stripeLimiter = new RateLimiter({
 // ici faute d'import cross-runtime possible — même pattern que isValidContentId
 // dans sync-calendly/index.ts.
 const MD_DEAL = 'momentum_deal_id';
+
+/**
+ * Le deal désigné par des metadata Stripe existe-t-il encore chez nous ?
+ *
+ * ⚠️ Les metadata d'une facture sont un INSTANTANÉ figé à sa finalisation : elles
+ * gardent l'identifiant du deal pour toujours, même si la vente a été supprimée
+ * depuis — ce qui arrive en test, et arrivera en production le jour d'un ménage.
+ * Insérer sans vérifier lève alors une violation de clé étrangère, le profil part
+ * en erreur, `stripe_synced_at` n'avance pas, et la passe suivante rejoue la MÊME
+ * fenêtre pour échouer au même endroit. Blocage permanent : le filet ne rattrape
+ * plus jamais rien, en journalisant chaque jour la même erreur.
+ *
+ * Constaté au premier lancement réel, le 2026-08-31 : deux factures pointant vers
+ * des deals disparus suffisaient à figer le profil.
+ *
+ * Un deal introuvable n'est pas une erreur de traitement — c'est un paiement
+ * orphelin, exactement comme un paiement sans metadata. Il garde sa trace dans
+ * `stripe_payments` et remonte dans « À rattacher ».
+ */
+async function dealExiste(dealId: string): Promise<boolean> {
+  // Une metadata est saisissable à la main dans le dashboard Stripe : elle peut ne
+  // pas être un UUID du tout, et Postgres répondrait 22P02 au lieu de « rien trouvé ».
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(dealId)) return false;
+  const { data } = await supabase.from('deals').select('id').eq('id', dealId).maybeSingle();
+  return !!data;
+}
 const MD_INSTALLMENT = 'momentum_installment_id';
 
 /** Filet en cas de première passe ou de panne prolongée du cron. */
@@ -178,6 +204,10 @@ async function upsertPayment(profileId: string, p: {
   let dealId = p.metadata?.[MD_DEAL] ?? null;
   let matchMethod: 'metadata' | 'subscription' = 'metadata';
 
+  // Le deal des metadata a pu disparaître — voir dealExiste(). On retombe alors sur
+  // la résolution par abonnement, puis sur « orphelin », au lieu de lever.
+  if (dealId && !(await dealExiste(dealId))) dealId = null;
+
   if (!dealId && p.subscriptionId) {
     const { data } = await supabase
       .from('deals').select('id')
@@ -271,7 +301,9 @@ async function upsertRefund(
   }, { onConflict: 'profile_id,payment_id' });
 
   const dealId = charge.metadata?.[MD_DEAL] ?? null;
-  if (!dealId) return;
+  // Même garde que pour les encaissements : un deal supprimé ne doit pas figer le
+  // profil sur une violation de clé étrangère, passage après passage.
+  if (!dealId || !(await dealExiste(dealId))) return;
 
   // Le montant remboursé grandit à chaque remboursement partiel : on remplace la
   // ligne plutôt que de sortir si elle existe déjà, contrairement aux paiements.
