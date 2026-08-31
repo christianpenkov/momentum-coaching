@@ -1229,7 +1229,7 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   // même personne — voir même correctif dans matchesContent/TabFunnel plus haut).
   // 1. utm_content === postId (calls depuis lien description/bio, ou séquence story)
   // 2. sans utm_content → ig_lead_id → media_id via leadIdToMediaId (fallback legacy)
-  type ContentItem = { id: string; title: string; thumbnail: string | null; platform: 'IG' | 'YT'; type: string; views: number; totalViews: number; watchTime: number; avgWatchTimeMin: number | null; noShowCount: number; noShowPct: number | null; closedCount: number; closedPct: number | null; callsBooked: number; revenueTotal: number; revenuePerCall: number; cashPerView: number | null };
+  type ContentItem = { id: string; title: string; thumbnail: string | null; platform: 'IG' | 'YT'; type: string; views: number; totalViews: number; watchTime: number; avgWatchTimeMin: number | null; rendezVous: number; noShowCount: number; noShowPct: number | null; closedCount: number; closedPct: number | null; callsBooked: number; callsHonores: number; revenueTotal: number; revenuePerCall: number; cashPerView: number | null };
   const allContent: ContentItem[] = [
     ...igPosts.map(p => {
       const postCalls = igCallsAll.filter(c => {
@@ -1246,13 +1246,28 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
       const noShowCount = postCalls.filter(c => c.no_show).length;
       const closedCount = postCalls.filter(c => c.deal_closed).length;
       const revTotal = postCalls.reduce((s, c) => s + (c.revenue || 0), 0);
-      const honored = callsBooked - noShowCount;
-      const noShowPct = callsBooked > 0 ? Math.round((noShowCount / callsBooked) * 100) : null;
+      // « Calls honores » etait DEDUIT : bookes moins no-show. Les deux termes ne
+      // comptaient pas la meme population — « bookes » retire les 2es rendez-vous et les
+      // annules, « no-show » les gardait — si bien qu'un 2e rendez-vous manque etait
+      // retire d'un cote de la soustraction et pas de l'autre. Un contenu ayant produit
+      // une opportunite honoree puis un 2e rendez-vous manque affichait « 0 honore », et
+      // la colonne pouvait passer SOUS ZERO avec deux cas pareils. On le calcule donc
+      // directement, avec la definition unique de lib/callHonored.ts — la meme que les
+      // cartes du haut de cet ecran.
+      const honored = postCalls.filter(c => isCallHonored(c, now) && estOpportunite(c)).length;
+      // Le no-show garde le grain RENDEZ-VOUS, ici comme partout ailleurs dans Mes stats :
+      // un creneau pose et non honore est un creneau perdu, meme s'il prolongeait une
+      // vente en cours. Le compter en opportunites ferait disparaitre du tableau des
+      // no-shows bien reels, et surtout creerait une SECONDE definition du mot sous le
+      // meme nom. Son denominateur est donc different de « Calls bookes » — il est ecrit
+      // dans la cellule (« 1/7 rdv »), comme il l'est sous la carte du haut.
+      const rendezVous = postCalls.filter(c => c.status === 'active').length;
+      const noShowPct = rendezVous > 0 ? Math.round((noShowCount / rendezVous) * 100) : null;
       const closedPct = honored > 0 ? Math.round((closedCount / honored) * 100) : null;
       const avgWatchTimeMin = p.avgWatchTimeMs ? Math.round(p.avgWatchTimeMs / 1000 / 60 * 10) / 10 : null;
       const totalViewsIG = p.views || p.reach || 0;
       const viewsLifetimeIG = igLiveViewsByIdOv.get(p.id) ?? null;
-      return { id: p.id, title: p.caption?.slice(0, 60) || '(sans titre)', thumbnail: p.thumbnail || null, platform: 'IG' as const, type: p.type === 'VIDEO' || p.type === 'REEL' || p.type === 'REELS' ? 'Reel' : p.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image', views: totalViewsIG, totalViews: totalViewsIG, watchTime: p.totalWatchTimeMs ? Math.round(p.totalWatchTimeMs / 1000 / 60) : 0, avgWatchTimeMin, noShowCount, noShowPct, closedCount, closedPct, callsBooked, revenueTotal: revTotal, revenuePerCall: callsBooked > 0 ? Math.round(revTotal / callsBooked) : 0, cashPerView: viewsLifetimeIG && viewsLifetimeIG > 0 ? revTotal / viewsLifetimeIG : null };
+      return { id: p.id, title: p.caption?.slice(0, 60) || '(sans titre)', thumbnail: p.thumbnail || null, platform: 'IG' as const, type: p.type === 'VIDEO' || p.type === 'REEL' || p.type === 'REELS' ? 'Reel' : p.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image', views: totalViewsIG, totalViews: totalViewsIG, watchTime: p.totalWatchTimeMs ? Math.round(p.totalWatchTimeMs / 1000 / 60) : 0, avgWatchTimeMin, rendezVous, noShowCount, noShowPct, closedCount, closedPct, callsBooked, callsHonores: honored, revenueTotal: revTotal, revenuePerCall: callsBooked > 0 ? Math.round(revTotal / callsBooked) : 0, cashPerView: viewsLifetimeIG && viewsLifetimeIG > 0 ? revTotal / viewsLifetimeIG : null };
     }),
     ...ytVideos.map(v => {
       const postCalls = ytCallsAll.filter(c => c.utm_content === v.id);
@@ -1260,8 +1275,23 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
       const noShowCount = postCalls.filter(c => c.no_show).length;
       const closedCount = postCalls.filter(c => c.deal_closed).length;
       const revTotal = postCalls.reduce((s, c) => s + (c.revenue || 0), 0);
-      const honored = callsBooked - noShowCount;
-      const noShowPct = callsBooked > 0 ? Math.round((noShowCount / callsBooked) * 100) : null;
+      // « Calls honores » etait DEDUIT : bookes moins no-show. Les deux termes ne
+      // comptaient pas la meme population — « bookes » retire les 2es rendez-vous et les
+      // annules, « no-show » les gardait — si bien qu'un 2e rendez-vous manque etait
+      // retire d'un cote de la soustraction et pas de l'autre. Un contenu ayant produit
+      // une opportunite honoree puis un 2e rendez-vous manque affichait « 0 honore », et
+      // la colonne pouvait passer SOUS ZERO avec deux cas pareils. On le calcule donc
+      // directement, avec la definition unique de lib/callHonored.ts — la meme que les
+      // cartes du haut de cet ecran.
+      const honored = postCalls.filter(c => isCallHonored(c, now) && estOpportunite(c)).length;
+      // Le no-show garde le grain RENDEZ-VOUS, ici comme partout ailleurs dans Mes stats :
+      // un creneau pose et non honore est un creneau perdu, meme s'il prolongeait une
+      // vente en cours. Le compter en opportunites ferait disparaitre du tableau des
+      // no-shows bien reels, et surtout creerait une SECONDE definition du mot sous le
+      // meme nom. Son denominateur est donc different de « Calls bookes » — il est ecrit
+      // dans la cellule (« 1/7 rdv »), comme il l'est sous la carte du haut.
+      const rendezVous = postCalls.filter(c => c.status === 'active').length;
+      const noShowPct = rendezVous > 0 ? Math.round((noShowCount / rendezVous) * 100) : null;
       const closedPct = honored > 0 ? Math.round((closedCount / honored) * 100) : null;
       // v.watchTime30d est déjà en minutes (row.watch_time_min) — pas de /60 ici, contrairement
       // à la branche IG ci-dessus (avgWatchTimeMs en ms) : diviser aussi par 60 donnait un résultat
@@ -1270,7 +1300,7 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
       const vViews = v.viewsAllTime ?? v.views30d;
       const avgWatchTimeMin = v.watchTime30d && vViews > 0 ? Math.round(v.watchTime30d / vViews * 10) / 10 : null;
       const viewsLifetimeYT = ytLiveViewsByIdOv.get(v.id) ?? null;
-      return { id: v.id, title: v.title, thumbnail: v.thumbnail || null, platform: 'YT' as const, type: v.isShort ? 'Short' : 'Vidéo', views: v.views30d, totalViews: v.views, watchTime: v.watchTime30d, avgWatchTimeMin, noShowCount, noShowPct, closedCount, closedPct, callsBooked, revenueTotal: revTotal, revenuePerCall: callsBooked > 0 ? Math.round(revTotal / callsBooked) : 0, cashPerView: viewsLifetimeYT && viewsLifetimeYT > 0 ? revTotal / viewsLifetimeYT : null };
+      return { id: v.id, title: v.title, thumbnail: v.thumbnail || null, platform: 'YT' as const, type: v.isShort ? 'Short' : 'Vidéo', views: v.views30d, totalViews: v.views, watchTime: v.watchTime30d, avgWatchTimeMin, rendezVous, noShowCount, noShowPct, closedCount, closedPct, callsBooked, callsHonores: honored, revenueTotal: revTotal, revenuePerCall: callsBooked > 0 ? Math.round(revTotal / callsBooked) : 0, cashPerView: viewsLifetimeYT && viewsLifetimeYT > 0 ? revTotal / viewsLifetimeYT : null };
     }),
   ];
 
@@ -1285,8 +1315,11 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
     if (contentSort === 'watchTime') return b.watchTime - a.watchTime;
     if (contentSort === 'calls') {
       if (b.closedCount !== a.closedCount) return b.closedCount - a.closedCount;
-      const aHonored = a.callsBooked - a.noShowCount;
-      const bHonored = b.callsBooked - b.noShowCount;
+      // Meme correction que la colonne affichee : l'honore se lit, il ne se deduit plus.
+      // Un tri sur une valeur qui n'est pas celle de la colonne classe le tableau dans un
+      // ordre que le lecteur ne peut pas retrouver avec ses yeux.
+      const aHonored = a.callsHonores;
+      const bHonored = b.callsHonores;
       if (bHonored !== aHonored) return bHonored - aHonored;
       return b.callsBooked - a.callsBooked;
     }
@@ -1515,13 +1548,16 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
                   {contentSort === 'calls' && (<>
                     <td style={{ padding: '8px 8px', textAlign: 'right', fontSize: 13, fontWeight: 700 }}>{fmt(c.callsBooked)}</td>
                     <td style={{ padding: '8px 8px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>
-                      {c.callsBooked > 0 ? fmt(c.callsBooked - c.noShowCount) : '—'}
+                      {c.callsBooked > 0 ? fmt(c.callsHonores) : '—'}
                     </td>
                     <td style={{ padding: '8px 8px', textAlign: 'right', fontSize: 12, fontWeight: 600, color: c.noShowPct === null ? 'var(--faint)' : c.noShowPct > 20 ? RED : c.noShowPct > 10 ? AMBER : GREEN }}>
-                      {c.noShowCount > 0 ? `${c.noShowCount} (${c.noShowPct}%)` : c.noShowPct !== null ? `0 (0%)` : '—'}
+                      {c.noShowPct !== null ? `${c.noShowCount}/${c.rendezVous} rdv (${c.noShowPct} %)` : '—'}
                     </td>
                     <td style={{ padding: '8px 8px', textAlign: 'right', fontSize: 12, fontWeight: 600, color: c.closedPct === null ? 'var(--faint)' : c.closedPct >= 25 ? GREEN : c.closedPct >= 15 ? AMBER : RED }}>
-                      {c.closedCount > 0 ? `${c.closedCount} (${c.closedPct}%)` : c.closedPct !== null ? `0 (0%)` : '—'}
+                      {/* `closedPct` vaut null quand aucune opportunite n'a ete honoree. Sans cette
+                          garde, une vente signee sur un contenu dont le 1er rendez-vous fut un
+                          no-show affichait « 1 (null%) ». */}
+                      {c.closedPct !== null ? `${c.closedCount} (${c.closedPct} %)` : c.closedCount > 0 ? `${c.closedCount} · aucun call honoré` : '—'}
                     </td>
                   </>)}
                   {contentSort === 'revenue' && (<>
