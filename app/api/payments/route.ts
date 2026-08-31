@@ -447,6 +447,38 @@ export async function GET(request: NextRequest) {
     return !attachedFingerprints.has(fp);
   });
 
+  // ── Les jumeaux ne font qu'une ligne ──────────────────────────────────────
+  // Une transaction d'abonnement existe DEUX fois dans stripe_payments, sous son
+  // id de facture (`in_…`) et sous celui de son PaymentIntent (`pi_…`), au même
+  // montant et à la même seconde. Le filtre ci-dessus écarte déjà le jumeau d'un
+  // paiement DÉJÀ rattaché — mais tant qu'aucun des deux ne l'est, les deux
+  // s'affichent, et rien n'empêche de cliquer « Rattacher » sur l'un puis sur
+  // l'autre avant que la liste se recharge. Le cash doublerait.
+  //
+  // S'appuyer sur le rechargement, c'est faire dépendre la justesse d'un chiffre
+  // de la vitesse d'un aller-retour réseau. On regroupe donc à la source : une
+  // seule carte par transaction, le double clic devient impossible plutôt que
+  // rattrapé.
+  //
+  // La facture prime comme représentant : c'est l'objet que Stripe considère
+  // comme le paiement de l'échéance, le PaymentIntent n'en étant que l'exécution.
+  const parEmpreinte = new Map<string, typeof orphans>();
+  for (const o of orphans) {
+    const cle = o.date
+      ? `${Number(o.amount)}@${new Date(o.date).toISOString().slice(0, 19)}`
+      : o.payment_id;
+    const liste = parEmpreinte.get(cle);
+    if (liste) liste.push(o); else parEmpreinte.set(cle, [o]);
+  }
+  const orphansUniques = [...parEmpreinte.values()].map(groupe => {
+    const principal = groupe.find(o => o.payment_id.startsWith('in_')) ?? groupe[0];
+    return {
+      ...principal,
+      autresIdentifiants: groupe.filter(o => o.payment_id !== principal.payment_id)
+        .map(o => o.payment_id),
+    };
+  });
+
   // ── Journal, une entrée par vente ──────────────────────────────────────────
   // Il vit DANS le bloc de sa vente sur la fiche : c'est de cette vente-là qu'il
   // parle. Chargé ici plutôt qu'à l'ouverture du panneau, pour que déplier une
@@ -471,8 +503,12 @@ export async function GET(request: NextRequest) {
     kpis,
     deals: rows,
     people,
-    orphans: orphans.map(o => ({
+    orphans: orphansUniques.map(o => ({
       paymentId: o.payment_id,
+      // Le même encaissement vu sous un autre identifiant Stripe. Affiché, jamais
+      // masqué : un élève qui retrouve `pi_…` dans son dashboard doit comprendre
+      // pourquoi il n'a qu'une seule ligne ici.
+      autresIdentifiants: o.autresIdentifiants,
       amount: Number(o.amount),
       currency: o.currency,
       date: o.date,

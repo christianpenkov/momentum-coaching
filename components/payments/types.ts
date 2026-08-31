@@ -125,6 +125,14 @@ export interface Orphan {
    * deux, sinon il affirme une absence de problème là où il y a une ignorance.
    */
   cause: CauseOrphelin | null;
+  /**
+   * Les autres identifiants Stripe du MÊME encaissement.
+   *
+   * Une transaction d'abonnement existe sous deux identifiants (`in_…` facture
+   * et `pi_…` PaymentIntent). Ils sont regroupés en une seule ligne côté route :
+   * deux cartes auraient permis de rattacher deux fois le même argent.
+   */
+  autresIdentifiants: string[];
 }
 
 export interface PaymentsData {

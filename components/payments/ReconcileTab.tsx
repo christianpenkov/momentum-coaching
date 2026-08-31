@@ -140,6 +140,17 @@ function OrphanCard({ orphan, onDone }: { orphan: Orphan; onDone: () => void }) 
         <Pill label="Non rattaché" tone="amber" />
       </div>
 
+      {/* Le même argent porte deux identifiants chez Stripe. On n'affiche qu'une
+          ligne — deux auraient permis de le rattacher deux fois — mais on le dit,
+          sinon l'élève qui retrouve l'autre identifiant dans son dashboard croit
+          qu'un encaissement manque. */}
+      {orphan.autresIdentifiants.length > 0 && (
+        <div style={{ padding: '9px 18px', borderBottom: '1px solid var(--border-soft)', fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.55 }}>
+          Ce versement apparaît sous {orphan.autresIdentifiants.length + 1} identifiants chez Stripe
+          (facture et paiement). Une seule ligne ici, pour un seul encaissement.
+        </div>
+      )}
+
       <CauseDeLOrphelinat cause={orphan.cause} />
 
       <div style={{ padding: '2px 18px 14px' }}>
