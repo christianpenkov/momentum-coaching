@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { resolveTargetProfile } from '@/lib/stripe-account';
+import { calculerCash, resteAEncaisser, type LignePaiement } from '@/lib/dealCash';
 
 /**
  * Réconciliation des paiements orphelins.
@@ -37,16 +38,51 @@ interface Candidate {
 }
 
 /**
+ * À quoi le montant d'un paiement peut légitimement correspondre sur une vente.
+ *
+ * ⚠️ Ne comparer QU'AU TOTAL était le défaut : sur une vente en plusieurs fois,
+ * un prélèvement ne vaut jamais le total. Un versement de 300 € sur une vente de
+ * 900 € ne trouvait donc aucun candidat, l'écran affichait « Aucun deal ne
+ * correspond » et le seul bouton restant était « Ignorer » — sur de l'argent
+ * réellement encaissé. Le filet ramenait le paiement, l'écran invitait à
+ * l'écarter.
+ *
+ * L'ordre est celui de la force du signal : le total désigne une vente entière,
+ * l'échéance un prélèvement attendu, le restant dû un solde. Les trois sont des
+ * indices de montant, jamais des preuves — seul l'e-mail identifie une personne.
+ */
+interface MontantsPlausibles {
+  total: number;
+  /** Ce qu'il reste à encaisser, calculé par lib/dealCash — jamais à la main. */
+  reste: number;
+  /** Le montant d'une échéance, si la vente est en plusieurs fois. */
+  echeance: number | null;
+  /** Pour la phrase affichée : « échéance sur 3 ». */
+  nbEcheances: number | null;
+}
+
+function correspondanceMontant(
+  m: MontantsPlausibles, montant: number,
+): 'total' | 'echeance' | 'reste' | null {
+  const egal = (v: number | null) => v !== null && Math.abs(v - montant) < 0.01;
+  if (egal(m.total)) return 'total';
+  if (egal(m.echeance)) return 'echeance';
+  if (egal(m.reste)) return 'reste';
+  return null;
+}
+
+/**
  * Score un deal face à un paiement orphelin.
  *
  * « Certain » exige l'e-mail : c'est le seul signal qui identifie une personne.
  * Un montant identique ne prouve rien — deux clients peuvent payer le même prix.
  */
 function scoreCandidate(
-  deal: { id: string; buyer_name: string; buyer_email: string | null; amount_total: number; signed_at: string; call_email?: string | null },
+  deal: { id: string; buyer_name: string; buyer_email: string | null; amount_total: number; signed_at: string; call_email?: string | null; montants: MontantsPlausibles },
   payment: { amount: number; email: string | null; date: string },
 ): Candidate | null {
-  const amountMatch = Math.abs(Number(deal.amount_total) - payment.amount) < 0.01;
+  const quoi = correspondanceMontant(deal.montants, payment.amount);
+  const amountMatch = quoi !== null;
   const daysApart = Math.abs(
     (new Date(payment.date).getTime() - new Date(deal.signed_at).getTime()) / 86400_000
   );
@@ -61,18 +97,29 @@ function scoreCandidate(
     e => e.split('@')[0] === payEmail.split('@')[0]
   );
 
+  // Nommer CE À QUOI le montant correspond, et pas seulement « montant identique » :
+  // sur une vente en plusieurs fois, « montant d'une échéance sur 3 » se vérifie
+  // d'un coup d'œil, là où « montant identique » laisserait croire à une vente
+  // entière et ferait douter du rattachement au moment de cliquer.
+  const nb = deal.montants.nbEcheances;
+  const montantDit =
+    quoi === 'total' ? 'montant identique au total de la vente'
+    : quoi === 'echeance' ? `montant d'une échéance${nb ? ` sur ${nb}` : ''}`
+    : 'montant du restant dû';
+  const MontantDit = montantDit[0].toUpperCase() + montantDit.slice(1);
+
   if (emailExact && amountMatch) {
-    return { ...base(deal), confidence: 'certain', reason: 'E-mail identique, montant identique' };
+    return { ...base(deal), confidence: 'certain', reason: `E-mail identique, ${montantDit}` };
   }
   if (emailExact) {
     return { ...base(deal), confidence: 'certain', reason: `E-mail identique, montant différent (${deal.amount_total} €)` };
   }
   if (emailFuzzy && amountMatch) {
-    return { ...base(deal), confidence: 'possible', reason: 'Montant identique, e-mail proche' };
+    return { ...base(deal), confidence: 'possible', reason: `${MontantDit}, e-mail proche` };
   }
   if (amountMatch) {
     const when = daysApart < 1 ? 'le même jour' : `à ${Math.round(daysApart)} jours d'écart`;
-    return { ...base(deal), confidence: 'possible', reason: `Montant identique, signé ${when}` };
+    return { ...base(deal), confidence: 'possible', reason: `${MontantDit}, vente signée ${when}` };
   }
   return null;
 }
@@ -100,18 +147,23 @@ export async function GET(request: NextRequest) {
 
   const { data: payment } = await supa
     .from('stripe_payments')
-    .select('payment_id, amount, currency, date, description')
+    .select('payment_id, amount, currency, date, description, buyer_email')
     .eq('profile_id', profileId)
     .eq('payment_id', paymentId)
     .maybeSingle();
 
   if (!payment) return NextResponse.json({ error: 'Paiement introuvable' }, { status: 404 });
 
-  // Seuls les deals non soldés sont candidats : un deal déjà payé en entier n'a
-  // pas besoin d'un paiement de plus.
+  // Toutes les ventes sauf les annulées. Une vente soldée reste candidate à
+  // dessein : un paiement de plus sur une vente terminée est justement le cas
+  // « paiement inattendu », qu'il faut pouvoir rattacher pour le voir.
+  //
+  // Les paiements et les échéances viennent avec, pour calculer le restant dû et
+  // le montant d'une échéance. Sans eux, la correspondance ne pourrait se faire
+  // qu'au total — le défaut corrigé ici.
   const { data: deals } = await supa
     .from('deals')
-    .select('id, buyer_name, buyer_email, amount_total, signed_at, status, call_id')
+    .select('id, buyer_name, buyer_email, amount_total, signed_at, status, call_id, installments_count, deal_payments(amount, status), deal_installments(amount)')
     .eq('profile_id', profileId)
     .neq('status', 'canceled');
 
@@ -125,11 +177,17 @@ export async function GET(request: NextRequest) {
     for (const c of calls ?? []) if (c.invitee_email) callEmails.set(c.id, c.invitee_email);
   }
 
-  const payEmail = extractEmail(payment.description);
+  // La colonne d'abord, l'extraction seulement en repli sur les lignes anciennes.
+  const payEmail = payment.buyer_email ?? extractEmail(payment.description);
 
   const candidates = (deals ?? [])
     .map(d => scoreCandidate(
-      { ...d, amount_total: Number(d.amount_total), call_email: d.call_id ? callEmails.get(d.call_id) ?? null : null },
+      {
+        ...d,
+        amount_total: Number(d.amount_total),
+        call_email: d.call_id ? callEmails.get(d.call_id) ?? null : null,
+        montants: montantsPlausibles(d),
+      },
       { amount: Number(payment.amount), email: payEmail, date: payment.date },
     ))
     .filter((c): c is Candidate => c !== null)
@@ -148,7 +206,51 @@ export async function GET(request: NextRequest) {
   });
 }
 
-/** L'e-mail du payeur n'a pas de colonne dédiée : il arrive dans la description. */
+/**
+ * Les trois montants auxquels un paiement peut correspondre sur cette vente.
+ *
+ * Le restant dû passe par `calculerCash` : c'est la règle unique du cash, et une
+ * somme faite à la main ici ne déduirait pas les remboursements — elle ferait
+ * correspondre un paiement à un solde qui n'existe plus.
+ *
+ * Pour l'échéance, `deal_installments` fait foi quand il est rempli (mode manuel).
+ * En prélèvement automatique la table est vide, l'échéancier vivant chez Stripe :
+ * on retombe sur la division du total, qui est ce que la vente a promis.
+ */
+function montantsPlausibles(d: {
+  amount_total: number | string;
+  installments_count: number | null;
+  deal_payments?: { amount: number | string; status: string }[] | null;
+  deal_installments?: { amount: number | string }[] | null;
+}): MontantsPlausibles {
+  const total = Number(d.amount_total);
+  const cash = calculerCash((d.deal_payments ?? []).map(p => ({
+    amount: p.amount, status: p.status as LignePaiement['status'],
+  })));
+
+  const lignes = d.deal_installments ?? [];
+  const nb = d.installments_count ?? (lignes.length > 1 ? lignes.length : null);
+  const echeance = lignes.length > 0
+    ? Number(lignes[0].amount)
+    : (nb && nb > 1 ? Math.round((total / nb) * 100) / 100 : null);
+
+  return { total, reste: resteAEncaisser(cash, total), echeance, nbEcheances: nb };
+}
+
+/**
+ * L'e-mail du payeur, extrait de la description — REPLI D'HISTORIQUE UNIQUEMENT.
+ *
+ * ⚠️ Ne jamais en refaire la source de vérité. `stripe_payments.buyer_email` existe
+ * depuis le 2026-08-31 (migration 20260831140000) et est renseignée par les cinq
+ * chemins d'écriture, depuis `charge.billing_details.email`, `invoice.customer_email`
+ * ou la session de paiement. Sortir une adresse d'un texte libre tient jusqu'au jour
+ * où Stripe change son libellé — et ce jour-là le niveau « Certain » s'éteindrait sans
+ * que rien ne le signale, laissant chaque paiement orphelin sans autre issue que
+ * « Ignorer ».
+ *
+ * Ne reste ici que pour les lignes écrites AVANT la colonne. Mesuré ce jour-là :
+ * 10 lignes sur 10 sans description, donc ce repli ne rendait déjà rien.
+ */
 function extractEmail(text: string | null): string | null {
   if (!text) return null;
   const m = text.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
