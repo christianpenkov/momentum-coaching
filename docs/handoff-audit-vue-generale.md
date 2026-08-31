@@ -2,11 +2,19 @@
 
 Écrit le **2026-08-31**, après la clôture de Funnel & Calls.
 
-**Ce document ne contient aucune conclusion d'audit.** Il porte le périmètre, la
-méthode, la procédure et des pistes **non vérifiées**, repérées en lisant le code —
-ce que la méthode interdit explicitement de considérer comme un résultat. Chacune
-doit être confirmée ou infirmée en base, contre l'API ou à l'écran. Certaines seront
-fausses.
+> ## État au 2026-09-01
+>
+> **Mission 1 — « Vue générale » : CLOSE.** Onze défauts trouvés, tous corrigés,
+> **vérifiés en production**. Le détail et sa méthode sont en §8, qui ne porte plus
+> des pistes mais des résultats mesurés. Trois points restent ouverts, listés en
+> §8bis — deux risques structurels non déclenchés et une décision de cohérence.
+>
+> **Mission 2 — repasse Instagram et YouTube : en cours**, dans une session dédiée.
+> Elle a déjà corrigé deux défauts que l'audit de Vue générale lui a signalés (voir
+> §8, défauts 2 et 3). Les §6 et §7 restent son cahier des charges.
+>
+> Les §1 à §4, §5, §7, §9 et §10 gardent toute leur valeur : méthode, pièges,
+> outillage. Ce sont eux qu'il faut lire avant de toucher à un chiffre affiché.
 
 Deux missions distinctes, dans cet ordre :
 
@@ -132,10 +140,12 @@ numérateur en n'en nommant qu'une.
 ⚠️ **Les exclusions s'empilent.** Vérifier qu'on les a toutes trouvées, pas seulement
 la première.
 
-**Sur Vue générale, le candidat évident est « Closing »** : il porte un seuil de
-couleur (`>= 25 %` vert) et affiche « N deals closés » juste en dessous. Si son
-dénominateur n'est pas le « Calls honorés » de la carte voisine, la division ne
-tombera pas juste.
+**Sur Vue générale, le candidat évident était « Closing ».** Vérifié le 2026-08-31 :
+son dénominateur EST bien le « Calls honorés » de la carte voisine, et la division
+tombe juste (5/8 = 63 %). Le contrôle a néanmoins payé deux fois — il a fait remarquer
+que le seuil de couleur n'était calibré sur rien (défaut 8), et que le numérateur et le
+dénominateur ne portaient pas sur la même population dès qu'une paire de rendez-vous
+était à cheval sur deux périodes (défaut 10).
 
 ### Et l'invariant que la lecture d'écran ne donne pas
 
@@ -224,8 +234,13 @@ encore le motif ?
 Trois modes (`7j`, `30j`, `All-Time`) et une navigation `‹ ›`. **Les défauts de ces
 écrans ne se voient ni sur la période courante, ni sur les périodes récentes.**
 
-Balayer au minimum 4 mois en arrière (dont un **antérieur au début de la collecte
-Short.io, le 19/07**), 4 semaines, et l'All-Time. Pour chaque état : aucun `NaN`,
+⚠️ **Depuis le 2026-09-01, la flèche « ‹ » s'arrête à la période qui contient
+`integrations_ready_at`** — elle partait avant de `connectedAt`, ce qui donnait accès
+à des mois entièrement antérieurs à la mise en route (voir §8, défaut 5). Le balayage
+va donc moins loin qu'avant, et c'est voulu : au-delà, il n'y a rien à mesurer.
+
+Balayer tout ce qui reste atteignable (dont un mois **antérieur au début de la collecte
+Short.io, le 19/07**), les semaines, et l'All-Time. Pour chaque état : aucun `NaN`,
 `Infinity`, `undefined`, `Invalid Date`, `[object Object]`, aucun taux impossible.
 
 ⚠️ **All-Time passe par `sinceConnection`, pas par `periodIndex`.** Les périodes
@@ -235,56 +250,118 @@ c'est exactement ce qui a laissé passer le 250 %.
 
 ---
 
-## 8. Pistes à vérifier sur Vue générale — aucune n'est un résultat
+## 8. Ce que l'audit a trouvé — onze défauts, tous corrigés
 
-Repérées en lisant le code le 2026-08-31. Non vérifiées.
+Audit mené le 2026-08-31, corrections livrées et **vérifiées en production le
+2026-09-01** (commits `d72ebfd`, `44023e1`, `8ed663f`, `785e535`).
 
-### Le revenu diverge peut-être de celui de l'entonnoir
+Les pistes que ce document portait avant l'audit sont signalées : plusieurs étaient
+justes, **une était fausse**, et c'est utile à savoir.
 
-Voir §5. `totalRev` somme `calls.revenue`. À établir en premier.
+| # | Défaut | Comment il a été trouvé |
+|---|---|---|
+| 1 | **All-Time traçait un seul mois.** Carte « Reach Instagram 503 · total » au-dessus d'une courbe totalisant 146. Depuis le mode 7 jours, c'est la CARTE qui devenait fausse : « 4 personnes · total », les chiffres d'une semaine. | l'invariant courbe/carte (§4) |
+| 2 | **Les jours non collectés étaient tracés à zéro** sur toute période passée. `igHist`/`ytHist.chartData` écrivaient `?? 0` sans porter le drapeau `pending`, que seule la route API produisait. *(piste confirmée)* | 25 jours sans mesure YouTube en mai |
+| 3 | **Fausse alerte permanente** « Taux de réponse DM bas : 0 % — 0 conversations sans réponse » sur toute période passée. `ig_response_rate` est écrite **littéralement `null`** par les trois chemins de collecte : colonne morte, lue en `?? 0`, branchée sur un seuil d'alerte. | inventaire des colonnes (phase 2) |
+| 4 | **« Abonnés YT : 0 » en mai**, alors que la colonne est NULL sur les 25 jours du mois. Deux `?? 0` empilés. *(piste confirmée)* | balayage des périodes |
+| 5 | **La navigation arrière menait à un mois antérieur au démarrage.** Bornée par `connectedAt` (29/05) au lieu de `integrations_ready_at` (09/06), et comptée en périodes **glissantes** alors que les périodes affichées sont **calendaires**. C'est la cause racine du défaut 6. | une question de Chris, pas le code |
+| 6 | **Le bandeau de couverture annonçait « les 39 premiers jours » d'un mois de 31 jours**, et affirmait « aucune donnée » alors que l'écran affichait 106 de reach — le backfill Instagram remonte avant la mise en route. | lecture d'écran (phase 1) |
+| 7 | **Un mois sans aucun call était peint en couleur** : no-show « 0 % » en VERT, closing « 0 % » en ROUGE. Un mois vide se lisait comme une contre-performance. | balayage des périodes |
+| 8 | **Le seuil de couleur du closing** (25 % / 15 %) n'était calibré sur rien de traçable, et un signal annonçait un « seuil cible de 25 % ». Couleur et signal retirés. *(piste confirmée, arbitrée par Chris)* | lecture de code + arbitrage |
+| 9 | **Le signal no-show disait « % des calls bookés »** alors que le taux porte sur les RENDEZ-VOUS — l'inverse de ce que son propre texte d'aide explique. | recalcul depuis l'écran |
+| 10 | **Un deal signé au 2ᵉ rendez-vous comptait dans une période sans dénominateur.** Le closing pouvait dépasser 100 %. Fermé par `representantDOpportunite` : le deal reste attaché à son rendez-vous, c'est la PÉRIODE de comptage qui suit l'opportunité (règle de cohorte, référentiel règle 2). | raisonnement sur les grains, confirmé sur une paire réelle en base |
+| 11 | **« 0 personnes » là où rien n'est mesuré.** Le 1ᵉʳ de chaque mois, la ligne du jour existe en base avec `ig_reach` à NULL : la courbe disait « Pas encore de données », le grand chiffre annonçait « 0 ». | **la vérification en production**, le 2026-09-01 |
 
-### « Abonnés IG » et « Abonnés YT » affichent `|| 0`
+### La piste qui était FAUSSE
 
-`fmt(ig?.followers || 0)` : si l'API n'a rien renvoyé, la carte affiche **0 abonné**
-plutôt qu'un tiret. Un `0` affirme quelque chose. Et `|| 0` efface aussi un vrai 0 —
-motif déjà responsable de six défauts sur ce projet.
+Ce document a longtemps annoncé une divergence de revenu entre Vue générale et
+l'entonnoir (6 500 € contre 4 700 €), présentée comme « la première chose à établir ».
+**Il n'y en a aucune.** `callsEff` réécrit `c.revenue` avec le montant du deal avant
+que le moindre onglet ne le lise — voir §5, qui porte la bonne version. Mesuré à
+l'écran : août affiche 5 700 €, soit 4 700 € (Instagram) + 1 000 € (YouTube).
 
-### Le sous-titre « total » ne dit pas de quand
+**La leçon** : une réserve héritée d'un document n'est pas un fait. Celle-ci disait
+« aucun endroit ne remplace `calls.revenue` — mais la recherche n'a pas été
+exhaustive », et elle avait cherché par le NOM du champ. La substitution se fait en
+amont, dans le producteur de la liste : le nom reste intact partout en aval. Quand une
+recherche par nom ne trouve rien, la question n'est pas « où est-ce écrit » mais « qui
+construit l'objet que je lis ».
 
-Les abonnés sont un **état courant**, pas une mesure de période. Vérifier que la carte
-ne change pas quand on navigue vers un mois passé — et si elle ne change pas, que le
-libellé le dise.
+### Ce que le recalcul depuis l'écran a donné
 
-### Le seuil de couleur du closing
+Le 7ᵉ piège ne mordait pas ici : **tous les taux se retrouvent avec les seuls nombres
+affichés à côté**, sur les onze états balayés. Août 5/8 = 63 %, 1/10 = 10 %,
+5700/9 = 633 € ; juin 2/7 = 29 %, 2/5 = 40 %, 4000/7 = 571 € ; All-Time 3/18 = 17 %,
+8/14 = 57 %, 10200/17 = 600 €. Le dénominateur du closing **est** la carte voisine, et
+celui du no-show est écrit sous le chiffre.
 
-`>= 25 %` vert, `>= 15 %` ambre. Calibré sur quoi ? Un seuil inventé qui colore en
-rouge une performance normale est un chiffre décoratif qui trompe.
+### Les deux invariants qui ont fait le travail
 
-### Les deux courbes portent un drapeau `pending`
+1. **La somme des points d'une courbe égale le total de sa carte.** Seul contrôle
+   capable de voir le défaut 1 : la carte était juste, la courbe était juste, seule
+   leur mise en regard était fausse. Aucun recalcul d'écran, aucune requête SQL ne
+   pouvait le signaler.
+2. **Rejouer ce contrôle sur TOUS les comptes, pas sur celui de l'enquête.** Le premier
+   correctif du défaut 1 bornait la fenêtre à l'HEURE de démarrage alors que les points
+   de courbe sont posés à midi. Mesure sur les quatre élèves ayant une date de
+   démarrage — 08h13, 17h36, 12h56, 19h05 UTC : **trois sur quatre perdaient leur
+   premier jour**. Le correctif ne tenait que parce que le profil de test démarre le
+   matin. Corollaire : une garde bornée par un INSTANT et une donnée agrégée par JOUR
+   ne se comparent pas ; c'est la résolution la plus fine qui doit céder.
 
-`d.pending ? null : d.reach` : un point « en attente » devient un trou, ce qui est la
-bonne règle. Vérifier que `pending` est bien posé partout où la donnée n'est pas
-consolidée, et **seulement** là.
+### Une leçon de méthode, à ne pas perdre
 
-### Le no-show a son propre dénominateur
+Le défaut 5 a été trouvé par une question de Chris — « si la période n'a aucune donnée,
+normalement tu ne peux pas y accéder ? » — après que l'audit eut proposé trois façons
+de **réécrire la phrase** du bandeau. Aucune ne touchait à la raison pour laquelle cet
+écran existait.
 
-`${noShows} sur ${rendezVous} rendez-vous`, avec un `rendezVous` qui n'est pas
-forcément le « Calls honorés » de la carte voisine. Cas typique du 7ᵉ piège.
+**Avant de corriger ce qu'un écran DIT, se demander si l'état qu'il décrit devrait
+pouvoir exister.** Un affichage absurde est souvent le symptôme d'un état que rien
+n'aurait dû produire. Un texte bien rédigé rend cet état présentable et enlève l'envie
+de chercher pourquoi on y est arrivé.
 
-### Pièges déjà documentés, à revérifier ici
+---
 
-- **Recharts ignore `domain` sans `ticks`.**
-- **`initialDimension`** manquant sur un `ResponsiveContainer` produit
-  `width(-1) and height(-1)` en console.
-- **Les `numeric` Postgres arrivent en chaîne** : sans `Number()`, `"10" + "20"` donne
-  `"1020"` et passe le typage.
+## 8bis. Ce qui reste ouvert sur Vue générale
+
+**Deux risques structurels, aucun déclenché — mesurés à zéro cas le 2026-09-01.**
+
+- **« Leads » compterait un prospect écarté du pipeline.** `instagram_lead_lm_history`
+  n'est filtrée que sur `archived_at`, pas sur `not_a_lead`, contrairement à
+  `instagram_leads` juste à côté dans la même requête. Zéro cas aujourd'hui : les deux
+  prospects marqués « pas un lead » viennent de cold DM et n'ont aucune ligne
+  `lm_history`. Le jour où un prospect issu d'un **commentaire** est écarté, il restera
+  compté dans le grand chiffre — et pas dans le badge « nouveaux », qui lit l'autre
+  table.
+  ⚠️ Ce zéro a été vérifié par un témoin positif : la même jointure sans le filtre
+  d'exclusion remonte 24 lignes. L'instrument voit donc quelque chose quand il y a
+  quelque chose à voir.
+- **« Calls honorés » peut devenir négatif dans le tableau Top contenus.**
+  `callsBooked − noShowCount`, où `noShowCount` compte les continuations et les annulés
+  que `callsBooked` exclut.
+
+**Une décision de cohérence, à appliquer avec la session Instagram/YouTube.**
+
+La carte « Abonnés » n'affiche pas la même chose selon l'onglet, sur un mois passé :
+Vue générale montre **255** (le compte du jour), l'onglet Instagram **253**
+(« au 30 juin »). Chris a tranché le 2026-09-01 : **le compte du jour partout, avec le
+libellé qui le dit.** Un nombre d'abonnés est un état, pas une activité — même règle
+que « publications » (activité, suit la période) contre « abonnés » (état). Reste à
+aligner l'onglet Instagram.
+
+**Hors périmètre mais noté** : `totalRev` est découpé sur `booked_at` alors que le
+référentiel prévoit `deals.signed_at` pour le cash contracté. Divergence connue, déjà
+inscrite dans « Ce qui reste ouvert » du référentiel — pas touchée ici.
 
 ---
 
 ## 9. Outils, comptes, pièges d'outillage
 
-**Comptes de test** : élève `christianpenkov80@gmail.com` / `Fortnite2605`, coach
-`christianpenkov06@gmail.com` / même mot de passe. Profil avec données réelles :
+**Comptes de test** : élève `christianpenkov80@gmail.com` / `Momentum123`, coach
+`christianpenkov06@gmail.com` / même mot de passe. ⚠️ Ce document a porté
+`Fortnite2605` jusqu'au 2026-09-01, mot de passe changé le 2026-08-30 — une session
+a perdu deux essais de connexion dessus. Le vérifier avant de conclure à une panne. Profil avec données réelles :
 `a02e5927-7b39-4b7d-b112-0a43b30e9f09`.
 
 **Serveur de dev** : `npx next dev -p 3007`. Il tombe régulièrement — le relancer
