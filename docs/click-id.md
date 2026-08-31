@@ -150,10 +150,7 @@ garde censée refuser les valeurs non-contenu, et sa plateforme aurait été dé
 **YouTube**. `utm_anomalies` porte une copie SQL de la même règle : elle ne l'aurait pas
 signalé. La corruption était invisible de bout en bout.
 
-⚠️ **Cette faiblesse dépasse ce chantier** : *n'importe quelle* chaîne de 11 caractères
-dans `[A-Za-z0-9_-]` est acceptée comme identifiant de vidéo YouTube, partout où
-`isValidContentId` est utilisé — y compris sur les liens de DM, qui vont droit à
-Calendly sans passer par la route. À traiter séparément.
+⚠️ **Cette faiblesse dépasse ce chantier — voir « Chantier séparé » plus bas.**
 
 #### La règle
 
@@ -590,6 +587,45 @@ trop tard. Une table qui grossit sans être comptée est exactement le trou que 
 existe pour fermer.
 
 ---
+
+## Chantier séparé — déduire la plateforme de la forme d'un identifiant
+
+**Ce n'est pas une regex à resserrer. C'est une déduction à retirer.**
+
+Un identifiant de vidéo YouTube est réellement 11 caractères de `[A-Za-z0-9_-]`. C'est
+la définition, pas une approximation. `link_in_bio` fait 11 caractères de
+`[A-Za-z0-9_-]`. Les deux sont donc **indistinguables par la forme**, et aucune règle
+portant sur la seule chaîne ne pourra jamais les séparer.
+
+Écrit ici parce que la première réaction devant ce défaut est de durcir
+`isYtVideoId` — et qu'on y perdrait du temps pour rien, tout en rejetant de vrais
+identifiants.
+
+La seule correction possible est **contextuelle** : la plateforme se lit sur
+`utm_source`, qui la dit, pas sur la forme de `utm_content`, qui ne la dit pas. Le
+dépôt fait aujourd'hui l'inverse à plusieurs endroits (relevé le 2026-09-01) :
+
+| Fichier | Ce qui est déduit |
+|---|---|
+| `components/analytics/PageClientStats.tsx:6417` | `isValidYtVideoId(l.postId) ? 'YT' : 'IG'` |
+| `components/analytics/PageClientStats.tsx:6422` | idem, sur `h.media_id` |
+| `components/analytics/PageClientStats.tsx:6435` | idem, sur `h.media_id` |
+| `app/api/shortio/stats/route.ts:135` | `if (utmMedium === 'description' && isYtVideoId(utmContent)) return 'YT'` |
+| `components/pipeline/PagePipeline.tsx:402` | un `utm_content` de description est traité comme une vidéo YouTube |
+| `components/pipeline/ProspectDetailModal.tsx:219` | idem |
+| `lib/contentId.ts` — `resolveCallSource` | plateforme déduite du contenu quand `utm_source` n'est pas `ig`/`yt` |
+
+Le dernier est le plus exposé : il ne se déclenche que si `utm_source` n'est **pas**
+une plateforme connue — ce qui est le cas des liens créés avant juillet 2026, qui
+portent le domaine Short.io dans `utm_source`. Sur ces liens-là, un `utm_content`
+de 11 caractères suffit à faire basculer un rendez-vous Instagram en YouTube.
+
+⚠️ La règle a une **copie SQL** dans la vue `utm_anomalies` (migration
+`20260819150000`). Elle a donc la même cécité, et ne signalera pas ce qu'elle est
+censée surveiller. Toute correction doit traiter les deux.
+
+Ce chantier ne touche pas au Click ID : la route, elle, ne déduit plus rien — elle lit
+`s`, qu'on a écrit nous-mêmes.
 
 ## Hors périmètre
 
