@@ -68,6 +68,14 @@ const profilCible = args.includes('--profil') ? args[args.indexOf('--profil') + 
 // autres. Sans ce filtre, le decoupage en lots depend de l'ORDRE de listage de
 // Short.io — donc du hasard, et « la bio attend » ne serait pas une garantie.
 const mediumCible = args.includes('--medium') ? args[args.indexOf('--medium') + 1] : null;
+// Vise UN lien precis. Sert quand le lot doit etre un lien nomme et non « les N
+// premiers » — typiquement le lien de bio, publie dans un profil Instagram et
+// impossible a corriger en editant un post.
+//
+// Accepte `bio-calendly-ig` ou `ubizenai.s.gy/bio-calendly-ig`. La forme longue est
+// necessaire des qu'un eleve a plusieurs domaines : le meme chemin y existe deux
+// fois, et sans le domaine on ne saurait pas lequel des deux on reecrit.
+const cheminCible = args.includes('--chemin') ? args[args.indexOf('--chemin') + 1] : null;
 
 // ── Accès Supabase (REST, pas de dépendance à installer) ────────────────────
 
@@ -144,8 +152,7 @@ async function main() {
   // donc les clics seraient attribués à un profil pris au hasard. Silencieusement.
   //
   // Les liens de description et de story ont un propriétaire écrit en base : on le
-  // suit. Les liens de bio n'en ont aucun — un conflit sur l'un d'eux est signalé
-  // et le lien n'est PAS réécrit. `--profil <uuid>` permet alors de trancher.
+  // suit. Les liens de bio n'en ont aucun — d'où la seconde règle, plus bas.
   const proprietaire = new Map();
   for (const [table, colonne] of [
     ['content_links', 'desc_calendly_short_url'],
@@ -156,6 +163,25 @@ async function main() {
       if (url) proprietaire.set(url.split('/').pop().toLowerCase(), l.profile_id);
     }
   }
+
+  // Seconde règle, pour les liens sans propriétaire écrit (la bio) : **parmi les
+  // profils qui réclament un lien Calendly, celui qui a une intégration Calendly est
+  // le propriétaire.**
+  //
+  // Ce n'est pas une heuristique, c'est une impossibilité structurelle : un lien
+  // Calendly de bio ne peut pas appartenir à un profil qui n'a pas de Calendly — il
+  // n'aurait eu aucune URL de destination à raccourcir.
+  //
+  // Elle ne tranche QUE si exactement un candidat en a une. À zéro ou à plusieurs, le
+  // refus d'écrire reste en place : la règle rend le garde-fou capable de se prononcer
+  // quand la base le permet, elle ne le remplace pas.
+  //
+  // Encodée plutôt que résolue à la main : un identifiant passé en argument ne vaut
+  // que pour ce compte-ci, la règle vaudra encore le jour où un autre coach partagera
+  // un domaine Short.io entre plusieurs de ses élèves.
+  const profilsAvecCalendly = new Set(
+    (await supa('integrations?provider=eq.calendly&select=profile_id')).map(i => i.profile_id),
+  );
 
   const aFaire = [];
   const ignores = { dejaFait: 0, horsPerimetre: 0, dm: 0, autreProprietaire: 0, autreCanal: 0 };
@@ -202,6 +228,10 @@ async function main() {
         if (proprio && proprio !== integ.profile_id) { ignores.autreProprietaire++; continue; }
         const medium = /utm_medium=([a-z]+)/.exec(lien.originalURL || '')?.[1] ?? null;
         if (mediumCible && medium !== mediumCible) { ignores.autreCanal++; continue; }
+        if (cheminCible) {
+          const hote = domaine.hostname ?? String(domaine.id);
+          if (chemin !== cheminCible && `${hote}/${chemin}` !== cheminCible) continue;
+        }
         aFaire.push({
           profileId: integ.profile_id,
           apiKey: integ.api_key,
@@ -226,9 +256,22 @@ async function main() {
   }
   const conflits = [];
   const retenus = [];
+  const departages = [];
   for (const [cle, candidats] of parLien) {
     if (candidats.length === 1) { retenus.push(candidats[0]); continue; }
-    conflits.push(`${cle} — réclamé par ${candidats.length} profils : ${candidats.map(c => c.profileId).join(', ')}`);
+    // Un lien Calendly appartient à un profil qui a Calendly. Si un seul candidat en a
+    // une intégration, ce n'est pas un choix, c'est le seul possible.
+    const avecCalendly = candidats.filter(c => profilsAvecCalendly.has(c.profileId));
+    if (avecCalendly.length === 1) {
+      retenus.push(avecCalendly[0]);
+      departages.push(`${cle} → ${avecCalendly[0].profileId} (seul des ${candidats.length} avec une intégration Calendly)`);
+      continue;
+    }
+    // Zéro ou plusieurs : on ne devine pas.
+    const detail = avecCalendly.length === 0
+      ? `aucun des ${candidats.length} n'a d'intégration Calendly`
+      : `${avecCalendly.length} des ${candidats.length} ont une intégration Calendly`;
+    conflits.push(`${cle} — ${detail} : ${candidats.map(c => c.profileId).join(', ')}`);
   }
 
 
@@ -241,11 +284,16 @@ async function main() {
   console.log(`Appartiennent à un autre profil : ${ignores.autreProprietaire}`);
   if (mediumCible) console.log(`Hors du canal « ${mediumCible} »            : ${ignores.autreCanal}`);
   console.log(`À réécrire             : ${retenus.length}${lot.length < retenus.length ? ` (ce lot : ${lot.length})` : ''}`);
+  if (departages.length) {
+    console.log(`
+Départagés par l'intégration Calendly (${departages.length}) :`);
+    for (const d of departages) console.log(`    ${d}`);
+  }
   if (conflits.length) {
     console.log(`
 ⚠ ${conflits.length} lien(s) NON réécrit(s), propriétaire indéterminé :`);
     for (const c of conflits) console.log(`    ${c}`);
-    console.log('  Relancer avec --profil <uuid> pour trancher.');
+    console.log('  Aucune regle ne les departage. Verifier a la main, puis --profil <uuid>.');
   }
   console.log('');
 

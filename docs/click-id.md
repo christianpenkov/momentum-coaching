@@ -315,8 +315,12 @@ explicite. Commencer par `description` : c'est le canal où un lien de moins fai
 moins de dégâts si quelque chose cloche, la bio étant le seul lien permanent d'un
 profil.
 
-Options : `--medium <canal>`, `--limite N`, `--profil <uuid>` (tranche un conflit de
-propriétaire), `--appliquer` (sans quoi le script ne fait que lister).
+Options : `--medium <canal>`, `--chemin <path>` ou `<domaine>/<path>`, `--limite N`,
+`--profil <uuid>`, `--appliquer` (sans quoi le script ne fait que lister).
+
+`--chemin` accepte la forme longue `ubizenai.s.gy/bio-calendly-ig` : dès qu'un élève a
+plusieurs domaines, le même chemin existe deux fois et le chemin seul ne dit pas lequel
+on réécrit.
 
 Réécrire avant que la route soit en ligne ferait pointer tous les liens de bio vers un
 404 pendant la fenêtre de déploiement.
@@ -325,10 +329,35 @@ Réécrire avant que la route soit en ligne ferait pointer tous les liens de bio
 aucune ligne de clic. C'est attendu, et ce n'est une anomalie que si la divergence
 persiste une fois tous les lots passés.
 
+### À qui appartient un lien quand plusieurs profils le réclament
+
 ⚠️ **Deux profils peuvent partager un domaine Short.io** (`docs/shortio-api.md`, piège
-n°2). Le script suit alors le propriétaire écrit en base (`content_links`,
-`story_sequences`). Les liens de **bio** n'ont pas de propriétaire en base : un conflit
-est **signalé et le lien n'est pas réécrit**. `--profil <uuid>` permet de trancher.
+n°2). L'API rend alors les **mêmes** liens à chacun, et sans garde-fou le script
+écrirait `p=<profil>` plusieurs fois de suite sur le même lien : le dernier passage
+gagne, donc les clics partent chez un profil pris au hasard, silencieusement.
+
+Deux règles, dans cet ordre :
+
+1. **Le propriétaire écrit en base fait foi** — `content_links.desc_calendly_short_url`
+   pour les descriptions, `story_sequences.calendly_short_url` pour les stories.
+
+2. **Sinon, parmi les profils qui réclament un lien Calendly, celui qui a une
+   intégration Calendly est le propriétaire.** Ce n'est pas une heuristique : un lien
+   Calendly de bio ne peut pas appartenir à un profil sans Calendly, il n'aurait eu
+   aucune URL de destination à raccourcir. Vérifié le 2026-08-31 sur les quatre profils
+   qui se partagent `ubizenai.s.gy` — un seul a une intégration Calendly, et c'est aussi
+   celui qui porte les 5 rendez-vous et les 3 clics de bio ; zéro chez les trois autres.
+
+   Elle ne tranche **que** si exactement un candidat en a une. À zéro ou à plusieurs, le
+   refus d'écrire reste en place. La règle rend le garde-fou capable de se prononcer
+   quand la base le permet, elle ne le remplace pas.
+
+   Encodée dans le script plutôt que résolue par un `--profil` à la main : un
+   identifiant passé en argument ne vaut que pour ce compte-ci, la règle vaudra encore
+   le jour où un autre coach partagera un domaine entre plusieurs de ses élèves.
+
+`--profil <uuid>` reste disponible pour les cas qu'aucune règle ne départage, et il faut
+alors avoir vérifié à la main **avant**.
 
 ---
 
@@ -434,6 +463,21 @@ existe pour fermer.
   mais non traités. `link_clicks` les accueillera sans modification — un lead magnet
   n'est qu'un autre `medium`. La seule chose à étendre est la **liste blanche de
   hosts**, écrite comme une constante nommée pour que ce soit l'ajout d'une ligne.
+- **`desc-publication-instagra-3457` — cas connu, volontairement laissé de côté.**
+  C'est un lien de description d'une génération antérieure à juillet 2026 : il porte
+  `utm_source=ubizenai.s.gy` (le domaine dans la source, défaut corrigé depuis) et
+  **aucun `utm_content`**. Il n'apparaît dans aucune ligne de `content_links` — le lien
+  courant du même post est `prendre-rdv-3457`, déjà réécrit — et il n'a reçu aucun clic
+  en 30 jours.
+
+  Même instrumenté, un rendez-vous venu de là ne se rattacherait à aucun contenu, faute
+  de `utm_content`. Il n'y a donc rien à y gagner.
+
+  ⚠️ Il n'est plus *exclu* pour autant : la règle d'appartenance ci-dessus le résout
+  désormais sans inférence, donc une passe complète sur `--medium description` le
+  réécrira. C'est sans conséquence — simplement, ne pas rouvrir l'enquête en le voyant
+  passer.
+
 - **Ne pas ajouter d'index unique sur `prospect_links`** : la régénération de lien est
   légitime, et `onConflict` de Supabase JS ne fonctionne pas avec les index partiels.
 
