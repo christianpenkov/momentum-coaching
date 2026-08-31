@@ -71,6 +71,22 @@ let debutInvocation = Date.now();
 const BUDGET_RATTRAPAGE_MS = 100_000;   // sur les 150 s du Edge Runtime
 const resteDuTempsPourRattraper = () => Date.now() - debutInvocation < BUDGET_RATTRAPAGE_MS;
 
+// Budget d'ENTREE dans la boucle principale, distinct du precedent.
+//
+// Mesure du 2026-08-31 : une passe complete prend 14 a 18 s pour 5 profils traites
+// ensemble. A 40 eleves, cela fait 8 vagues de 5, soit 112 a 144 s -- contre les 150 s
+// du Edge Runtime. La marge disparait exactement a la cible du projet.
+//
+// Sans ce garde-fou, le depassement ne produit AUCUN signal : le runtime coupe
+// l'isolat, les profils non traites n'ecrivent rien, et comme l'ordre de la requete
+// est stable, ce sont TOUJOURS LES MEMES qui sont sacrifies -- silencieusement et
+// indefiniment. C'est la panne la plus couteuse a diagnostiquer : des donnees qui
+// manquent pour certains eleves seulement, sans erreur nulle part.
+//
+// 120 s : on cesse d'ENTRER dans un nouveau profil, on laisse 30 s aux profils deja
+// commences pour finir proprement leurs ecritures.
+const BUDGET_PASSE_MS = 120_000;
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Utils
@@ -2700,7 +2716,20 @@ Deno.serve(async (req: Request) => {
       profileMap.get(row.profile_id)!.last_ig_poll = row.last_ig_poll;
     }
   }
-  const profiles = Array.from(profileMap.values());
+  // LES PLUS EN RETARD D'ABORD.
+  //
+  // La requete ci-dessus ne porte aucun ORDER BY : Postgres rend les lignes dans un
+  // ordre stable en pratique, donc si la passe sature (voir BUDGET_PASSE_MS), ce sont
+  // toujours les memes profils de fin de liste qui sont ecartes. Trier par anciennete
+  // de collecte transforme un sacrifice permanent en simple rotation : un profil non
+  // traite passe en tete a l'invocation suivante, 5 minutes plus tard.
+  //
+  // `null` en premier : jamais collecte = le plus urgent.
+  const profiles = Array.from(profileMap.values()).sort((a, b) => {
+    const va = a.last_ig_poll ? new Date(a.last_ig_poll).getTime() : -1;
+    const vb = b.last_ig_poll ? new Date(b.last_ig_poll).getTime() : -1;
+    return va - vb;
+  });
 
   let polled = 0, leadsFound = 0, snapshots = 0;
   const allErrors: Record<string, string[]> = {};
@@ -2718,7 +2747,12 @@ Deno.serve(async (req: Request) => {
   //
   // 5 plutôt que 3 : les appels sont majoritairement en attente réseau, et le
   // limiteur Short.io régule déjà finement le débit en aval.
+  let profilsDifferes = 0;
   await mapWithConcurrency(profiles, 5, async (profile) => {
+    // Ne PAS commencer un profil qu'on ne pourra pas finir : une ecriture coupee en
+    // plein milieu laisse un etat partiel, alors qu'un profil non commence sera repris
+    // intact dans 5 minutes -- et en tete de liste, puisqu'il sera le plus en retard.
+    if (Date.now() - debutInvocation > BUDGET_PASSE_MS) { profilsDifferes++; return; }
     const profileErrors: string[] = [];
 
     if (profile.hasIg) {
@@ -2875,7 +2909,9 @@ Deno.serve(async (req: Request) => {
     //
     // Une ligne seulement quand il y a une erreur : ce cron tourne toutes les 5
     // minutes, journaliser les passages reussis ferait 288 lignes/jour pour rien.
-    // La table se purge seule a 30 jours (trigger), donc rien a entretenir.
+    // La table se purge a 30 jours via purge_journaux_machine() (job pg_cron de 3h50,
+    // pose le 2026-08-31). AVANT cette date, la purge etait AFFIRMEE ici et dans quatre
+    // autres fichiers mais n'existait nulle part : aucun delete, aucun trigger.
     //
     // Pour savoir si tout va bien :  select * from cron_runs order by ran_at desc;
     // Table vide = aucun incident depuis 30 jours.
@@ -2885,6 +2921,18 @@ Deno.serve(async (req: Request) => {
           fonction: 'poll-leads',
           profils_en_erreur: Object.keys(erreursActionnables).length,
           erreurs: erreursActionnables,
+        });
+      }
+      // La saturation de la passe est un incident a part entiere : elle ne casse rien
+      // dans l'immediat (le profil differe repasse en tete dans 5 minutes) mais elle
+      // annonce que la fonction touche son plafond de temps. C'est le signal qu'il faut
+      // repartir les eleves sur plusieurs invocations -- et il doit arriver AVANT que
+      // des donnees commencent a manquer, pas apres.
+      if (profilsDifferes > 0) {
+        await supa.from('cron_runs').insert({
+          fonction: 'poll-leads',
+          profils_en_erreur: profilsDifferes,
+          erreurs: { saturation: `${profilsDifferes} profil(s) differes : budget de ${BUDGET_PASSE_MS / 1000}s atteint sur ${profiles.length} profils` },
         });
       }
     } catch (e) {
