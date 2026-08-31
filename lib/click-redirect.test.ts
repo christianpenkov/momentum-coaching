@@ -7,6 +7,7 @@ import {
   resolveClickId,
   genererClickId,
   estRobotApercu,
+  motifRobot,
   empreinteIp,
   champsDuClic,
   estIdContenu,
@@ -385,4 +386,34 @@ test('déménagement et mise à niveau se font en un seul passage', () => {
   assert.equal(url.origin, ORIGINE);
   assert.equal(url.searchParams.get('m'), 'description');
   assert.equal(url.searchParams.get('c'), '18386797621194807');
+});
+
+// ── Le motif du verdict ─────────────────────────────────────────────────────
+
+test('motifRobot dit quelle règle a tranché, pas seulement le verdict', () => {
+  assert.equal(motifRobot('Mozilla/5.0 Chrome/126.0', 'prefetch'), 'prefetch');
+  assert.equal(motifRobot('facebookexternalhit/1.1'), 'ua_robot');
+  assert.equal(motifRobot('Mozilla/5.0 (compatible; Some-Crawler/2.0)'), 'ua_robot');
+  assert.equal(motifRobot(''), 'sans_ua');
+  assert.equal(motifRobot(null), 'sans_ua');
+  // « aucune » et non null : null est réservé aux lignes écrites avant l'existence
+  // de la colonne, et veut dire « on ne sait pas ». Confondre les deux ferait croire
+  // à un diagnostic là où il n'y en a jamais eu.
+  assert.equal(motifRobot('Mozilla/5.0 (iPhone) Instagram 329.0'), 'aucune');
+});
+
+test('le motif générique exige une frontière de mot — limite assumée', () => {
+  // `SomeCrawler` n'est PAS détecté : le motif générique demande un caractère non
+  // alphabétique avant le mot-clé, pour ne pas attraper des sous-chaînes au hasard
+  // dans un nom d'appareil ou de navigateur. C'est un compromis, pas un oubli — et
+  // ça n'a pas à être durci ici : le filtre est connu incomplet, et le juge réel est
+  // la comparaison avec le classement de Short.io dans clics_sante_redirection.
+  assert.equal(motifRobot('Mozilla/5.0 (compatible; SomeCrawler/2.0)'), 'aucune');
+  assert.equal(motifRobot('Mozilla/5.0 (compatible; Some-Crawler/2.0)'), 'ua_robot');
+});
+
+test('estRobotApercu reste cohérent avec motifRobot', () => {
+  for (const ua of ['facebookexternalhit/1.1', '', 'Mozilla/5.0 (iPhone) Instagram 329.0', 'curl/8.4.0']) {
+    assert.equal(estRobotApercu(ua), motifRobot(ua) !== 'aucune', ua);
+  }
 });

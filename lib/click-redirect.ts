@@ -265,21 +265,56 @@ const ROBOTS = [
 const ROBOTS_GENERIQUES = /(^|[^a-z])(bot|crawler|spider|preview|scraper|monitor)([^a-z]|$)/;
 
 /**
+ * **Quelle règle** a conclu au robot, ou `null` si aucune.
+ *
+ * Retourner le motif et non un booléen n'est pas une commodité de journalisation :
+ * sans lui, `link_clicks` enregistre un verdict que rien ne permet de vérifier après
+ * coup. C'est exactement ce qui a rendu indiagnosticable la sur-détection du
+ * 2026-09-01 — 8 clics comptés humains là où Short.io en comptait 2, sans aucun
+ * moyen de savoir sur quoi chaque ligne avait été classée.
+ *
+ * **Un instrument doit pouvoir expliquer son propre verdict.**
+ *
+ * `'aucune'` (et non `null`) quand rien ne déclenche : `null` est réservé aux lignes
+ * écrites avant l'existence de cette colonne, et veut dire « on ne sait pas ». Les
+ * deux ne doivent pas se confondre.
+ */
+export type MotifRobot = 'prefetch' | 'ua_robot' | 'sans_ua' | 'aucune';
+
+export function motifRobot(
+  userAgent: string | null | undefined,
+  secPurpose?: string | null,
+): MotifRobot {
+  if (secPurpose && secPurpose.toLowerCase().includes('prefetch')) return 'prefetch';
+  const ua = (userAgent || '').toLowerCase();
+  if (!ua) return 'sans_ua'; // aucun UA : jamais un vrai navigateur
+  if (ROBOTS.some(r => ua.includes(r))) return 'ua_robot';
+  if (ROBOTS_GENERIQUES.test(ua)) return 'ua_robot';
+  return 'aucune';
+}
+
+/**
  * Un robot d'aperçu de lien plutôt qu'un humain ?
  *
  * Deux signaux : le User-Agent, et l'en-tête `Sec-Purpose: prefetch` que les
  * navigateurs et proxys posent quand ils pré-chargent une URL sans que personne
  * ne l'ait demandée.
+ *
+ * ⚠️ **Ce filtre est connu incomplet.** Mesuré le 2026-09-01 : sur 15 requêtes que
+ * Short.io classait 2 humaines et 13 robots, il en laissait passer 8 pour humaines.
+ * Une partie de la flotte de préchargement d'Instagram se présente avec un
+ * User-Agent de navigateur ordinaire, donc indétectable par ce seul signal.
+ *
+ * Il n'est volontairement PAS durci sur l'adresse IP : « beaucoup d'adresses en peu
+ * de temps » décrit une flotte aujourd'hui et un lien qui marche demain. Le juge
+ * retenu est `clics_sante_redirection`, qui compare notre compte d'humains à celui
+ * de Short.io — une classification tierce, indépendante, et déjà collectée.
  */
 export function estRobotApercu(
   userAgent: string | null | undefined,
   secPurpose?: string | null,
 ): boolean {
-  if (secPurpose && secPurpose.toLowerCase().includes('prefetch')) return true;
-  const ua = (userAgent || '').toLowerCase();
-  if (!ua) return true; // aucun UA : jamais un vrai navigateur
-  if (ROBOTS.some(r => ua.includes(r))) return true;
-  return ROBOTS_GENERIQUES.test(ua);
+  return motifRobot(userAgent, secPurpose) !== 'aucune';
 }
 
 // ── Empreinte d'IP ──────────────────────────────────────────────────────────

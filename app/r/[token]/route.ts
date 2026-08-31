@@ -3,7 +3,7 @@ import {
   construireDestination,
   champsDuClic,
   genererClickId,
-  estRobotApercu,
+  motifRobot,
   empreinteIp,
   selDuJour,
   HOTES_AUTORISES,
@@ -138,6 +138,9 @@ export async function GET(request: Request, ctx: { params: Promise<{ token: stri
   if (profileId) {
     after(async () => {
       const { platform, medium, content_id } = champsDuClic(parametres);
+      // Le motif est écrit à côté du verdict : sans lui, une sur-détection ou une
+      // sous-détection ne se diagnostique plus après coup.
+      const motif = motifRobot(userAgent, secPurpose);
       await enregistrerLeClic({
         id: clickId,
         profile_id: profileId,
@@ -148,7 +151,8 @@ export async function GET(request: Request, ctx: { params: Promise<{ token: stri
         content_id,
         // Marqué, jamais jeté : sans la ligne, impossible de mesurer le bruit ni
         // d'expliquer un écart avec le compteur de Short.io.
-        is_bot: estRobotApercu(userAgent, secPurpose),
+        is_bot: motif !== 'aucune',
+        bot_motif: motif,
         ip_hash: await empreinteIp(ip, process.env.CLICK_IP_HASH_SECRET, selDuJour(maintenant)),
       });
     });

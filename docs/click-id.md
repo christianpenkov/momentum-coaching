@@ -561,6 +561,67 @@ Ces requêtes arrivent jusqu'à la route. Elles sont **marquées** (`is_bot`), *
 jetées** : sans la ligne, on ne pourrait ni mesurer le bruit ni expliquer un écart avec
 le compteur de Short.io.
 
+### ⚠️ Le filtre est connu incomplet — le juge est ailleurs
+
+Mesuré le 2026-09-01 sur `bio-calendly-ig`, en confrontant les deux compteurs :
+
+| Jour | Total Short.io | Total route | Humains Short.io | Humains route |
+|---|---|---|---|---|
+| 2026-08-31 | 1 | 1 | 1 | 1 |
+| 2026-09-01 | **15** | **15** | **2** | **8** |
+
+Les **totaux concordent à la ligne près** : c'est le même trafic, et les journées sont
+alignées des deux côtés (règle Paris de `docs/fuseaux-horaires.md`). Ce sont les
+**classifications** qui divergent — une partie de la flotte de préchargement
+d'Instagram se présente avec un User-Agent de navigateur ordinaire, donc indétectable
+par ce seul signal. Six préchargements comptés pour des humains.
+
+**Le filtre n'est pas durci sur l'adresse IP.** « Beaucoup d'adresses en peu de temps »
+décrit une flotte aujourd'hui et un lien qui marche demain — ce serait rejouer la
+déduction par la forme qu'on retire par ailleurs.
+
+Le juge retenu est **`clics_sante_redirection`**, qui compare notre compte d'humains à
+celui de Short.io : une classification tierce, indépendante, portant sur exactement le
+même trafic, et déjà collectée — elle ne coûte pas un appel de plus. Aucun des deux
+n'est la vérité ; la vue ne tranche donc pas qui a raison, elle signale une divergence
+**durable**, dans les deux sens :
+
+| État | Symptôme |
+|---|---|
+| `ALERTE : route sans clic` | route cassée, ou lien pas encore réécrit |
+| `ALERTE : ecart important` | la route ne voit qu'une partie des clics |
+| `ALERTE : robots comptes humains` | filtre trop laxiste — le cas ci-dessus |
+
+⚠️ **La vue ne savait détecter qu'un seul sens jusqu'au 2026-09-01.** Sur l'incident
+mesuré elle affichait `ok` avec 8 humains comptés contre 2 : elle cherchait une route
+muette, jamais une route trop bavarde. Un garde-fou qui ne regarde que dans la
+direction du défaut qu'on avait imaginé ne voit pas celui qu'on n'avait pas imaginé.
+
+Seuil de la sur-détection : `route > shortio × 2 + 3`. Volontairement large — les deux
+filtres ne s'accorderont jamais exactement, et une alerte qui se déclenche sur du bruit
+ordinaire cesse d'être lue. Vérifié sur neuf cas, dont l'incident réel (2 / 8 → alerte)
+et une journée saine (1 / 1 → `ok`).
+
+### Le verdict doit pouvoir s'expliquer
+
+`link_clicks.bot_motif` dit **quelle règle** a conclu au robot : `prefetch`, `ua_robot`,
+`sans_ua`, ou `aucune` quand aucune n'a déclenché.
+
+Sans cette colonne, l'incident du 2026-09-01 n'était pas diagnosticable : la table
+enregistrait un verdict et rien de ce sur quoi il reposait. **Un instrument doit pouvoir
+expliquer son propre verdict.**
+
+⚠️ **Jamais backfillée.** Les lignes antérieures restent à `null`, qui veut dire « on ne
+sait pas » — c'est la vérité. `'aucune'` est réservé aux lignes écrites depuis la
+colonne ; confondre les deux ferait croire à un diagnostic là où il n'y en a jamais eu.
+
+⚠️ **Le filtre du User-Agent, et ses limites.** Le motif générique
+(`bot|crawler|spider|preview|scraper|monitor`) exige un caractère non alphabétique
+avant le mot-clé, pour ne pas attraper une sous-chaîne au hasard dans un nom
+d'appareil. `Some-Crawler` est donc détecté, `SomeCrawler` non. C'est un compromis
+assumé et testé, pas un oubli — et il n'a pas à être durci ici, puisque le juge réel
+est la comparaison ci-dessus.
+
 ⚠️ **« Instagram » dans le User-Agent n'est PAS un robot** : c'est le navigateur intégré
 de l'application, donc un humain. Seul `facebookexternalhit` est le crawler de Meta. Le
 confondre effacerait la quasi-totalité des vrais clics. Verrouillé par un test.
