@@ -123,6 +123,74 @@ La RLS ne s'appuie jamais sur un `profile_id` fourni par l'appelant, et rien ne 
 l'y ramener. Cette contrainte tient même si la route `/r/` disparaît un jour : les
 liens déjà publiés, eux, ne disparaissent pas.
 
+### ⚠️ Un `utm_*` reçu n'est pas un `utm_*` qu'on a écrit
+
+**Mesuré le 2026-09-01, sur deux vrais taps depuis la bio Instagram de Chris.** La
+requête arrivait à la route avec `utm_medium` **absent** et
+`utm_content=link_in_bio` — une valeur qui n'existe nulle part dans le dépôt. Le
+navigateur intégré d'Instagram réécrit les paramètres UTM pendant la navigation.
+
+Le détail qui décide de la gravité : **les préchargements d'Instagram arrivaient
+intacts**. Ce sont les clics **humains** qui étaient abîmés, donc exactement ceux qu'on
+mesure. Une vérification faite au `curl` ne pouvait pas le voir.
+
+Et ce n'était pas rattrapé en aval, contrairement à ce qu'on pouvait croire :
+
+```
+'link_in_bio'.length              → 11
+isYtVideoId('link_in_bio')        → true      ← 11 caractères dans [A-Za-z0-9_-]
+isValidContentId('link_in_bio')   → true
+resolveUtmContent(…) écrirait     → link_in_bio
+resolveCallSource(…) en déduirait → yt
+```
+
+Un rendez-vous pris depuis la bio **Instagram** serait donc parti avec
+`utm_content=link_in_bio`, aurait été écrit tel quel dans `calls.utm_content` par la
+garde censée refuser les valeurs non-contenu, et sa plateforme aurait été déduite
+**YouTube**. `utm_anomalies` porte une copie SQL de la même règle : elle ne l'aurait pas
+signalé. La corruption était invisible de bout en bout.
+
+⚠️ **Cette faiblesse dépasse ce chantier** : *n'importe quelle* chaîne de 11 caractères
+dans `[A-Za-z0-9_-]` est acceptée comme identifiant de vidéo YouTube, partout où
+`isValidContentId` est utilisé — y compris sur les liens de DM, qui vont droit à
+Calendly sans passer par la route. À traiter séparément.
+
+#### La règle
+
+**Le token, `d`, `p` et nos paramètres sont à nous ; les `utm_*` d'une requête entrante
+ne le sont pas.**
+
+| Paramètre | Rôle | Confiance |
+|---|---|---|
+| `d` | chemin Calendly | à nous |
+| `p` | profil | à nous |
+| `h` | clé d'hôte | à nous |
+| `s` `m` `c` `k` | plateforme, canal, contenu, campagne | **à nous** |
+| `utm_*` | posés pour `shortio-link-category.ts` | **jamais lus par la route** |
+
+La route **classe** le clic sur `s`/`m`/`c`, et **reconstruit** les UTM transmis à
+Calendly depuis ces mêmes valeurs. Aucune valeur de la requête n'est recopiée.
+
+Trois gardes se recouvrent :
+
+- `m` et `s` sont validés contre des nomenclatures **fermées** — une valeur hors liste
+  devient vide, jamais fausse.
+- `c` doit avoir la forme d'un identifiant de contenu.
+- **Sur un lien de bio, `c` est refusé quelle que soit sa forme.** Un lien de bio ne
+  vient d'aucun contenu : son `utm_content` est vide *par nature*
+  (`docs/utm-nomenclature.md`). C'est cette garde-là qui neutralise structurellement le
+  cas observé — sans avoir à reconnaître la valeur fautive, ce qu'une liste noire
+  n'aurait jamais su faire puisque `link_in_bio` a la forme d'un vrai identifiant.
+
+`utm_term` n'est plus transmis du tout : il porte « qui — le prospect », et un lien
+partagé n'identifie personne. Rien de légitime ne peut arriver là.
+
+**Aucun repli sur les `utm_*` reçus.** Un repli réintroduirait la confiance qu'on vient
+de retirer, et une règle assortie d'une exception se recopie sans son exception. Le prix
+est qu'un lien réécrit avant l'introduction de `m` produit des clics **non classés** —
+un trou honnête, refermé par la relance du script, qui **met à niveau** les liens déjà
+réécrits au lieu de les ignorer.
+
 ### ⚠️ Les UTM sont reportés à l'identique — condition de non-régression
 
 Ce n'est pas une commodité. `lib/shortio-link-category.ts` classe chaque lien en lisant

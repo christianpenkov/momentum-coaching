@@ -9,6 +9,7 @@ import {
   estRobotApercu,
   empreinteIp,
   champsDuClic,
+  estIdContenu,
   PARAM_CLICK_ID,
 } from './click-redirect.ts';
 
@@ -43,8 +44,10 @@ test('assainirChemin refuse tout ce qui pourrait faire sortir de l’hôte', () 
 
 // ── construireDestination ───────────────────────────────────────────────────
 
-test('construireDestination reporte les UTM et pose le Click ID', () => {
-  const p = new URLSearchParams('utm_source=ig&utm_medium=bio&utm_campaign=bio-instagram&d=christianpenkov/30min');
+test('construireDestination transmet NOS valeurs et pose le Click ID', () => {
+  // Les utm_* transmis à Calendly sont reconstruits depuis m/s/k/c, jamais recopiés
+  // depuis la requête — c'est toute la parade contre la réécriture par un tiers.
+  const p = new URLSearchParams('m=bio&s=ig&k=bio-instagram&d=christianpenkov/30min');
   const url = new URL(construireDestination(p, 'c0ffee00-0000-4000-8000-000000000000')!);
   assert.equal(url.origin, 'https://calendly.com');
   assert.equal(url.pathname, '/christianpenkov/30min');
@@ -75,10 +78,20 @@ test('construireDestination sans `d` renvoie null — l’appelant gère le repl
   assert.equal(construireDestination(new URLSearchParams('utm_source=ig'), null), null);
 });
 
-test('construireDestination tronque une valeur d’UTM à la limite Calendly', () => {
-  const p = new URLSearchParams({ d: 'x/y', utm_campaign: 'c'.repeat(400) });
-  const url = new URL(construireDestination(p, null)!);
-  assert.equal(url.searchParams.get('utm_campaign')!.length, 255);
+test('une campagne hors forme n’est pas transmise du tout', () => {
+  // Champ vide plutôt que champ faux : tronquer une valeur aberrante à 255 caractères
+  // produirait une campagne inventée, qui aurait l'air d'une vraie.
+  const trop = new URLSearchParams({ d: 'x/y', m: 'bio', k: 'c'.repeat(400) });
+  assert.equal(new URL(construireDestination(trop, null)!).searchParams.get('utm_campaign'), null);
+
+  const sale = new URLSearchParams({ d: 'x/y', m: 'bio', k: 'campagne avec espaces' });
+  assert.equal(new URL(construireDestination(sale, null)!).searchParams.get('utm_campaign'), null);
+
+  // Les vraies valeurs de campagne du projet passent toutes.
+  for (const k of ['bio-instagram', 'bio-youtube', 'calendly', 's-quence-test-webhook', 'lm-guide']) {
+    const p = new URLSearchParams({ d: 'x/y', m: 'bio', k });
+    assert.equal(new URL(construireDestination(p, null)!).searchParams.get('utm_campaign'), k, k);
+  }
 });
 
 // ── construireDestinationShortio ────────────────────────────────────────────
@@ -207,20 +220,20 @@ test('empreinteIp sans secret configuré renvoie null plutôt qu’une empreinte
 
 test('champsDuClic n’écrit jamais un canal hors nomenclature', () => {
   assert.deepEqual(
-    champsDuClic(new URLSearchParams('utm_source=ig&utm_medium=bio')),
+    champsDuClic(new URLSearchParams('s=ig&m=bio')),
     { platform: 'ig', medium: 'bio', content_id: null },
   );
   assert.deepEqual(
-    champsDuClic(new URLSearchParams('utm_source=yt&utm_medium=description&utm_content=EMvwzHVjNJg')),
+    champsDuClic(new URLSearchParams('s=yt&m=description&c=EMvwzHVjNJg')),
     { platform: 'yt', medium: 'description', content_id: 'EMvwzHVjNJg' },
   );
   // Champ vide plutôt que champ faux — même règle que lib/contentId.ts.
   assert.deepEqual(
-    champsDuClic(new URLSearchParams('utm_source=ubizenai.s.gy&utm_medium=post')),
+    champsDuClic(new URLSearchParams('s=ubizenai.s.gy&m=post')),
     { platform: null, medium: null, content_id: null },
   );
   // `dm` n'est pas un canal partagé : un lien de DM ne devrait jamais passer ici.
-  assert.equal(champsDuClic(new URLSearchParams('utm_medium=dm')).medium, null);
+  assert.equal(champsDuClic(new URLSearchParams('m=dm')).medium, null);
 });
 
 // ── Changement d'origine ────────────────────────────────────────────────────
@@ -269,4 +282,107 @@ test('un /r/ étranger sans `d` n’est pas pris pour une de nos redirections', 
     construireDestinationShortio(NOUVELLE, 'x', 'https://exemple.test/r/quelque-chose?utm_medium=bio', PROFIL),
     null,
   );
+});
+
+// ── Les UTM d'une requête ne sont pas les nôtres ────────────────────────────
+//
+// Mesuré le 2026-09-01 sur deux vrais taps depuis la bio Instagram : la requête
+// arrivait avec `utm_medium` ABSENT et `utm_content=link_in_bio`. Les préchargements
+// d'Instagram, eux, arrivaient intacts — ce sont les clics HUMAINS qui étaient abîmés.
+
+test('link_in_bio passe isValidContentId — c est ce qui rendait la corruption invisible', () => {
+  // 11 caractères dans [A-Za-z0-9_-] : la forme exacte d'un identifiant de vidéo
+  // YouTube. La garde de lib/contentId.ts l'aurait donc ÉCRIT dans calls.utm_content,
+  // et resolveCallSource en aurait déduit la plateforme « yt » pour un clic de bio
+  // Instagram. La vue utm_anomalies porte la même règle : elle n'aurait rien signalé.
+  assert.equal('link_in_bio'.length, 11);
+  assert.equal(estIdContenu('link_in_bio'), true, 'la forme est indiscernable — la parade ne peut pas être une liste noire');
+});
+
+test('un clic dont les UTM ont été réécrits ne produit aucune valeur fausse', () => {
+  // La requête telle qu'elle est réellement arrivée : utm_medium disparu,
+  // utm_content remplacé — et NOS paramètres intacts à côté.
+  const recu = new URLSearchParams(
+    'utm_source=ig&utm_content=link_in_bio&d=christianpenkov/30min&p=x&m=bio&s=ig&k=bio-instagram',
+  );
+  assert.deepEqual(champsDuClic(recu), { platform: 'ig', medium: 'bio', content_id: null });
+
+  const url = new URL(construireDestination(recu, null)!);
+  assert.equal(url.searchParams.get('utm_medium'), 'bio', 'le medium vient de nous, pas de la requête');
+  assert.equal(url.searchParams.get('utm_content'), null, 'link_in_bio ne part PAS vers Calendly');
+  assert.equal(url.searchParams.get('utm_campaign'), 'bio-instagram');
+});
+
+test('un contenu sur un lien de BIO est refusé par définition, quelle que soit sa forme', () => {
+  // Un lien de bio ne vient d'aucun contenu : son utm_content est vide par nature
+  // (docs/utm-nomenclature.md). C'est ce qui neutralise le cas observé sans avoir à
+  // reconnaître la valeur fautive — y compris si un tiers écrivait `c` lui-même.
+  const p = new URLSearchParams('d=x/y&m=bio&s=ig&c=link_in_bio');
+  assert.equal(champsDuClic(p).content_id, null);
+  assert.equal(new URL(construireDestination(p, null)!).searchParams.get('utm_content'), null);
+
+  // Un vrai identifiant de post sur un lien de bio est refusé aussi : ce n'est pas
+  // la valeur qui est en cause, c'est le canal.
+  const q = new URLSearchParams('d=x/y&m=bio&s=ig&c=18386797621194807');
+  assert.equal(champsDuClic(q).content_id, null);
+});
+
+test('sur une description, un contenu valide passe et un contenu inventé non', () => {
+  const bon = new URLSearchParams('d=x/y&m=description&s=ig&c=18386797621194807');
+  assert.equal(champsDuClic(bon).content_id, '18386797621194807');
+  assert.equal(new URL(construireDestination(bon, null)!).searchParams.get('utm_content'), '18386797621194807');
+
+  const mauvais = new URLSearchParams('d=x/y&m=description&s=ig&c=nimportequoi!');
+  assert.equal(champsDuClic(mauvais).content_id, null);
+});
+
+test('aucun repli sur les utm_ reçus : sans nos paramètres, rien n est classé', () => {
+  // Un lien réécrit AVANT l'introduction de `m` produit des clics non classés plutôt
+  // que des clics faux. Trou honnête, refermé par la relance du script.
+  const p = new URLSearchParams('utm_source=ig&utm_medium=bio&utm_content=18386797621194807&d=x/y');
+  assert.deepEqual(champsDuClic(p), { platform: null, medium: null, content_id: null });
+  // Et la redirection part quand même : le fail-open ne dépend pas de la classification.
+  assert.equal(new URL(construireDestination(p, 'c0ffee00-0000-4000-8000-000000000000')!).origin, 'https://calendly.com');
+});
+
+test('utm_term n est jamais transmis depuis un lien partagé', () => {
+  // « Qui — le prospect » : un lien partagé n'identifie personne, donc rien de
+  // légitime ne peut arriver là. Le laisser passer serait recopier une valeur
+  // choisie par l'appelant dans un champ d'attribution.
+  const p = new URLSearchParams('d=x/y&m=bio&s=ig&utm_term=quelquun');
+  assert.equal(new URL(construireDestination(p, null)!).searchParams.get('utm_term'), null);
+});
+
+// ── Mise à niveau des liens déjà réécrits ──────────────────────────────────
+
+test('un lien réécrit avant l introduction de nos paramètres est mis à niveau', () => {
+  // Ancien format : que des utm_*, pas de m/s/c/k.
+  const ancien = `${ORIGINE}/r/prendre-rdv-4807?utm_source=ig&utm_medium=description&utm_campaign=calendly&utm_content=18386797621194807&d=christianpenkov%2F30min&p=${PROFIL}`;
+  const neuf = construireDestinationShortio(ORIGINE, 'prendre-rdv-4807', ancien, PROFIL);
+  assert.notEqual(neuf, null, 'doit être mis à niveau, pas ignoré comme « déjà réécrit »');
+
+  const url = new URL(neuf!);
+  assert.equal(url.searchParams.get('m'), 'description');
+  assert.equal(url.searchParams.get('s'), 'ig');
+  assert.equal(url.searchParams.get('c'), '18386797621194807');
+  assert.equal(url.searchParams.get('k'), 'calendly');
+  // Les utm_* restent : shortio-link-category les lit sur la destination stockée.
+  assert.equal(url.searchParams.get('utm_medium'), 'description');
+  assert.equal(url.searchParams.get('d'), 'christianpenkov/30min');
+  assert.equal(url.searchParams.get('p'), PROFIL);
+});
+
+test('une fois à niveau, le script redevient sans effet', () => {
+  const neuf = construireDestinationShortio(ORIGINE, 'bio-calendly-ig', CALENDLY_BIO, PROFIL)!;
+  assert.equal(new URL(neuf).searchParams.get('m'), 'bio');
+  assert.equal(construireDestinationShortio(ORIGINE, 'bio-calendly-ig', neuf, PROFIL), null);
+});
+
+test('déménagement et mise à niveau se font en un seul passage', () => {
+  const ancienFormatAncienneOrigine =
+    `https://ancienne.test/r/prendre-rdv-4807?utm_source=ig&utm_medium=description&utm_content=18386797621194807&d=christianpenkov%2F30min&p=${PROFIL}`;
+  const url = new URL(construireDestinationShortio(ORIGINE, 'prendre-rdv-4807', ancienFormatAncienneOrigine, PROFIL)!);
+  assert.equal(url.origin, ORIGINE);
+  assert.equal(url.searchParams.get('m'), 'description');
+  assert.equal(url.searchParams.get('c'), '18386797621194807');
 });

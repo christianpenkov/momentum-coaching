@@ -46,8 +46,55 @@ export const CLE_HOTE_PAR_DEFAUT: CleHote = 'calendly';
 // une redirection.
 export const PARAM_CLICK_ID = 'salesforce_uuid';
 
-/** Les cinq UTM que Calendly accepte, reportés à l'identique. */
+/** Les cinq UTM que Calendly accepte. */
 export const UTMS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'] as const;
+
+// ── Nos paramètres, par opposition à ceux qu'on reçoit ──────────────────────
+//
+// ⚠️ **Un `utm_*` reçu dans une requête n'est PAS le `utm_*` qu'on a écrit.**
+//
+// Mesuré le 2026-09-01 sur deux vrais taps depuis la bio Instagram de Chris : la
+// requête arrivait avec `utm_medium` ABSENT et `utm_content=link_in_bio`. Le
+// navigateur intégré d'Instagram réécrit les paramètres UTM pendant la navigation.
+// Détail qui décide de la gravité : les préchargements d'Instagram, eux, arrivaient
+// intacts — ce sont les clics HUMAINS qui étaient abîmés, donc précisément ceux
+// qu'on mesure.
+//
+// Et `link_in_bio` fait exactement 11 caractères dans [A-Za-z0-9_-] : il PASSE
+// `isYtVideoId`, donc `isValidContentId` (lib/contentId.ts). Un rendez-vous pris
+// depuis la bio serait parti avec `utm_content=link_in_bio`, aurait été écrit tel
+// quel dans `calls.utm_content` par la garde censée le refuser, et `resolveCallSource`
+// en aurait déduit la plateforme **YouTube**. La vue `utm_anomalies`, qui porte une
+// copie SQL de la même règle, ne l'aurait pas signalé.
+//
+// La règle qui en découle : **le token, `d`, `p` et les paramètres ci-dessous sont à
+// nous ; les `utm_*` d'une requête entrante ne le sont pas.** On classe sur les
+// nôtres, et on retransmet à Calendly les UTM qu'on a VOULUS, pas ceux qu'on a reçus.
+//
+// Les `utm_*` restent posés sur l'URL `/r/` : `lib/shortio-link-category.ts` les lit
+// sur la destination STOCKÉE chez Short.io, que personne ne réécrit — c'est la même
+// chaîne de caractères des deux côtés, mais pas la même confiance.
+export const PARAM_PLATEFORME = 's';
+export const PARAM_MEDIUM = 'm';
+export const PARAM_CONTENU = 'c';
+export const PARAM_CAMPAGNE = 'k';
+
+// ⚠️ Copies des règles de `lib/contentId.ts`. Ce fichier ne peut rien importer : il
+// est chargé par la route edge, par un script Node et par `npm test`. Une copie qui
+// se sait copie vaut mieux que deux implémentations qui s'ignorent — même contrainte
+// que `resolveClickId` côté Edge Function. Toute évolution de la règle doit être
+// répercutée là-bas, et dans la copie SQL de la vue `utm_anomalies`.
+const estIdPostIg = (v: string) => /^\d{10,}$/.test(v);
+const estIdVideoYt = (v: string) => /^[A-Za-z0-9_-]{11}$/.test(v);
+const estUuid = (v: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+
+/** Identifiant de contenu : post Instagram, vidéo YouTube, ou séquence story. */
+export function estIdContenu(v: string | null | undefined): v is string {
+  return !!v && (estIdPostIg(v) || estIdVideoYt(v) || estUuid(v));
+}
+
+/** Valeurs de campagne : libres par conception, donc seulement bornées en forme. */
+const FORME_CAMPAGNE = /^[A-Za-z0-9_.-]{1,120}$/;
 
 /** Canaux de liens PARTAGÉS. `dm` en est volontairement absent (déjà instrumenté). */
 export const MEDIUMS_PARTAGES = ['bio', 'description', 'story'] as const;
@@ -82,11 +129,60 @@ export function assainirChemin(d: string | null | undefined): string | null {
 }
 
 /**
- * Construit l'URL de destination finale, UTM compris.
+ * Lit NOS paramètres et n'en garde que ce qui est conforme.
+ *
+ * Même règle que `lib/contentId.ts` : **champ vide plutôt que champ faux**. Une
+ * valeur hors nomenclature n'est pas recopiée — un `medium` inventé polluerait
+ * silencieusement la répartition des clics par canal.
+ *
+ * ⚠️ **Aucun repli sur les `utm_*` reçus.** Un repli réintroduirait exactement la
+ * confiance qu'on vient de retirer, et une règle assortie d'une exception se recopie
+ * sans son exception. Le prix est que les liens réécrits AVANT ce changement, tant
+ * qu'ils ne portent pas `m`, produisent des clics non classés — un trou honnête, que
+ * la relance du script referme.
+ */
+export function nosValeurs(parametres: URLSearchParams): {
+  platform: string | null;
+  medium: string | null;
+  content_id: string | null;
+  campagne: string | null;
+} {
+  const s = parametres.get(PARAM_PLATEFORME);
+  const m = parametres.get(PARAM_MEDIUM);
+  const c = parametres.get(PARAM_CONTENU);
+  const k = parametres.get(PARAM_CAMPAGNE);
+
+  const medium = (MEDIUMS_PARTAGES as readonly string[]).includes(m || '') ? m : null;
+
+  // ⚠️ `content_id` n'a de sens que pour un contenu. Un lien de BIO ne vient d'aucun
+  // contenu précis : son `utm_content` est vide par nature (docs/utm-nomenclature.md).
+  // Refuser tout contenu sur un lien de bio n'est donc pas une précaution, c'est la
+  // définition — et ça neutralise structurellement le cas observé, où un tiers avait
+  // glissé `link_in_bio` dans ce champ sur un clic de bio.
+  const contenu = medium === 'bio' ? null : (estIdContenu(c) ? c : null);
+
+  return {
+    platform: (PLATEFORMES as readonly string[]).includes(s || '') ? s : null,
+    medium,
+    content_id: contenu,
+    campagne: k && FORME_CAMPAGNE.test(k) ? k : null,
+  };
+}
+
+/**
+ * Construit l'URL de destination finale.
  *
  * Aucune lecture en base : la destination se déduit ENTIÈREMENT de l'URL reçue.
  * C'est ce qui rend le fail-open réellement tenable — une panne de la base ne
  * peut pas empêcher un prospect d'atteindre Calendly.
+ *
+ * ⚠️ **Les UTM transmis à Calendly sont reconstruits depuis NOS paramètres**, jamais
+ * recopiés depuis la requête. Sans ça, une réservation depuis la bio Instagram partait
+ * avec `utm_content=link_in_bio` — une valeur que `isValidContentId` accepte, faute de
+ * quoi elle aurait été rejetée à l'écriture.
+ *
+ * `utm_term` n'est pas transmis : il porte « qui — le prospect », et un lien PARTAGÉ
+ * n'identifie personne. Il n'y a donc rien de légitime à y mettre.
  *
  * Retourne `null` si le chemin est invalide ou l'hôte inconnu ; l'appelant
  * décide alors de son repli, il n'affiche jamais d'erreur.
@@ -112,11 +208,12 @@ export function construireDestination(
   // l'hôte de la liste blanche.
   if (url.origin !== hote) return null;
 
-  for (const utm of UTMS) {
-    const valeur = parametres.get(utm);
-    if (valeur) url.searchParams.set(utm, valeur.slice(0, LONGUEUR_MAX_VALEUR));
-  }
-  if (clickId) url.searchParams.set(PARAM_CLICK_ID, clickId);
+  const nous = nosValeurs(parametres);
+  if (nous.platform)   url.searchParams.set('utm_source', nous.platform);
+  if (nous.medium)     url.searchParams.set('utm_medium', nous.medium);
+  if (nous.campagne)   url.searchParams.set('utm_campaign', nous.campagne);
+  if (nous.content_id) url.searchParams.set('utm_content', nous.content_id);
+  if (clickId) url.searchParams.set(PARAM_CLICK_ID, clickId.slice(0, LONGUEUR_MAX_VALEUR));
 
   return url.toString();
 }
@@ -220,25 +317,16 @@ export function selDuJour(maintenant: Date): string {
 // ── Champs de la ligne de clic ──────────────────────────────────────────────
 
 /**
- * Ce qu'on écrit dans `link_clicks`, déduit des seuls UTM reçus.
- *
- * Même règle que `lib/contentId.ts` : **champ vide plutôt que champ faux**. Une
- * valeur hors nomenclature n'est pas recopiée — un `medium` inventé polluerait
- * silencieusement la répartition des clics par canal.
+ * Ce qu'on écrit dans `link_clicks`, déduit de NOS paramètres — jamais des `utm_*`
+ * de la requête, qu'un tiers réécrit (voir le bloc en tête de fichier).
  */
 export function champsDuClic(parametres: URLSearchParams): {
   platform: string | null;
   medium: string | null;
   content_id: string | null;
 } {
-  const source = parametres.get('utm_source');
-  const medium = parametres.get('utm_medium');
-  const content = parametres.get('utm_content');
-  return {
-    platform: (PLATEFORMES as readonly string[]).includes(source || '') ? source : null,
-    medium: (MEDIUMS_PARTAGES as readonly string[]).includes(medium || '') ? medium : null,
-    content_id: content ? content.slice(0, LONGUEUR_MAX_VALEUR) : null,
-  };
+  const { platform, medium, content_id } = nosValeurs(parametres);
+  return { platform, medium, content_id };
 }
 
 // ── Construction de la destination Short.io ─────────────────────────────────
@@ -281,6 +369,25 @@ export function champsDuClic(parametres: URLSearchParams): {
  * présence de `d` est ce qui identifie nos URL : c'est le paramètre sans lequel la
  * route ne saurait pas où rediriger.
  */
+/**
+ * Recopie les UTM d'une destination STOCKÉE vers nos propres paramètres.
+ *
+ * La source est toujours une chaîne écrite par nous chez Short.io — jamais une
+ * requête entrante. C'est toute la différence : `utm_medium` a la même orthographe
+ * des deux côtés, mais pas la même confiance.
+ */
+function posrNosValeurs(cible: URL, source: URLSearchParams): void {
+  const paires: [string, string | null][] = [
+    [PARAM_PLATEFORME, source.get('utm_source')],
+    [PARAM_MEDIUM,     source.get('utm_medium')],
+    [PARAM_CAMPAGNE,   source.get('utm_campaign')],
+    [PARAM_CONTENU,    source.get('utm_content')],
+  ];
+  for (const [nom, valeur] of paires) {
+    if (valeur) cible.searchParams.set(nom, valeur);
+  }
+}
+
 function estUneRedirection(url: URL): boolean {
   return url.pathname.startsWith('/r/') && url.searchParams.has('d');
 }
@@ -302,15 +409,21 @@ export function construireDestinationShortio(
     return null;
   }
 
-  // Déjà réécrite. Deux cas très différents, et les confondre coûte cher.
+  // Déjà réécrite. Trois cas, et les confondre coûte cher.
   if (estUneRedirection(source)) {
-    // Même origine : rien à faire, le script est rejouable sans effet.
-    if (source.origin === origine.origin) return null;
-    // Origine différente : on DÉMÉNAGE le lien, en conservant chemin et paramètres
-    // à l'identique. `d`, `h` et `p` sont déjà là et restent justes — seul l'hôte
-    // qui sert la route change.
-    const demenage = new URL(source.pathname + source.search, origine.origin);
-    return demenage.toString();
+    const memeOrigine = source.origin === origine.origin;
+    // `m` est le marqueur du format qui porte NOS valeurs. Une URL réécrite avant
+    // son introduction ne le porte pas : elle est à mettre à niveau, pas à ignorer.
+    const aJour = source.searchParams.has(PARAM_MEDIUM);
+    // Rien à faire : le script est rejouable sans effet.
+    if (memeOrigine && aJour) return null;
+
+    // Déménagement d'origine et/ou mise à niveau. On repart des `utm_*` posés sur
+    // cette URL : ils sont à NOUS, écrits par ce script chez Short.io, et personne
+    // ne les a réécrits — ce n'est pas une requête, c'est une chaîne stockée.
+    const cible = new URL(source.pathname + source.search, origine.origin);
+    posrNosValeurs(cible, source.searchParams);
+    return cible.toString();
   }
 
   const cleHote = (Object.keys(HOTES_AUTORISES) as CleHote[])
@@ -324,10 +437,14 @@ export function construireDestinationShortio(
   if (!chemin) return null;
 
   const cible = new URL(`${origine.origin}/r/${cheminShortio.replace(/^\/+/, '')}`);
+  // Les `utm_*` restent posés : `lib/shortio-link-category.ts` les lit sur cette
+  // destination stockée chez Short.io pour classer le lien. Ils ne servent à rien
+  // d'autre — la route, elle, ne lit que nos paramètres.
   for (const utm of UTMS) {
     const valeur = source.searchParams.get(utm);
     if (valeur) cible.searchParams.set(utm, valeur);
   }
+  posrNosValeurs(cible, source.searchParams);
   cible.searchParams.set('d', chemin);
   // `h` n'est posé que pour un hôte non par défaut : les URL restent lisibles
   // tant qu'il n'y a qu'un seul hôte, et l'ajout d'un second ne casse rien.
