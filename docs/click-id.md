@@ -602,6 +602,42 @@ filtres ne s'accorderont jamais exactement, et une alerte qui se déclenche sur 
 ordinaire cesse d'être lue. Vérifié sur neuf cas, dont l'incident réel (2 / 8 → alerte)
 et une journée saine (1 / 1 → `ok`).
 
+#### Ce que le test YouTube a montré, et ce qu'il n'a pas montré
+
+Fait le 2026-09-01 depuis l'app YouTube sur `prendre-rdv-9rQo` : `platform=yt`,
+`medium=description`, `content_id=vPyqybE9rQo` — le vrai identifiant de la vidéo. Les
+valeurs sont justes et **indépendantes de la requête**.
+
+⚠️ Mais ce canal n'a probablement jamais été exposé au problème : **sur iOS, YouTube
+passe la main à Safari** au lieu d'ouvrir un navigateur intégré. Il n'y a donc pas de
+réécriture d'UTM à subir. Le test prouve que le correctif tient sur un second canal ;
+il ne prouve pas que ce canal en avait besoin. À ne pas confondre plus tard.
+
+Le canal réellement exposé reste la **bio Instagram**, seul endroit mesuré où un
+navigateur intégré réécrit les paramètres.
+
+**En revanche il prouve autre chose, qui n'avait jamais été vérifié en production** :
+`prendre-rdv-9rQo` a été créé *après* le correctif, depuis « Gérer mes liens », et le
+script de réécriture n'y a jamais touché. Il est né instrumenté :
+
+```
+…/r/prendre-rdv-9rQo?utm_source=yt&utm_medium=description&utm_campaign=calendly
+  &utm_content=vPyqybE9rQo&s=yt&m=description&k=calendly&c=vPyqybE9rQo&d=…&p=…
+```
+
+Le câblage des points de génération tenait jusque-là sur des tests unitaires. Un lien
+créé à la main par un humain, en production, porte bien nos paramètres.
+
+#### L'inflation touche les deux canaux
+
+1 tap sur YouTube → **3 lignes**, dont deux à 54 ms d'écart depuis deux adresses
+différentes, et `bot_motif = 'aucune'` sur les trois. Même défaut qu'Instagram, en plus
+petit : environ deux clics fantômes pour un vrai.
+
+`bot_motif` a payé son coût dès son premier usage réel. « Pourquoi ces lignes n'ont-elles
+pas été filtrées ? » se lit maintenant dans une colonne — aucune règle ne s'est
+déclenchée — là où c'était une enquête la veille.
+
 ### Le verdict doit pouvoir s'expliquer
 
 `link_clicks.bot_motif` dit **quelle règle** a conclu au robot : `prefetch`, `ua_robot`,
