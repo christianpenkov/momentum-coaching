@@ -17,7 +17,7 @@ Le détail de cet audit est dans [`youtube-scalabilite.md`](./youtube-scalabilit
 | YouTube | ✅ 2026-08-21 | **121 élèves** | [youtube-scalabilite.md](./youtube-scalabilite.md) |
 | Instagram — métriques de compte | ✅ 2026-08-22 | quota par utilisateur (non partagé) | [instagram-scalabilite.md](./instagram-scalabilite.md) |
 | Instagram — contenus | ✅ 2026-08-30 | **~6 appels / 100 posts / nuit** (était 801) | [handoff-appels-instagram-scalabilite.md](./handoff-appels-instagram-scalabilite.md) |
-| Short.io | ❌ à faire | inconnue | [shortio-api.md](./shortio-api.md) |
+| Short.io | ✅ 2026-08-31 | **coût indépendant du nombre d'élèves** | [shortio-api.md](./shortio-api.md) |
 | Calendly | ❌ à faire | inconnue | — |
 | Stripe | ❌ à faire | inconnue | — |
 
@@ -406,3 +406,55 @@ select * from yt_sante_donnees;                 -- 'ok' partout
 - [`audit-metriques-youtube.md`](./audit-metriques-youtube.md) — l'audit des chiffres
 - Skill `audit-metrique-bout-en-bout` — la méthode réutilisable
   (`~/.claude/skills/audit-metrique-bout-en-bout/SKILL.md`)
+
+---
+
+## 5 ter. Un appel qui prend un COMPTE, pas un utilisateur, se mutualise
+
+Avant de compter « appels × élèves », regarder ce que l'appel prend en paramètre.
+S'il est indexé sur une ressource **partagée** (un domaine, un compte, une chaîne),
+tous les élèves qui la partagent demandent la même chose — et le cron la demande
+une fois par élève.
+
+> Short.io, mesuré le 2026-08-31 : `fetchShortioLinks` et `fetchClicsShortio`
+> prennent un **domaine**. Trois élèves sur `ubizenai.s.gy` récupéraient trois fois
+> la même liste et le même flux. À 40 élèves : **80 à 360 appels par passage**
+> contre un budget de **50 par minute et par domaine** — soit 1,6 à 7 minutes
+> d'attente au limiteur, **au-delà des 150 s** de la fonction. C'était le vrai mur,
+> avant même le quota.
+
+Un cache **par invocation**, vidé à chaque démarrage, qui mémorise la **promesse**
+et non le résultat : deux profils traités en parallèle attendent le même appel au
+lieu d'en lancer deux. Le coût cesse alors de dépendre du nombre d'élèves.
+
+⚠️ **La clé du cache ne doit contenir que la ressource partagée.**
+
+> Les trois profils du même domaine ont **trois clés d'API différentes**. Inclure la
+> clé aurait empêché tout partage : le correctif n'aurait rien corrigé, sans que rien
+> ne le signale.
+
+⚠️ **Ne jamais mettre un échec en cache** — retirer l'entrée pour que l'appelant
+suivant retente avec SES identifiants, sinon une clé révoquée sur un profil fait
+échouer tous les autres.
+
+⚠️ **Vérifier que personne ne MUTE le résultat partagé.** Un `push` ou un `sort` sur
+un tableau désormais commun corrompt les profils suivants. Ici : vérifié que
+`syncLmClickStream` et `snapshotOldDomainLinks` ne font que `filter` et itérer.
+
+---
+
+## 7 bis. Un appel qui échoue toujours ne se voit nulle part
+
+Le point 7 dit de ne pas avaler les échecs. Voici ce que ça coûte quand on l'oublie.
+
+> `poll-leads` appelait `/api/stripe/client-data` avec `Bearer CRON_SECRET` à chaque
+> passage et pour chaque profil. Cette route s'authentifie par **session
+> utilisateur** : elle répondait **401 depuis toujours**, avalé par un
+> `if (res.ok)` sans `else`. Preuve : la colonne `mrr` est vide sur **toutes** les
+> lignes de la base. Coût du silence : **345 600 invocations Vercel par mois** à
+> 40 élèves — 35 % du quota gratuit dépensé en réponses 401.
+
+Question de contrôle, à poser sur chaque appel interne d'un cron : **quelle colonne
+cet appel remplit-il, et est-elle réellement remplie en base ?** Si la réponse est
+« aucune », l'appel est mort — quel que soit ce que son code prétend faire.
+
