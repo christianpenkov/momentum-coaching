@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { calculerCash, statutDeal, resteAEncaisser, aRembourser } from './dealCash.ts';
+import { calculerCash, statutDeal, resteAEncaisser, aRembourser, encaisseRetenu } from './dealCash.ts';
 import * as copieDeno from '../supabase/functions/_shared/dealCash.ts';
 
 // Lancé par `npm test` (node --test, sans aucune dépendance à installer).
@@ -187,6 +187,63 @@ test('les sommes flottantes sont arrondies au centime', () => {
   assert.equal(aRembourser(c, 0), 0.3);
 });
 
+// ── Le recouvrement retenu : le net plafonné au montant de la vente ─────────
+//
+// Aucun trop-perçu n'existe en base au moment où ces tests sont écrits : ils
+// sont donc la SEULE vérification de cette règle, et le resteront jusqu'au jour
+// où un client paiera deux fois. Aucune capture d'écran ne peut les remplacer.
+
+test('sans trop-perçu, le retenu vaut le net', () => {
+  const c = calculerCash([p(600, 'succeeded')]);
+  assert.equal(encaisseRetenu(c, 1000), 600);
+  assert.equal(encaisseRetenu(c, 600), 600);
+});
+
+test('le trop-perçu est écrêté au montant de la vente', () => {
+  const c = calculerCash([p(1200, 'succeeded')]);
+  assert.equal(c.net, 1200);
+  assert.equal(encaisseRetenu(c, 1000), 1000);
+  // Le surplus n'est pas perdu : c'est aRembourser qui le porte.
+  assert.equal(aRembourser(c, 1000), 200);
+});
+
+test('un remboursement ramène sous le plafond', () => {
+  const c = calculerCash([p(1200, 'succeeded'), p(300, 'refunded')]);
+  assert.equal(encaisseRetenu(c, 1000), 900);
+  assert.equal(aRembourser(c, 1000), 0);
+});
+
+test('un net négatif reste négatif — on ne planche pas à zéro', () => {
+  // Plus remboursé qu'encaissé : le trou est réel et doit se voir.
+  const c = calculerCash([p(500, 'succeeded'), p(700, 'refunded')]);
+  assert.equal(c.net, -200);
+  assert.equal(encaisseRetenu(c, 1000), -200);
+});
+
+test("le plafond s'applique VENTE PAR VENTE, jamais sur un total", () => {
+  // Le défaut que cette fonction existe pour empêcher : sans écrêtage par vente,
+  // le surplus de la première efface la dette de la seconde.
+  const troppercu = calculerCash([p(1200, 'succeeded')]);
+  const rienpaye = calculerCash([]);
+
+  const brut = troppercu.net + rienpaye.net;                  // 1200
+  const retenu = encaisseRetenu(troppercu, 1000) + encaisseRetenu(rienpaye, 1000); // 1000
+
+  assert.equal(2000 - brut, 800);    // faux : il reste bien 1000 € à encaisser
+  assert.equal(2000 - retenu, 1000); // juste
+});
+
+test('une vente à montant nul ne fait pas exploser le plafond', () => {
+  const c = calculerCash([p(300, 'succeeded')]);
+  assert.equal(encaisseRetenu(c, 0), 0);
+  assert.equal(encaisseRetenu(c, null), 0);
+});
+
+test('les arrondis de numeric ne traversent pas le plafond', () => {
+  const c = calculerCash([p(333.33, 'succeeded'), p(333.33, 'succeeded'), p(333.34, 'succeeded')]);
+  assert.equal(encaisseRetenu(c, 1000), 1000);
+});
+
 // ── La garde qui interdit aux deux copies de diverger ───────────────────────
 
 test('les deux copies du module donnent exactement le même résultat', () => {
@@ -220,5 +277,6 @@ test('les deux copies du module donnent exactement le même résultat', () => {
     );
     assert.equal(copieDeno.resteAEncaisser(laBas, j.total), resteAEncaisser(ici, j.total));
     assert.equal(copieDeno.aRembourser(laBas, j.total), aRembourser(ici, j.total));
+    assert.equal(copieDeno.encaisseRetenu(laBas, j.total), encaisseRetenu(ici, j.total));
   }
 });

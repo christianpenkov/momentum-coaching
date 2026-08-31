@@ -174,5 +174,39 @@ export function aRembourser(cash: Cash, montantTotal: number | string | null): n
   return surplus > CENTIME ? arrondi(surplus) : 0;
 }
 
+/**
+ * Ce qui compte comme RECOUVREMENT de cette vente : l'encaissé net, plafonné au
+ * montant contracté.
+ *
+ * ── Pourquoi ce n'est pas `cash.net` ──────────────────────────────────────
+ * Un client peut verser PLUS que sa vente : double prélèvement, ou montant
+ * baissé après un encaissement. `cash.net` vaut alors 1 200 € sur une vente de
+ * 1 000 €, et tout ratio bâti dessus dépasse 100 % — affiché en vert, donc lu
+ * comme une performance, alors que c'est de l'argent DÛ au client.
+ *
+ * Pire, sur un total : le surplus d'un client vient soustraire la dette d'un
+ * autre. Deux ventes de 1 000 €, l'une payée 1 200 €, l'autre rien : le reste
+ * à encaisser calculé sur les nets bruts affiche 800 € au lieu de 1 000 €, sur
+ * l'écran qui sert justement à savoir qui relancer. Plafonner VENTE PAR VENTE
+ * avant de sommer supprime ce report.
+ *
+ * ── Quand utiliser l'une ou l'autre ───────────────────────────────────────
+ *   `cash.net`          → « combien cette personne a versé ». Écrans d'action :
+ *                         la ligne d'un client, le cash encaissé d'une période,
+ *                         la ventilation par origine. Le surplus est un fait,
+ *                         et c'est là qu'on va le rembourser.
+ *   `encaisseRetenu()`  → « quelle part de cette vente est rentrée ». Écrans de
+ *                         pilotage : taux de collecte, reste à encaisser, et
+ *                         tout total destiné à être rapporté au contracté.
+ *
+ * Le surplus n'est pas perdu de vue pour autant : `aRembourser()` juste au-dessus
+ * le nomme, et c'est lui qu'il faut afficher partout où l'on plafonne.
+ * Décision de Chris, 2026-08-30.
+ */
+export function encaisseRetenu(cash: Cash, montantTotal: number | string | null): number {
+  const total = nombre(montantTotal);
+  return cash.net > total ? arrondi(total) : arrondi(cash.net);
+}
+
 /** Deux décimales — les sommes de `numeric` traînent des flottants imparfaits. */
 const arrondi = (n: number): number => Math.round(n * 100) / 100;
