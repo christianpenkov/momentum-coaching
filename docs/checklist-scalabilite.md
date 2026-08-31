@@ -122,6 +122,16 @@ vieilles journées et les tamponne toutes avec la valeur du jour.
 > incident du 2026-07-06 (« 60 jours d'historique aplatis »). La copie Deno ne
 > l'avait jamais reçue. Motif « deux copies, une seule à jour ».
 
+> Short.io, 2026-08-31 : troisieme occurrence, et cette fois la colonne n'est meme
+> pas une metrique. `shortio_link_daily_snapshots.original_url` porte la destination
+> du lien **au dernier passage du cron**, pas celle du jour de la ligne. Une vue de
+> sante qui s'en servait pour dater une migration voyait des journees anterieures
+> tamponnees « deja migree », et allait sortir une fausse alerte.
+>
+> **Question de controle, moins chere que la regle** : cette colonne serait-elle
+> differente si la ligne avait ete ecrite hier plutot qu'aujourd'hui ? Si non, elle
+> decrit le present, quelle que soit la date de sa ligne.
+
 **Le correctif qui tient** : séparer les deux natures dans le type de retour
 (`{ jour, compte }`), pour que `...jour` ne PUISSE plus emporter l'état. Une
 règle dans un commentaire se reperd à la copie suivante ; une frontière dans le

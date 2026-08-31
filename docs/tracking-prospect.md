@@ -199,3 +199,24 @@ la correction de fond.
 
 **Deux profils partageant un domaine Short.io** produisent des lignes de snapshots
 concurrentes. Voir `docs/shortio-api.md`, piège n°2.
+
+**`calls.rescheduled` n'est pas posé par une reprogrammation Calendly.** Constaté le
+2026-08-31 sur une vraie reprogrammation : `canceled_at` et `next_rescheduled_uri` ont
+bien été écrits, `rescheduled` est resté `false`. Calendly n'a donc pas envoyé
+`invitee.rescheduled` — le parcours réel est `invitee.created` porteur d'`old_invitee`,
+plus `invitee.canceled` sur l'ancien.
+
+Ce qui a été vérifié, et ce qui ne l'a pas été :
+
+- La colonne n'est écrite qu'à **deux** endroits, et ils ne disent pas la même chose :
+  `app/api/webhooks/calendly/route.ts:476` (branche `invitee.rescheduled`, apparemment
+  jamais empruntée) et `lib/rapportPatch.ts:203`, ou c'est le **coach** qui declare
+  « appel reporte » dans son rapport. Un meme drapeau pour un fait Calendly et pour une
+  saisie humaine : c'est le genre d'ambiguite qui se paye plus tard.
+- Son seul lecteur de pipeline est `lib/pipelineStage.ts:291`, qui exige
+  `status === 'active' && !rescheduled`. **Aucun effet aujourd'hui** : le parcours
+  `old_invitee` passe deja l'ancien call en `canceled`, donc `status` l'ecarte de toute
+  facon. Le drapeau manquant ne change rien a l'etape affichee.
+
+Pas corrige : rien ne casse, et le vrai sujet est de decider si ce drapeau decrit un
+evenement Calendly ou une decision du coach. A trancher avant de s'en servir ailleurs.

@@ -357,9 +357,33 @@ Deux choix de périmètre, tous deux nécessaires pour que la vue puisse un jour
    porte la catégorie figée au moment du snapshot : de vieux liens lead magnet y sont
    classés `calendly_story`, et ne seront jamais réécrits. S'y fier laissait 39 lignes
    en alerte permanente.
-2. **La comparaison ne porte que sur les journées où le lien était déjà réécrit.** Sans
-   ça, chaque lien passerait 30 jours en alerte après sa réécriture, à cause des
-   journées d'avant — où l'absence de ligne de clic était normale.
+2. **La comparaison ne porte que sur les journées postérieures au dernier jour où la
+   destination était encore directe.** Sans borne, chaque lien passerait 30 jours en
+   alerte après sa réécriture, à cause des journées d'avant — où l'absence de ligne de
+   clic était normale.
+
+   ⚠️ **La borne ne peut PAS se lire sur `original_url` de la journée.** Cette colonne
+   ne décrit pas la destination de ce jour-là : c'est la destination au moment où la
+   ligne a été touchée pour la dernière fois. `poll-leads` réécrit les journées de sa
+   fenêtre de rattrapage et y inscrit la destination **courante**. Constaté une heure
+   après la première réécriture :
+
+   ```
+   date        updated_at            destination
+   2026-08-30  2026-08-31 21:00:47   reecrite   ← ligne d'HIER, réécrite AUJOURD'HUI
+   2026-08-30  2026-08-30 21:55:28   directe
+   2026-08-29  2026-08-30 21:55:21   directe
+   ```
+
+   C'est la **règle 3 bis** de `docs/checklist-scalabilite.md` — un état actuel écrit
+   sur une ligne datée — pour la troisième fois dans ce projet, après `ig_followers` le
+   2026-08-30. Le motif ne se voit pas, parce que la colonne a l'air datée : elle est
+   sur une ligne qui porte une date.
+
+   Le correctif n'invente rien. Une ligne encore marquée « directe » **prouve** qu'elle
+   a été écrite avant la réécriture — le re-tamponnage ne va jamais dans l'autre sens.
+   Le dernier jour marqué direct est donc une borne basse sûre : trop prudente au pire,
+   jamais trop laxiste.
 
 C'est aussi cette vue qui rend l'échec d'écriture non silencieux : on ne peut pas
 journaliser une panne de base **dans** la base, et c'est précisément ce que le second
@@ -422,7 +446,12 @@ existe pour fermer.
    `content_id`. Le saut ajouté coûte **100 à 250 ms**.
 2. Réserver : `calls.click_id` est rempli et correspond à la ligne `link_clicks`,
    `calls.clicked_at` porte l'heure du clic.
-3. Reprogrammer : `click_id` et `clicked_at` ont bien été hérités.
+3. ✅ **2026-08-31** — Reprogrammer : ancien call en `canceled`, nouveau portant le
+   **même** `click_id` et le même `clicked_at`, seul `booked_at` ayant bougé. Tous les
+   champs d'attribution hérités.
+
+   ⚠️ Observation **hors périmètre** faite au passage : `calls.rescheduled` est resté
+   à `false`. Voir « Ce qu'il reste à surveiller » dans `docs/tracking-prospect.md`.
 4. Simuler une panne de base : la redirection part quand même.
 5. Faire passer un robot d'aperçu : la ligne existe avec `is_bot = true`.
 6. `select * from clics_sante_redirection;` → `'ok'` partout.
