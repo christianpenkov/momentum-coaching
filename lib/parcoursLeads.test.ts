@@ -187,3 +187,35 @@ test('les deux angles donnent les memes totaux quand la partition est la meme', 
   const sansPersonnes = ({ personnes, ...reste }: typeof parC) => reste;
   assert.deepEqual(sansPersonnes(parL), sansPersonnes(parC));
 });
+
+// ─── La période s'applique aux ENTRÉES, et seulement là ──────────────────────
+
+test('une entree hors periode BORNE la chronologie sans ouvrir de ligne', () => {
+  // On affiche juin. `rdjdkzjd` est entre en juin (LM) puis en juillet (LM de nouveau),
+  // et a reserve le 08/07. Sa ligne de juin ne doit PAS recolter ce rendez-vous : il est
+  // posterieur a une entree de juillet, qui n'est pas affichee mais a bien eu lieu.
+  const juin = (p: PriseParcours) => p.detected_at < '2026-07-01';
+  const lignes = parcoursDesLeads(JOURNAL, p => p.media_id, REFS, juin);
+
+  const lm = lignes.get(POST_LM)!;
+  assert.equal(lm.commentairesLm, 1, 'seul rdjdkzjd est entre par LM en juin');
+  assert.equal(lm.callsBookes, 0, 'son rendez-vous du 08/07 suit une entree de juillet');
+  assert.equal(lm.revenue, 0);
+
+  // GUIDE en juin : incogniton seul, dont le rendez-vous du 15/06 suit bien son entree.
+  const guide = lignes.get(POST_GUIDE)!;
+  assert.equal(guide.commentairesLm, 1);
+  assert.equal(guide.callsBookes, 1);
+});
+
+test('filtrer le journal en amont produirait le defaut que la borne evite', () => {
+  // La preuve par l'absurde : si on ne passait que les prises de juin, la chronologie de
+  // `rdjdkzjd` s'arreterait au 28/06 et son rendez-vous du 08/07 remonterait crediter
+  // juin. Le meme appel, journal tronque, donne un chiffre different — et faux.
+  const journalTronque = JOURNAL.filter(p => p.detected_at < '2026-07-01');
+  const tronque = parcoursDesLeads(journalTronque, p => p.media_id, REFS);
+  const correct = parcoursDesLeads(JOURNAL, p => p.media_id, REFS, p => p.detected_at < '2026-07-01');
+
+  assert.equal(tronque.get(POST_LM)!.callsBookes, 1, 'le journal tronque credite a tort');
+  assert.equal(correct.get(POST_LM)!.callsBookes, 0, 'la borne, elle, ne credite pas');
+});

@@ -118,7 +118,12 @@ function ms(valeur: string | null | undefined): number | null {
 }
 
 /** Une entrée dans la chronologie d'une personne : quand, et vers quelle ligne. */
-export interface EntreeDatee { t: number; cle: string | null }
+export interface EntreeDatee {
+  t: number;
+  cle: string | null;
+  /** Faux quand l'entree est hors de la periode affichee : elle borne, elle n'ouvre pas. */
+  dansPeriode?: boolean;
+}
 
 /**
  * À QUELLE LIGNE APPARTIENT CE RENDEZ-VOUS ?
@@ -140,14 +145,19 @@ export interface EntreeDatee { t: number; cle: string | null }
  *
  * `chronologie` doit être triée par `t` croissant.
  */
-export function ligneDuCall(chronologie: EntreeDatee[], instantDuCall: number | null): string | null {
+export function entreeDuCall(chronologie: EntreeDatee[], instantDuCall: number | null): EntreeDatee | null {
   if (instantDuCall === null) return null;
   let derniere: EntreeDatee | null = null;
   for (const e of chronologie) {
     if (e.t > instantDuCall) break;
     derniere = e;
   }
-  return derniere?.cle ?? null;
+  return derniere;
+}
+
+/** La ligne seule, quand l'entree qui la porte n'a pas d'importance. */
+export function ligneDuCall(chronologie: EntreeDatee[], instantDuCall: number | null): string | null {
+  return entreeDuCall(chronologie, instantDuCall)?.cle ?? null;
 }
 
 /**
@@ -160,6 +170,17 @@ export function parcoursDesLeads(
   journal: PriseParcours[],
   cleDeLaPrise: (prise: PriseParcours) => string | null,
   refs: RefsParcours,
+  /**
+   * Quelles entrées ouvrent une ligne — c'est ici que la PÉRIODE s'applique, et nulle
+   * part ailleurs.
+   *
+   * ⚠️ Le journal reçu doit rester ENTIER, non filtré. La chronologie d'une personne se
+   * construit sur toutes ses entrées, y compris hors période : sans elles, un rendez-vous
+   * postérieur à une entrée de juin serait crédité à la ligne de mars simplement parce
+   * que juin n'est pas affiché. Filtrer en amont produirait ce défaut sans qu'aucun
+   * chiffre ne paraisse faux.
+   */
+  entreeDansLaPeriode: (prise: PriseParcours) => boolean = () => true,
 ): Map<string, LigneParcours> {
   // 1. LA CHRONOLOGIE DE CHAQUE PERSONNE — toutes ses entrées livrées, dans l'ordre,
   //    avec la ligne vers laquelle chacune pointe (`null` si cet angle ne sait pas la
@@ -173,9 +194,9 @@ export function parcoursDesLeads(
     if (prise.lead_magnet_sent === false || !prise.ig_user_id) continue;
     const t = ms(prise.detected_at);
     if (t === null) continue;
-    const cle = cleDeLaPrise(prise);
+    const entree: EntreeDatee = { t, cle: cleDeLaPrise(prise), dansPeriode: entreeDansLaPeriode(prise) };
     const liste = chronologies.get(prise.ig_user_id);
-    if (liste) liste.push({ t, cle }); else chronologies.set(prise.ig_user_id, [{ t, cle }]);
+    if (liste) liste.push(entree); else chronologies.set(prise.ig_user_id, [entree]);
   }
   for (const liste of chronologies.values()) liste.sort((a, b) => a.t - b.t);
 
@@ -183,8 +204,9 @@ export function parcoursDesLeads(
   //    n'y compte qu'une : c'est toute la raison d'être de ce tableau.
   const personnesParCle = new Map<string, Set<string>>();
   for (const [personne, liste] of chronologies) {
-    for (const { cle } of liste) {
-      if (!cle) continue;
+    for (const { cle, dansPeriode } of liste) {
+      // Hors periode : l'entree BORNE la chronologie mais n'ouvre aucune ligne.
+      if (!cle || dansPeriode === false) continue;
       let set = personnesParCle.get(cle);
       if (!set) { set = new Set(); personnesParCle.set(cle, set); }
       set.add(personne);
@@ -211,8 +233,14 @@ export function parcoursDesLeads(
       // Les rendez-vous que cette ligne a réellement produits : ceux dont la dernière
       // entrée avant eux est la nôtre.
       const chronologie = chronologies.get(personne) ?? [];
-      const aMoi = (refs.callsParFiche.get(fiche) ?? [])
-        .filter(c => ligneDuCall(chronologie, ms(c.scheduled_at)) === cle);
+      // ⚠️ On exige que l'entree PROPRIETAIRE soit dans la periode, pas seulement que sa
+      // cle corresponde. Une personne rentree DEUX FOIS par la meme porte — en juin puis
+      // en juillet — a deux cohortes portant la meme cle : son rendez-vous de juillet
+      // appartient a la seconde, et la ligne de juin ne doit pas le recolter.
+      const aMoi = (refs.callsParFiche.get(fiche) ?? []).filter(c => {
+        const proprietaire = entreeDuCall(chronologie, ms(c.scheduled_at));
+        return !!proprietaire && proprietaire.cle === cle && proprietaire.dansPeriode !== false;
+      });
 
       const actifs = aMoi.filter(c => c.status === 'active');
       // Opportunités : un 2ᵉ rendez-vous n'en ouvre pas une nouvelle. Même règle que
