@@ -51,12 +51,12 @@ const REFS: RefsParcours = {
   calendlyEnvoye: new Set(['a945e91d', 'a778fc33', '602a4e5a']),
   calendlyClique: new Set(['a945e91d', 'a778fc33', '602a4e5a']),
   callsParFiche: new Map([
-    ['602a4e5a', [{ id: '59a1e236', ig_lead_id: '602a4e5a', status: 'active', scheduled_at: '2026-06-15T16:10:00Z', honore: true, closed: true, qualified: null }]],
+    ['602a4e5a', [{ id: '59a1e236', ig_lead_id: '602a4e5a', status: 'active', dateDeRattachement: '2026-06-15T16:10:00Z', honore: true, closed: true, qualified: null }]],
     ['a778fc33', [
-      { id: '9c7ae4d0', ig_lead_id: 'a778fc33', status: 'active', scheduled_at: '2026-06-15T12:50:00Z', honore: true, closed: false, qualified: null },
-      { id: 'af9d5898', ig_lead_id: 'a778fc33', status: 'active', scheduled_at: '2026-08-15T21:10:00Z', honore: true, closed: false, qualified: false },
+      { id: '9c7ae4d0', ig_lead_id: 'a778fc33', status: 'active', dateDeRattachement: '2026-06-15T12:50:00Z', honore: true, closed: false, qualified: null },
+      { id: 'af9d5898', ig_lead_id: 'a778fc33', status: 'active', dateDeRattachement: '2026-08-15T21:10:00Z', honore: true, closed: false, qualified: false },
     ]],
-    ['a945e91d', [{ id: '7d9a65f7', ig_lead_id: 'a945e91d', status: 'active', scheduled_at: '2026-07-08T16:40:00Z', honore: true, closed: true, qualified: true }]],
+    ['a945e91d', [{ id: '7d9a65f7', ig_lead_id: 'a945e91d', status: 'active', dateDeRattachement: '2026-07-08T16:40:00Z', honore: true, closed: true, qualified: true }]],
   ]),
   montantParCall: new Map([['59a1e236', 1000], ['7d9a65f7', 500]]),
   continuations: new Set<string>(),
@@ -249,7 +249,7 @@ test('seule une nouvelle prise de lead magnet ouvre une cohorte', () => {
     lmReclame: new Set(), lmClique: new Set(['f1']), ontRepondu: new Set(['f1']),
     calendlyEnvoye: new Set(['f1']), calendlyClique: new Set(['f1']),
     callsParFiche: new Map([['f1', [
-      { id: 'apres-relance', ig_lead_id: 'f1', status: 'active', scheduled_at: '2026-04-15T10:00:00Z', honore: true, closed: true, qualified: null },
+      { id: 'apres-relance', ig_lead_id: 'f1', status: 'active', dateDeRattachement: '2026-04-15T10:00:00Z', honore: true, closed: true, qualified: null },
     ]]]),
     montantParCall: new Map([['apres-relance', 2000]]),
     continuations: new Set(),
@@ -257,6 +257,36 @@ test('seule une nouvelle prise de lead magnet ouvre une cohorte', () => {
   const a = parcoursDesLeads(journal, p => p.media_id, refs).get('A')!;
   assert.equal(a.callsBookes, 1, 'le rendez-vous reste dans la cohorte de mars');
   assert.equal(a.revenue, 2000);
+});
+
+test('un lead magnet pris APRES la reservation ne vole pas le rendez-vous', () => {
+  // Le cas que le rattachement sur la TENUE se trompait a traiter. Une personne entre
+  // par A, reserve le 10, puis prend le lead magnet B le 12, et le rendez-vous a lieu
+  // le 15. B n'a pas pu produire une reservation qui existait deja deux jours avant
+  // qu'il soit pris : le rendez-vous appartient a A.
+  //
+  // C'est aussi la regle 2 du referentiel — la date de reference d'un rendez-vous est
+  // sa reservation. Ne pas confondre avec `dateDeVente`, qui date l'ARGENT a la tenue :
+  // deux questions, deux dates, et les confondre etait le defaut corrige ici.
+  const journal: PriseParcours[] = [
+    { ig_user_id: 'p1', media_id: 'A', keyword_matched: 'A', detected_at: '2026-05-01T10:00:00Z', lead_magnet_sent: true },
+    { ig_user_id: 'p1', media_id: 'B', keyword_matched: 'B', detected_at: '2026-05-12T10:00:00Z', lead_magnet_sent: true },
+  ];
+  const refs: RefsParcours = {
+    ficheParPersonne: new Map([['p1', 'f1']]),
+    lmReclame: new Set(), lmClique: new Set(), ontRepondu: new Set(['f1']),
+    calendlyEnvoye: new Set(['f1']), calendlyClique: new Set(['f1']),
+    callsParFiche: new Map([['f1', [
+      { id: 'rdv', ig_lead_id: 'f1', status: 'active', dateDeRattachement: '2026-05-10T09:00:00Z', honore: true, closed: true, qualified: null },
+    ]]]),
+    montantParCall: new Map([['rdv', 1500]]),
+    continuations: new Set(),
+  };
+  const lignes = parcoursDesLeads(journal, p => p.media_id, refs);
+  assert.equal(lignes.get('A')!.callsBookes, 1, 'la porte d entree garde son rendez-vous');
+  assert.equal(lignes.get('A')!.revenue, 1500, 'et l argent qui va avec');
+  assert.equal(lignes.get('B')!.callsBookes, 0, 'un lead magnet pris apres coup ne cree aucun rendez-vous');
+  assert.equal(lignes.get('B')!.revenue, 0);
 });
 
 // ─── Liens partagés : la chaîne commence à la réservation ────────────────────

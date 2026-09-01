@@ -226,10 +226,48 @@ dans Vue générale ni dans Funnel & Calls**, tous deux passés sur `deals` :
 | `app/api/instagram/story-sequences-stats/route.ts` | Business micro | **à aligner** |
 | ~~`app/api/instagram/poll-leads/route.ts`~~ | — | **fichier supprimé le 2026-09-01** — code mort, doublon de l'Edge Function |
 
-⚠️ **Business micro n'est pas aligné** au 2026-09-01 : il somme `calls.revenue` découpé
-sur `booked_at`. L'onglet est en reconstruction dans une session dédiée, qui doit
-l'amener sur `deals` + `dateDeVente`. **Ne pas y toucher depuis une autre session** —
-deux sessions s'y sont déjà écrasées une fois.
+✅ **Business micro est aligné** depuis le 2026-09-01 : source `deals`, date de vente.
+Trois choses à savoir avant d'y toucher.
+
+**Il recalcule la date au lieu de lire `signed_at`.** La règle a été posée le
+2026-09-01, et **quatre des huit ventes en base portent encore l'heure de SAISIE du
+rapport** — 20/08 21h47 pour un rendez-vous du 19/08 13h30. Funnel & Calls recalcule
+pareil. Deux écrans qui recalculent à l'identique ne peuvent pas diverger ; deux écrans
+dont l'un lit une copie figée le peuvent, et c'est le mécanisme d'`instagram_leads`.
+Le jour où toutes les lignes seront conformes, lire `signed_at` redeviendra possible —
+`ventes_sante_montants` ne le dira pas, elle compare les montants, pas les dates.
+
+**Il reçoit le jeu de ventes COMPLET, jamais découpé sur la période.** Le Parcours des
+leads borne la seule ENTRÉE : une personne entrée en juin appartient à la ligne de juin
+même si elle close en juillet. Avec un jeu déjà découpé, sa ligne affichait
+**« 1 closé, 0 € »** — la cohorte suivait la personne, l'argent restait derrière. Cas
+réel : `rdjdkzjd`, entré en juin, 500 € closés en juillet. En contrepartie, tout le
+bornage du cash se fait désormais dans l'onglet.
+
+**Deux fenêtres cohabitent, et les catégories du breakdown forment une partition.**
+`callsInWindow` retient les rendez-vous RÉSERVÉS dans la période, `callsVenteInWindow`
+ceux dont la VENTE y tombe. Chaque catégorie a son jumeau, **y compris « Autre »**, qui
+est leur complément : mélanger les deux populations ferait compter un euro deux fois,
+ici et dans sa vraie catégorie.
+
+⚠️ **Ne pas y toucher depuis une autre session** — deux sessions s'y sont déjà écrasées
+une fois.
+
+#### Rattachement à une cohorte ≠ date de vente
+
+Piège trouvé en corrigeant ce qui précède, et le commentaire du code affirmait
+explicitement le contraire.
+
+Le Parcours des leads rattache un rendez-vous à la porte d'entrée qui l'a produit. Cette
+question se répond à la **RÉSERVATION** — règle 2 —, pas à la tenue : un lead magnet pris
+**après** qu'une personne a déjà réservé ne peut pas avoir produit ce rendez-vous, et
+ranger sur la tenue le lui créditerait quand même, en volant la ligne de la porte qui
+l'avait réellement fait venir.
+
+`dateDeVente` répond à une **autre** question — à quelle période l'argent appartient —
+et se répond, elle, à la tenue. Le champ s'appelle donc `dateDeRattachement` dans
+`lib/parcoursLeads.ts`, et non `scheduled_at` : un nom qui décrit la question, pour que
+le prochain lecteur ne refasse pas l'amalgame. Verrouillé par un test.
 
 ---
 

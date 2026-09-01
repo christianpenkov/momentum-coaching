@@ -60,8 +60,24 @@ export interface CallParcours {
   ig_lead_id: string | null;
   /** `active` compte, le reste non. */
   status?: string | null;
-  /** Date à laquelle le rendez-vous a EU LIEU — c'est elle qui range dans la cohorte. */
-  scheduled_at?: string | null;
+  /**
+   * Date qui RANGE le rendez-vous dans une cohorte : celle de sa **réservation**.
+   *
+   * C'est la réservation que le contenu a produite. Un lead magnet pris APRÈS
+   * qu'une personne a déjà réservé ne peut pas avoir produit ce rendez-vous ;
+   * ranger sur la tenue le lui créditerait quand même, et volerait la ligne de la
+   * porte d'entrée qui l'avait réellement fait venir.
+   *
+   * ⚠️ Ne pas confondre avec `dateDeVente` (`lib/callSeries.ts`), qui répond à une
+   * AUTRE question : non pas « quelle porte a produit ce rendez-vous » mais « à
+   * quelle période l'argent appartient ». La vente se date à la TENUE, le
+   * rattachement à la RÉSERVATION. Deux questions, deux dates, et les confondre
+   * a été un vrai défaut ici.
+   *
+   * Repli sur la tenue pour les rendez-vous anciens importés sans réservation —
+   * même repli que la règle 2 de `docs/perimetre-stats-referentiel.md`.
+   */
+  dateDeRattachement?: string | null;
   honore: boolean;
   closed: boolean;
   /** `null` quand le rapport n'a pas posé la question. */
@@ -249,7 +265,7 @@ export function parcoursDesLeads(
       // en juillet — a deux cohortes portant la meme cle : son rendez-vous de juillet
       // appartient a la seconde, et la ligne de juin ne doit pas le recolter.
       const aMoi = (refs.callsParFiche.get(fiche) ?? []).filter(c => {
-        const proprietaire = entreeDuCall(chronologie, ms(c.scheduled_at));
+        const proprietaire = entreeDuCall(chronologie, ms(c.dateDeRattachement));
         return !!proprietaire && proprietaire.cle === cle && proprietaire.dansPeriode !== false;
       });
 

@@ -5968,7 +5968,19 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   linkClickedByLeadId?: Map<string, string>;
   calls?: CallRecord[];
   callsAllTime?: CallRecord[];
-  /** Le cash CONTRACTE. `calls.revenue` est ce que l'eleve a DECLARE — voir docs. */
+  /**
+   * Le cash CONTRACTE. `calls.revenue` est ce que l'eleve a DECLARE — voir docs.
+   *
+   * ⚠️ Cet onglet recoit le jeu COMPLET (`deals`), jamais `dealsEff` decoupe sur la
+   * periode, et c'est la difference qui compte. Le Parcours des leads borne la seule
+   * ENTREE : une personne entree en juin appartient a la ligne de juin meme si elle
+   * close en juillet. Avec un jeu deja decoupe, sa ligne affichait « 1 close, 0 EUR » —
+   * la cohorte suivait la personne, l'argent restait derriere. Cas reel en base :
+   * rdjdkzjd, entre en juin, 500 EUR closes en juillet.
+   *
+   * En contrepartie, TOUT bornage du cash se fait ici, par `venteDansLaPeriodeB` : la
+   * date de vente, jamais celle de reservation ni `signed_at`.
+   */
   deals?: DealRecord[];
   leadIdToMediaId?: Map<string, string>;
   igLive?: IGStats | null;
@@ -6281,9 +6293,16 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
       id: c.id,
       ig_lead_id: c.ig_lead_id,
       status: c.status,
-      // La date de TENUE, pas de réservation : c'est elle qui range le rendez-vous dans
-      // la cohorte ouverte au moment où il a eu lieu. Même choix que `dateDeVente`.
-      scheduled_at: c.scheduled_at ?? null,
+      // La RÉSERVATION, pas la tenue. C'est la réservation que le contenu a produite :
+      // un lead magnet pris APRÈS que la personne a déjà réservé ne peut pas avoir
+      // produit ce rendez-vous, et ranger sur la tenue le lui créditerait quand même,
+      // en volant la ligne de la porte qui l'avait réellement fait venir.
+      //
+      // ⚠️ Ce n'est PAS le même choix que `dateDeVente`, contrairement à ce que disait
+      // ce commentaire. Deux questions distinctes : « quelle porte a produit ce
+      // rendez-vous » se répond à la réservation, « à quelle période l'argent
+      // appartient » se répond à la tenue. Les confondre était le défaut corrigé ici.
+      dateDeRattachement: c.booked_at ?? c.scheduled_at ?? null,
       honore: isCallHonored(c, now),
       closed: c.deal_closed === true,
       qualified: c.qualified ?? null,
@@ -6301,6 +6320,42 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     if (!d.call_id || d.status === 'canceled') continue;
     montantParCallB.set(d.call_id, (montantParCallB.get(d.call_id) ?? 0) + Number(d.amount_total || 0));
   }
+
+  // ── La DATE du cash, qui n'est pas celle des calls bookés ────────────────────
+  //
+  // Règle 7 de `docs/perimetre-stats-referentiel.md` : un rendez-vous BOOKÉ se date au
+  // moment où il est RÉSERVÉ, une VENTE à la TENUE du premier rendez-vous de sa chaîne.
+  // Un rendez-vous réservé le 29 août pour le 2 septembre compte donc dans les calls
+  // bookés d'août ET dans le cash de septembre, sur le même écran. Ce n'est pas une
+  // incohérence : les aligner daterait la vente AVANT le rendez-vous qui l'a produite —
+  // faux en permanence, là où le cas inverse est rare.
+  //
+  // On RECALCULE au lieu de lire `deals.signed_at`, que la règle est pourtant censée
+  // remplir : la règle a été posée le 2026-09-01 et quatre des huit ventes en base
+  // portent encore l'heure de SAISIE du rapport (20/08 21h47 pour un rendez-vous du
+  // 19/08 13h30). Surtout, Funnel & Calls recalcule de la même façon : deux écrans qui
+  // recalculent à l'identique ne peuvent pas diverger, deux écrans dont l'un lit une
+  // copie figée le peuvent — c'est le mécanisme d'`instagram_leads`.
+  const tousLesCallsB = callsAllTime ?? calls ?? [];
+  const representantB = representantDOpportunite(tousLesCallsB);
+  const parIdB = new Map(tousLesCallsB.map(c => [c.id, c]));
+  const dateVenteDuCallB = (c: CallRecord): string | null => {
+    const rep = parIdB.get(representantB.get(c.id) ?? c.id) ?? c;
+    return rep.scheduled_at ?? rep.booked_at ?? null;
+  };
+  /** La RÉSERVATION est-elle dans la période ? Fenêtre des rendez-vous. */
+  const dansFenetreResa = (c: CallRecord) => isInPeriod(callPeriodDate(c));
+  /** La VENTE est-elle dans la période ? Fenêtre de l'argent. */
+  const venteDansLaPeriodeB = (c: CallRecord) => isInPeriod(dateVenteDuCallB(c));
+  /**
+   * Le cash d'un lot de rendez-vous, borné sur la date de VENTE.
+   *
+   * Le lot doit avoir été constitué sur la population élargie (`callsInWindow`), jamais
+   * sur un sous-ensemble déjà borné à la réservation : un rendez-vous réservé en août
+   * pour septembre n'y serait pas, et filtrer dedans ne pourrait jamais le ramener.
+   */
+  const cashDeLot = (lot: { id: string }[]) =>
+    lot.reduce((somme, c) => somme + (venteDansLaPeriodeB(c as CallRecord) ? (montantParCallB.get(c.id) ?? 0) : 0), 0);
 
   // « Ont répondu » se lit au JOURNAL, pas au drapeau `hook_replied` de la fiche : ce
   // drapeau retombe à false dès qu'une réponse de story ou un Cold DM le remplace, donc
@@ -6480,7 +6535,17 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const lmCalendlyLinks = calendlyLinksSent.length;
   const calendlyActivatedDb = calendlyLinksSent.filter(l => l.first_click_at != null).length;
   // calls filtrés par la fenêtre de période (en S-0, callsEff n'a pas de borne haute)
-  const callsInWindow = (calls ?? []).filter(c => isInPeriod(callPeriodDate(c)));
+  const callsInWindow = (calls ?? []).filter(c => dansFenetreResa(c));
+  // Le JUMEAU de `callsInWindow` pour l'argent : mêmes rendez-vous, autre fenêtre.
+  // `callsInWindow` retient ceux RÉSERVÉS dans la période, celui-ci ceux dont la VENTE
+  // y tombe. Les deux se recouvrent presque toujours ; ils divergent pour un rendez-vous
+  // réservé en fin de période et tenu dans la suivante.
+  //
+  // ⚠️ Les catégories du breakdown par source forment une PARTITION : chaque ligne, et
+  // « Autre » qui est leur complément, doivent se calculer sur la MÊME population. Un
+  // euro compté sur une population et retranché d'une autre serait compté deux fois, ou
+  // perdu. Chaque catégorie a donc ici son jumeau, jusqu'à « Autre ».
+  const callsVenteInWindow = tousLesCallsB.filter(venteDansLaPeriodeB);
   // OPPORTUNITES, comme le breakdown juste en dessous. Cette carte affichait 18 face a
   // un tableau qui affichait 17, dans le meme onglet et a trois centimetres d'ecart.
   const callsBooked = callsInWindow.filter(c => c.status === 'active' && !continuationsContenu.has(c.id)).length;
@@ -6644,18 +6709,29 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // celle qui délimite callsInWindow. Grouper sur scheduled_at alors que la fenêtre
   // filtre sur booked_at ferait sortir du graphique un call pourtant compté.
   const callsPerDay = new Map<string, { booked: number; honored: number; closed: number; revenue: number }>();
+  const jourDeLaCourbe = (jour: string) => {
+    const cur = callsPerDay.get(jour) ?? { booked: 0, honored: 0, closed: 0, revenue: 0 };
+    callsPerDay.set(jour, cur);
+    return cur;
+  };
   for (const c of callsInWindow) {
-    const day = utcDateStr(new Date(callPeriodDate(c)));
-    const cur = callsPerDay.get(day) ?? { booked: 0, honored: 0, closed: 0, revenue: 0 };
-    // Meme grain que la carte : des opportunites. `closed` et `revenue` gardent tous
-    // les calls — un deal se compte la ou il a ete signe, meme au 2e rendez-vous.
+    const cur = jourDeLaCourbe(utcDateStr(new Date(callPeriodDate(c))));
+    // Meme grain que la carte : des opportunites. `closed` garde tous les calls — un
+    // deal se compte la ou il a ete signe, meme au 2e rendez-vous.
     if (c.status === 'active' && !continuationsContenu.has(c.id)) {
       cur.booked += 1;
       if (isCallHonored(c, now)) cur.honored += 1;
     }
     if (c.deal_closed) cur.closed += 1;
-    cur.revenue += montantParCallB.get(c.id) ?? 0;
-    callsPerDay.set(day, cur);
+  }
+  // L'argent se pose sur le jour de la VENTE, pas de la reservation — et il part donc
+  // de son propre jeu. Le poser sur `callPeriodDate` placait un revenu AVANT le
+  // rendez-vous qui l'a produit, et un rendez-vous reserve en fin de periode pour la
+  // suivante n'avait aucun jour ou tomber.
+  for (const c of callsVenteInWindow) {
+    const d = dateVenteDuCallB(c);
+    if (!d) continue;
+    jourDeLaCourbe(utcDateStr(new Date(d))).revenue += montantParCallB.get(c.id) ?? 0;
   }
   // null (trou) hors couverture, comme les autres séries : avant l'arrivée de l'élève
   // ou après aujourd'hui, un 0 se lirait comme « aucun call » au lieu de « pas de
@@ -6896,7 +6972,13 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     // de période. Source = callsAllTime (jamais coupé par periodIndex), PAS calls (= callsEff, qui EST
     // filtré sur la fenêtre de la période affichée dès que periodIndex > 0 — cf. callsHist/fetchSnapshot).
     const postCallsLifetime = (callsAllTime && leadIdToMediaId) ? callsAllTime.filter(matchesContent) : [];
-    const postCallsDesc = postCalls.filter(c => c.utm_medium === 'description' || (!c.ig_lead_id && c.utm_content === postId));
+    const viaDescription = (c: CallRecord) => c.utm_medium === 'description' || (!c.ig_lead_id && c.utm_content === postId);
+    const postCallsDesc = postCalls.filter(viaDescription);
+    // Le jumeau pour l'ARGENT : memes contenus, fenetre de la vente et non de la
+    // reservation. `postCalls` est borne sur la reservation, donc filtrer DEDANS ne
+    // pourrait jamais ramener une vente de septembre reservee en aout.
+    const postCallsVente = (calls && leadIdToMediaId) ? callsVenteInWindow.filter(matchesContent) : [];
+    const postCallsDescVente = postCallsVente.filter(viaDescription);
     // Un 2e rendez-vous herite du utm_content de son parent (commit 7da4b53) : sans
     // cette exclusion, un contenu se verrait crediter DEUX calls pour un seul
     // prospect — le double comptage que l'heritage devait justement eviter.
@@ -6906,7 +6988,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const callsBooked = postOpportunites.filter(c => c.status === 'active').length;
     const callsHonored = postOpportunites.filter(c => isCallHonored(c, now)).length;
     const closed = postCalls.filter(c => c.deal_closed).length;
-    const revenue = postCalls.reduce((s: number, c: any) => s + (montantParCallB.get(c.id) ?? 0), 0);
+    const revenue = cashDeLot(postCallsVente);
     // Meme exclusion que `postOpportunites` juste au-dessus. Sans elle, le post 9699
     // affichait 2 dans le breakdown par source et 1 dans Performance par contenu, sous
     // le meme libelle « calls bookes » : `postCallsDesc` etait le seul compteur de la
@@ -6915,7 +6997,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const callsBookedDesc = postOpportunitesDesc.filter(c => c.status === 'active').length;
     const callsHonoredDesc = postOpportunitesDesc.filter(c => isCallHonored(c, now)).length;
     const closedDesc = postCallsDesc.filter(c => c.deal_closed).length;
-    const revenueDesc = postCallsDesc.reduce((s: number, c: any) => s + (montantParCallB.get(c.id) ?? 0), 0);
+    const revenueDesc = cashDeLot(postCallsDescVente);
     // « via lead magnet » se lit sur la source, pas sur le rattachement — même
     // correction que le tunnel de l'accueil (commit 4a7a792).
     const postCallsLm = postCalls.filter(c => c.source === 'ig_dm');
@@ -6923,7 +7005,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const callsBookedLm = postOpportunitesLm.filter(c => c.status === 'active').length;
     const callsHonoredLm = postOpportunitesLm.filter(c => isCallHonored(c, now)).length;
     const closedLm = postCallsLm.filter(c => c.deal_closed).length;
-    const revenueLm = postCallsLm.reduce((s: number, c: any) => s + (montantParCallB.get(c.id) ?? 0), 0);
+    const revenueLm = cashDeLot(postCallsVente.filter(c => c.source === 'ig_dm'));
     const vuesParCall = callsBooked > 0 && views > 0 ? Math.round(views / callsBooked) : null;
 
     // Cash/Vue lifetime : revenue cumulé depuis publication / vues cumulées depuis publication
@@ -6945,7 +7027,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const qualifiedAnswered = qualifiableCalls.length;
     const qualifiedPct = qualifiedAnswered > 0 ? Math.round((qualifiedCount / qualifiedAnswered) * 100) : null;
 
-    return { postId, platform, title, thumbnail, type, views, descLink, dmProspects, lmDetectes, lmSent, lmClics, lmReponses, dmCount, clicsDesc, callsBooked, callsHonored, closed, revenue, callsBookedDesc, callsHonoredDesc, closedDesc, revenueDesc, callsBookedLm, callsHonoredLm, closedLm, revenueLm, vuesParCall, cashParVue, qualifiedPct, qualifiedCount, qualifiedAnswered, lmName, lmKeyword, postCallsDesc };
+    return { postId, platform, title, thumbnail, type, views, descLink, dmProspects, lmDetectes, lmSent, lmClics, lmReponses, dmCount, clicsDesc, callsBooked, callsHonored, closed, revenue, callsBookedDesc, callsHonoredDesc, closedDesc, revenueDesc, callsBookedLm, callsHonoredLm, closedLm, revenueLm, vuesParCall, cashParVue, qualifiedPct, qualifiedCount, qualifiedAnswered, lmName, lmKeyword, postCallsDesc, postCallsDescVente };
   });
 
   // Séquences stories — une ligne par séquence (pas par story individuelle), pivot
@@ -6983,7 +7065,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     qualifiedPct: null, qualifiedCount: 0, qualifiedAnswered: 0,
     lmName: seq.lmKeyword ? `#${seq.lmKeyword}` : null,
     lmKeyword: seq.lmKeyword ?? null,
-    postCallsDesc: [],
+    postCallsDesc: [], postCallsDescVente: [],
   }));
 
   const consolidatedRows = [...rawConsolidatedRows, ...storySequenceContentRows]
@@ -7482,11 +7564,11 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           const bioIGBooked = nbBooked(bioIGCalls);
           const bioIGHonored = nbHonored(bioIGCalls);
           const bioIGClosed = bioIGCalls.filter(c => c.deal_closed === true).length;
-          const bioIGRevenue = bioIGCalls.reduce((s: number, c: any) => s + (montantParCallB.get(c.id) ?? 0), 0);
+          const bioIGRevenue = cashDeLot(callsVenteInWindow.filter(c => c.source === 'ig_bio'));
           const bioYTBooked = nbBooked(bioYTCalls);
           const bioYTHonored = nbHonored(bioYTCalls);
           const bioYTClosed = bioYTCalls.filter(c => c.deal_closed === true).length;
-          const bioYTRevenue = bioYTCalls.reduce((s: number, c: any) => s + (montantParCallB.get(c.id) ?? 0), 0);
+          const bioYTRevenue = cashDeLot(callsVenteInWindow.filter(c => c.source === 'yt_bio'));
 
           // Meme source que la ligne « Lead magnet » (le JOURNAL, cf. `fichesAvecLm`), et
           // pas `instagram_leads.lead_magnet_sent`. Ces deux lectures forment une
@@ -7542,20 +7624,27 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           // plusieurs liens (régénération). Sans dédup, ses calls seraient comptés une
           // fois par lien. On déduplique donc par call.id au moment de l'agrégation,
           // jamais en amont par prospect.
-          const callsByLeadInWindow = new Map<string, typeof callsInWindow>();
-          for (const c of callsInWindow) {
-            if (!c.ig_lead_id) continue;
-            const list = callsByLeadInWindow.get(c.ig_lead_id);
-            if (list) list.push(c);
-            else callsByLeadInWindow.set(c.ig_lead_id, [c]);
-          }
+          const grouperParLead = (cs: typeof callsInWindow) => {
+            const m = new Map<string, typeof callsInWindow>();
+            for (const c of cs) {
+              if (!c.ig_lead_id) continue;
+              const list = m.get(c.ig_lead_id);
+              if (list) list.push(c);
+              else m.set(c.ig_lead_id, [c]);
+            }
+            return m;
+          };
+          const callsByLeadInWindow = grouperParLead(callsInWindow);
+          // Le jumeau pour l'argent. Meme fonction, autre fenetre : c'est ce qui garantit
+          // que les deux ne peuvent pas diverger par negligence.
+          const callsByLeadVente = grouperParLead(callsVenteInWindow);
           // Renvoie les calls d'une liste de liens, dédupliqués par call.id.
-          const callsForLinks = (links: any[]) => {
+          const callsDesLiens = (links: any[], parLead: Map<string, typeof callsInWindow>) => {
             const seen = new Set<string>();
             const out: typeof callsInWindow = [];
             for (const l of links) {
               if (!l.ig_lead_id) continue;
-              for (const c of callsByLeadInWindow.get(l.ig_lead_id) ?? []) {
+              for (const c of parLead.get(l.ig_lead_id) ?? []) {
                 if (seen.has(c.id)) continue;
                 seen.add(c.id);
                 out.push(c);
@@ -7563,6 +7652,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             }
             return out;
           };
+          const callsForLinks = (links: any[]) => callsDesLiens(links, callsByLeadInWindow);
+          const callsVenteForLinks = (links: any[]) => callsDesLiens(links, callsByLeadVente);
 
           // Même séparation que pour les leads LM plus bas : les listes *DMLinks
           // restent bornées à la période (colonnes « liens envoyés » et « clics »),
@@ -7581,14 +7672,16 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           const coldBooked = nbBooked(coldCalls);
           const coldHonored = nbHonored(coldCalls);
           const coldClosed = coldCalls.filter(c => c.deal_closed === true).length;
-          const coldRevenue = coldCalls.reduce((s: number, c: any) => s + (montantParCallB.get(c.id) ?? 0), 0);
+          const coldCallsVente = callsVenteForLinks(coldDMLinksAll);
+          const coldRevenue = cashDeLot(coldCallsVente);
           const coldClics = coldDMLinks.filter((l: any) => l.ig_lead_id && linkClickedByLeadId?.has(l.ig_lead_id)).length;
 
           const organicCalls = callsForLinks(organicDMLinksAll);
           const organicBooked = nbBooked(organicCalls);
           const organicHonored = nbHonored(organicCalls);
           const organicClosed = organicCalls.filter(c => c.deal_closed === true).length;
-          const organicRevenue = organicCalls.reduce((s: number, c: any) => s + (montantParCallB.get(c.id) ?? 0), 0);
+          const organicCallsVente = callsVenteForLinks(organicDMLinksAll);
+          const organicRevenue = cashDeLot(organicCallsVente);
           const organicClics = organicDMLinks.filter((l: any) => l.ig_lead_id && linkClickedByLeadId?.has(l.ig_lead_id)).length;
 
           // "Story - Lead Magnet" : calls dont le lead vient d'un reply à une story
@@ -7598,7 +7691,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           const storyLmBooked = nbBooked(storyLmCalls);
           const storyLmHonored = nbHonored(storyLmCalls);
           const storyLmClosed = storyLmCalls.filter(c => c.deal_closed === true).length;
-          const storyLmRevenue = storyLmCalls.reduce((s: number, c: any) => s + (montantParCallB.get(c.id) ?? 0), 0);
+          const storyLmCallsVente = callsVenteForLinks(storyReplyLinksAll);
+          const storyLmRevenue = cashDeLot(storyLmCallsVente);
           const storyLmClics = storyReplyDMLinks.filter((l: any) => l.ig_lead_id && linkClickedByLeadId?.has(l.ig_lead_id)).length;
 
           // "Story - Calendly" : calls dont utm_content matche une séquence story dont
@@ -7609,7 +7703,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           const storyCalendlyBooked = nbBooked(storyCalendlyCalls);
           const storyCalendlyHonored = nbHonored(storyCalendlyCalls);
           const storyCalendlyClosed = storyCalendlyCalls.filter(c => c.deal_closed === true).length;
-          const storyCalendlyRevenue = storyCalendlyCalls.reduce((s: number, c: any) => s + (montantParCallB.get(c.id) ?? 0), 0);
+          const storyCalendlyCallsVente = callsVenteInWindow.filter(c => c.utm_content && calendlySequenceIds.has(c.utm_content));
+          const storyCalendlyRevenue = cashDeLot(storyCalendlyCallsVente);
 
           // LM : liens envoyés = filtrés sur calendly_link_sent_at (comme avant) pour le
           // KPI "liens Calendly envoyés", mais calls booked/honored/closed = tout lead LM
@@ -7649,7 +7744,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           const lmBooked = nbBooked(lmCalls);
           const lmHonored = nbHonored(lmCalls);
           const lmClosed = lmCalls.filter(c => c.deal_closed === true).length;
-          const lmRevenue = lmCalls.reduce((s: number, c: any) => s + (montantParCallB.get(c.id) ?? 0), 0);
+          const lmCallsVente = [...callsByLeadVente.entries()]
+            .filter(([leadId]) => lmLeadIds.has(leadId))
+            .flatMap(([, cs]) => cs);
+          const lmRevenue = cashDeLot(lmCallsVente);
 
           const igContentClics = igContentLinks.reduce((s: number, l: any) => s + linkClics(l), 0);
           const igContentBooked = igRows.reduce((s, r) => s + (r.callsBookedDesc ?? 0), 0);
@@ -7679,10 +7777,24 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             ...storyCalendlyCalls.map(c => c.id),
           ]);
           const otherCalls = callsInWindow.filter(c => !categorizedCallIds.has(c.id));
+          // Le complément pour l'argent se prend sur les JUMEAUX, jamais sur
+          // `categorizedCallIds` : les deux jeux ne contiennent pas les mêmes
+          // rendez-vous, et mélanger les deux ferait compter un euro deux fois — ici,
+          // et dans sa vraie catégorie.
+          const categorizedCashIds = new Set<string>([
+            ...callsVenteInWindow.filter(c => c.source === 'ig_bio' || c.source === 'yt_bio').map(c => c.id),
+            ...igRows.flatMap(r => r.postCallsDescVente?.map((c: any) => c.id) ?? []),
+            ...ytRows.flatMap(r => r.postCallsDescVente?.map((c: any) => c.id) ?? []),
+            ...lmCallsVente.map(c => c.id),
+            ...coldCallsVente.map(c => c.id),
+            ...organicCallsVente.map(c => c.id),
+            ...storyLmCallsVente.map(c => c.id),
+            ...storyCalendlyCallsVente.map(c => c.id),
+          ]);
           const otherBooked = nbBooked(otherCalls);
           const otherHonored = nbHonored(otherCalls);
           const otherClosed = otherCalls.filter(c => c.deal_closed === true).length;
-          const otherRevenue = otherCalls.reduce((s: number, c: any) => s + (montantParCallB.get(c.id) ?? 0), 0);
+          const otherRevenue = cashDeLot(callsVenteInWindow.filter(c => !categorizedCashIds.has(c.id)));
 
           type SourceRow = {
             label: string; labelSuffix?: React.ReactNode; badge: string; badgeColor: string;
@@ -10756,7 +10868,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} abonnesAujourdHui={ig?.followers ?? null} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.yt?.snapshotError} abonnesAujourdHui={yt?.subscribers ?? null} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} callsAllTime={callsAllTimeEff} deals={deals} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} allTimeStart={allTimeStart} profileId={profileId} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} premierClicLienProspect={premierClicLienProspect} />}
-          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} hookRepliedEvents={hookRepliedEvents} lmReclameParLeadId={lmReclameParLeadId} premierLmReclame={premierLmReclame} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={callsAllTimeEff} deals={dealsEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} shortioChartHistoryStory={shortioChartHistoryStory} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
+          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} hookRepliedEvents={hookRepliedEvents} lmReclameParLeadId={lmReclameParLeadId} premierLmReclame={premierLmReclame} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={callsAllTimeEff} deals={deals} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} shortioChartHistoryStory={shortioChartHistoryStory} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
           {tab === 5 && <TabRevenues encaissementsParJour={encaissementsParJour} cashParVente={cashParVente} deals={dealsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} allTimeStart={allTimeStart} stripeConnected={integStatus?.stripeConnected} />}
         </>
       )}
