@@ -27,6 +27,11 @@ This version has breaking changes — APIs, conventions, and file structure may 
   venu d'un lien PARTAGÉ** (bio, description, story) → `docs/click-id.md`. Les UTM
   reportés sur la destination ne sont pas décoratifs : sans eux, les clics de bio
   disparaissent des stats et ceux de description sont comptés en « Cold DM ».
+- **Renommer le projet Vercel, ou changer le domaine de la plateforme** →
+  `docs/click-id.md`, section « La procédure complète, le jour où l'origine change ».
+  L'adresse du projet est écrite dans la **destination de tous les liens partagés** :
+  la changer sans rejouer le script de réécriture casse d'un coup le lien de bio de
+  chaque élève, celui qu'aucune édition de publication ne rattrape.
 - **Auditer des chiffres affichés** → skill `audit-metrique-bout-en-bout`
   (`~/.claude/skills/`). La méthode API → base → écran, et les six pièges
   récurrents.

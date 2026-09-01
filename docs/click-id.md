@@ -358,6 +358,64 @@ ces liens casseraient le jour où cette adresse changerait.
 Vercel, poser la variable avec `printf`, jamais `echo` — `echo` ajoute un `\n` qui
 corrompt la valeur.
 
+### La procédure complète, le jour où l'origine change
+
+⚠️ **Renommer le projet Vercel change son adresse `*.vercel.app`. C'est donc un
+changement d'origine**, même sans toucher à un domaine. Suivre cette procédure.
+
+L'origine vit à **quatre endroits**, et les traiter dans le désordre casse des liens
+déjà publiés :
+
+| Où | Ce que ça gouverne |
+|---|---|
+| `MOMENTUM_REDIRECT_ORIGIN` sur Vercel | ce que les **nouveaux** liens recevront |
+| `.env.local`, non versionné | ce que le **script** écrira |
+| La destination de chaque lien Short.io réécrit | l'origine **actuellement servie** |
+| Le domaine attaché au projet Vercel | ce qui **répond** |
+
+**L'ordre est contraint par une seule règle : à aucun instant un lien publié ne doit
+pointer vers un hôte qui ne répond pas.** D'où la séquence.
+
+1. **Attacher le nouveau domaine sans retirer l'ancien.** Les deux répondent pendant
+   toute la bascule.
+
+2. **Vérifier que la route répond sur le nouveau domaine**, avant tout le reste :
+
+   ```bash
+   curl -sI "https://<NOUVEAU>/r/verif?utm_source=ig&utm_medium=bio&d=<slug-calendly>" | head -3
+   ```
+
+   Attendu : `302` et un `location:` vers `calendly.com`. Sinon **s'arrêter ici** —
+   poser la variable ferait naître des liens vers un hôte mort.
+
+3. **Poser `MOMENTUM_REDIRECT_ORIGIN`** sur Vercel, environnement Production.
+
+4. **Redéployer.** Une variable modifiée n'atteint pas un déploiement déjà en ligne.
+
+5. **Vérifier qu'un lien neuf naît sur la bonne origine** : en générer un depuis
+   « Gérer mes liens », puis lire sa destination chez Short.io. C'est ce qui prouve
+   que les points de génération ont bien reçu la nouvelle valeur.
+
+6. **Mettre `.env.local` à jour**, sinon le script réécrira vers l'ancienne origine.
+
+7. **Simuler**, puis appliquer par lots, canal par canal, bio en dernier — voir
+   « Déploiement » ci-dessous, la règle et les options y sont déjà décrites.
+
+8. **Prouver qu'il ne reste rien sur l'ancienne origine** : relancer la simulation,
+   elle doit annoncer **0 lien à réécrire**. C'est la seule preuve qui fait autorité,
+   parce que le script lit Short.io **en direct** — les snapshots, eux, ont jusqu'à
+   5 minutes de retard et ne prouvent rien.
+
+9. **Tester le lien de bio à la main**, depuis l'application Instagram, sur un
+   téléphone. C'est le seul lien qu'on ne peut pas corriger en éditant un post.
+
+10. **Attendre 48 h, puis retirer l'ancien domaine.** La marge couvre un lien créé
+    hors du compte Short.io, que le script ne voit pas.
+
+**Le seul cas où un lien meurt est l'ancien domaine retiré avant l'étape 8.** Tout le
+reste se rattrape : la réécriture est réversible sans perte (voir plus bas), et une
+origine mal posée ne casse rien tant que l'ancien domaine répond encore.
+
 ---
 
 ## Déploiement — l'ordre n'est pas négociable
