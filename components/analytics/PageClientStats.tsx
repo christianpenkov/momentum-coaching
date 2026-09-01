@@ -4930,6 +4930,13 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
   // diverger sans que rien ne le signale.
   const totalRev     = revDeLaPeriode(() => true);
   const noShowCount  = callsActifs.filter(c => c.no_show).length;
+  // ── Verification faite le 2026-09-01 sur TOUS les taux de la page ──────────
+  // Celui-ci etait le seul melange de grains non documente. Les autres divisions qui
+  // melangent le font a dessein et le disent : `closingRate` et `revPerCall` gardent
+  // au numerateur des deals comptes la ou ils ont ete signes, y compris au 2e
+  // rendez-vous, pour un denominateur en opportunites — c'est la regle, pas un
+  // oubli. Vue generale tenait deja la bonne regle sur les trois siens.
+  //
   // Le denominateur du no-show, c'est les RENDEZ-VOUS — tous les creneaux poses,
   // prolongations comprises. Il divisait par `totalBookes`, qui EXCLUT les
   // prolongations : un numerateur en rendez-vous sur un denominateur en calls bookes.
