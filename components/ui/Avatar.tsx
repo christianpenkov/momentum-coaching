@@ -5,7 +5,7 @@
 // même personne changeait de couleur selon la page (position différente dans chaque
 // liste) ou en changeait carrément à chaque tri/filtre de la même liste. Centralise
 // ici la logique qui était auparavant réinventée séparément dans AccessSheet.tsx,
-// PagePipeline.tsx, PageAnalytics.tsx, ResourceCardCoach.tsx, PageClients.tsx.
+// PagePipeline.tsx, PageStatsClients.tsx, ResourceCardCoach.tsx, PageClients.tsx.
 const AVATAR_COLORS = ['#7C3AED', '#2563EB', '#059669', '#D97706', '#EA580C', '#DB2777', '#0891B2', '#65A30D'];
 
 /**
@@ -28,7 +28,10 @@ export function seedForPerson(name: string | null | undefined): string {
   return (name ?? '').trim().toLowerCase();
 }
 
-function colorFromSeed(seed: string): string {
+/** Exporté pour que la couleur d'une personne soit la MÊME partout : son avatar, sa
+ *  courbe dans le graphe de Stats Clients, sa pastille de légende. Deux palettes
+ *  auraient donné deux couleurs à la même personne sur le même écran. */
+export function colorFromSeed(seed: string): string {
   let h = 0;
   for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) & 0xffffffff;
   return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];

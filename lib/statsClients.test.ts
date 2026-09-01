@@ -13,6 +13,7 @@ import {
   formaterValeur,
   formaterVariation,
   tauxCollecte,
+  sequenceFenetres,
   type LigneEleve,
 } from './statsClients.ts';
 
@@ -232,4 +233,52 @@ test('le taux de collecté est plafonné à 100 %', () => {
 test('aucun contracté : pas de taux, et surtout pas une division par zéro', () => {
   assert.equal(tauxCollecte(0, 0), null);
   assert.equal(tauxCollecte(500, 0), null);
+});
+
+/* ═══ Suite des fenêtres ══════════════════════════════════════════════════ */
+
+const j = (s: string) => new Date(s + 'T12:00:00Z');
+
+test('au jour : une entrée par jour, bornes incluses', () => {
+  assert.deepEqual(
+    sequenceFenetres(j('2026-08-29'), j('2026-09-01'), 'jour'),
+    ['2026-08-29', '2026-08-30', '2026-08-31', '2026-09-01'],
+  );
+});
+
+test('au jour : un changement de mois ne casse pas la suite', () => {
+  const s = sequenceFenetres(j('2026-01-30'), j('2026-02-02'), 'jour');
+  assert.deepEqual(s, ['2026-01-30', '2026-01-31', '2026-02-01', '2026-02-02']);
+});
+
+test('au mois : le premier jour du mois, comme date_trunc côté base', () => {
+  assert.deepEqual(
+    sequenceFenetres(j('2026-06-15'), j('2026-09-02'), 'mois'),
+    ['2026-06-01', '2026-07-01', '2026-08-01', '2026-09-01'],
+  );
+});
+
+test('à la semaine : le lundi, comme date_trunc(week) en norme ISO', () => {
+  // Le 2026-09-01 est un mardi ; sa semaine commence le lundi 31 août.
+  const s = sequenceFenetres(j('2026-09-01'), j('2026-09-08'), 'semaine');
+  assert.equal(s[0], '2026-08-31');
+  assert.equal(s[1], '2026-09-07');
+});
+
+test('un lundi reste son propre lundi', () => {
+  assert.equal(sequenceFenetres(j('2026-08-31'), j('2026-08-31'), 'semaine')[0], '2026-08-31');
+});
+
+test('une borne de fin avant le début rend une suite vide', () => {
+  assert.deepEqual(sequenceFenetres(j('2026-09-01'), j('2026-08-01'), 'jour'), []);
+});
+
+test('une date invalide ne fait pas boucler sans fin', () => {
+  assert.deepEqual(sequenceFenetres(new Date('n\'importe quoi'), j('2026-09-01'), 'jour'), []);
+  assert.deepEqual(sequenceFenetres(j('2026-09-01'), new Date('n\'importe quoi'), 'jour'), []);
+});
+
+test('une borne aberrante est plafonnée plutôt que de produire des millions d\'entrées', () => {
+  const s = sequenceFenetres(j('1990-01-01'), j('2090-01-01'), 'jour');
+  assert.equal(s.length, 400);
 });

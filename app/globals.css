@@ -3909,3 +3909,101 @@ html[data-splash='1'] .dot-wave {
   border: 2px solid var(--surface);
 }
 .table-scroll-x::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* ── Stats Clients : la bande « à regarder » ───────────────────────────────
+   Même mécanisme que .rapport-fil (PendingRapportCard) : défilement natif avec
+   accroche, ascenseur masqué, et le DÉBORD de la carte suivante comme seule
+   indication qu'il y en a d'autres. Aucune flèche — elles avaient été retirées
+   du fil des rapports parce qu'elles prenaient 104 px sur 358 en mobile.
+
+   Seule différence : la largeur d'un élément. Le fil des rapports montre UNE
+   carte par vue ; ici on en montre quatre, et la cinquième déborde.
+   ⚠️ Le `gap` doit rester égal à VEILLE_GAP dans PageStatsClients.tsx. */
+.veille-fil {
+  display: flex;
+  gap: 11px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 0;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding: 2px 2px 4px;
+  margin: -2px -2px -4px;
+}
+.veille-fil::-webkit-scrollbar { display: none; }
+
+.veille-slide {
+  scroll-snap-align: start;
+  flex: 0 0 calc((100% - 3 * 11px) / 4 - 7px);
+  min-width: 0;
+}
+/* Quatre ou moins : rien à faire défiler, aucun débord ne doit suggérer une suite
+   qui n'existe pas. */
+.veille-fil-complet .veille-slide { flex-basis: calc((100% - 3 * 11px) / 4); }
+
+.veille-points {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  margin-top: 11px;
+}
+.veille-point {
+  width: 6px;
+  height: 6px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--border);
+  cursor: pointer;
+  transition: background .18s, width .18s;
+}
+.veille-point[aria-selected="true"] {
+  background: var(--taupe);
+  width: 16px;
+  border-radius: 3px;
+}
+
+/* En-tête collant du tableau : à 40 lignes, dès qu'on descend on ne sait plus
+   quelle colonne on lit. */
+.tableau-portefeuille thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface);
+}
+
+/* Contrôles de Stats Clients : même vocabulaire que les autres sélecteurs de l'app,
+   mais l'app n'avait pas de <select> stylé — celui du navigateur jurait avec le reste. */
+.stats-select {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 6px 26px 6px 11px;
+  cursor: pointer;
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 13px) 13px, calc(100% - 9px) 13px;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+}
+.stats-select:focus-visible { outline: 2px solid var(--accent-brand); outline-offset: 1px; }
+
+.stats-search {
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 6px 11px;
+  width: 200px;
+}
+.stats-search::placeholder { color: var(--muted); }
+.stats-search:focus { outline: none; border-color: var(--accent-brand); }
