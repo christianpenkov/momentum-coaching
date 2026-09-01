@@ -65,7 +65,9 @@ export async function getIgCreds(profileId: string): Promise<IgCreds | null> {
         ? new Date(Date.now() + data.expires_in * 1000).toISOString()
         : null;
       await serviceSupabase.from('integrations')
-        .update({ access_token: token, expires_at: expiresAt, status: 'ok', last_snapshot_error: null })
+        // Voir poll-leads : un rafraichissement reussi ne prouve pas qu'une lecture
+        // passe. Effacer l'erreur ici rendait la panne invisible a chaque passage.
+        .update({ access_token: token, expires_at: expiresAt })
         .eq('profile_id', profileId).eq('provider', 'instagram');
     } else {
       // Il n'y avait AUCUNE branche ici : un refus de rafraichissement ne tracait

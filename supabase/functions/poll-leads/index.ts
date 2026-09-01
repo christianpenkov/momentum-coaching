@@ -219,7 +219,18 @@ async function getIgCreds(profileId: string): Promise<{ token: string; igAccount
     if (d.access_token) {
       token = d.access_token;
       const expiresAt = d.expires_in ? new Date(Date.now() + d.expires_in * 1000).toISOString() : null;
-      await supa.from('integrations').update({ access_token: token, expires_at: expiresAt, status: 'ok', last_snapshot_error: null })
+      // ⚠️ On NE remet PAS `status: 'ok'` ni `last_snapshot_error: null` ici.
+      //
+      // Un rafraichissement reussi prouve que le jeton peut etre renouvele, PAS que
+      // les donnees peuvent etre lues. Les deux se sont dissociees le 2026-09-01 :
+      // l'app avait perdu l'acces avance sur `instagram_business_basic`, le
+      // rafraichissement passait toujours (expiration repoussee de 60 jours) et plus
+      // aucun appel de lecture ne fonctionnait, pas meme /me.
+      //
+      // Effacer l'erreur ici la faisait donc disparaitre a chaque passage, avant
+      // meme qu'une vue de sante ait pu la voir — la panne redevenait invisible
+      // toutes les heures. L'effacement appartient au succes d'une LECTURE.
+      await supa.from('integrations').update({ access_token: token, expires_at: expiresAt })
         .eq('profile_id', profileId).eq('provider', 'instagram');
     } else {
       // Un refus de rafraichissement signifie presque toujours un jeton revoque ou
