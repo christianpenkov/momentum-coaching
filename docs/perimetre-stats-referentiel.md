@@ -294,6 +294,46 @@ base. Les tests du 2026-08-19 ont montré ce que cachent les chemins jamais parc
 
 ---
 
+## Piège nommé : la fonction qui a besoin d'un contexte plus large que ce qu'on lui passe
+
+Trouvé le 2026-09-01 dans Funnel & Calls, après avoir été corrigé ailleurs sans que
+personne pense à vérifier les voisins.
+
+**La forme.** Une fonction a besoin de voir **au-delà de la période affichée** pour
+répondre juste. L'appelant, lui, travaille sur la période et lui passe naturellement ce
+qu'il a sous la main : le jeu déjà filtré. La fonction ne peut pas s'en apercevoir — elle
+reçoit une liste valide, elle répond une réponse valide. **Sur cette liste-là.**
+
+**Le cas réel.** `idsDeContinuation` apparie un 2ᵉ rendez-vous avec le 1ᵉʳ de la même
+personne. Funnel & Calls lui passait `calls`, déjà coupé sur la période dès qu'on navigue
+en arrière. Une paire à cheval sur deux périodes devenait invisible depuis la seconde : le
+2ᵉ rendez-vous y recomptait comme une opportunité neuve, et gonflait les calls bookés, le
+taux clics → calls et le dénominateur du closing.
+
+Atteignable sur les données réelles au moment de la découverte : 1ᵉʳ rendez-vous le 21/08
+(semaine 17-23), continuation le 29/08 (semaine 24-30).
+
+**Pourquoi il est difficile à voir.** Il ne produit ni erreur, ni valeur absurde, ni
+divergence entre deux nombres de la même page. Il produit un chiffre **plausible**, et
+seulement sur les périodes passées — jamais sur celle qu'on regarde en premier. Aucune
+relecture de la fonction ne le montre : elle est juste. C'est l'appel qui est faux.
+
+**Le réflexe.** Pour toute fonction dont la réponse dépend de lignes qui peuvent être
+hors fenêtre — appariement, chaîne, déduplication, « premier / dernier », rattachement à
+un parent — se demander : **est-ce que je lui passe le jeu le plus large disponible, ou
+celui que j'ai sous la main ?** Le filtrage par période vient **après**, jamais avant.
+
+Concrètement dans cette page : ces fonctions reçoivent `callsAllTime ?? calls`, jamais
+`calls` seul. Les cinq appels ont été vérifiés un par un le 2026-09-01.
+
+**La parenté avec le piège de la partition.** Là, une ligne et son complément lisaient le
+même prédicat et n'en corriger qu'un faisait compter deux fois. Ici, une fonction et son
+appelant n'ont pas le même périmètre, et c'est le plus étroit qui gagne en silence. Même
+famille : **deux endroits qui doivent s'accorder, dont un seul est visible depuis
+l'autre.**
+
+---
+
 ## Le réflexe à garder
 
 Avant d'ajouter un compteur, se demander :
