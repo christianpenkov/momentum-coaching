@@ -32,6 +32,14 @@ This version has breaking changes — APIs, conventions, and file structure may 
   L'adresse du projet est écrite dans la **destination de tous les liens partagés** :
   la changer sans rejouer le script de réécriture casse d'un coup le lien de bio de
   chaque élève, celui qu'aucune édition de publication ne rattrape.
+- **Changer une règle de comptage, ou trouver une décision bizarre dans les stats** →
+  `docs/pourquoi-ces-choix-stats.md` **avant** `docs/perimetre-stats-referentiel.md`. Le
+  second dit ce que fait la plateforme, le premier dit **pourquoi ces choix plutôt que
+  d'autres**, et surtout ce qu'on a failli faire à la place. Une règle sans son motif se
+  fait supprimer par la première personne qui la trouve gênante. Trois décisions y sont
+  volontairement contre-intuitives : le grain du no-show, les deux dates sur le même
+  écran, et les deux tableaux qui affichent des nombres différents pour ce qui ressemble
+  à la même chose.
 - **Auditer des chiffres affichés** → skill `audit-metrique-bout-en-bout`
   (`~/.claude/skills/`). La méthode API → base → écran, et les six pièges
   récurrents.
@@ -161,7 +169,7 @@ dans cron-job.org, nulle part ailleurs.**
 | `sync-calendly` (30 min) | Edge | `supabase.co/functions/v1/sync-calendly` |
 | `sync-stripe-payments` (30 min) | Edge | `supabase.co/functions/v1/sync-stripe-payments` |
 | `notify-rapport` (30 min) | Edge | `supabase.co/functions/v1/notify-rapport` |
-| `fathom-cron-sync` | Edge | `supabase.co/functions/v1/fathom-cron-sync` |
+| `fathom-cron-sync` (15 min) | Edge | `supabase.co/functions/v1/fathom-cron-sync` |
 | `installment-reminders` (1×/j) | Edge | `supabase.co/functions/v1/installment-reminders` |
 | `cron-health` (1×/j) | **Vercel** | `momentum-plateforme.vercel.app/api/stripe/cron-health` |
 | `cron-refresh-tokens` | **Vercel** | `momentum-plateforme.vercel.app/api/instagram/cron-refresh-tokens` |
