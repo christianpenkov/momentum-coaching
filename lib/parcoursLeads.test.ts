@@ -258,3 +258,51 @@ test('seule une nouvelle prise de lead magnet ouvre une cohorte', () => {
   assert.equal(a.callsBookes, 1, 'le rendez-vous reste dans la cohorte de mars');
   assert.equal(a.revenue, 2000);
 });
+
+// ─── Liens partagés : la chaîne commence à la réservation ────────────────────
+
+import { parcoursDesLiensPartages, type CallPartage } from './parcoursLeads.ts';
+
+const YT = 'EMvwzHVjNJg';
+const CALLS_YT: CallPartage[] = [
+  { id: 'f23976bd', contenu: YT, status: 'active', personne: 'christianpenkov@ubizenai.com', honore: true, closed: false, qualified: null },
+  { id: '37aca0a6', contenu: YT, status: 'active', personne: 'eazeaz@gmail.com', honore: false, closed: false, qualified: null },
+  { id: '39514db8', contenu: YT, status: 'active', personne: 'testyt@mail.com', honore: true, closed: true, qualified: true },
+];
+
+test('trois invites distincts font trois personnes', () => {
+  const l = parcoursDesLiensPartages(CALLS_YT, new Map([['39514db8', 1000]]), new Set()).get(YT)!;
+  assert.equal(l.callsBookes, 3);
+  assert.equal(l.callsHonores, 2, 'le no-show n a pas honore');
+  assert.equal(l.closes, 1);
+  assert.equal(l.revenue, 1000);
+  assert.deepEqual(l.qualifies, { oui: 1, renseignes: 1 });
+});
+
+test('un meme invite qui reserve deux fois compte pour une personne', () => {
+  const calls: CallPartage[] = [
+    { id: 'a', contenu: YT, status: 'active', personne: 'Meme@Mail.com', honore: true, closed: false, qualified: null },
+    { id: 'b', contenu: YT, status: 'active', personne: 'meme@mail.com ', honore: true, closed: true, qualified: null },
+  ];
+  const l = parcoursDesLiensPartages(calls, new Map([['b', 700]]), new Set()).get(YT)!;
+  assert.equal(l.callsBookes, 1, 'casse et espaces ne font pas deux personnes');
+  assert.equal(l.revenue, 700, 'mais l argent se somme sur les deux rendez-vous');
+});
+
+test('deux rendez-vous sans identite ne fusionnent jamais', () => {
+  const calls: CallPartage[] = [
+    { id: 'a', contenu: YT, status: 'active', personne: null, honore: true, closed: false, qualified: null },
+    { id: 'b', contenu: YT, status: 'active', personne: null, honore: true, closed: false, qualified: null },
+  ];
+  assert.equal(parcoursDesLiensPartages(calls, new Map(), new Set()).get(YT)!.callsBookes, 2);
+});
+
+test('une continuation ne rouvre pas d opportunite', () => {
+  const calls: CallPartage[] = [
+    { id: 'premier', contenu: YT, status: 'active', personne: 'x@y.fr', honore: true, closed: false, qualified: null },
+    { id: 'second', contenu: YT, status: 'active', personne: 'z@y.fr', honore: true, closed: false, qualified: null },
+  ];
+  const l = parcoursDesLiensPartages(calls, new Map(), new Set(['second'])).get(YT)!;
+  assert.equal(l.callsBookes, 1, 'la continuation ne compte pas comme une opportunite');
+  assert.equal(l.personnes.length, 2, 'mais la personne existe bien');
+});

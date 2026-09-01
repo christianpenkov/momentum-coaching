@@ -286,3 +286,86 @@ export function parcoursDesLeads(
 
   return lignes;
 }
+
+// ─── LES LIENS PARTAGÉS — une chaîne plus courte, parce qu'elle l'est vraiment ──
+//
+// Un lien en description YouTube n'a pas de tunnel DM en amont : personne ne commente
+// de mot-clé, aucun lead magnet ne part, aucune conversation ne s'ouvre. Les six
+// premières colonnes du parcours Instagram n'existent donc pas ici — et ce n'est pas un
+// trou de mesure, c'est la forme réelle de ce canal.
+//
+// ⚠️ **Le clic reste HORS CHAÎNE.** Short.io compte des clics, il ne sait pas qui clique.
+// La chaîne ne peut donc commencer qu'à la réservation, seul moment où une identité
+// apparaît — l'e-mail de l'invité Calendly. Mettre le clic dans la chaîne comparerait
+// des événements anonymes à des personnes, et produirait des taux qui n'ont pas de sens.
+//
+// La clé de personne diffère de celle du tunnel DM (`ig_lead_id` là-bas, l'e-mail ici),
+// parce que les deux canaux identifient les gens autrement. Un angle, une clé — jamais
+// les deux mélangées dans le même tableau.
+
+/** Un rendez-vous venu d'un lien partagé. */
+export interface CallPartage {
+  id: string;
+  /** Le contenu qui porte le lien — `utm_content`. */
+  contenu: string | null;
+  status?: string | null;
+  /** E-mail de l'invité, sinon son nom. `null` quand aucune identité n'est connue. */
+  personne: string | null;
+  honore: boolean;
+  closed: boolean;
+  qualified?: boolean | null;
+}
+
+/**
+ * Une ligne par contenu, comptée en PERSONNES à partir de la réservation.
+ *
+ * Un rendez-vous sans aucune identité compte pour une personne distincte : on ne peut
+ * pas le rapprocher d'un autre, et le fondre dans un voisin inventerait un regroupement.
+ * Même règle que `acquisitionParContenu` pour les prises anonymes.
+ */
+export function parcoursDesLiensPartages(
+  calls: CallPartage[],
+  montantParCall: Map<string, number>,
+  continuations: ReadonlySet<string>,
+): Map<string, LigneParcours> {
+  const parContenu = new Map<string, CallPartage[]>();
+  for (const c of calls) {
+    if (!c.contenu || c.status !== 'active') continue;
+    const liste = parContenu.get(c.contenu);
+    if (liste) liste.push(c); else parContenu.set(c.contenu, [c]);
+  }
+
+  const lignes = new Map<string, LigneParcours>();
+  let anonymes = 0;
+  for (const [contenu, sesCalls] of parContenu) {
+    const ligne: LigneParcours = { ...LIGNE_VIDE, qualifies: { oui: 0, renseignes: 0 }, personnes: [] };
+    const parPersonne = new Map<string, CallPartage[]>();
+    for (const c of sesCalls) {
+      const cle = c.personne?.trim().toLowerCase() || `__anonyme_${anonymes++}__`;
+      const liste = parPersonne.get(cle);
+      if (liste) liste.push(c); else parPersonne.set(cle, [c]);
+    }
+
+    const dejaComptes = new Set<string>();
+    for (const [personne, sesRdv] of parPersonne) {
+      ligne.personnes.push(personne);
+      const opportunites = sesRdv.filter(c => !continuations.has(c.id));
+      if (opportunites.length > 0) ligne.callsBookes += 1;
+      const honores = opportunites.filter(c => c.honore);
+      if (honores.length > 0) ligne.callsHonores += 1;
+      const renseignes = honores.filter(c => c.qualified === true || c.qualified === false);
+      if (renseignes.length > 0) {
+        ligne.qualifies.renseignes += 1;
+        if (renseignes.some(c => c.qualified === true)) ligne.qualifies.oui += 1;
+      }
+      if (sesRdv.some(c => c.closed)) ligne.closes += 1;
+      for (const c of sesRdv) {
+        if (dejaComptes.has(c.id)) continue;
+        dejaComptes.add(c.id);
+        ligne.revenue += montantParCall.get(c.id) ?? 0;
+      }
+    }
+    lignes.set(contenu, ligne);
+  }
+  return lignes;
+}

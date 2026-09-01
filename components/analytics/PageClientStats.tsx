@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { CALL_TYPES_VENTE } from '@/lib/callTypes';
-import { parcoursDesLeads, type RefsParcours, type CallParcours, type PriseParcours } from '@/lib/parcoursLeads';
+import { parcoursDesLeads, parcoursDesLiensPartages, type RefsParcours, type CallParcours, type PriseParcours, type CallPartage } from '@/lib/parcoursLeads';
 import InlineLoader from '@/components/ui/InlineLoader';
 import BandeauIntegrations from '@/components/analytics/BandeauIntegrations';
 import { useQuery } from '@tanstack/react-query';
@@ -6032,6 +6032,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const [showAllTable, setShowAllTable] = useState(false);
   const [parcoursAngle, setParcoursAngle] = useState<'contenu' | 'lm'>('contenu');
   const [aideOuverte, setAideOuverte] = useState<string | null>(null);
+  const [parcoursPlateforme, setParcoursPlateforme] = useState<'IG' | 'YT'>('IG');
   // Modale "Voir tout" (performance par contenu) : Echap la ferme. Les autres
   // couches de cette page (post, video, story selectionnes) vivent dans des
   // sous-composants distincts et sont a traiter separement.
@@ -6330,6 +6331,28 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const parcoursParLeadMagnet = parcoursDesLeads(
     lmHistoryPourRoles, p => lmIdDuMotCle(p.keyword_matched), refsParcours, entreeDansLaPeriodeParcours,
   );
+
+  // ── Liens partagés (YouTube) ────────────────────────────────────────────────
+  //
+  // Autre source, autre clé de personne : ici l'identité n'apparaît qu'à la RÉSERVATION,
+  // via l'e-mail de l'invité Calendly. Aucun tunnel DM en amont, donc aucune des six
+  // premières colonnes du parcours Instagram — et c'est la forme réelle de ce canal, pas
+  // un trou de mesure.
+  //
+  // Les rendez-vous sont bornés à la période par `calls`, qui l'est déjà : contrairement
+  // au tunnel DM, il n'y a pas de date d'entrée à laquelle rattacher une cohorte.
+  const callsPartages: CallPartage[] = (calls ?? []).map(c => ({
+    id: c.id,
+    contenu: c.utm_content ?? null,
+    status: c.status,
+    // L'e-mail identifie, le nom ne fait que rapprocher — même ordre que
+    // `groupesDeProspects` dans lib/callSeries.ts.
+    personne: c.invitee_email || c.invitee_name || null,
+    honore: isCallHonored(c, now),
+    closed: c.deal_closed === true,
+    qualified: c.qualified ?? null,
+  }));
+  const parcoursPartage = parcoursDesLiensPartages(callsPartages, montantParCallB, continuationsContenu);
 
   // Une reponse = une CONVERSATION, creditee au contenu du dernier lead magnet pris
   // AVANT elle. Decision du 2026-08-29 : on compte les conversations, pas les
@@ -7951,7 +7974,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
       {/* ── Section 1b : Parcours des leads ── */}
       {(() => {
         const parContenu = parcoursAngle === 'contenu';
-        const lignesParcours = parContenu ? parcoursParContenu : parcoursParLeadMagnet;
+        // Le canal YouTube n'a pas de tunnel DM : sa chaîne commence à la réservation et
+        // sa source est autre. Deux tableaux, parce que ce sont deux parcours — pas une
+        // version amputée du premier.
+        const estYT = parContenu && parcoursPlateforme === 'YT';
+        const idsYT = new Set(consolidatedRows.filter(r => r.platform === 'YT').map(r => r.postId));
+        const lignesParcours = estYT
+          ? new Map([...parcoursPartage.entries()].filter(([cle]) => idsYT.has(cle)))
+          : parContenu ? parcoursParContenu : parcoursParLeadMagnet;
 
         // Le libellé d'une ligne : un contenu a un titre, une vignette et des vues ; un
         // lead magnet a un nom et un mot-clé. Tout le reste est rigoureusement identique
@@ -7967,6 +7997,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
               story: r?.platform === 'STORY_SEQUENCE',
               vuesParCall: r?.vuesParCall ?? null,
               cashParVue: r?.cashParVue ?? null,
+              clicsDesc: r?.clicsDesc ?? 0,
               sansTitre,
             };
           }
@@ -7974,14 +8005,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           return {
             titre: lm ? lm.name : cle,
             sousTitre: lm && lm.keyword ? `mot-clé : ${lm.keyword}` : '',
-            vignette: null, story: false, vuesParCall: null, cashParVue: null,
+            vignette: null, story: false, vuesParCall: null, cashParVue: null, clicsDesc: 0,
             sansTitre: !lm,
           };
         };
 
         const rowsParcours = [...lignesParcours.entries()]
           .map(([cle, l]) => ({ cle, l, info: infoLigne(cle) }))
-          .filter(r => r.l.commentairesLm > 0)
+          .filter(r => (estYT ? (r.l.callsBookes > 0 || r.info.clicsDesc > 0) : r.l.commentairesLm > 0))
           .sort((a, b) => (b.l.callsBookes - a.l.callsBookes) || (b.l.commentairesLm - a.l.commentairesLm));
 
         const thP: React.CSSProperties = { textAlign: 'right', fontSize: 9.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', padding: '6px 9px 9px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', verticalAlign: 'bottom' };
@@ -8009,6 +8040,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           <div><b>La période porte sur la date d&apos;entrée.</b> En regardant mars, vous voyez les personnes entrées en mars et tout ce qu&apos;elles ont fait ensuite, même en juin. Un rendez-vous se range dans la ligne par laquelle la personne était entrée juste avant lui. <b>Une relance manuelle n&apos;ouvre pas de nouvelle cohorte</b> : seule une nouvelle prise de lead magnet le fait.</div>
           <div><b>Les périodes récentes paraissent toujours faibles</b>, parce que les gens viennent d&apos;entrer et n&apos;ont pas encore eu le temps d&apos;aller au bout.</div>
           <div><b>Pas de ligne Total.</b> Une même personne peut être entrée par plusieurs contenus : additionner les lignes la compterait plusieurs fois.</div>
+          {estYT && <div><b>Sur YouTube la chaîne est plus courte, parce qu&apos;elle l&apos;est réellement.</b> Pas de commentaire mot-clé, pas de lead magnet, pas de conversation : le lien est en description et on réserve directement. <b>Les clics restent hors chaîne</b> — Short.io compte des clics, il ne sait pas qui clique. L&apos;identité n&apos;apparaît qu&apos;à la réservation, par l&apos;e-mail de l&apos;invité Calendly, et c&apos;est donc là que la chaîne commence. Aucun taux ne traverse ce filet : comparer des clics anonymes à des personnes ne voudrait rien dire.</div>}
           {parContenu && <div><b>Les deux dernières colonnes sont à part.</b> Vues / call et Cash / vue portent sur <b>tous</b> les rendez-vous du contenu, y compris ceux venus d&apos;un lien en description — pas seulement sur la chaîne à leur gauche.</div>}
         </>;
 
@@ -8020,37 +8052,57 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
               cleAide="parcours"
               aide={AIDE_PARCOURS}
               action={
-                <div style={{ display: 'inline-flex', gap: 3, background: 'var(--surface-2)', borderRadius: 7, padding: 3 }}>
-                  {([['contenu', 'Contenu'], ['lm', 'Lead magnet']] as const).map(([v, label]) => (
-                    <button key={v} onClick={() => setParcoursAngle(v)}
-                      style={{ fontSize: 11.5, fontWeight: 600, border: 'none', cursor: 'pointer', borderRadius: 5, padding: '5px 13px', background: parcoursAngle === v ? 'var(--surface)' : 'transparent', color: parcoursAngle === v ? 'var(--ink)' : 'var(--faint)' }}>
-                      {label}
-                    </button>
-                  ))}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ display: 'inline-flex', gap: 3, background: 'var(--surface-2)', borderRadius: 7, padding: 3 }}>
+                    {([['contenu', 'Contenu'], ['lm', 'Lead magnet']] as const).map(([v, label]) => (
+                      <button key={v} onClick={() => setParcoursAngle(v)}
+                        style={{ fontSize: 11.5, fontWeight: 600, border: 'none', cursor: 'pointer', borderRadius: 5, padding: '5px 13px', background: parcoursAngle === v ? 'var(--surface)' : 'transparent', color: parcoursAngle === v ? 'var(--ink)' : 'var(--faint)' }}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  {/* Pas de plateforme sur l'angle Lead magnet : un même lead magnet peut
+                      servir sur les deux à la fois. */}
+                  {parContenu && (
+                    <div style={{ display: 'inline-flex', gap: 3, background: 'var(--surface-2)', borderRadius: 7, padding: 3 }}>
+                      {([['IG', 'Instagram'], ['YT', 'YouTube']] as const).map(([v, label]) => (
+                        <button key={v} onClick={() => setParcoursPlateforme(v)}
+                          style={{ fontSize: 11.5, fontWeight: 600, border: 'none', cursor: 'pointer', borderRadius: 5, padding: '5px 13px', background: parcoursPlateforme === v ? 'var(--surface)' : 'transparent', color: parcoursPlateforme === v ? 'var(--ink)' : 'var(--faint)' }}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               }
             />
 
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: parContenu ? 1000 : 880 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: estYT ? 700 : parContenu ? 1000 : 880 }}>
                 <thead>
                   {/* Intertitre du groupe hors chaîne : sans lui, deux colonnes de plus
                       dans la rangée se lisent comme deux marches de plus. */}
-                  <tr>
-                    <th style={{ ...thP, borderBottom: 'none' }} />
-                    <th style={{ ...thP, borderBottom: 'none' }} />
-                    <th colSpan={2} style={{ ...thP, ...filet, textAlign: 'center', color: BLUE, borderBottom: 'none', paddingBottom: 2 }}>Engagement du DM1</th>
-                    <th colSpan={parContenu ? 9 : 7} style={{ ...thP, ...filet, borderBottom: 'none' }} />
-                  </tr>
+                  {!estYT && (
+                    <tr>
+                      <th style={{ ...thP, borderBottom: 'none' }} />
+                      <th style={{ ...thP, borderBottom: 'none' }} />
+                      <th colSpan={2} style={{ ...thP, ...filet, textAlign: 'center', color: BLUE, borderBottom: 'none', paddingBottom: 2 }}>Engagement du DM1</th>
+                      <th colSpan={parContenu ? 9 : 7} style={{ ...thP, ...filet, borderBottom: 'none' }} />
+                    </tr>
+                  )}
                   <tr>
                     <th style={{ ...thP, textAlign: 'left', width: 240 }}>{parContenu ? 'Contenu' : 'Lead magnet'}</th>
-                    <th style={thP}><EnteteColonne nom="leadsGeneres">Commentaires LM</EnteteColonne></th>
-                    <th style={{ ...thP, ...filet }}><EnteteColonne nom="clicLeadMagnet">LM réclamés</EnteteColonne></th>
-                    <th style={thP}><EnteteColonne nom="clicLeadMagnet">Clics LM</EnteteColonne></th>
-                    <th style={{ ...thP, ...filet }}><EnteteColonne nom="conversationDm">Conversations</EnteteColonne></th>
-                    <th style={thP}><EnteteColonne nom="calendlyEnvoye">Calendly envoyés</EnteteColonne></th>
-                    <th style={thP}><EnteteColonne nom="clicLien">Clics Calendly</EnteteColonne></th>
-                    <th style={thP}><EnteteColonne nom="callBooke">Calls bookés</EnteteColonne></th>
+                    {estYT
+                      ? <th style={{ ...thP, ...filet }}><EnteteColonne nom="clicLien">Clics desc.</EnteteColonne></th>
+                      : <>
+                          <th style={thP}><EnteteColonne nom="leadsGeneres">Commentaires LM</EnteteColonne></th>
+                          <th style={{ ...thP, ...filet }}><EnteteColonne nom="clicLeadMagnet">LM réclamés</EnteteColonne></th>
+                          <th style={thP}><EnteteColonne nom="clicLeadMagnet">Clics LM</EnteteColonne></th>
+                          <th style={{ ...thP, ...filet }}><EnteteColonne nom="conversationDm">Conversations</EnteteColonne></th>
+                          <th style={thP}><EnteteColonne nom="calendlyEnvoye">Calendly envoyés</EnteteColonne></th>
+                          <th style={thP}><EnteteColonne nom="clicLien">Clics Calendly</EnteteColonne></th>
+                        </>}
+                    <th style={estYT ? { ...thP, ...filet } : thP}><EnteteColonne nom="callBooke">Calls bookés</EnteteColonne></th>
                     <th style={thP}><EnteteColonne nom="callHonore">Calls honorés</EnteteColonne></th>
                     <th style={thP}><EnteteColonne nom="callQualifie">% qualifiés</EnteteColonne></th>
                     <th style={thP}><EnteteColonne nom="close">Closés</EnteteColonne></th>
@@ -8061,8 +8113,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                 </thead>
                 <tbody>
                   {rowsParcours.length === 0 && (
-                    <tr><td colSpan={parContenu ? 14 : 12} style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--faint)' }}>
-                      Personne n&apos;est encore entré par ce canal sur la période.
+                    <tr><td colSpan={estYT ? 9 : parContenu ? 14 : 12} style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--faint)' }}>
+                      {estYT
+                        ? 'Aucun clic ni rendez-vous depuis une description YouTube sur cette période.'
+                        : 'Personne n\'est encore entré par ce canal sur la période.'}
                     </td></tr>
                   )}
                   {rowsParcours.map(({ cle, l, info }) => (
@@ -8078,13 +8132,20 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                           </span>
                         </div>
                       </td>
-                      <td style={tdP}><CelluleP n={l.commentairesLm} /></td>
-                      <td style={{ ...tdP, ...filet }}><CelluleP n={l.lmReclames} sur={l.commentairesLm} /></td>
-                      <td style={tdP}><CelluleP n={l.clicsLm} sur={l.commentairesLm} /></td>
-                      <td style={{ ...tdP, ...filet }}><CelluleP n={l.ontRepondu} sur={l.commentairesLm} /></td>
-                      <td style={tdP}><CelluleP n={l.calendlyEnvoyes} sur={l.ontRepondu} /></td>
-                      <td style={tdP}><CelluleP n={l.clicsCalendly} sur={l.calendlyEnvoyes} /></td>
-                      <td style={tdP}><CelluleP n={l.callsBookes} sur={l.clicsCalendly} /></td>
+                      {estYT
+                        ? <td style={{ ...tdP, ...filet }}><CelluleP n={info.clicsDesc} /></td>
+                        : <>
+                            <td style={tdP}><CelluleP n={l.commentairesLm} /></td>
+                            <td style={{ ...tdP, ...filet }}><CelluleP n={l.lmReclames} sur={l.commentairesLm} /></td>
+                            <td style={tdP}><CelluleP n={l.clicsLm} sur={l.commentairesLm} /></td>
+                            <td style={{ ...tdP, ...filet }}><CelluleP n={l.ontRepondu} sur={l.commentairesLm} /></td>
+                            <td style={tdP}><CelluleP n={l.calendlyEnvoyes} sur={l.ontRepondu} /></td>
+                            <td style={tdP}><CelluleP n={l.clicsCalendly} sur={l.calendlyEnvoyes} /></td>
+                          </>}
+                      {/* Sur YouTube, aucun taux entre le clic et la réservation : Short.io
+                          compte des clics anonymes, la chaîne compte des personnes. Les
+                          comparer produirait un pourcentage qui ne veut rien dire. */}
+                      <td style={estYT ? { ...tdP, ...filet } : tdP}><CelluleP n={l.callsBookes} sur={estYT ? undefined : l.clicsCalendly} /></td>
                       <td style={tdP}><CelluleP n={l.callsHonores} sur={l.callsBookes} /></td>
                       <td style={{ ...tdP, fontSize: 11 }}>
                         {l.qualifies.renseignes > 0 ? (
