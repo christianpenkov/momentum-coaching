@@ -290,6 +290,7 @@ select * from ventes_sante_montants;            -- vide = rapport et deal concor
 select * from stripe_sante_rattachement;        -- vide = chaque encaissement a sa vente
 select * from ventes_sante_sur_encaissement;    -- vide = aucun deal n'a encaisse 2x
 select * from ventes_sante_contenu;             -- 'ok' partout
+select * from ventes_sante_date;                -- aucune ligne 'ALERTE%'
 select * from ig_sante_insights_posts;          -- 'ok' partout
 select * from base_sante_taille;                -- 'ok' = plafond de stockage loin
 select * from clics_sante_redirection;
@@ -382,6 +383,24 @@ elle diverge le même euro est crédité à deux contenus différents selon l'é
 mécanisme d'`instagram_leads` : une copie que personne ne confronte à sa source finit par
 mentir. ⚠️ `vente sans rendez-vous` n'est **pas** une anomalie — un upsell n'a aucun call,
 donc aucun contenu à créditer, et il est exclu de Business micro pour cette raison.
+
+`ventes_sante_date` vérifie que `deals.signed_at` porte la **tenue d'un rendez-vous**
+du prospect, et non l'instant de saisie du rapport — le défaut corrigé le 2026-09-01,
+où quatre ventes portaient 20/08 21h47 pour un rendez-vous du 19/08 13h30.
+
+⚠️ Elle ne réimplémente **pas** la règle. Celle-ci vit dans `dateDeVente`
+(`lib/callSeries.ts`) et suppose de reconstruire les chaînes d'opportunité ; la réécrire
+en SQL créerait une troisième version qui dériverait des deux autres en silence. La vue
+teste une **conséquence** : quel que soit le rendez-vous que la règle choisit,
+`signed_at` doit tomber pile sur la tenue de l'un d'eux. Un instant de saisie ne tombe
+jamais pile sur un créneau. `vente sans rendez-vous` et `rapportée avant le rendez-vous`
+ne sont **pas** des anomalies.
+
+**Dette à lever, pas maintenant.** Business micro et Funnel & Calls recalculent la date
+au lieu de lire la colonne, parce qu'elle était fausse. Elle ne l'est plus. Quand cette
+vue aura tourné un moment sans alerte, les deux recalculs deviendront supprimables au
+profit d'une simple lecture de `signed_at`. Tant que ce délai n'est pas écoulé, garder
+les deux versions est une sécurité, pas une redondance.
 
 ⚠️ **`analytics_daily_snapshots` mélange TROIS natures, et deux noms de colonnes
 mentent.** Relevé le 2026-09-01 en préparant Stats Clients :

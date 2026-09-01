@@ -1,0 +1,40 @@
+
+8 ventes rattachées à un rendez-vous.
+
+4 déjà conforme(s) ou sans rendez-vous exploitable.
+4 à redater :
+
+  vente                                 ancien signed_at          nouveau                   écart      bouge un écran ?
+  a1e5b81e-26cc-4459-a99a-3f6302d406ae  2026-08-20T16:42:43  →  2026-08-19T15:15:00     25 h   jour seulement
+      TestYT                       1000 EUR   paid
+  74d08e80-5a08-4a73-bcca-78679a90e72a  2026-08-20T20:43:04  →  2026-08-19T15:10:00     30 h   jour seulement
+      TestStory                    500 EUR   paid
+  4a8dde35-2a76-4390-b6a6-d64eefc224bd  2026-08-20T21:27:33  →  2026-08-19T14:40:00     31 h   jour seulement
+      TestBIO                      1200 EUR   open
+  fc206512-9c6a-4d53-b924-8d14462d158d  2026-08-20T21:47:47  →  2026-08-19T13:30:00     32 h   jour seulement
+      Test Description             900 EUR   open
+
+  Franchissent un MOIS    : 0
+  Franchissent une SEMAINE: 0
+
+  Un écran ne bouge QUE si la vente change de fenêtre. Un décalage de quelques
+  heures dans la même journée ne déplace aucun chiffre — il rend seulement la
+  colonne conforme à la règle, et la surveillance silencieuse.
+
+Simulation. Rien n a été écrit. Relancer avec --appliquer.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ROLLBACK — les quatre signed_at tels qu'ils etaient AVANT l'ecriture du
+2026-09-01, au format exact de Postgres. A jouer tel quel pour tout remettre.
+
+Ne PAS le jouer pour « corriger » une alerte de ventes_sante_date : ces quatre
+valeurs sont l'instant de SAISIE du rapport, c'est-a-dire precisement ce que le
+redatage a corrige. Ce bloc n'existe que pour annuler une erreur du redatage
+lui-meme.
+═══════════════════════════════════════════════════════════════════════════════
+
+update deals set signed_at = '2026-08-20 16:42:43.945+00' where id = 'a1e5b81e-26cc-4459-a99a-3f6302d406ae';  -- TestYT, 1000 EUR
+update deals set signed_at = '2026-08-20 20:43:04.729+00' where id = '74d08e80-5a08-4a73-bcca-78679a90e72a';  -- TestStory, 500 EUR
+update deals set signed_at = '2026-08-20 21:27:33.099+00' where id = '4a8dde35-2a76-4390-b6a6-d64eefc224bd';  -- TestBIO, 1200 EUR
+update deals set signed_at = '2026-08-20 21:47:47.972+00' where id = 'fc206512-9c6a-4d53-b924-8d14462d158d';  -- Test Description, 900 EUR

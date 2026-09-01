@@ -229,13 +229,20 @@ dans Vue générale ni dans Funnel & Calls**, tous deux passés sur `deals` :
 ✅ **Business micro est aligné** depuis le 2026-09-01 : source `deals`, date de vente.
 Trois choses à savoir avant d'y toucher.
 
-**Il recalcule la date au lieu de lire `signed_at`.** La règle a été posée le
-2026-09-01, et **quatre des huit ventes en base portent encore l'heure de SAISIE du
-rapport** — 20/08 21h47 pour un rendez-vous du 19/08 13h30. Funnel & Calls recalcule
-pareil. Deux écrans qui recalculent à l'identique ne peuvent pas diverger ; deux écrans
-dont l'un lit une copie figée le peuvent, et c'est le mécanisme d'`instagram_leads`.
-Le jour où toutes les lignes seront conformes, lire `signed_at` redeviendra possible —
-`ventes_sante_montants` ne le dira pas, elle compare les montants, pas les dates.
+**Il recalcule la date au lieu de lire `signed_at` — et c'est désormais une dette, plus
+une nécessité.** Quatre des huit ventes portaient l'heure de SAISIE du rapport (20/08
+21h47 pour un rendez-vous du 19/08 13h30) : la règle avait été posée après leur
+création. **Elles ont été redatées le 2026-09-01** par `scripts/redater-ventes.mjs`, qui
+appelle `dateDeVente` — la même fonction que l'écriture et que les écrans, jamais une
+requête réécrite pour l'occasion. Aucune ne franchissait un mois ni une semaine : aucun
+agrégat n'a bougé. Anciennes valeurs et rollback exécutable dans
+`docs/sauvegardes/redatage-ventes-2026-09-01.txt`.
+
+`ventes_sante_date` surveille désormais la colonne. **Quand elle aura tourné un moment
+sans alerte, les deux recalculs deviendront supprimables** au profit d'une simple lecture
+de `signed_at`. D'ici là, garder les deux versions est une sécurité et non une
+redondance — et deux écrans qui recalculent à l'identique ne peuvent pas diverger, là où
+deux écrans dont l'un lit une copie figée le peuvent.
 
 **Il reçoit le jeu de ventes COMPLET, jamais découpé sur la période.** Le Parcours des
 leads borne la seule ENTRÉE : une personne entrée en juin appartient à la ligne de juin
