@@ -119,3 +119,37 @@ export function getPeriodWindow(periodIndex: number, granularity: PeriodGranular
   const isCurrentIncomplete = periodIndex === 0 && Date.now() < periodEnd.getTime();
   return { periodStart, periodEnd, isCurrentIncomplete };
 }
+
+
+/** Combien de périodes on peut remonter avant de sortir de la fenêtre de mesure.
+ *
+ *  ⚠️ Extraite de `PeriodPill` pour être testable : cette règle a déjà été corrigée
+ *  deux fois (2026-08-31), et un troisième défaut s'est révélé le 2026-09-01 — la page
+ *  Stats Clients lui passait le début de la PÉRIODE AFFICHÉE au lieu du début du
+ *  portefeuille, si bien que le plancher avançait avec la période et que la flèche
+ *  « ‹ » restait grise pour toujours.
+ *
+ *  Le grain est CALENDAIRE, jamais glissant : on compare la vraie fenêtre de chaque
+ *  période à la date de démarrage, et une période reste atteignable tant qu'elle se
+ *  TERMINE après. Compter des tranches de 7 ou 30 jours laisserait passer une période
+ *  de trop selon le jour du mois.
+ *
+ *  Sans date de démarrage connue, on rend 12 : assez pour naviguer, borné pour ne pas
+ *  proposer des périodes qui n'ont jamais existé.
+ *
+ *  @param plafond garde-fou de boucle. 120 périodes = 10 ans de mois, 2 ans de semaines. */
+export function periodesEnArriere(
+  debutMesure: string | Date | null | undefined,
+  granularity: PeriodGranularity,
+  plafond = 120,
+): number {
+  if (!debutMesure) return 12;
+  const plancher = new Date(debutMesure).getTime();
+  // Une date illisible donnerait un plancher NaN, et toute comparaison avec NaN est
+  // fausse : le calcul rendrait 0 et verrouillerait la navigation en silence. On
+  // retombe donc sur le cas « démarrage inconnu », qui lui reste navigable.
+  if (Number.isNaN(plancher)) return 12;
+  let i = 0;
+  while (i < plafond && getPeriodWindow(i + 1, granularity).periodEnd.getTime() >= plancher) i++;
+  return i;
+}

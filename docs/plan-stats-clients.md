@@ -1530,3 +1530,75 @@ l'échappement de la clé (elle finit dans un attribut).
 
 Le halo reste, il ne pulse plus : c'est le repère qui porte l'information, pas le
 mouvement.
+
+### D66 bis — Le montant vertical de l'axe est rétabli (2026-09-01)
+
+Chris : « le trait vertical oui rajoute le quand même, il donne une sorte de stabilité ».
+
+C'est désormais **le seul écart assumé avec Mes Stats**, qui le supprime
+(`axisLine={false}`). Il se défend : un graphe qui porte jusqu'à 39 courbes n'a pas la
+densité d'une aire unique, et sans montant le paquet de courbes flotte. La ligne basse
+de la grille sert de ligne de base, les deux forment un L.
+
+Il est en trait plein sur le token de bordure — plein pour se distinguer des pointillés
+de la grille et se lire comme un axe, sur le même token pour rester calme. C'est un
+repère, pas une donnée. La marge gauche reste à 46 px : c'était l'autre moitié de la
+question d'origine, et elle, elle tenait.
+
+### D70 — Une courbe seule reçoit le traitement complet
+
+Écart repéré en produisant la fiche de revue : une courbe seule portait son aplat mais
+pas le point terminal. Or une courbe seule, c'est exactement la situation d'un graphe de
+Mes Stats — à ce moment-là les deux doivent être indiscernables.
+
+Le point terminal s'arrête à ce cas. Au-delà d'une courbe il faudrait en poser un par
+élève, tous à la même abscisse : dix halos qui pulsent côte à côte ne diraient plus
+« voici la donnée la plus récente », ils feraient du bruit. Deux tests bornent des deux
+côtés.
+
+---
+
+## 24. La navigation de période était verrouillée (2026-09-01)
+
+Chris : « pourquoi je peux pas naviguer sur le mois d'août alors qu'on a toutes les
+données ? »
+
+### Le défaut
+
+La page passait `data.debut` à `PeriodPill`, pour `connectedAt` **et** `allTimeStart`.
+Or `debut` est le début de la **période affichée**, pas le début du portefeuille.
+
+`PeriodPill` s'en sert comme **plancher de la navigation arrière**. Donc en septembre le
+plancher devenait le 1er septembre, et le calcul rendait zéro période atteignable : la
+flèche « ‹ » était grise, définitivement. Le défaut se mordait la queue — le plancher
+avançait avec la période, donc aucune séquence de clics ne pouvait en sortir.
+
+**Le calcul n'a jamais eu tort ; c'est son entrée qui l'était.** C'est ce qui le rendait
+difficile à voir : la fonction incriminée avait déjà été corrigée deux fois et était
+juste.
+
+### Le correctif
+
+`debutPortefeuille` — le plus ancien démarrage parmi les élèves,
+`integrations_ready_at` d'abord et `onboarding_completed_at` en secours — est désormais
+calculé **toujours**, plus seulement en mode All-Time, et c'est lui qui est passé au
+sélecteur. La branche All-Time réutilise la même valeur : aucun changement de
+comportement de ce côté.
+
+Vérifié en base : `debutPortefeuille` vaut **2026-06-09**, ce qui ouvre 3 mois en
+arrière (août, juillet, juin) et 12 semaines.
+
+### D71 — La règle du plancher est extraite et testée
+
+`periodesEnArriere` vit maintenant dans `lib/period.ts`, avec neuf tests. Motif : **trois
+corrections sur la même règle** — deux le 2026-08-31 (mauvaise date de référence, puis
+grain glissant au lieu de calendaire), une le 2026-09-01. Une règle corrigée trois fois
+est une règle qui doit être verrouillée, pas recommentée.
+
+Un quatrième défaut a été trouvé en l'extrayant : une date illisible donnait un plancher
+`NaN`, et **toute comparaison avec `NaN` est fausse** — le calcul rendait 0 et
+verrouillait la navigation en silence, exactement comme le bug de Chris mais sans cause
+visible. On retombe désormais sur le cas « démarrage inconnu », qui reste navigable.
+
+⚠️ `PeriodPill` est partagé avec `PageClientStats`. L'extraction ne change pas le
+comportement : c'est le même code, déplacé.

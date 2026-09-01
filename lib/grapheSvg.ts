@@ -267,16 +267,24 @@ export function construireGraphe(o: OptionsGraphe): GeometrieGraphe {
     + `<stop offset="95%" stop-color="${couleurAplat}" stop-opacity="0"/>`
     + `</linearGradient></defs>`;
 
-  /* Grille horizontale pointillée SEULE, et aucun axe en trait plein — c'est
-   * `axisLine={false} tickLine={false}` plus `CartesianGrid vertical={false}` de
-   * Mes Stats. La ligne du bas de la grille tient lieu de ligne de base : un second
-   * trait plein par-dessus ne ferait que l'épaissir. */
+  /* Grille horizontale pointillée, comme `CartesianGrid vertical={false}` de Mes Stats.
+   *
+   * ⚠️ Un écart ASSUMÉ avec Mes Stats, et c'est le seul : le montant vertical de l'axe
+   * est conservé, là où Recharts le supprime (`axisLine={false}`). Chris : « il donne
+   * une sorte de stabilité ». Un graphe qui porte jusqu'à 39 courbes n'a pas la même
+   * densité qu'une aire unique — sans montant, le paquet de courbes flotte. La ligne
+   * basse de la grille sert de ligne de base, les deux forment un L.
+   *
+   * Il est en trait PLEIN sur le token de bordure : plein pour se distinguer des
+   * pointillés de la grille et se lire comme un axe, sur le même token pour rester
+   * calme. C'est un repère, pas une donnée. */
   for (let i = 0; i <= 4; i++) {
     const v = min + (max - min) * (i / 4);
     const y = M.haut + hi - (i / 4) * hi;
     s += `<line x1="${M.gauche}" y1="${y.toFixed(1)}" x2="${L - M.droite}" y2="${y.toFixed(1)}" stroke="${GRILLE}" stroke-dasharray="3 3"/>`;
     s += `<text x="${M.gauche - 8}" y="${(y + 3.5).toFixed(1)}" text-anchor="end" font-size="10.5" fill="${ENCRE_ESTOMPEE}" font-family="Inter, sans-serif">${echapper(formaterAxe(v, o.unite))}</text>`;
   }
+  s += `<line x1="${M.gauche}" y1="${M.haut - 4}" x2="${M.gauche}" y2="${(H - M.bas).toFixed(1)}" stroke="${GRILLE}"/>`;
   for (const e of o.etiquettes) {
     s += `<text x="${xDe(e.i).toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="10" fill="${ENCRE_ESTOMPEE}" font-family="Inter, sans-serif">${echapper(e.t)}</text>`;
   }

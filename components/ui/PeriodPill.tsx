@@ -1,6 +1,6 @@
 'use client';
 
-import { getPeriodWindow } from '@/lib/period';
+import { getPeriodWindow, periodesEnArriere } from '@/lib/period';
 
 /* Sélecteur de période partagé — extrait de PageClientStats.tsx le 2026-09-01, quand
  * Stats Clients (page coach, portefeuille entier) en a eu besoin à son tour.
@@ -62,16 +62,13 @@ export default function PeriodPill({ period, setPeriod, periodIndex, setPeriodIn
   // On compare donc la vraie fenêtre calendaire à la date de démarrage : une période reste
   // atteignable tant qu'elle se termine après. Le cas « période entièrement antérieure »
   // devient inatteignable par construction, plutôt que rattrapé par un texte.
+  // - le 2026-09-01, un troisième défaut du même genre : Stats Clients passait ici le
+  //   début de la PÉRIODE AFFICHÉE au lieu du début du portefeuille. Le plancher
+  //   avançait donc avec la période, et « ‹ » restait grise pour toujours. Le calcul
+  //   est depuis extrait dans `periodesEnArriere` (lib/period.ts) pour être testé —
+  //   trois corrections sur la même règle, c'est une règle qui doit être verrouillée.
   const debutMesure = allTimeStart ?? connectedAt;
-  const maxIndex = (() => {
-    if (!debutMesure) return 12;
-    const plancher = new Date(debutMesure).getTime();
-    const grain = period === 7 ? 'week' : 'month';
-    let i = 0;
-    // Garde-fou de boucle : 120 périodes, soit 10 ans de mois ou 2 ans de semaines.
-    while (i < 120 && getPeriodWindow(i + 1, grain).periodEnd.getTime() >= plancher) i++;
-    return i;
-  })();
+  const maxIndex = periodesEnArriere(debutMesure, period === 7 ? 'week' : 'month');
   return (
     <div
       style={{

@@ -93,6 +93,10 @@ interface DonneesStats {
    *  la panne, et rien à l'écran ne le dirait sans ce bandeau. */
   integrationsCassees: { profileId: string; nom: string }[];
   debut: Date;
+  /** Le jour où le portefeuille a commencé à mesurer. ⚠️ À NE PAS confondre avec
+   *  `debut`, qui est le début de la période affichée : c'est cette confusion qui
+   *  bloquait la navigation arrière. */
+  debutPortefeuille: Date;
   fin: Date;
   debutPrecedent: Date | null;
   finPrecedente: Date | null;
@@ -127,15 +131,28 @@ async function charger(period: Period, periodIndex: number, allTime: boolean): P
   let debutPrecedent: Date | null = null;
   let finPrecedente: Date | null = null;
 
+  /* Le jour où le portefeuille a commencé à mesurer : le plus ancien démarrage parmi
+   * les élèves. `integrations_ready_at` d'abord — c'est la date de mise en route du
+   * pipeline, la seule qui fasse foi ; `onboarding_completed_at` seulement en secours.
+   *
+   * ⚠️ Il se calcule TOUJOURS, pas seulement en All-Time, parce qu'il sert à DEUX
+   * choses : la borne basse de la fenêtre All-Time, et le plancher de la navigation
+   * arrière. Le confondre avec `debut` — le début de la période AFFICHÉE — verrouille
+   * la navigation sur place : en septembre, le plancher devenait le 1er septembre,
+   * donc reculer vers août était interdit par construction. */
+  const departs = clients
+    .map(c => c.integrations_ready_at || c.onboarding_completed_at)
+    .filter((d): d is string => !!d)
+    .map(d => new Date(d).getTime())
+    .filter(t => !Number.isNaN(t));
+  const debutPortefeuille = departs.length > 0
+    ? new Date(Math.min(...departs))
+    : new Date(Date.now() - 365 * 86_400_000);
+
   if (allTime) {
     // D9 : l'union des All-Time individuels. Il n'existe pas de date de départ commune
     // au portefeuille, et il ne faut pas en inventer une.
-    const departs = clients
-      .map(c => c.integrations_ready_at || c.onboarding_completed_at)
-      .filter((d): d is string => !!d)
-      .map(d => new Date(d).getTime())
-      .filter(t => !Number.isNaN(t));
-    debut = departs.length > 0 ? new Date(Math.min(...departs)) : new Date(Date.now() - 365 * 86_400_000);
+    debut = debutPortefeuille;
     fin = new Date();
   } else {
     const w = getPeriodWindow(periodIndex, period === 7 ? 'week' : 'month');
@@ -242,7 +259,7 @@ async function charger(period: Period, periodIndex: number, allTime: boolean): P
     paiements: (paiementsRes.data || []) as any[],
     lignesLeads,
     accompagnement: (accompRes.data || []) as LigneSerie[],
-    debut, fin, debutPrecedent, finPrecedente,
+    debut, fin, debutPrecedent, finPrecedente, debutPortefeuille,
   };
 }
 
@@ -703,8 +720,12 @@ export default function PageStatsClients() {
         <PeriodPill
           period={period} setPeriod={setPeriod}
           periodIndex={periodIndex} setPeriodIndex={fn => setPeriodIndex(fn)}
-          connectedAt={data?.debut ? data.debut.toISOString() : null}
-          allTimeStart={data?.debut ? data.debut.toISOString() : null}
+          /* ⚠️ `debutPortefeuille`, JAMAIS `debut`. Ces deux propriétés bornent la
+             navigation arrière et l'étiquette All-Time : leur passer le début de la
+             période affichée fait que le plancher avance avec la période, et la flèche
+             « ‹ » reste grise pour toujours. */
+          connectedAt={data?.debutPortefeuille ? data.debutPortefeuille.toISOString() : null}
+          allTimeStart={data?.debutPortefeuille ? data.debutPortefeuille.toISOString() : null}
           sinceConnection={allTime} setSinceConnection={setAllTime}
         />
       </div>
