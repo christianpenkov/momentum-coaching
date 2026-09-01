@@ -283,3 +283,58 @@ test('le point terminal qui pulse ne paraît que sur la courbe mise en avant', (
   const g = construireGraphe({ ...base, vedette: 'a' });
   assert.equal((g.svg.match(/graphe-point-vif/g) ?? []).length, 1, 'un seul point vif à la fois');
 });
+
+/* ═══ Leviers d'apparence (revue de design 2026-09-01) ════════════════════ */
+
+const BASE = { series: [serie('a', [1, 5, 3, 8])], n: 4, etiquettes: [], unite: '' as const, largeur: 600 };
+
+test('par défaut le tracé est lissé, et les leviers ne changent rien sans être posés', () => {
+  const d = construireGraphe(BASE).svg;
+  assert.ok(d.includes('C'), 'le défaut doit produire des cubiques');
+  assert.equal(construireGraphe({ ...BASE, lissage: true }).svg, d, 'lissage:true = le défaut');
+});
+
+test('sans lissage, aucune cubique — la ligne ne passe que par des valeurs mesurées', () => {
+  const d = construireGraphe({ ...BASE, lissage: false }).svg;
+  const chemins = d.match(/ d="[^"]*"/g) ?? [];
+  const courbes = chemins.filter(c => /[C]/.test(c));
+  assert.equal(courbes.length, 0, 'aucun chemin ne doit contenir de commande C');
+  assert.ok(d.includes('L'), 'les points restent reliés par des segments');
+});
+
+test('le levier de lissage vaut AUSSI pour la moyenne et la bande', () => {
+  // Une moyenne lissée au-dessus de courbes anguleuses serait un mélange incohérent —
+  // et suggérerait que la moyenne est plus « sûre » que les données qui la composent.
+  const series = Array.from({ length: 20 }, (_, i) => serie(`e${i}`, [1 + i, 5 + i, 3 + i, 9 + i]));
+  const g = construireGraphe({ ...BASE, series, n: 4, lissage: false });
+  assert.equal(g.dense, true, 'ce cas doit bien être en mode moyenne + bande');
+  assert.ok(!/ d="[^"]*C/.test(g.svg), 'ni la moyenne ni la bande ne doivent être lissées');
+});
+
+test('le nombre de graduations est réglable, et borné des deux côtés', () => {
+  const compte = (o: object) => (construireGraphe({ ...BASE, ...o }).svg.match(/stroke-dasharray/g) ?? []).length;
+  assert.equal(compte({ graduations: 2 }), 3, '2 intervalles = 3 traits');
+  assert.equal(compte({}), 5, 'le défaut reste 4 intervalles = 5 traits');
+  assert.equal(compte({ graduations: 99 }), 9, 'plafonné à 8 intervalles');
+  assert.equal(compte({ graduations: 0 }), 3, 'plancher à 2 intervalles');
+});
+
+test('les points ne se posent que sur les séries en couleur, jamais sur les grises', () => {
+  const deux = [serie('a', [1, 5, 3, 8]), serie('b', [2, 4, 6, 7])];
+  const cercles = (o: object) => (construireGraphe({ ...BASE, series: deux, ...o }).svg.match(/<circle/g) ?? []).length;
+  assert.equal(cercles({}), 0, 'sans le levier, aucun point');
+  assert.equal(cercles({ points: true }), 8, 'deux séries de quatre valeurs');
+  // Avec une vedette, l'autre série passe en gris : elle perd ses points, et la vedette
+  // n'est pas tracée par cette boucle. Restent les deux cercles du point terminal.
+  assert.equal(cercles({ points: true, vedette: 'a' }), 2);
+});
+
+test('un trou ne reçoit pas de point — il n’y a rien à marquer', () => {
+  // Deux séries, pour ne PAS déclencher le cas « courbe seule » qui ajoute en plus le
+  // point terminal (halo + point = deux cercles de plus). On compte ici les points de
+  // données, rien d'autre : 3 valeurs sur la série trouée + 4 sur l'autre.
+  const g = construireGraphe({
+    ...BASE, series: [serie('a', [1, null, 3, 8]), serie('b', [2, 3, 4, 5])], points: true,
+  });
+  assert.equal((g.svg.match(/<circle/g) ?? []).length, 7);
+});
