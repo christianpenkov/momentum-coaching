@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { parisDateStr } from './period';
-import { fetchClicsShortio, agregerClics, cleClic } from './shortio-clicks';
+import { fetchClicsShortio, agregerClics, cleClic, hoteDuLien } from './shortio-clicks';
 import { createLinkCategoryResolver, type LinkCategory } from './shortio-link-category';
 
 const serviceSupabase = createClient(
@@ -291,7 +291,10 @@ export async function snapshotShortioLinks(
   for (const d of domaines) {
     try {
       const { clics } = await fetchClicsShortio(d.id, creds.apiKey, depuis);
-      const agg = agregerClics(clics, iso => parisDateStr(new Date(iso)));
+      // Le domaine entre dans la clé : sans lui, les comptes des deux domaines
+      // s'additionnaient sous un même chemin, et ce total était ensuite recopié sur
+      // CHAQUE lien partageant ce chemin — 15 clics devenaient 30 en base.
+      const agg = agregerClics(clics, iso => parisDateStr(new Date(iso)), d.hostname);
       for (const [k, v] of agg.parPathEtJour) {
         const cur = clicsParPathEtJour.get(k) ?? { human: 0, total: 0 };
         clicsParPathEtJour.set(k, { human: cur.human + v.human, total: cur.total + v.total });
@@ -306,7 +309,9 @@ export async function snapshotShortioLinks(
   const aujourdhui = parisDateStr(new Date());
   let synced = 0;
   for (const link of links) {
-    const compte = clicsParPathEtJour.get(cleClic(link.path, aujourdhui)) ?? { human: 0, total: 0 };
+    const compte = clicsParPathEtJour.get(
+      cleClic(hoteDuLien(link.shortUrl, creds.domain), link.path, aujourdhui),
+    ) ?? { human: 0, total: 0 };
     const { error } = await serviceSupabase.rpc('upsert_shortio_link_snapshot', {
       p_profile_id: profileId,
       p_link_id: link.id,

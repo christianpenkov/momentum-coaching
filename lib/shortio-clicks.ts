@@ -98,13 +98,29 @@ export async function fetchClicsShortio(
 }
 
 /**
- * Agrège un flux de clics en compteurs par (path, jour).
+ * Agrège un flux de clics en compteurs par (domaine, path, jour).
+ *
+ * ⚠️ **Le domaine fait partie de la clé, et ce n'est pas cosmétique.** Un élève qui a
+ * changé de domaine Short.io garde le MÊME chemin sur les deux — `bio-calendly-ig`
+ * existe sur `link.ubizenai.com` et sur `ubizenai.s.gy`. Ce sont deux liens
+ * différents, avec deux `link_id` différents et deux comptes de clics différents.
+ *
+ * La clé était `path|jour`. Le flux est pourtant récupéré DOMAINE PAR DOMAINE :
+ * l'information était disponible dans la boucle et perdue à la ligne suivante. Les
+ * totaux des domaines se retrouvaient donc additionnés sous une seule clé, puis ce
+ * total unique était réécrit sur CHAQUE lien partageant le chemin.
+ *
+ * Mesuré le 2026-09-01 : `bio-calendly-ig` portait 15 clics sur les deux domaines,
+ * soit 30 en base pour 15 requêtes réellement reçues. Le lien dormant de l'ancien
+ * domaine se voyait attribuer le trafic du lien publié.
+ *
  * `jourDe` convertit un horodatage ISO en date calendaire Paris — fourni par
  * l'appelant, chaque runtime ayant déjà sa propre implémentation éprouvée.
  */
 export function agregerClics(
   clics: ClicShortio[],
   jourDe: (iso: string) => string,
+  domaine: string,
 ): { parPathEtJour: Map<string, { human: number; total: number }>; jourLePlusAncienVu: string | null } {
   const parPathEtJour = new Map<string, { human: number; total: number }>();
   let jourLePlusAncienVu: string | null = null;
@@ -117,7 +133,7 @@ export function agregerClics(
     if (!jourLePlusAncienVu || jour < jourLePlusAncienVu) jourLePlusAncienVu = jour;
     if (!estVraiClic(c)) continue;
     const path = (c.path || '').replace(/^\//, '');
-    const k = cleClic(path, jour);
+    const k = cleClic(domaine, path, jour);
     const cur = parPathEtJour.get(k) ?? { human: 0, total: 0 };
     cur.total += 1;
     if (c.human) cur.human += 1;
@@ -126,6 +142,21 @@ export function agregerClics(
   return { parPathEtJour, jourLePlusAncienVu };
 }
 
-export function cleClic(path: string, jour: string): string {
-  return `${path}|${jour}`;
+export function cleClic(domaine: string, path: string, jour: string): string {
+  return `${domaine}|${path}|${jour}`;
+}
+
+/**
+ * Hôte d'un lien, pour composer la clé du côté LECTURE.
+ *
+ * Le côté écriture connaît son domaine (il boucle dessus) ; le côté lecture ne
+ * dispose que du lien, dont l'URL courte porte l'hôte. Les deux doivent produire la
+ * même chaîne, d'où cette fonction unique plutôt que deux extractions parallèles.
+ */
+export function hoteDuLien(shortUrl: string | null | undefined, defaut: string): string {
+  try {
+    return new URL(shortUrl || '').hostname || defaut;
+  } catch {
+    return defaut;
+  }
 }

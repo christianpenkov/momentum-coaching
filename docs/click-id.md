@@ -619,84 +619,71 @@ Ces requêtes arrivent jusqu'à la route. Elles sont **marquées** (`is_bot`), *
 jetées** : sans la ligne, on ne pourrait ni mesurer le bruit ni expliquer un écart avec
 le compteur de Short.io.
 
-### ⚠️ Le filtre est connu incomplet — le juge est ailleurs
+### ⚠️ La vue compare les TOTAUX, pas les humains — et c'est définitif
 
-Mesuré le 2026-09-01 sur `bio-calendly-ig`, en confrontant les deux compteurs :
+`clics_sante_redirection` a comparé un temps notre compte d'**humains** à celui de
+Short.io, pour détecter un filtre à robots trop laxiste. C'était une impasse, et elle a
+été retirée le 2026-09-01.
 
-| Jour | Total Short.io | Total route | Humains Short.io | Humains route |
-|---|---|---|---|---|
-| 2026-08-31 | 1 | 1 | 1 | 1 |
-| 2026-09-01 | **15** | **15** | **2** | **8** |
+**La raison n'est pas que le filtre était bon.** Il ne l'est pas : sur un tap depuis la
+bio Instagram, une partie de la flotte de préchargement passe pour humaine, faute de se
+distinguer par son User-Agent. La raison est que **cette erreur ne fausse rien**.
 
-Les **totaux concordent à la ligne près** : c'est le même trafic, et les journées sont
-alignées des deux côtés (règle Paris de `docs/fuseaux-horaires.md`). Ce sont les
-**classifications** qui divergent — une partie de la flotte de préchargement
-d'Instagram se présente avec un User-Agent de navigateur ordinaire, donc indétectable
-par ce seul signal. Six préchargements comptés pour des humains.
+Recherche de tous les lecteurs de `link_clicks` : le webhook Calendly, `calendly-fetch`,
+`sync-calendly` — tous pour retrouver le clic d'une réservation à partir de son
+`click_id` — plus cette vue et le calcul de taille de table. **Aucun chiffre affiché
+dans le produit ne vient de `link_clicks`** : tous les « clics » des écrans viennent des
+snapshots Short.io. Une ligne de robot n'entre donc dans aucune statistique, et le seul
+consommateur de `is_bot` était la vue elle-même.
 
-**Le filtre n'est pas durci sur l'adresse IP.** « Beaucoup d'adresses en peu de temps »
-décrit une flotte aujourd'hui et un lien qui marche demain — ce serait rejouer la
-déduction par la forme qu'on retire par ailleurs.
+Autrement dit, on aurait entretenu une heuristique à régler indéfiniment — Instagram
+changeant sa flotte quand il veut — **uniquement pour faire tomber d'accord deux
+surveillants**. Aucun utilisateur n'aurait vu la différence.
 
-Le juge retenu est **`clics_sante_redirection`**, qui compare notre compte d'humains à
-celui de Short.io : une classification tierce, indépendante, portant sur exactement le
-même trafic, et déjà collectée — elle ne coûte pas un appel de plus. Aucun des deux
-n'est la vérité ; la vue ne tranche donc pas qui a raison, elle signale une divergence
-**durable**, dans les deux sens :
+Les totaux, eux, concordent : `15/15` sur la bio, `4/4` sur YouTube, une fois le double
+comptage du writer corrigé (voir ci-dessous). Et un écart de totaux ne veut plus dire
+qu'une seule chose — **la route ne répond plus** — qui est la seule panne méritant une
+alerte.
 
-| État | Symptôme |
+`is_bot` et `bot_motif` restent écrits, et restent utiles : ils expliquent une ligne
+quand on l'interroge. Ils ne jugent plus rien.
+
+| État | Signification |
 |---|---|
-| `ALERTE : route sans clic` | route cassée, ou lien pas encore réécrit |
-| `ALERTE : ecart important` | la route ne voit qu'une partie des clics |
-| `ALERTE : robots comptes humains` | filtre trop laxiste — le cas ci-dessus |
+| `ALERTE : route sans clic` | Short.io compte des requêtes, la route zéro — elle ne répond plus |
+| `ALERTE : ecart important` | la route en voit moins de la moitié |
+| `lien non redirige` | pas encore réécrit — **pas** une anomalie |
 
-⚠️ **La vue ne savait détecter qu'un seul sens jusqu'au 2026-09-01.** Sur l'incident
-mesuré elle affichait `ok` avec 8 humains comptés contre 2 : elle cherchait une route
-muette, jamais une route trop bavarde. Un garde-fou qui ne regarde que dans la
-direction du défaut qu'on avait imaginé ne voit pas celui qu'on n'avait pas imaginé.
+### ⚠️ Le domaine fait partie de l'identité d'un lien
 
-Seuil de la sur-détection : `route > shortio × 2 + 3`. Volontairement large — les deux
-filtres ne s'accorderont jamais exactement, et une alerte qui se déclenche sur du bruit
-ordinaire cesse d'être lue. Vérifié sur neuf cas, dont l'incident réel (2 / 8 → alerte)
-et une journée saine (1 / 1 → `ok`).
+Un élève qui change de domaine Short.io garde le **même chemin** sur les deux :
+`bio-calendly-ig` existe sur `link.ubizenai.com` et sur `ubizenai.s.gy`. Ce sont deux
+liens distincts, deux `link_id`, deux comptes de clics.
 
-#### Ce que le test YouTube a montré, et ce qu'il n'a pas montré
+`agregerClics` clé sur `path|jour` en jetant le domaine, alors que le flux est récupéré
+**domaine par domaine** : l'information était disponible dans la boucle et perdue à la
+ligne suivante. Les totaux des domaines s'additionnaient sous une clé unique, puis ce
+total était réécrit sur **chaque** lien partageant le chemin.
 
-Fait le 2026-09-01 depuis l'app YouTube sur `prendre-rdv-9rQo` : `platform=yt`,
-`medium=description`, `content_id=vPyqybE9rQo` — le vrai identifiant de la vidéo. Les
-valeurs sont justes et **indépendantes de la requête**.
+Mesuré le 2026-09-01 : les deux lignes de `bio-calendly-ig` portaient `15/2` chacune,
+soit **30 en base pour 15 requêtes réellement reçues**. Le lien dormant de l'ancien
+domaine se voyait attribuer le trafic du lien publié.
 
-⚠️ Mais ce canal n'a probablement jamais été exposé au problème : **sur iOS, YouTube
-passe la main à Safari** au lieu d'ouvrir un navigateur intégré. Il n'y a donc pas de
-réécriture d'UTM à subir. Le test prouve que le correctif tient sur un second canal ;
-il ne prouve pas que ce canal en avait besoin. À ne pas confondre plus tard.
+La clé est désormais `domaine|path|jour`, et la lecture passe par
+`hoteDuLien(link.shortUrl, …)` pour que les deux côtés produisent la même chaîne.
 
-Le canal réellement exposé reste la **bio Instagram**, seul endroit mesuré où un
-navigateur intégré réécrit les paramètres.
+⚠️ **Corriger la vue aurait masqué la cause.** La tentation était de choisir `max` ou
+`sum` sur les lignes jumelles ; les deux auraient produit un chiffre plausible en
+laissant la base fausse.
 
-**En revanche il prouve autre chose, qui n'avait jamais été vérifié en production** :
-`prendre-rdv-9rQo` a été créé *après* le correctif, depuis « Gérer mes liens », et le
-script de réécriture n'y a jamais touché. Il est né instrumenté :
+⚠️ **Conséquence dans `poll-leads`** : le flux n'y est récupéré que pour le domaine
+**actif** — un seul appel, à cause du rate-limit Short.io observé quand deux domaines du
+même compte sont interrogés. Les liens des anciens domaines lisent donc `0`. C'est le
+comportement juste : on n'a pas observé leurs clics, on ne peut pas les compter. Avant
+le correctif ils héritaient des compteurs du domaine actif — pas une estimation, le
+trafic de quelqu'un d'autre.
 
-```
-…/r/prendre-rdv-9rQo?utm_source=yt&utm_medium=description&utm_campaign=calendly
-  &utm_content=vPyqybE9rQo&s=yt&m=description&k=calendly&c=vPyqybE9rQo&d=…&p=…
-```
-
-Le câblage des points de génération tenait jusque-là sur des tests unitaires. Un lien
-créé à la main par un humain, en production, porte bien nos paramètres.
-
-#### L'inflation touche les deux canaux
-
-1 tap sur YouTube → **3 lignes**, dont deux à 54 ms d'écart depuis deux adresses
-différentes, et `bot_motif = 'aucune'` sur les trois. Même défaut qu'Instagram, en plus
-petit : environ deux clics fantômes pour un vrai.
-
-`bot_motif` a payé son coût dès son premier usage réel. « Pourquoi ces lignes n'ont-elles
-pas été filtrées ? » se lit maintenant dans une colonne — aucune règle ne s'est
-déclenchée — là où c'était une enquête la veille.
-
-### Le verdict doit pouvoir s'expliquer
+### Le verdict doit pouvoir s'expliquer### Le verdict doit pouvoir s'expliquer
 
 `link_clicks.bot_motif` dit **quelle règle** a conclu au robot : `prefetch`, `ua_robot`,
 `sans_ua`, ou `aucune` quand aucune n'a déclenché.

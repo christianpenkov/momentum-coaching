@@ -14,7 +14,7 @@ import { limiteurShortio, mapWithConcurrency, sleep } from '../_shared/rate-limi
 import { createLinkCategoryResolver, type LinkCategory } from '../../../lib/shortio-link-category.ts';
 // Lecture du flux de clics : même module que le bouton « Rafraîchir » (Node), pour
 // qu'une seule règle de filtrage et de datation existe dans toute la plateforme.
-import { fetchClicsShortio, agregerClics, estVraiClic, cleClic, type ClicShortio } from '../../../lib/shortio-clicks.ts';
+import { fetchClicsShortio, agregerClics, estVraiClic, cleClic, hoteDuLien, type ClicShortio } from '../../../lib/shortio-clicks.ts';
 import { CALL_TYPES_VENTE } from '../../../lib/callTypes.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -1191,7 +1191,15 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
     const { clics, tronque } = await clicsShortioPartages(creds.domainId, creds.apiKey, FENETRE_REPARATION_JOURS);
     rawClicks = clics as { path: string; dt: string; human: boolean }[];
     fluxIncomplet = tronque;
-    const agg = agregerClics(clics, isoDateFromInstant);
+    // ⚠️ Le flux n'est récupéré QUE pour le domaine actif (`creds.domainId`) — un
+    // seul appel, à cause du rate-limit Short.io observé en prod sur cet endpoint
+    // quand deux domaines du même compte sont interrogés. La clé porte donc ce
+    // domaine-là, et les liens des ANCIENS domaines liront 0.
+    //
+    // C'est le comportement juste : on n'a pas observé leurs clics, on ne peut pas
+    // les compter. Avant ce correctif ils héritaient des compteurs du domaine actif,
+    // ce qui n'était pas « une estimation » mais le trafic de quelqu'un d'autre.
+    const agg = agregerClics(clics, isoDateFromInstant, creds.domain);
     jourLePlusAncienVu = agg.jourLePlusAncienVu;
     for (const [k, v] of agg.parPathEtJour) clicsParPathEtJour.set(k, v);
   } catch (e: any) {
@@ -1259,7 +1267,9 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
     let link_type: string | null = null;
     try { link_type = new URL(originalUrl).searchParams.get('utm_medium') || null; } catch { /* lien sans URL exploitable */ }
     const link_category = resolveLinkCategory(path, shortUrl, originalUrl);
-    const compte = clicsParPathEtJour.get(cleClic(path, date)) ?? { human: 0, total: 0 };
+    const compte = clicsParPathEtJour.get(
+      cleClic(hoteDuLien(shortUrl, creds.domain), path, date),
+    ) ?? { human: 0, total: 0 };
 
     // Une journée close, sans clic dans le flux et sans clic déjà en base, n'a rien à
     // écrire : la ligne serait un zéro de plus, identique à ce qu'une absence de ligne
