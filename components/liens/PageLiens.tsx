@@ -11,6 +11,7 @@ import Avatar, { getInitials } from '@/components/ui/Avatar';
 import ModalShell from '@/components/ui/ModalShell';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { refusSequence } from '@/lib/sequenceDm';
+import { personnesParContenu } from '@/lib/attribution-roles';
 
 // ─── Garde de navigation — bloque un changement de post/onglet si des DMs ne sont pas sauvegardés ──
 interface UnsavedGuardApi {
@@ -2063,16 +2064,15 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
     //
     // `instagram_lead_lm_history` est le journal : une ligne par interaction,
     // jamais réécrite. C'est lui la source de tout compteur cumulé.
+    // `personnesParContenu` porte la déduplication ET le filtre `lead_magnet_sent`,
+    // tous deux couverts par les tests de `lib/attribution-roles.ts`. Les recopier
+    // ici en ferait une deuxième version, qu'on corrigerait un jour d'un seul côté.
+    //
+    // La déduplication n'est pas cosmétique : rdjdkzjd a commenté quatre fois le
+    // même mot-clé en moins d'une heure le 05/07. Compter les lignes donnerait
+    // 4 personnes pour 1.
     const lmHistory: any[] = pipelineData?.lmHistory ?? [];
-
-    // Dédupliqué par personne, et ce n'est pas cosmétique : rdjdkzjd a commenté
-    // quatre fois le même mot-clé en moins d'une heure le 05/07. Compter les
-    // lignes donnerait 4 personnes pour 1.
-    const personnes = new Set<string>(
-      lmHistory
-        .filter(h => h.media_id === post.id && h.lead_magnet_sent && h.ig_user_id)
-        .map(h => h.ig_user_id as string)
-    );
+    const personnes = personnesParContenu(lmHistory).get(post.id) ?? new Set<string>();
     const idsDuContenu = new Set(
       leads.filter(l => l.ig_user_id && personnes.has(l.ig_user_id)).map(l => l.id).filter(Boolean)
     );

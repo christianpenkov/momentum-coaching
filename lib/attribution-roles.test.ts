@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   acquisitionParContenu,
+  personnesParContenu,
   contenuActivation,
   activationParContenu,
   contenuConversion,
@@ -90,6 +91,44 @@ test('acquisition : une demande sans lead magnet envoye ne fait entrer personne'
   // Ligne reelle du 28/06 21h39 a false, suivie de la meme a true trois minutes plus tard.
   const seulementLaLigneFalse = [HISTORIQUE_REEL[0]];
   assert.equal(acquisitionParContenu(seulementLaLigneFalse).size, 0);
+});
+
+test("acquisition : le filtre lead_magnet_sent ne se voit QUE sur ce cas-la", () => {
+  // Ce test existe parce que le filtre ne change aucun chiffre de la base
+  // aujourd'hui. Releve le 2026-09-01 sur le contenu A : 11 prises, dont 9
+  // livrees, et 3 personnes AVEC comme SANS le filtre — les deux lignes a false
+  // appartiennent a des gens qui ont aussi une ligne a true.
+  //
+  // Le seul cas ou il se voit est celui-ci : une personne dont l'UNIQUE
+  // interaction est un envoi echoue. Sans le filtre elle compterait comme
+  // entree alors qu'elle n'a rien recu. Une garde qui ne change rien a la mesure
+  // du jour finit par se faire retirer comme inutile — c'est ce test, et pas le
+  // commentaire a cote, qui l'en empeche.
+  const echoueSeulement = [
+    { media_id: A, detected_at: '2026-07-01 10:00:00+00', lead_magnet_sent: false, ig_user_id: '888' },
+  ];
+  assert.equal(acquisitionParContenu(echoueSeulement).get(A), undefined);
+
+  // Alors qu'une personne qui a AUSSI une ligne livree reste comptee une fois.
+  const echoueePuisLivree = [
+    ...echoueSeulement,
+    { media_id: A, detected_at: '2026-07-01 10:03:00+00', lead_magnet_sent: true, ig_user_id: '888' },
+  ];
+  assert.equal(acquisitionParContenu(echoueePuisLivree).get(A), 1);
+});
+
+test('acquisition : le compte et les personnes sortent de la MEME regle', () => {
+  // L'entonnoir d'un contenu (« Gerer mes liens ») a besoin de savoir QUI est
+  // entre, pour aller chercher ses reponses et ses rendez-vous dans les autres
+  // journaux. Il lisait sa propre copie de la deduplication et du filtre : deux
+  // versions de la meme regle, donc une divergence garantie a la premiere
+  // correction faite d'un seul cote.
+  const personnes = personnesParContenu(HISTORIQUE_REEL);
+  const comptes = acquisitionParContenu(HISTORIQUE_REEL);
+  for (const [contenu, set] of personnes) {
+    assert.equal(comptes.get(contenu), set.size, `desaccord sur ${contenu}`);
+  }
+  assert.equal(personnes.size, comptes.size);
 });
 
 test('acquisition : deux personnes distinctes sur le meme contenu comptent deux fois', () => {

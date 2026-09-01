@@ -123,21 +123,50 @@ export const SANS_CONTENU = '__sans_contenu__';
  * la rapprocher d'une autre, et la fondre dans une voisine inventerait un regroupement.
  */
 export function acquisitionParContenu(historique: PriseDeLeadMagnet[]): Map<string, number> {
+  const parContenu = new Map<string, number>();
+  for (const [cle, personnes] of personnesParContenu(historique)) parContenu.set(cle, personnes.size);
+  return parContenu;
+}
+
+/**
+ * Les PERSONNES entrées par chaque contenu, pas leur nombre.
+ *
+ * Même règle exacte que `acquisitionParContenu`, dont elle est le corps : un écran
+ * qui a besoin de savoir QUI est entré — pour aller ensuite chercher ses réponses ou
+ * ses rendez-vous dans un autre journal — ne doit pas réécrire la déduplication et
+ * le filtre de son côté. Une garde recopiée est une garde qu'on retire un jour dans
+ * l'une des copies sans s'en apercevoir.
+ *
+ * ── POURQUOI LE FILTRE `lead_magnet_sent` NE SERT À RIEN AUJOURD'HUI ───────────
+ *
+ * Il ne change aucun chiffre du profil de test, et c'est exactement pour ça qu'il
+ * faut écrire sa raison ici. Relevé le 2026-09-01 sur le contenu 18056185901693457 :
+ * 11 prises, dont 9 livrées — et 3 personnes avec ou sans le filtre, parce que les
+ * deux lignes à `false` appartiennent à des gens qui ont aussi une ligne à `true`.
+ *
+ * Le filtre protège le cas qui n'est pas encore arrivé : celui où l'UNIQUE
+ * interaction d'une personne est un envoi échoué. Elle compterait alors comme
+ * entrée alors qu'elle n'a rien reçu. Le test « une demande sans lead magnet envoyé
+ * ne fait entrer personne » échoue si on retire la ligne — c'est lui, et pas ce
+ * commentaire, qui empêche de la supprimer comme inutile.
+ *
+ * Les anonymes gardent une clé unique par ligne : deux lignes sans `ig_user_id` ne
+ * peuvent pas être rapprochées, les fondre inventerait un regroupement.
+ */
+export function personnesParContenu(historique: PriseDeLeadMagnet[]): Map<string, Set<string>> {
   // Un Set de personnes PAR contenu, plutot qu'une cle concatenee : deux identifiants
   // colles par un separateur peuvent toujours fusionner deux couples distincts si ce
   // separateur apparait un jour dans l'un des deux. Ici la question ne se pose pas.
-  const personnesParContenu = new Map<string, Set<string>>();
+  const parContenu = new Map<string, Set<string>>();
   let anonymes = 0;
   for (const prise of historique) {
     if (prise.lead_magnet_sent === false) continue;
     const cle = prise.media_id ?? SANS_CONTENU;
     const personne = prise.ig_user_id ?? `__anonyme_${anonymes++}__`;
-    let personnes = personnesParContenu.get(cle);
-    if (!personnes) { personnes = new Set<string>(); personnesParContenu.set(cle, personnes); }
+    let personnes = parContenu.get(cle);
+    if (!personnes) { personnes = new Set<string>(); parContenu.set(cle, personnes); }
     personnes.add(personne);
   }
-  const parContenu = new Map<string, number>();
-  for (const [cle, personnes] of personnesParContenu) parContenu.set(cle, personnes.size);
   return parContenu;
 }
 
