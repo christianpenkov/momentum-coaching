@@ -7144,14 +7144,15 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     callsHonoredLm: seq.callsHonoredLm ?? 0,
     closedLm: seq.closedLm ?? 0,
     revenueLm: seq.revenueLm ?? 0,
-    // Un trou, pas un nombre. La colonne annonce « depuis publication », or cette ligne
-    // ne peut pas tenir cette promesse : ses vues sont finales (une story meurt en 24 h)
-    // mais ses rendez-vous viennent de `story-sequences-stats`, bornés à la période — et
-    // cette route est par ailleurs la dernière que le référentiel signale comme non
-    // alignée sur `deals`. Afficher le rapport quand même donnerait un nombre plausible
-    // sous un libellé qui en promet un autre. Le jour où la route est alignée, ce ratio
-    // se rebranche ici même.
-    vuesParCall: null,
+    // All-time des deux côtés, comme les posts et les vidéos — donc la colonne
+    // « depuis publication » dit vrai aussi pour cette ligne.
+    //
+    // `story-sequences-stats` n'est PAS bornée à la période : elle ne filtre que sur
+    // `integrations_ready_at`, exactement comme le reste de la plateforme. Ses vues sont
+    // le cumul des instantanés de chaque story de la séquence, ses rendez-vous sont tous
+    // ceux qu'elle a produits. J'avais affirmé le contraire sans avoir lu la route, et
+    // retiré ce ratio à tort le 2026-09-02 ; il est rétabli.
+    vuesParCall: seq.callsBooked > 0 && seq.views > 0 ? Math.round(seq.views / seq.callsBooked) : null,
     cashParVue: null,
     qualifiedPct: null, qualifiedCount: 0, qualifiedAnswered: 0,
     lmName: seq.lmKeyword ? `#${seq.lmKeyword}` : null,
