@@ -1205,3 +1205,82 @@ quatrième copie de la vérité).
 
 **VERDICT : ENG REVIEW PASSÉE** — 0 décision non résolue, 0 faille critique sans parade.
 Prêt à implémenter, en commençant par la phase 0 (§16).
+
+---
+
+## 19. Phase 1 — ce que la fonction SQL a révélé (2026-09-01)
+
+### D56 — ⚠️ La fonction n'utilise PAS `calls_booked`, `deals_closed` ni `revenue`
+
+D52 avait vu deux natures dans `analytics_daily_snapshots` — niveau et flux. **Il y en a
+une troisième, et deux noms de colonnes mentent dessus.**
+
+Relevé en base sur le profil `a02e5927` :
+
+```
+date        calls_booked  deals_closed  revenue     ig_views  ig_followers
+2026-08-20      17             8        12000.00       16        254
+2026-08-28      17             8        12000.00       13        255
+2026-08-29      18             8        12000.00       11        255
+```
+
+`revenue` vaut **12 000 € tous les jours** : c'est le cumul depuis le début, pas le
+revenu du jour. `poll-leads` les écrit avec `calls.filter(...).length` sur tout
+l'historique, réécrit à chaque passage. **Les sommer sur 30 jours donnerait 360 000 € au
+lieu de 12 000.**
+
+Le commentaire de `poll-leads` l'annonce sans le dire : « ces colonnes ne sont lues par
+aucun écran aujourd'hui, mais restent correctes pour le jour où un historique sera
+affiché ». Elles sont correctes **en tant que cumul**, pas en tant que série.
+
+Deuxième raison, indépendante : elles dérivent de `calls.revenue`, alors que depuis le
+2026-08-20 tous les écrans lisent `deals` — `calls.revenue` n'est plus qu'une trace du
+rapport de call.
+
+→ **Calls, ventes et encaissements sont lus depuis leurs tables sources**, avec les
+règles de `docs/perimetre-stats-referentiel.md` et `docs/calls-coach-id-piege.md`. Ils
+n'ont d'ailleurs aucun problème de volume : quelques milliers de lignes à 40 élèves,
+contre 15 000 pour les seuls snapshots quotidiens. **La fonction SQL existe pour le
+volume, et le volume est dans les snapshots.**
+
+Documenté dans `AGENTS.md` : le piège dépasse ce chantier, n'importe qui lisant ces
+colonnes tombe dedans.
+
+### D57 — `ig_reach` est exclu : il n'a aucune agrégation correcte
+
+La portée est **dédupliquée par Meta** sur sa propre fenêtre. La somme de sept portées
+quotidiennes compte plusieurs fois la même personne ; la dernière valeur ne couvre qu'un
+jour. Ce n'est ni un niveau ni un flux — il n'existe pas d'agrégation juste côté base.
+
+La portée reste affichée **par élève, sur la page de l'élève**, où la fenêtre est celle
+que Meta a elle-même dédupliquée. Elle n'entre pas dans le sélecteur de métrique de
+Stats Clients.
+
+### D58 — `mrr` n'est jamais écrite
+
+0 ligne renseignée sur 265. À ne pas lire, et à ne pas confondre avec un portefeuille
+sans abonnement.
+
+### Ce que la fonction rend, et comment elle a été prouvée
+
+`stats_clients_series(profile_ids, debut, fin, granularite)` — `security invoker`,
+`stable`, `search_path` épinglé, exécutable par `authenticated`.
+
+| Sortie | Nature | Agrégation |
+|---|---|---|
+| `ig_followers`, `yt_subscribers` | niveau | dernière valeur **non nulle** de la fenêtre |
+| `ig_views`, `ig_profile_views`, `clics` | flux | somme |
+| `publications` | flux | `count(distinct post_id)` sur `published_at` |
+
+⚠️ Le filtre « non nulle » compte autant que l'ordre : `yt_subscribers` peut être nul les
+derniers jours avant le passage du cron, et prendre bêtement la plus récente rendrait
+`null` pour un élève qui a des abonnés.
+
+⚠️ `count(distinct post_id)` est obligatoire : `analytics_ig_posts_history` porte une
+ligne par post **et par jour de relevé**. Sans `distinct`, chaque publication serait
+comptée autant de fois qu'elle a été photographiée.
+
+**Preuve** : comparaison de la fonction à un agrégat écrit à la main sur les lignes
+brutes — 10 fenêtres hebdomadaires, dont deux partielles aux extrémités (5 jours et
+2 jours), **10 « ok », zéro écart**, sur les abonnés comme sur les vues. Publications
+vérifiées séparément par le même procédé.

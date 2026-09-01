@@ -276,6 +276,27 @@ d'un autre client dans les totaux.
 rapport de call et le deal qui en découle. Les écrans lisent `deals` ; une ligne ici
 signifie qu'un élève a saisi un montant que ses stats n'affichent pas.
 
+⚠️ **`analytics_daily_snapshots` mélange TROIS natures, et deux noms de colonnes
+mentent.** Relevé le 2026-09-01 en préparant Stats Clients :
+
+| Colonnes | Nature réelle | Agrégation correcte |
+|---|---|---|
+| `ig_followers`, `yt_subscribers` | niveau (photo du jour) | **dernière** valeur non nulle de la fenêtre |
+| `ig_views`, `shortio_human_clicks`… | flux quotidien | **somme** |
+| `calls_booked`, `calls_honored`, `deals_closed`, `revenue` | **cumul depuis le début** | **dernière** valeur, ou `last − first` pour l'écart |
+| `ig_reach` | dédupliqué par Meta | **aucune** — la somme compte deux fois la même personne |
+
+`poll-leads` écrit les quatre colonnes business avec `calls.filter(...).length` sur tout
+l'historique, réécrit à chaque passage. Preuve en base sur `a02e5927` : `revenue` vaut
+`12000.00` **tous les jours** du 20 au 31 août. Les sommer sur 30 jours donnerait
+360 000 € au lieu de 12 000. Leur nom suggère un flux, leur contenu est un cumul.
+
+Deuxième raison de ne pas les lire : elles dérivent de `calls.revenue`, alors que depuis
+le 2026-08-20 tous les écrans lisent `deals`. Pour les calls, les ventes et le cash, aller
+aux tables sources avec les règles de `docs/perimetre-stats-referentiel.md`.
+
+`mrr` n'est **jamais** écrite (0 ligne renseignée sur 265) — ne pas la lire non plus.
+
 `clics_sante_redirection` compare, par lien, les clics comptés par Short.io à ceux
 comptés par la route `/r/` qui pose le Click ID sur les liens Calendly **partagés**
 (`docs/click-id.md`). ⚠️ Elle détecte une **panne**, pas une parité exacte : les deux
