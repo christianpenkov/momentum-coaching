@@ -83,6 +83,10 @@ interface IGStats {
   username: string; name: string; profilePicture: string | null;
   followers: number; following: number; mediaCount: number; biography: string;
   reach30d: number; reach28dDedupFollowers?: number | null; reach28dDedupNonFollowers?: number | null;
+  /** Portee dedupliquee TOTALE de la periode, mesuree par Meta. Ce n'est PAS la somme
+   *  des deux seaux : un compte peut basculer d'un seau a l'autre dans la fenetre et y
+   *  etre compte deux fois. Denominateur de « Non-abonnes touches ». */
+  reachTotalPeriode?: number | null;
   /** Nombre d'abonnes MOYEN sur la periode, fige par le cron. Absent = periode courante. */
   abonnesPeriode?: number | null; accountsEngaged30d: number; totalInteractions30d: number;
   /** Fenetre reellement interrogee pour les deux cartes de portee, en jours (30 ou 365). */
@@ -1792,8 +1796,20 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
   // (viewsFollowerBreakdown compte les revisionnages, incohérent avec le graphique
   // "Reach Non-Followers" juste en dessous qui utilise reach, pas views) — confirmé
   // via test direct API : les deux métriques divergent fortement sur ce compte.
+  // Denominateur : la portee TOTALE de la periode, telle que Meta la mesure — pas la
+  // somme des deux seaux. Les deux different : un compte qui etait non-abonne puis
+  // s'abonne dans la fenetre est compte dans les DEUX seaux, alors que la portee totale
+  // le dedoublonne. Mesure du 2026-09-01, periode All-Time du profil de test : 207 de
+  // portee totale contre 209 en sommant les seaux.
+  //
+  // C'est ce que l'infobulle de la carte annonce depuis toujours (« celle-ci se rapporte
+  // a ta portee totale »), et ce que calcule deja l'autre lecteur de la meme donnee,
+  // /api/instagram/periodes — deux formules pour une seule metrique, alignees ici.
+  //
+  // Repli sur la somme quand la portee totale manque : mieux vaut un denominateur
+  // approche qu'aucun taux.
   const viralPct = (ig.reach28dDedupFollowers != null && ig.reach28dDedupNonFollowers != null)
-    ? pct(ig.reach28dDedupNonFollowers, ig.reach28dDedupFollowers + ig.reach28dDedupNonFollowers)
+    ? pct(ig.reach28dDedupNonFollowers, ig.reachTotalPeriode ?? (ig.reach28dDedupFollowers + ig.reach28dDedupNonFollowers))
     : (ig.viewsFollowerBreakdown
       ? pct(ig.viewsFollowerBreakdown.nonFollower, ig.viewsFollowerBreakdown.follower + ig.viewsFollowerBreakdown.nonFollower)
       : null);
@@ -9185,6 +9201,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     // Sans ces deux lignes, les cartes « Abonnes touches » et « Non-abonnes touches »
     // affichaient N/D des qu'on quittait la periode courante — y compris en All-Time,
     // alors que la donnee etait bien en base (constate par Chris le 2026-08-31).
+    reachTotalPeriode:         igPeriode?.reach_total ?? null,
     reach28dDedupFollowers:    igPeriode?.reach_abonnes ?? null,
     reach28dDedupNonFollowers: igPeriode?.reach_non_abonnes ?? null,
     // Denominateur de « Abonnes touches », fige avec la periode par le cron : c'est
