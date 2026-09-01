@@ -23,6 +23,7 @@ import {
   trierLignes, filtrerLignes, formaterValeur, formaterVariation, tauxCollecte,
   JOURS_MINIMUM_TRAJECTOIRE, repartirParFenetre,
   type Metrique, type CritereTri, type LigneEleve, type EtatEleve,
+  versCsv, nomFichierCsv,
 } from '@/lib/statsClients';
 
 /* Stats Clients — la vue portefeuille du coach.
@@ -702,6 +703,24 @@ export default function PageStatsClients() {
 
   return (
     <div className="page-content">
+      {/* Q2 du 2026-09-01 : la page se consulte sur ordinateur — un tableau de treize
+          colonnes et un graphe de quarante courbes n'ont pas de version téléphone
+          honnête. Mais l'app s'installe en PWA sur le téléphone, donc /analytics EST
+          atteignable depuis un iPhone, et n'y afficher aucun avertissement donnait à
+          voir une page cassée plutôt qu'une page hors de son écran.
+
+          ⚠️ Le basculement est en CSS, pas en JavaScript. Une bascule sur la largeur
+          lue dans window rendrait au premier passage une largeur que le serveur ne
+          connaît pas : décalage d'hydratation, et l'avertissement clignoterait sur le
+          bureau au chargement. */}
+      <div className="stats-hors-format">
+        <p><b>Cette page se consulte sur ordinateur.</b></p>
+        <p>Le tableau du portefeuille et le graphe comparent jusqu'à quarante élèves côte
+          à côte : sur un écran de téléphone, il n'en reste rien de lisible. Tes chiffres
+          ne sont pas perdus, ils t'attendent sur grand écran.</p>
+      </div>
+
+      <div className="stats-bureau">
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
         <div>
           <h1 className="page-title">Stats Clients</h1>
@@ -832,9 +851,11 @@ export default function PageStatsClients() {
             recherche={recherche} setRecherche={setRecherche}
             metrique={metrique}
             onSurvol={setSurvole}
+            debut={data?.debut ?? null} fin={data?.fin ?? null}
           />
         </>
       )}
+      </div>
     </div>
   );
 }
@@ -1054,14 +1075,38 @@ const LIBELLE_ETAT: Record<EtatEleve, string> = {
   trop_recent: 'Trop récent pour comparer',
 };
 
-function CarteTableau({ lignes, total, intituleCourbe, critere, setCritere, sens, setSens, recherche, setRecherche, metrique, onSurvol }: {
+function CarteTableau({ lignes, total, intituleCourbe, critere, setCritere, sens, setSens, recherche, setRecherche, metrique, onSurvol, debut, fin }: {
   lignes: LigneEleve[]; total: number; intituleCourbe: string;
   critere: CritereTri; setCritere: (c: CritereTri) => void;
   sens: 'asc' | 'desc'; setSens: (s: 'asc' | 'desc') => void;
   recherche: string; setRecherche: (r: string) => void;
   metrique: Metrique;
   onSurvol: (id: string | null) => void;
+  /** Bornes de la période affichée. Elles ne servent QU'au nom du fichier exporté :
+   *  deux exports téléchargés le même jour sur deux périodes différentes ne doivent pas
+   *  se confondre dans le dossier Téléchargements. */
+  debut: Date | null; fin: Date | null;
 }) {
+  /* D48 : l'export reprend `lignes`, c'est-à-dire le tableau DÉJÀ trié et filtré.
+   * Exporter les données brutes donnerait un fichier qui ne correspond pas à ce qu'on a
+   * sous les yeux, ce qui est pire que pas d'export du tout.
+   *
+   * ⚠️ Ce n'est pas une entorse à « on n'agit jamais depuis cette page » : rien n'est
+   * écrit, ni en base ni ailleurs. On emporte ce qu'on voit. */
+  function exporter() {
+    const blob = new Blob([versCsv(lignes)], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = debut && fin ? nomFichierCsv(debut, fin) : 'momentum-eleves.csv';
+    document.body.appendChild(a);
+    a.click();
+    // Sans ces deux lignes, l'ancre reste dans le document et l'URL objet garde le blob
+    // en mémoire jusqu'au rechargement de la page.
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="card" style={{ overflow: 'hidden', padding: 0 }}>
       <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
@@ -1083,6 +1128,11 @@ function CarteTableau({ lignes, total, intituleCourbe, critere, setCritere, sens
           <button className="btn-ghost" style={{ fontSize: 12, fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}
             onClick={() => setSens(sens === 'desc' ? 'asc' : 'desc')}>
             {sens === 'desc' ? '↓ décroissant' : '↑ croissant'}
+          </button>
+          <button className="btn-ghost" style={{ fontSize: 12, whiteSpace: 'nowrap' }}
+            onClick={exporter} disabled={lignes.length === 0}
+            title={lignes.length === 0 ? 'Rien à exporter' : `Exporter ${lignes.length} ligne${lignes.length !== 1 ? 's' : ''} au format CSV`}>
+            Exporter en CSV
           </button>
         </div>
       </div>

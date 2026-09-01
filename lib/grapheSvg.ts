@@ -53,18 +53,19 @@ export interface OptionsGraphe {
   /** Suffixe des identifiants internes (dégradés). Deux graphes sur la même page ne
    *  doivent pas partager un `<linearGradient id>` : le second écraserait le premier. */
   cle?: string;
-  /* ── Leviers d'apparence, ouverts pour la revue de design du 2026-09-01 ──────
-   * Ils existent pour montrer des variantes côte à côte en taille réelle. Une fois
-   * la variante choisie, les valeurs par défaut ci-dessous sont celles retenues.
-   * ⚠️ Ne pas les multiplier : chaque levier est une combinaison de plus à tenir. */
-  /** Courbes lissées (défaut) ou segments droits. */
-  lissage?: boolean;
-  /** Nombre d'intervalles de la grille horizontale. 4 intervalles = 5 traits. */
-  graduations?: number;
-  /** Un point sur chaque valeur. Lisible en vue semaine (7 points), illisible en vue
-   *  mois multi-séries (180 points). */
-  points?: boolean;
 }
+
+/* ⚠️ Il n'y a PAS de levier d'apparence ici, et c'est délibéré.
+ *
+ * Trois ont existé le temps d'une revue le 2026-09-01 — lissage ou segments droits,
+ * densité de la grille, points sur chaque valeur — pour montrer les variantes côte à
+ * côte en taille réelle. Chris a tranché (lissage monotone, grille à cinq traits, pas
+ * de points), et ils ont été retirés le jour même.
+ *
+ * Ne pas les rouvrir « au cas où ». Un levier que personne ne bascule est une
+ * combinaison de plus à tenir et à tester, pour une variante que plus personne ne
+ * regarde. Si une variante redevient utile, elle se remontre en dix minutes dans une
+ * fiche de revue — c'est comme ça que celle-ci a été tranchée. */
 
 export const SEUIL_COULEUR_PAR_DEFAUT = 10;
 
@@ -209,14 +210,6 @@ export function lisser(pts: Point[]): string {
   return out;
 }
 
-/** Le même tronçon en segments droits : aucune interpolation, la ligne ne passe que par
- *  des valeurs réellement mesurées. C'est l'alternative honnête au lissage. */
-export function joindre(pts: Point[]): string {
-  if (pts.length === 0) return '';
-  const r = (v: number) => v.toFixed(1);
-  return pts.map((p, i) => `${i ? 'L' : 'M'}${r(p.x)} ${r(p.y)}`).join(' ');
-}
-
 /** Découpe une série en tronçons continus. Un trou OUVRE un nouveau tronçon au lieu
  *  d'être relié : joindre deux points de part et d'autre d'un jour manquant dessinerait
  *  une pente qui n'a pas eu lieu. */
@@ -297,11 +290,10 @@ export function construireGraphe(o: OptionsGraphe): GeometrieGraphe {
    * Il est en trait PLEIN sur le token de bordure : plein pour se distinguer des
    * pointillés de la grille et se lire comme un axe, sur le même token pour rester
    * calme. C'est un repère, pas une donnée. */
-  // Borne haute a 8 : au-dela les graduations se touchent sur 280px de haut.
-  const grads = Math.max(2, Math.min(8, Math.round(o.graduations ?? 4)));
-  for (let i = 0; i <= grads; i++) {
-    const v = min + (max - min) * (i / grads);
-    const y = M.haut + hi - (i / grads) * hi;
+  // Quatre intervalles, donc cinq traits. Au-dela ils se touchent sur 280 px de haut.
+  for (let i = 0; i <= 4; i++) {
+    const v = min + (max - min) * (i / 4);
+    const y = M.haut + hi - (i / 4) * hi;
     s += `<line x1="${M.gauche}" y1="${y.toFixed(1)}" x2="${L - M.droite}" y2="${y.toFixed(1)}" stroke="${GRILLE}" stroke-dasharray="3 3"/>`;
     s += `<text x="${M.gauche - 8}" y="${(y + 3.5).toFixed(1)}" text-anchor="end" font-size="10.5" fill="${ENCRE_ESTOMPEE}" font-family="Inter, sans-serif">${echapper(formaterAxe(v, o.unite))}</text>`;
   }
@@ -315,12 +307,8 @@ export function construireGraphe(o: OptionsGraphe): GeometrieGraphe {
     s += `<line x1="${M.gauche}" y1="${yDe(0).toFixed(1)}" x2="${L - M.droite}" y2="${yDe(0).toFixed(1)}" stroke="${ENCRE_ESTOMPEE}" stroke-opacity=".45"/>`;
   }
 
-  // Un SEUL point de bascule entre lissage et segments droits : tout ce qui trace passe
-  // par `ligne`, y compris la moyenne et les bords de la bande. Sinon on obtiendrait une
-  // moyenne lissee au-dessus de courbes anguleuses.
-  const ligne = o.lissage === false ? joindre : lisser;
   const troncons = (serie: SerieGraphe) => tronconner(serie.valeurs, serie.decalage ?? 0, xDe, yDe);
-  const tracer = (segs: Point[][]) => segs.map(ligne).join(' ');
+  const tracer = (segs: Point[][]) => segs.map(lisser).join(' ');
 
   /* Le raccord au-dessus d'un trou de collecte.
    *
@@ -361,7 +349,7 @@ export function construireGraphe(o: OptionsGraphe): GeometrieGraphe {
    *  qu'un trou ne soit pas rempli comme s'il portait une valeur. */
   const aplat = (segs: Point[][]) => segs
     .filter(p => p.length > 1)
-    .map(p => `${ligne(p)} L${p[p.length - 1].x.toFixed(1)} ${solPlan} L${p[0].x.toFixed(1)} ${solPlan} Z`)
+    .map(p => `${lisser(p)} L${p[p.length - 1].x.toFixed(1)} ${solPlan} L${p[0].x.toFixed(1)} ${solPlan} Z`)
     .join(' ');
 
   /** Le point terminal qui pulse, repris de `todayDotFactory` dans `AreaChart.tsx` :
@@ -386,10 +374,10 @@ export function construireGraphe(o: OptionsGraphe): GeometrieGraphe {
     if (hautP.length > 1) {
       // La bande se referme en suivant la MÊME courbe lissée à l'aller et au retour,
       // sinon son bord haut serait courbe et son bord bas anguleux.
-      const haut = ligne(hautP);
-      const retour = ligne([...basP].reverse()).replace(/^M/, 'L');
+      const haut = lisser(hautP);
+      const retour = lisser([...basP].reverse()).replace(/^M/, 'L');
       s += `<path d="${haut} ${retour} Z" fill="${TAUPE}" fill-opacity=".10"/>`;
-      s += `<path d="${ligne(basP)}" fill="none" stroke="${TAUPE}" stroke-opacity=".3" stroke-linecap="round"/>`;
+      s += `<path d="${lisser(basP)}" fill="none" stroke="${TAUPE}" stroke-opacity=".3" stroke-linecap="round"/>`;
       s += `<path d="${haut}" fill="none" stroke="${TAUPE}" stroke-opacity=".3" stroke-linecap="round"/>`;
     }
     for (const serie of o.series) {
@@ -399,7 +387,7 @@ export function construireGraphe(o: OptionsGraphe): GeometrieGraphe {
     }
     if (moy.length > 1) {
       s += `<path d="${aplat([moy])}" fill="url(#aplat-${echapper(cle)})" stroke="none"/>`;
-      s += `<path d="${ligne(moy)}" fill="none" stroke="${TAUPE}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>`;
+      s += `<path d="${lisser(moy)}" fill="none" stroke="${TAUPE}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>`;
       const dernier = moy[moy.length - 1];
       s += pointVif(dernier.x, dernier.y, TAUPE);
       s += `<text x="${(dernier.x - 10).toFixed(1)}" y="${(dernier.y - 11).toFixed(1)}" text-anchor="end" font-size="10.5" font-weight="600" fill="${TAUPE}" font-family="Inter, sans-serif">moyenne</text>`;
@@ -420,17 +408,7 @@ export function construireGraphe(o: OptionsGraphe): GeometrieGraphe {
       const enGris = !!vedette;
       const segs = troncons(serie);
       s += `<path d="${tracer(segs)}" fill="none" stroke="${enGris ? GRIS : serie.couleur}" stroke-width="${enGris ? 1.1 : 1.8}" stroke-linejoin="round" stroke-linecap="round" opacity="${enGris ? 1 : 0.92}"/>`;
-      // Un point par valeur mesurée. Il dit où sont les VRAIES données : entre deux
-      // points, la ligne n'est qu'une jonction. Réservé aux séries en couleur — les
-      // grises sont un contexte, les ponctuer ferait de la poussière.
       s += tracerRaccords(segs, enGris ? GRIS : serie.couleur, enGris ? 1 : 1.4);
-      if (o.points && !enGris) {
-        for (const seg of segs) {
-          for (const p of seg) {
-            s += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2.4" fill="${serie.couleur}" stroke="${FOND}" stroke-width="1.2"/>`;
-          }
-        }
-      }
       if (o.pointsCourts && serie.valeurs.filter(v => v !== null).length <= 2) {
         const dernier = serie.valeurs.length - 1 + (serie.decalage ?? 0);
         const v = serie.valeurs[serie.valeurs.length - 1];

@@ -331,3 +331,72 @@ export function repartirParFenetre<T>(
   }
   return paquets;
 }
+
+/* ═══ Export CSV du tableau ═══════════════════════════════════════════════
+ *
+ * D48 : UN seul export, celui du tableau du bas, parce que c'est le seul endroit de la
+ * page où une ligne = un élève. Exporter le graphe demanderait de choisir une forme
+ * (large ? longue ?) que personne n'a demandée.
+ *
+ * ⚠️ Cinq pièges, tous déjà payés ailleurs sur des exports français :
+ *
+ * 1. Le SÉPARATEUR est le point-virgule. Excel en configuration française lit la virgule comme un
+ *    séparateur décimal, donc un CSV à virgules s'ouvre en UNE seule colonne.
+ * 2. Les DÉCIMALES prennent la virgule, pour la même raison en sens inverse.
+ * 3. Le fichier commence par un BOM UTF-8. Sans lui, Excel lit du Latin-1 et « Léa »
+ *    devient « LÃ©a » — sur des noms d'élèves, c'est immédiatement visible.
+ * 4. Une valeur qui commence par =, +, - ou @ est interprétée comme une FORMULE par
+ *    Excel et LibreOffice. Un nom d'élève vient d'une saisie : c'est une injection, pas
+ *    une coquetterie. On la neutralise par une apostrophe.
+ * 5. Une valeur INCONNUE laisse la cellule vide, jamais zéro — même règle que le graphe.
+ *    Un zéro affirme « il ne s'est rien passé », le vide dit « on ne sait pas ».
+ */
+
+const SEPARATEUR = ';';
+
+/** Prépare une valeur pour une cellule : neutralise les formules, puis échappe. */
+export function cellule(v: string | number | null | undefined): string {
+  if (v === null || v === undefined) return '';
+  let t = typeof v === 'number'
+    ? (Number.isInteger(v) ? String(v) : v.toFixed(2).replace('.', ','))
+    : v;
+  // Neutralisation d'injection : l'apostrophe force Excel à traiter la suite comme du
+  // texte. Le tabulateur et le retour chariot sont visés aussi — ils permettent de
+  // masquer le début réel de la valeur.
+  if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;
+  if (t.includes(SEPARATEUR) || t.includes('"') || t.includes('\n') || t.includes('\r')) {
+    t = '"' + t.replace(/"/g, '""') + '"';
+  }
+  return t;
+}
+
+const COLONNES: { titre: string; de: (l: LigneEleve) => string | number | null }[] = [
+  { titre: 'Élève',                de: l => l.nom },
+  { titre: 'Niche',                de: l => l.niche },
+  { titre: 'Semaine de programme', de: l => l.semaine },
+  { titre: 'Abonnés Instagram',    de: l => l.abonnesIg },
+  { titre: 'Variation Instagram',  de: l => l.variationIg },
+  { titre: 'Abonnés YouTube',      de: l => l.abonnesYt },
+  { titre: 'Variation YouTube',    de: l => l.variationYt },
+  { titre: 'Publications',         de: l => l.publications },
+  { titre: 'Leads',                de: l => l.leads },
+  { titre: 'Calls bookés',         de: l => l.callsBookes },
+  { titre: 'Cash contracté (€)',   de: l => l.cashContracte },
+  { titre: 'Cash collecté (€)',    de: l => l.cashCollecte },
+];
+
+/** Le tableau tel qu'il est affiché — même ordre, même filtre. Un export qui ne
+ *  correspond pas à ce qu'on a sous les yeux est pire que pas d'export du tout. */
+export function versCsv(lignes: LigneEleve[]): string {
+  const entete = COLONNES.map(c => cellule(c.titre)).join(SEPARATEUR);
+  const corps = lignes.map(l => COLONNES.map(c => cellule(c.de(l))).join(SEPARATEUR));
+  // CRLF : c'est ce qu'attend Excel, et tous les autres tableurs l'acceptent.
+  return '\uFEFF' + [entete, ...corps].join('\r\n') + '\r\n';
+}
+
+/** Le nom du fichier porte la période : deux exports téléchargés le même jour sur deux
+ *  périodes différentes ne doivent pas se confondre dans le dossier Téléchargements. */
+export function nomFichierCsv(debut: Date, fin: Date): string {
+  const j = (d: Date) => d.toISOString().slice(0, 10);
+  return `momentum-eleves_${j(debut)}_${j(fin)}.csv`;
+}

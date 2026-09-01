@@ -16,6 +16,9 @@ import {
   sequenceFenetres,
   fenetreDe,
   repartirParFenetre,
+  versCsv,
+  cellule,
+  nomFichierCsv,
   type LigneEleve,
 } from './statsClients.ts';
 
@@ -359,4 +362,74 @@ test('à la semaine, sept jours se regroupent en un seul paquet', () => {
 test('l\'axe reste de la bonne longueur même sans aucun élément', () => {
   const axe = sequenceFenetres(j('2026-08-30'), j('2026-09-01'), 'jour');
   assert.deepEqual(repartirParFenetre([], () => null, axe, 'jour').map(p => p.length), [0, 0, 0]);
+});
+
+/* ═══ Export CSV ══════════════════════════════════════════════════════════ */
+
+const ligneCsv = (o: Partial<LigneEleve> = {}): LigneEleve => ({
+  id: 'x', profileId: 'p', nom: 'Léa', niche: 'Danse', semaine: 6,
+  abonnesIg: 1200, abonnesYt: 340, variationIg: 45, variationYt: -3,
+  publications: 12, leads: 8, callsBookes: 3, cashContracte: 2400, cashCollecte: 1800,
+  serie: [], etat: null, ...o,
+});
+
+test('le fichier commence par un BOM — sans lui Excel massacre les accents', () => {
+  // « Léa » devient « LÃ©a » sans BOM. Sur des noms d'élèves, c'est immédiatement visible.
+  assert.ok(versCsv([ligneCsv()]).startsWith('\uFEFF'));
+});
+
+test('le séparateur est le point-virgule, pas la virgule', () => {
+  // Excel en français lit la virgule comme séparateur décimal : un CSV à virgules
+  // s'ouvre en UNE seule colonne, et l'export ne sert à rien.
+  const l = versCsv([ligneCsv()]).split('\r\n')[0];
+  assert.ok(l.includes(';'), 'les colonnes doivent être séparées par des points-virgules');
+  assert.ok(!l.includes(','), "l'en-tête ne doit contenir aucune virgule");
+});
+
+test('une décimale prend la virgule, un entier reste nu', () => {
+  const lignes = versCsv([ligneCsv({ cashCollecte: 1234.5, cashContracte: 2000 })]).split('\r\n');
+  assert.ok(lignes[1].includes('1234,50'), 'décimale à la française');
+  assert.ok(lignes[1].includes(';2000;'), 'un entier ne gagne pas de décimales inutiles');
+});
+
+test('une valeur inconnue laisse la cellule VIDE, jamais zéro', () => {
+  // Un zéro affirme « il ne s'est rien passé ». Le vide dit « on ne sait pas ».
+  const l = versCsv([ligneCsv({ abonnesYt: null, variationYt: null, niche: null })]).split('\r\n')[1];
+  assert.ok(l.includes(';;'), 'deux points-virgules collés = une cellule vide');
+  assert.ok(!/;0;/.test(l.replace('Léa', '')), 'aucun zéro ne doit apparaître à la place d’un inconnu');
+});
+
+test('un nom qui commence par = est neutralisé — c’est une injection, pas une coquetterie', () => {
+  // Le nom vient d'une saisie. `=1+1` ou pire, une formule qui appelle une URL, serait
+  // exécutée à l'ouverture du fichier par Excel comme par LibreOffice.
+  assert.equal(cellule('=1+1'), "'=1+1");
+  assert.equal(cellule('+33612345678'), "'+33612345678");
+  assert.equal(cellule('-truc'), "'-truc");
+  assert.equal(cellule('@import'), "'@import");
+  assert.equal(cellule('Léa'), 'Léa', 'un nom normal ne doit pas être touché');
+});
+
+test('un point-virgule ou un guillemet dans un nom ne casse pas la grille', () => {
+  assert.equal(cellule('Dupont; Léa'), '"Dupont; Léa"');
+  assert.equal(cellule('Léa "la danseuse"'), '"Léa ""la danseuse"""');
+  assert.equal(cellule('Ligne\nSuivante'), '"Ligne\nSuivante"');
+});
+
+test('une ligne par élève, dans l’ordre reçu — l’export suit le tableau affiché', () => {
+  const csv = versCsv([ligneCsv({ nom: 'Zoé' }), ligneCsv({ nom: 'Ana' })]);
+  const lignes = csv.split('\r\n').filter(Boolean);
+  assert.equal(lignes.length, 3, 'un en-tête et deux élèves');
+  assert.ok(lignes[1].startsWith('Zoé'), "l'ordre affiché est conservé");
+  assert.ok(lignes[2].startsWith('Ana'));
+});
+
+test('un tableau vide produit quand même son en-tête', () => {
+  const csv = versCsv([]);
+  assert.ok(csv.includes('Élève'), 'un fichier sans en-tête serait illisible');
+  assert.equal(csv.split('\r\n').filter(Boolean).length, 1);
+});
+
+test('le nom du fichier porte la période, pour ne pas confondre deux exports', () => {
+  const n = nomFichierCsv(new Date('2026-08-01T00:00:00Z'), new Date('2026-08-31T00:00:00Z'));
+  assert.equal(n, 'momentum-eleves_2026-08-01_2026-08-31.csv');
 });

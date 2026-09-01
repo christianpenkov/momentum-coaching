@@ -4020,3 +4020,26 @@ html[data-splash='1'] .dot-wave {
      le mouvement. */
   .graphe-point-vif { animation: none; opacity: 0.3; }
 }
+
+/* Stats Clients : la page se consulte sur ordinateur.
+   Le seuil est à 860px — en dessous, le tableau de treize colonnes et le graphe de
+   quarante courbes ne sont plus lisibles, ils sont juste hors de leur écran. Le
+   basculement est en CSS et non en JavaScript : une bascule sur la largeur lue dans
+   window rendrait au premier passage une largeur inconnue du serveur, donc un décalage
+   d'hydratation et un avertissement qui clignote sur le bureau au chargement. */
+.stats-hors-format { display: none; }
+
+@media (max-width: 860px) {
+  .stats-bureau { display: none; }
+  .stats-hors-format {
+    display: block;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: 22px 20px;
+    margin: 8px 0;
+  }
+  .stats-hors-format p { margin: 0 0 9px; font-size: 14px; color: var(--muted); line-height: 1.6; }
+  .stats-hors-format p:last-child { margin-bottom: 0; }
+  .stats-hors-format b { color: var(--ink); font-weight: 600; }
+}
