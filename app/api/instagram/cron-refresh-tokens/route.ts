@@ -184,6 +184,25 @@ export async function POST(request: Request) {
     }
   }));
 
+  // ── Filigrane de passage ────────────────────────────────────────────────────
+  //
+  // Ce cron est l'alerte qui prévient qu'un jeton Instagram est mort. S'il s'arrête,
+  // RIEN ne le disait : `cron_runs` ne journalise que les échecs, et un cron qui ne
+  // tourne plus n'échoue pas — il se tait. On découvrait alors la panne parce que les
+  // stats d'un élève ne bougeaient plus depuis trois semaines.
+  //
+  // Écrit à CHAQUE passage, succès ou échec : c'est la preuve qu'il tourne encore, pas
+  // qu'il n'a rien trouvé. La vue `crons_sante` signale ensuite un silence anormal.
+  //
+  // Pas `integrations.last_synced_at` : ce champ est déjà écrit par `poll-leads` toutes
+  // les 5 minutes pour Instagram. S'en servir ici aurait fait masquer la mort de CE cron
+  // par le battement d'un autre — exactement le défaut qu'on ferme.
+  const { error: filigraneErr } = await serviceSupabase.rpc('marquer_passage_cron', {
+    p_nom: 'cron-refresh-tokens',
+    p_contexte: `${results.total} intégration(s), ${results.failed} en panne, ${results.emails_sent} e-mail(s)`,
+  });
+  if (filigraneErr) console.error('[cron-refresh-tokens] filigrane de passage:', filigraneErr.message);
+
   console.log('[cron-refresh-tokens] Résultat:', results);
   return NextResponse.json(results);
 }

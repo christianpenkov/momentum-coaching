@@ -194,6 +194,33 @@ tient toujours. Corrigé dans le fichier pour ne pas laisser une justification f
 `momentum-plateforme.vercel.app/api/<chemin>` désigne la route Next.js. **Reporter la
 réponse dans ce tableau** — c'est la seule trace que la session suivante pourra lire.
 
+### Un cron est « zéro maintenance » quand son SILENCE est détectable
+
+Pas quand il tourne au bon endroit. `cron_runs` ne journalise que les **échecs**,
+volontairement — mais un cron qui ne tourne plus n'échoue pas, il se tait, et un silence
+ne se distingue pas d'un succès.
+
+```sql
+select * from crons_sante;   -- aucune ligne 'SILENCIEUX' = les crons inscrits tournent
+```
+
+`crons_passages` porte une ligne par cron, écrasée à chaque passage, **succès ou échec** :
+la table ne grossit jamais, aucune purge à prévoir. Le seuil de silence est porté par la
+ligne (`silence_max`), pas par la vue — un cron quotidien et un cron aux 5 minutes n'ont
+pas le même. Un cron s'inscrit en un appel : `rpc('marquer_passage_cron', { p_nom, p_contexte })`.
+
+État au 2026-09-01 :
+
+| Cron | Son silence est-il détecté ? |
+|---|---|
+| `cron-health` | ✅ par `integrations.last_synced_at` + `integrations_sante` (`ping_absent`) |
+| `cron-refresh-tokens` | ✅ par `crons_passages` — **ajouté le 2026-09-01** |
+| les sept autres | ❌ **pas encore inscrits** — un `marquer_passage_cron` à la fin de chacun suffit |
+
+⚠️ Ne PAS réutiliser `integrations.last_synced_at` pour un cron qui touche Instagram :
+`poll-leads` l'écrit déjà toutes les 5 minutes, et le battement de l'un masquerait la mort
+de l'autre. C'est le défaut qui a motivé cette table.
+
 ### Les doublons Vercel ↔ Edge Function
 
 Trois routes Vercel dupliquaient une Edge Function sans jamais être appelées. Elles ne
@@ -265,7 +292,8 @@ select * from ventes_sante_sur_encaissement;    -- vide = aucun deal n'a encaiss
 select * from ventes_sante_contenu;             -- 'ok' partout
 select * from ig_sante_insights_posts;          -- 'ok' partout
 select * from base_sante_taille;                -- 'ok' = plafond de stockage loin
-select * from clics_sante_redirection;          -- 'ok' partout
+select * from clics_sante_redirection;
+select * from crons_sante;                      -- aucun 'SILENCIEUX' = les crons inscrits tournent          -- 'ok' partout
 ```
 
 ⚠️ **`cron_runs` couvre désormais aussi `sync-calendly`** (ajouté le 2026-08-31 : ses
