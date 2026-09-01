@@ -8,7 +8,7 @@ import { resolveUser } from '@/lib/waitForSession';
 import { getPeriodWindow } from '@/lib/period';
 import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import { calculerCash, type LignePaiement } from '@/lib/dealCash';
-import { fetchLeadsCountsBatch } from '@/lib/salesCallStats';
+import { fetchLignesLeadsBatch, compterLeads, type LignesLeads, type LigneCallLead } from '@/lib/salesCallStats';
 import { getClientSignals, watchList, phraseSignaux, type ClientSignals } from '@/lib/clientSignals';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import Avatar, { getInitials, seedForPerson, colorFromSeed } from '@/components/ui/Avatar';
@@ -21,7 +21,7 @@ import {
   METRIQUES, LIBELLES_TRI, agreger, granulariteDe, intituleColonneCourbe,
   libelleComparaison, semaineAccompagnement, ancienneteEnJours, sequenceFenetres,
   trierLignes, filtrerLignes, formaterValeur, formaterVariation, tauxCollecte,
-  JOURS_MINIMUM_TRAJECTOIRE,
+  JOURS_MINIMUM_TRAJECTOIRE, repartirParFenetre,
   type Metrique, type CritereTri, type LigneEleve, type EtatEleve,
 } from '@/lib/statsClients';
 
@@ -78,8 +78,9 @@ interface DonneesStats {
   calls: { coach_id: string; status: string | null; booked_at: string | null; scheduled_at: string | null }[];
   deals: { profile_id: string; amount_total: number | string | null; signed_at: string | null; status: string | null }[];
   paiements: { amount: number | string | null; status: string | null; paid_at: string | null; deals: { profile_id: string } | null }[];
-  leads: Map<string, number>;
-  leadsPrecedents: Map<string, number>;
+  /** Lignes BRUTES par élève. La page compte elle-même, fenêtre par fenêtre, en
+   *  appelant `compterLeads` — la règle reste unique, seul le découpage change. */
+  lignesLeads: Map<string, LignesLeads>;
   /** Séries HEBDOMADAIRES sur toute l'ancienneté, pour l'axe des semaines
    *  d'accompagnement. Hors période : ce graphe ne suit pas le sélecteur, par nature. */
   accompagnement: LigneSerie[];
@@ -159,7 +160,7 @@ async function charger(period: Period, periodIndex: number, allTime: boolean): P
     ? new Date(Math.min(...arrivees))
     : new Date(Date.now() - 365 * 86_400_000);
 
-  const [seriesRes, precRes, callsRes, dealsRes, paiementsRes, leads, leadsPrec, accompRes, fraicheurRes, integRes] = await Promise.all([
+  const [seriesRes, precRes, callsRes, dealsRes, paiementsRes, lignesLeads, accompRes, fraicheurRes, integRes] = await Promise.all([
     profileIds.length
       ? supabase.rpc('stats_clients_series', {
           p_profile_ids: profileIds, p_debut: jour(debut), p_fin: jour(fin), p_granularite: granularite,
@@ -186,10 +187,9 @@ async function charger(period: Period, periodIndex: number, allTime: boolean): P
       ? supabase.from('deal_payments').select('amount, status, paid_at, deals!inner(profile_id)')
           .in('deals.profile_id', profileIds).not('paid_at', 'is', null)
       : rien,
-    fetchLeadsCountsBatch(supabase, profileIds, debut.toISOString()),
-    debutPrecedent
-      ? fetchLeadsCountsBatch(supabase, profileIds, debutPrecedent.toISOString())
-      : Promise.resolve(new Map<string, number>()),
+    // Lues depuis la borne la PLUS ANCIENNE des deux fenêtres : les mêmes lignes
+    // servent à la période courante et à la précédente, en une seule lecture.
+    fetchLignesLeadsBatch(supabase, profileIds, (debutPrecedent ?? debut).toISOString()),
     profileIds.length
       ? supabase.rpc('stats_clients_series', {
           p_profile_ids: profileIds, p_debut: jour(debutAccompagnement), p_fin: jour(new Date()),
@@ -240,7 +240,7 @@ async function charger(period: Period, periodIndex: number, allTime: boolean): P
     calls: (callsRes.data || []) as any[],
     deals: (dealsRes.data || []) as any[],
     paiements: (paiementsRes.data || []) as any[],
-    leads, leadsPrecedents: leadsPrec,
+    lignesLeads,
     accompagnement: (accompRes.data || []) as LigneSerie[],
     debut, fin, debutPrecedent, finPrecedente,
   };
@@ -275,7 +275,9 @@ interface Agregats {
 export default function PageStatsClients() {
   const { clients: clientsContexte } = useSupabaseClients();
 
-  const [period, setPeriod] = useState<Period>(7);
+  // Le mois en cours par défaut : c'est la maille à laquelle un coach juge un
+  // portefeuille. Une semaine est trop courte pour qu'un call ou une vente s'y voie.
+  const [period, setPeriod] = useState<Period>(30);
   const [periodIndex, setPeriodIndex] = useState(0);
   const [allTime, setAllTime] = useState(false);
   const [metrique, setMetrique] = useState<Metrique>('abonnesIg');
@@ -322,6 +324,9 @@ export default function PageStatsClients() {
     }
 
     const maintenant = new Date();
+    // Capturée hors des fermetures : TypeScript ne conserve pas le rétrécissement de
+    // `data` à l'intérieur d'une fonction imbriquée, même après le garde-fou plus haut.
+    const finPeriode = data.fin;
     const lignes: LigneEleve[] = [];
     let cumul: Agregats = { cashCollecte: 0, cashContracte: 0, abonnesGagnes: null, abonnesGagnesIg: null, abonnesGagnesYt: null, leads: 0, callsBookes: 0, ventes: 0 };
     let cumulPrec: Agregats = { ...cumul };
@@ -354,11 +359,26 @@ export default function PageStatsClients() {
       };
 
       const publications = agreger(valeurs('publications'), 'flux');
-      const leads = pid ? data.leads.get(pid) ?? null : null;
 
       const callsEleve = pid ? data.calls.filter(k => k.coach_id === pid) : [];
       const callsBookes = pid
         ? callsEleve.filter(k => !EST_ANNULE(k.status) && dansFenetre(k.booked_at, k.scheduled_at, data.debut, data.fin)).length
+        : null;
+
+      // Leads : la déduplication se fait sur TOUTES les lignes, puis la date la plus
+      // ancienne est bornée à la fenêtre. Pré-filtrer les lignes ferait passer pour
+      // « nouveau ce mois » un prospect de juillet dont un lien a été recréé en août.
+      const brutLeads: LignesLeads = pid
+        ? data.lignesLeads.get(pid) ?? { leads: [], liens: [], callsIgDirects: [], callsYoutube: [] }
+        : { leads: [], liens: [], callsIgDirects: [], callsYoutube: [] };
+      const dansLaFenetre = (c: LigneCallLead) =>
+        dansFenetre(c.booked_at ?? null, c.scheduled_at ?? null, data.debut, data.fin);
+      const leads = pid
+        ? compterLeads({
+            ...brutLeads,
+            callsIgDirects: brutLeads.callsIgDirects.filter(dansLaFenetre),
+            callsYoutube: brutLeads.callsYoutube.filter(dansLaFenetre),
+          }, data.debut.toISOString(), data.fin.toISOString())
         : null;
 
       const dealsEleve = pid ? data.deals.filter(d => d.profile_id === pid) : [];
@@ -371,14 +391,55 @@ export default function PageStatsClients() {
       // ⚠️ `calculerCash` et jamais une somme à la main : sept lectures sommaient les
       // paiements `succeeded` sans jamais déduire un remboursement (2 800 € affichés
       // pour 2 600 € en caisse, corrigé le 2026-08-30).
-      const paiementsFenetre: LignePaiement[] = pid
-        ? data.paiements
-            .filter(p => p.deals?.profile_id === pid && p.paid_at &&
-              new Date(p.paid_at).getTime() >= data.debut.getTime() &&
-              new Date(p.paid_at).getTime() <= data.fin.getTime())
-            .map(p => ({ amount: p.amount, status: p.status }))
-        : [];
+      const paiementsEleve = pid ? data.paiements.filter(p => p.deals?.profile_id === pid) : [];
+      const paiementsFenetre: LignePaiement[] = paiementsEleve
+        .filter(p => p.paid_at &&
+          new Date(p.paid_at).getTime() >= data.debut.getTime() &&
+          new Date(p.paid_at).getTime() <= data.fin.getTime())
+        .map(p => ({ amount: p.amount, status: p.status }));
       const cashCollecte = calculerCash(paiementsFenetre).net;
+
+      /* La série tracée par le graphe. Les cinq premières métriques viennent de la
+       * fonction SQL ; les quatre dernières sont découpées ici, depuis les tables
+       * sources déjà chargées — le cash obéit à `calculerCash`, jamais à une somme. */
+      function serieDeLaMetrique(): (number | null)[] {
+        switch (metrique) {
+          case 'abonnesIg': return serieIg;
+          case 'abonnesYt': return serieYt;
+          case 'vues': return valeurs('ig_views');
+          case 'clics': return valeurs('clics');
+          case 'publications': return valeurs('publications');
+          case 'callsBookes':
+            return repartirParFenetre(
+              callsEleve.filter(k => !EST_ANNULE(k.status)),
+              k => k.booked_at || k.scheduled_at, fenetres, granularite,
+            ).map(p => p.length);
+          case 'ventes':
+            return repartirParFenetre(
+              dealsEleve.filter(d => d.status !== 'canceled'),
+              d => d.signed_at, fenetres, granularite,
+            ).map(p => p.length);
+          case 'cashCollecte':
+            return repartirParFenetre(
+              paiementsEleve, p => p.paid_at, fenetres, granularite,
+            ).map(p => calculerCash(p.map(x => ({ amount: x.amount, status: x.status }))).net);
+          case 'leads':
+            // Un point par fenêtre = les leads dont la date la plus ancienne y tombe.
+            return fenetres.map((f, i) => {
+              const finF = i + 1 < fenetres.length
+                ? new Date(new Date(fenetres[i + 1] + 'T00:00:00Z').getTime() - 1)
+                : finPeriode;
+              const debF = new Date(f + 'T00:00:00Z');
+              return compterLeads({
+                ...brutLeads,
+                callsIgDirects: brutLeads.callsIgDirects.filter(c =>
+                  dansFenetre(c.booked_at ?? null, c.scheduled_at ?? null, debF, finF)),
+                callsYoutube: brutLeads.callsYoutube.filter(c =>
+                  dansFenetre(c.booked_at ?? null, c.scheduled_at ?? null, debF, finF)),
+              }, debF.toISOString(), finF.toISOString());
+            });
+        }
+      }
 
       const jours = ancienneteEnJours(c.onboarding_completed_at, maintenant);
       let etat: EtatEleve | null = null;
@@ -392,9 +453,7 @@ export default function PageStatsClients() {
         variationIg: variation(serieIg), variationYt: variation(serieYt),
         publications, leads, callsBookes,
         cashContracte, cashCollecte,
-        serie: METRIQUES[metrique].nature === 'niveau'
-          ? (metrique === 'abonnesYt' ? serieYt : serieIg)
-          : valeurs(metrique === 'vues' ? 'ig_views' : metrique === 'clics' ? 'clics' : 'publications'),
+        serie: serieDeLaMetrique(),
         etat,
       });
 
@@ -417,7 +476,13 @@ export default function PageStatsClients() {
         const vYtP = variation(sYt);
         if (vIgP !== null) cumulPrec.abonnesGagnesIg = (cumulPrec.abonnesGagnesIg ?? 0) + vIgP;
         if (vYtP !== null) cumulPrec.abonnesGagnesYt = (cumulPrec.abonnesGagnesYt ?? 0) + vYtP;
-        cumulPrec.leads += (pid ? data.leadsPrecedents.get(pid) ?? 0 : 0);
+        cumulPrec.leads += pid ? compterLeads({
+          ...brutLeads,
+          callsIgDirects: brutLeads.callsIgDirects.filter(c =>
+            dansFenetre(c.booked_at ?? null, c.scheduled_at ?? null, data.debutPrecedent!, data.finPrecedente!)),
+          callsYoutube: brutLeads.callsYoutube.filter(c =>
+            dansFenetre(c.booked_at ?? null, c.scheduled_at ?? null, data.debutPrecedent!, data.finPrecedente!)),
+        }, data.debutPrecedent.toISOString(), data.finPrecedente.toISOString()) : 0;
         cumulPrec.callsBookes += callsEleve.filter(k =>
           !EST_ANNULE(k.status) && dansFenetre(k.booked_at, k.scheduled_at, data.debutPrecedent!, data.finPrecedente!)).length;
         const dealsPrec = dealsEleve.filter(d =>
@@ -471,10 +536,18 @@ export default function PageStatsClients() {
       })), [lignes]);
 
   const etiquettes = useMemo(() => {
-    const pas = fenetres.length > 30 ? Math.ceil(fenetres.length / 8) : fenetres.length > 12 ? 4 : 1;
-    return fenetres.map((f, i) => ({ i, t: f })).filter((_, i) => i % pas === 0)
-      .map(e => ({ i: e.i, t: formaterEtiquette(e.t, granularite) }));
-  }, [fenetres, granularite]);
+    // Sur une semaine il n'y a que sept points : chacun porte son jour en toutes
+    // lettres (« lun. 31 août »), comme le fait Mes Stats. Au-delà, on éclaircit,
+    // sinon les libellés se chevauchent.
+    const avecJour = !allTime && period === 7;
+    const pas = avecJour ? 1
+      : fenetres.length > 30 ? Math.ceil(fenetres.length / 8)
+      : fenetres.length > 12 ? 4 : 1;
+    return fenetres
+      .map((f, i) => ({ i, t: f }))
+      .filter((_, i) => i % pas === 0)
+      .map(e => ({ i: e.i, t: formaterEtiquette(e.t, granularite, avecJour) }));
+  }, [fenetres, granularite, allTime, period]);
 
   /* ── §5 : l'axe des semaines d'accompagnement ─────────────────────────
    *
@@ -673,7 +746,7 @@ export default function PageStatsClients() {
               unite={METRIQUES[metrique].unite}
               vedette={vedette}
               depuisZero
-              libelleAbscisse={i => formaterEtiquette(fenetres[i] ?? '', granularite)}
+              libelleAbscisse={i => formaterEtiquette(fenetres[i] ?? '', granularite, !allTime && period === 7)}
               formater={v => formaterValeur(v, METRIQUES[metrique].unite)}
             />
             <Legende lignes={lignes} epingle={epingle} setEpingle={setEpingle} />
@@ -747,11 +820,12 @@ export default function PageStatsClients() {
 
 /* ═══ Sous-composants ════════════════════════════════════════════════════════ */
 
-function formaterEtiquette(iso: string, g: 'jour' | 'semaine' | 'mois'): string {
+function formaterEtiquette(iso: string, g: 'jour' | 'semaine' | 'mois', avecJour = false): string {
   if (!iso) return '';
   const d = new Date(iso + 'T12:00:00Z');
   if (Number.isNaN(d.getTime())) return iso;
   if (g === 'mois') return d.toLocaleDateString('fr-FR', { month: 'short', year: '2-digit', timeZone: 'UTC' });
+  if (avecJour) return d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
   return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 }
 
@@ -914,7 +988,6 @@ function CarteGraphe({ titre, sousTitre, metrique, setMetrique, children }: {
         </div>
         <select className="stats-select" value={metrique} onChange={e => setMetrique(e.target.value as Metrique)}>
           {(Object.keys(METRIQUES) as Metrique[])
-            .filter(m => ['abonnesIg', 'abonnesYt', 'vues', 'publications', 'clics'].includes(m))
             .map(m => <option key={m} value={m}>{METRIQUES[m].titre}</option>)}
         </select>
       </div>

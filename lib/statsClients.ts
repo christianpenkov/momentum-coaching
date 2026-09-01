@@ -252,40 +252,82 @@ function isoJour(d: Date): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 }
 
+/** La fenêtre à laquelle appartient une date, sous la même forme que `sequenceFenetres`.
+ *
+ *  ⚠️ Les deux DOIVENT obéir à la même règle, sinon un élément tombe dans une fenêtre
+ *  que l'axe n'affiche pas et disparaît sans bruit. C'est pour ça que `sequenceFenetres`
+ *  appelle cette fonction plutôt que de recalculer les bornes de son côté : une règle
+ *  écrite deux fois finit toujours par diverger.
+ *
+ *  Les bornes suivent `date_trunc` de Postgres — lundi pour la semaine (norme ISO),
+ *  premier du mois pour le mois — pour que la jointure avec la fonction SQL se fasse
+ *  sur des chaînes identiques. */
+export function fenetreDe(d: Date, granularite: Granularite): string | null {
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return null;
+  const c = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  if (granularite === 'mois') c.setUTCDate(1);
+  else if (granularite === 'semaine') c.setUTCDate(c.getUTCDate() - ((c.getUTCDay() + 6) % 7));
+  return isoJour(c);
+}
+
 export function sequenceFenetres(debut: Date, fin: Date, granularite: Granularite): string[] {
   const out: string[] = [];
-  if (!(debut instanceof Date) || Number.isNaN(debut.getTime())) return out;
+  const premiere = fenetreDe(debut, granularite);
+  if (premiere === null) return out;
   if (!(fin instanceof Date) || Number.isNaN(fin.getTime())) return out;
 
-  if (granularite === 'mois') {
-    // Premier jour du mois, comme `date_trunc('month')` côté base.
-    const c = new Date(Date.UTC(debut.getUTCFullYear(), debut.getUTCMonth(), 1));
-    const borne = new Date(Date.UTC(fin.getUTCFullYear(), fin.getUTCMonth(), 1));
-    while (c.getTime() <= borne.getTime() && out.length < 240) {
-      out.push(isoJour(c));
-      c.setUTCMonth(c.getUTCMonth() + 1);
-    }
-    return out;
-  }
-
-  if (granularite === 'semaine') {
-    // Lundi de la semaine, comme `date_trunc('week')` côté base (norme ISO).
-    const c = new Date(Date.UTC(debut.getUTCFullYear(), debut.getUTCMonth(), debut.getUTCDate()));
-    const jour = (c.getUTCDay() + 6) % 7; // 0 = lundi
-    c.setUTCDate(c.getUTCDate() - jour);
-    while (c.getTime() <= fin.getTime() && out.length < 400) {
-      out.push(isoJour(c));
-      c.setUTCDate(c.getUTCDate() + 7);
-    }
-    return out;
-  }
-
-  const c = new Date(Date.UTC(debut.getUTCFullYear(), debut.getUTCMonth(), debut.getUTCDate()));
-  // Plafond de sécurité : une borne aberrante ne doit pas produire une boucle sans fin
+  const c = new Date(premiere + 'T00:00:00Z');
+  // Plafond de sécurité : une borne aberrante ne doit produire ni une boucle sans fin,
   // ni un tableau de plusieurs millions d'entrées.
-  while (c.getTime() <= fin.getTime() && out.length < 400) {
-    out.push(isoJour(c));
-    c.setUTCDate(c.getUTCDate() + 1);
+  const plafond = granularite === 'mois' ? 240 : 400;
+  const derniere = granularite === 'mois' ? fenetreDe(fin, 'mois')! : null;
+
+  while (out.length < plafond) {
+    const courante = isoJour(c);
+    if (derniere !== null) { if (courante > derniere) break; }
+    else if (c.getTime() > fin.getTime()) break;
+    out.push(courante);
+    if (granularite === 'mois') c.setUTCMonth(c.getUTCMonth() + 1);
+    else if (granularite === 'semaine') c.setUTCDate(c.getUTCDate() + 7);
+    else c.setUTCDate(c.getUTCDate() + 1);
   }
   return out;
+}
+
+/* ═══ Répartir des lignes métier dans les fenêtres de l'axe ═══════════════════
+ *
+ * Les calls, les ventes et les encaissements ne viennent PAS de la fonction SQL : ils
+ * sont lus depuis leurs tables sources et regroupés ici. Deux raisons.
+ *
+ * 1. Le cash collecté obéit à `lib/dealCash.ts`, qui déduit les remboursements. Le
+ *    réécrire en SQL créerait une deuxième définition du cash — sept lectures sommaient
+ *    déjà les paiements à la main sans jamais déduire un remboursement (2 800 €
+ *    affichés pour 2 600 € en caisse, corrigé le 2026-08-30).
+ * 2. Ces tables n'ont aucun problème de volume. La fonction SQL existe pour les 15 000
+ *    lignes de snapshots quotidiens ; quelques milliers de calls se regroupent en
+ *    mémoire sans qu'on le sente.
+ */
+
+/** Range chaque élément dans sa fenêtre. Un élément dont la date tombe hors de l'axe
+ *  est écarté — jamais rangé dans la fenêtre la plus proche, ce qui le compterait dans
+ *  une période où il n'a pas eu lieu. */
+export function repartirParFenetre<T>(
+  elements: T[],
+  dateDe: (e: T) => string | null | undefined,
+  fenetres: string[],
+  granularite: Granularite,
+): T[][] {
+  const paquets: T[][] = fenetres.map(() => []);
+  const index = new Map(fenetres.map((f, i) => [f, i]));
+  for (const e of elements) {
+    const brut = dateDe(e);
+    if (!brut) continue;
+    const d = new Date(brut);
+    const f = fenetreDe(d, granularite);
+    if (f === null) continue;
+    const i = index.get(f);
+    if (i === undefined) continue;
+    paquets[i].push(e);
+  }
+  return paquets;
 }

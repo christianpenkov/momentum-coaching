@@ -1334,3 +1334,98 @@ compilation.
 
 `fetchLeadsCountsBatch` rend une `Map` où **un élève sans aucune ligne est absent**,
 jamais à 0 : l'appelant distingue « aucun lead » de « on n'a pas la donnée ».
+
+---
+
+## 21. Fin d'implémentation (2026-09-01)
+
+### D61 — Période par défaut : le **mois en cours**
+
+Tranché par Chris. C'est la maille à laquelle un coach juge un portefeuille — sur une
+semaine, un call ou une vente ne se voient pas.
+
+### D62 — En vue semaine, chaque jour porte son nom
+
+« lun. 31 août » plutôt que « 31 août ». Sept points seulement : chacun peut porter son
+libellé complet sans que les étiquettes se chevauchent. Même format que Mes Stats
+(`fmtAxisDateWithDay`), plus le mois.
+
+### D63 — Les quatre métriques métier sont découpées **en mémoire**, pas en SQL
+
+Le sélecteur du graphe offre désormais les neuf métriques. Les cinq premières (abonnés
+IG et YT, vues, publications, clics) viennent de la fonction SQL. Les quatre autres
+(leads, calls bookés, ventes, cash collecté) sont regroupées côté navigateur.
+
+**Ce n'est pas un raccourci, c'est la seule option qui ne duplique pas une règle :**
+
+- Le cash collecté obéit à `lib/dealCash.ts`, qui déduit les remboursements. L'écrire en
+  SQL créerait une seconde définition du cash — sept lectures sommaient déjà les
+  paiements à la main sans jamais déduire un remboursement (2 800 € affichés pour
+  2 600 € en caisse, corrigé le 2026-08-30).
+- Les leads obéissent à `compterLeads`, dont la déduplication porte sur **toutes** les
+  sources avant le filtre de date. Un découpage SQL par fenêtre casserait cette règle.
+- Et ces tables n'ont aucun problème de volume : quelques milliers de lignes contre
+  15 000 pour les seuls snapshots quotidiens. **La fonction SQL existe pour le volume,
+  et le volume est dans les snapshots.**
+
+Deux ajouts pour rendre ce découpage possible sans dupliquer :
+
+- `compterLeads(lignes, since, jusqua?)` — la borne haute ferme la fenêtre. Le filtre
+  porte toujours sur la date la plus ancienne connue, **après** déduplication.
+- `fetchLignesLeadsBatch` — rend les lignes brutes par élève, pour que la page les
+  redécoupe elle-même. Une lecture au lieu de quatre requêtes par fenêtre.
+
+⚠️ **Le graphe des semaines d'accompagnement (`§5`) garde les cinq métriques issues des
+snapshots.** Y recaler les lignes métier demanderait de convertir chaque date en semaine
+d'accompagnement de l'élève concerné, ce qui n'est pas fait. Limite connue, pas oubli.
+
+### `repartirParFenetre` et `fenetreDe` — une seule règle de découpage
+
+`sequenceFenetres` (qui construit l'axe) et `fenetreDe` (qui range un élément) doivent
+tomber d'accord, sinon un élément atterrit dans une fenêtre que l'axe n'affiche pas et
+**disparaît sans bruit**. `sequenceFenetres` appelle donc `fenetreDe` au lieu de
+recalculer ses bornes — et un test vérifie explicitement l'accord des deux.
+
+Un élément hors de l'axe est **écarté**, jamais rangé dans la fenêtre la plus proche :
+le ranger au plus près le compterait dans une période où il n'a pas eu lieu.
+
+---
+
+## 22. Vérification de bout en bout (2026-09-01)
+
+### En base, sur un jeu contrôlé, puis restauration
+
+État relevé avant : 356 lignes, aucune en mars 2026, empreinte `acab19c7…`.
+
+**Jeu inséré** : deux semaines ISO complètes (2026-03-02 au 2026-03-15, un lundi à un
+dimanche), abonnés croissants de 10 en 10, **trous volontaires les deux dimanches** —
+le cas exact qui casse une règle « dernière valeur » naïve. Marquées
+`backfill_source = 'TEST_STATS_CLIENTS_20260901'` pour un retrait au caractère près.
+
+| Granularité | Fenêtre | Attendu | Obtenu | Ce que ça prouve |
+|---|---|---|---|---|
+| semaine | 2026-03-02 | 150 abonnés, 7 vues | 150, 7 | niveau = dernière valeur **connue**, pas le dimanche nul |
+| semaine | 2026-03-09 | 220 abonnés, 7 vues | 220, 7 | idem |
+| mois | 2026-03-01 | 220 abonnés, 14 vues | 220, 14 | flux sommé sur 14 jours, niveau pris à la fin |
+| jour | 2026-03-08 | `null` abonnés, 1 vue | `null`, 1 | un trou reste un trou, il ne devient pas zéro |
+| jour | 2026-03-02 | 100 abonnés | 100 | premier jour |
+
+**5 attentes, 5 « OK », zéro écart.**
+
+**Accord JS ↔ SQL** vérifié sur le même intervalle : `sequenceFenetres` rend exactement
+les mêmes bornes que `date_trunc` aux trois granularités, et chaque jour rangé par
+`fenetreDe` tombe dans une fenêtre que l'axe contient.
+
+**Restauration** : lignes supprimées, état re-relevé — 356 lignes, empreinte
+`acab19c71d3bb827b403cd7dac9924e8`, identique à l'avant. Zéro ligne de test restante.
+
+⚠️ La vue `derniere_publication_par_profil`, la fonction `stats_clients_series` et les
+trois index **restent** : ce sont des objets de la fonctionnalité, pas du test.
+
+### Ce que ces tests ne couvrent PAS
+
+- **RLS en conditions réelles.** La fonction est vérifiée `security_invoker` au catalogue
+  et les politiques ont été lues, mais l'outil d'exécution passe en `service_role`, qui
+  contourne RLS. Il faudrait une session authentifiée d'un autre coach pour le prouver.
+- **Le rendu visuel à 40 élèves.** Le compte de test en a 5 : le mode dense
+  (moyenne + bande, au-delà de 10 courbes) ne se déclenchera pas chez Chris.

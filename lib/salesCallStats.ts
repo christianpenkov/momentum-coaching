@@ -141,23 +141,41 @@ export async function fetchDealsForStats(
  * déjà arrivée (Mes Stats oubliait YouTube).
  */
 
+export interface LigneCallLead {
+  id: string;
+  invitee_email: string | null;
+  invitee_name: string | null;
+  booked_at?: string | null;
+  scheduled_at?: string | null;
+}
+
 export interface LignesLeads {
   /** `instagram_leads` — leads détectés automatiquement. */
   leads: { ig_username: string | null; detected_at: string | null }[];
   /** `prospect_links` — dédupliqués par `ig_username` avec les précédents. */
   liens: { ig_username: string | null; created_at: string | null }[];
-  /** Calls IG directs sans lead : clic bio/description sans jamais avoir commenté. */
-  callsIgDirects: { id: string; invitee_email: string | null; invitee_name: string | null }[];
+  /** Calls IG directs sans lead : clic bio/description sans jamais avoir commenté.
+   *  `booked_at` / `scheduled_at` sont là pour que l'appelant puisse les répartir par
+   *  fenêtre — `compterLeads` ne les filtre PAS lui-même. */
+  callsIgDirects: LigneCallLead[];
   /** Calls venus de YouTube. Vide quand on ne compte que le volet Instagram. */
-  callsYoutube: { id: string; invitee_email: string | null; invitee_name: string | null }[];
+  callsYoutube: LigneCallLead[];
 }
 
 /** Une personne compte UNE fois, quelle que soit sa source et son nombre de calls. */
-function clefPersonne(c: { id: string; invitee_email: string | null; invitee_name: string | null }): string {
+function clefPersonne(c: LigneCallLead): string {
   return (c.invitee_email || c.invitee_name || c.id).toLowerCase();
 }
 
-export function compterLeads(l: LignesLeads, since: string | null): number {
+/** `since` seul répond à « combien depuis telle date ». `jusqua` ferme la fenêtre et
+ *  répond à « combien DANS cette fenêtre » — ce dont le graphe a besoin, un point par
+ *  fenêtre. Le filtre porte toujours sur la date la plus ancienne connue, après
+ *  déduplication : c'est la même règle, juste bornée des deux côtés.
+ *
+ *  ⚠️ Les calls ne sont PAS filtrés ici : leur fenêtre est appliquée par la requête,
+ *  sur `booked_at`. Pour une répartition par fenêtre, l'appelant doit donc leur passer
+ *  des lignes déjà découpées. */
+export function compterLeads(l: LignesLeads, since: string | null, jusqua?: string | null): number {
   // Date la plus ancienne connue par username, toutes sources confondues.
   //
   // ⚠️ Le filtre `since` s'applique APRÈS la déduplication, sur la date la plus
@@ -179,9 +197,10 @@ export function compterLeads(l: LignesLeads, since: string | null): number {
     if (!prec || r.created_at < prec) plusAncienneParUsername.set(cle, r.created_at);
   }
 
-  const parUsername = since
-    ? Array.from(plusAncienneParUsername.values()).filter(d => d >= since).length
-    : plusAncienneParUsername.size;
+  const dates = Array.from(plusAncienneParUsername.values());
+  const parUsername = (since || jusqua)
+    ? dates.filter(d => (!since || d >= since) && (!jusqua || d <= jusqua)).length
+    : dates.length;
 
   // Dédoublonné par personne, pas par call : Calendly crée un NOUVEL événement à chaque
   // reprogrammation, donc un prospect qui déplace son rendez-vous a deux lignes dans
@@ -224,7 +243,7 @@ function requetesLeads(supabase: SupabaseClient, profileIds: string[], since: st
   // donc un rendez-vous venu d'une story n'était compté nulle part (corrigé aux trois
   // endroits le 2026-08-19). L'underscore est un joker SQL, d'où l'échappement.
   let callsIg = supabase.from('calls')
-    .select('coach_id, id, invitee_email, invitee_name')
+    .select('coach_id, id, invitee_email, invitee_name, booked_at, scheduled_at')
     .in('coach_id', profileIds)
     .in('call_type', CALL_TYPES_VENTE)
     .neq('ignored', true)
@@ -234,7 +253,7 @@ function requetesLeads(supabase: SupabaseClient, profileIds: string[], since: st
   if (since) callsIg = callsIg.or(`booked_at.gte.${since},and(booked_at.is.null,scheduled_at.gte.${since})`);
 
   let callsYt = supabase.from('calls')
-    .select('coach_id, id, invitee_email, invitee_name')
+    .select('coach_id, id, invitee_email, invitee_name, booked_at, scheduled_at')
     .in('coach_id', profileIds)
     .in('call_type', CALL_TYPES_VENTE)
     .neq('ignored', true)
@@ -279,6 +298,39 @@ export async function fetchAllLeadsCount(supabase: SupabaseClient, profileId: st
     callsIgDirects: (callsIgRes.data ?? []) as any[],
     callsYoutube: (callsYtRes.data ?? []) as any[],
   }, since);
+}
+
+/** Les lignes BRUTES par élève, pour que l'appelant les redécoupe lui-même.
+ *
+ *  Le graphe a besoin d'un point par fenêtre : appeler `fetchLeadsCountsBatch` une fois
+ *  par fenêtre ferait quatre requêtes × trente fenêtres. On lit une fois, on répartit
+ *  en mémoire, et c'est toujours `compterLeads` qui compte — la règle reste unique. */
+export async function fetchLignesLeadsBatch(
+  supabase: SupabaseClient,
+  profileIds: string[],
+  since: string | null,
+): Promise<Map<string, LignesLeads>> {
+  const resultat = new Map<string, LignesLeads>();
+  if (profileIds.length === 0) return resultat;
+
+  const q = requetesLeads(supabase, profileIds, since);
+  const [leadsRes, liensRes, callsIgRes, callsYtRes] = await Promise.all([q.leads, q.liens, q.callsIg, q.callsYt]);
+
+  const parLeads = grouper(leadsRes.data as any[], 'profile_id');
+  const parLiens = grouper(liensRes.data as any[], 'profile_id');
+  // ⚠️ Les calls se groupent sur `coach_id`, qui EST le profile_id de l'élève.
+  const parCallsIg = grouper(callsIgRes.data as any[], 'coach_id');
+  const parCallsYt = grouper(callsYtRes.data as any[], 'coach_id');
+
+  for (const id of profileIds) {
+    resultat.set(id, {
+      leads: parLeads.get(id) ?? [],
+      liens: parLiens.get(id) ?? [],
+      callsIgDirects: parCallsIg.get(id) ?? [],
+      callsYoutube: parCallsYt.get(id) ?? [],
+    });
+  }
+  return resultat;
 }
 
 /** Le même compte, pour N élèves, en QUATRE requêtes au lieu de quatre par élève.

@@ -14,6 +14,8 @@ import {
   formaterVariation,
   tauxCollecte,
   sequenceFenetres,
+  fenetreDe,
+  repartirParFenetre,
   type LigneEleve,
 } from './statsClients.ts';
 
@@ -281,4 +283,80 @@ test('une date invalide ne fait pas boucler sans fin', () => {
 test('une borne aberrante est plafonnée plutôt que de produire des millions d\'entrées', () => {
   const s = sequenceFenetres(j('1990-01-01'), j('2090-01-01'), 'jour');
   assert.equal(s.length, 400);
+});
+
+/* ═══ fenetreDe : la règle partagée avec sequenceFenetres ═════════════════ */
+
+test('fenetreDe rend le jour, le lundi ou le premier du mois', () => {
+  const mardi = j('2026-09-01'); // le 1er septembre 2026 est un mardi
+  assert.equal(fenetreDe(mardi, 'jour'), '2026-09-01');
+  assert.equal(fenetreDe(mardi, 'semaine'), '2026-08-31');
+  assert.equal(fenetreDe(mardi, 'mois'), '2026-09-01');
+});
+
+test('un dimanche appartient à la semaine qui a commencé le lundi précédent', () => {
+  // Norme ISO, comme date_trunc('week') côté Postgres. Le 2026-09-06 est un dimanche.
+  assert.equal(fenetreDe(j('2026-09-06'), 'semaine'), '2026-08-31');
+  assert.equal(fenetreDe(j('2026-09-07'), 'semaine'), '2026-09-07');
+});
+
+test('fenetreDe et sequenceFenetres tombent TOUJOURS d\'accord', () => {
+  // La garantie qui compte : un élément rangé par fenetreDe doit exister dans l'axe
+  // construit par sequenceFenetres. Sinon il disparaît sans bruit.
+  for (const g of ['jour', 'semaine', 'mois'] as const) {
+    const axe = sequenceFenetres(j('2026-06-15'), j('2026-09-01'), g);
+    for (const iso of ['2026-06-15', '2026-07-04', '2026-08-31', '2026-09-01']) {
+      const f = fenetreDe(j(iso), g);
+      assert.ok(axe.includes(f!), `${g} : ${iso} rangé en ${f}, absent de l'axe`);
+    }
+  }
+});
+
+test('une date invalide n\'appartient à aucune fenêtre', () => {
+  assert.equal(fenetreDe(new Date('n\'importe quoi'), 'jour'), null);
+});
+
+/* ═══ repartirParFenetre ══════════════════════════════════════════════════ */
+
+const evt = (d: string | null) => ({ quand: d });
+
+test('chaque élément tombe dans sa fenêtre', () => {
+  const axe = sequenceFenetres(j('2026-08-30'), j('2026-09-01'), 'jour');
+  const paquets = repartirParFenetre(
+    [evt('2026-08-30T10:00:00Z'), evt('2026-09-01T08:00:00Z'), evt('2026-09-01T20:00:00Z')],
+    e => e.quand, axe, 'jour',
+  );
+  assert.deepEqual(paquets.map(p => p.length), [1, 0, 2]);
+});
+
+test('un élément hors de l\'axe est écarté, jamais rangé dans la fenêtre la plus proche', () => {
+  // Le ranger au plus près le compterait dans une période où il n'a pas eu lieu.
+  const axe = sequenceFenetres(j('2026-08-30'), j('2026-09-01'), 'jour');
+  const paquets = repartirParFenetre(
+    [evt('2026-01-01T10:00:00Z'), evt('2027-01-01T10:00:00Z')], e => e.quand, axe, 'jour',
+  );
+  assert.deepEqual(paquets.map(p => p.length), [0, 0, 0]);
+});
+
+test('une date absente ou invalide est ignorée sans faire planter', () => {
+  const axe = sequenceFenetres(j('2026-08-30'), j('2026-08-31'), 'jour');
+  const paquets = repartirParFenetre(
+    [evt(null), evt('pas une date'), evt('2026-08-31T10:00:00Z')], e => e.quand, axe, 'jour',
+  );
+  assert.deepEqual(paquets.map(p => p.length), [0, 1]);
+});
+
+test('à la semaine, sept jours se regroupent en un seul paquet', () => {
+  const axe = sequenceFenetres(j('2026-08-31'), j('2026-09-06'), 'semaine');
+  assert.equal(axe.length, 1);
+  const paquets = repartirParFenetre(
+    ['2026-08-31', '2026-09-02', '2026-09-06'].map(d => evt(d + 'T10:00:00Z')),
+    e => e.quand, axe, 'semaine',
+  );
+  assert.equal(paquets[0].length, 3);
+});
+
+test('l\'axe reste de la bonne longueur même sans aucun élément', () => {
+  const axe = sequenceFenetres(j('2026-08-30'), j('2026-09-01'), 'jour');
+  assert.deepEqual(repartirParFenetre([], () => null, axe, 'jour').map(p => p.length), [0, 0, 0]);
 });
