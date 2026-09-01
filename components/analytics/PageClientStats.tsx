@@ -4470,7 +4470,25 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
   const igHonores = igCallsLive.honores;
   const igOpportunites = igCallsLive.opportunitesHonorees;
   const igOpportunitesBookees = igCallsLive.opportunites;
-  const igCloses  = igCallsLive.closes;
+  // Une vente se compte dans la periode de SON OPPORTUNITE, pas dans celle du rendez-vous
+  // ou elle a ete signee. Le numerateur comptait les ventes des calls de la fenetre —
+  // continuations comprises — pendant que le denominateur comptait des opportunites
+  // honorees, qui les excluent. Une vente conclue sur un 2e rendez-vous dont le premier
+  // tombe dans une AUTRE periode donnait donc un numerateur sans denominateur, et le taux
+  // pouvait depasser 100 %.
+  //
+  // On part du jeu d'opportunites HONOREES de la fenetre : le numerateur est inclus dans
+  // le denominateur par construction, le taux ne peut plus le depasser. Meme regle que
+  // `dealsCloses` dans Vue generale (representantDOpportunite).
+  const idsOpportunitesHonorees = new Set(
+    callsInWindow.filter(c => c.status === 'active' && isCallHonored(c, now) && !continuations.has(c.id))
+      .map(c => c.id),
+  );
+  const closesDeLaPeriode = (filtre: (c: CallRecord) => boolean) =>
+    tousLesCallsFunnel.filter(filtre).filter(c =>
+      c.deal_closed && idsOpportunitesHonorees.has(representantFunnel.get(c.id) ?? c.id),
+    ).length;
+  const igCloses  = closesDeLaPeriode(isIGCall);
   // L'argent est date du RENDEZ-VOUS qui l'a produit, pas de la reservation. `calcCalls`
   // le sommait sur `callsInWindow`, filtre sur `booked_at` : un rendez-vous reserve le
   // 29 aout pour le 2 septembre voyait sa vente comptee en aout, avant meme qu'elle
@@ -4519,7 +4537,7 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
   const ytHonores = ytCallsLive.honores;
   const ytOpportunites = ytCallsLive.opportunitesHonorees;
   const ytOpportunitesBookees = ytCallsLive.opportunites;
-  const ytCloses  = ytCallsLive.closes;
+  const ytCloses  = closesDeLaPeriode(isYTCall);
   const ytRev     = revDeLaPeriode(isYTCall);
   const ytNoShows = ytCallsLive.noShows;
   const ytRendezVous = ytCallsLive.rendezVous;
@@ -4863,7 +4881,7 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
   // depuis l'ecran sans note explicative.
   const totalHonores = callsActifs.filter(c => isCallHonored(c, now) && !continuations.has(c.id)).length;
   const totalOpportunites = callsActifs.filter(c => isCallHonored(c, now) && !continuations.has(c.id)).length;
-  const totalCloses  = callsActifs.filter(c => c.deal_closed).length;
+  const totalCloses  = closesDeLaPeriode(() => true);
   // Meme source et meme date que les deux totaux par plateforme juste au-dessus :
   // le montant vient de `deals`, et il est date du rendez-vous qui l'a produit.
   // Il lisait `calls.revenue` sur `callsActifs`, donc le montant DECLARE au rapport,
