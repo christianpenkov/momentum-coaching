@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import ZonesDefilement from './ZonesDefilement';
 import { useViewerTimeZone } from '@/lib/UserContext';
 import { formatDateIn, formatTimeIn } from '@/lib/timezone';
 import { formatDraftAge } from '@/lib/draftAge';
@@ -148,6 +149,11 @@ export default function PendingRapportCard({ items, onOpen, label, marginBottom 
           meme pour un seul element.
           Le debord de la carte suivante remplace le mot « glisser » : un
           element visiblement coupe se lit comme « ca continue ». */}
+      {/* Enveloppe qui ancre les zones cliquables des deux bords (desktop) :
+          sans position: relative elles se caleraient sur la page. */}
+      <div className="fil-avec-zones">
+      {!single && <ZonesDefilement cible={scrollerRef} gap={SLIDE_GAP}
+        libelleAvant="Rapport suivant" libelleArriere="Rapport precedent" />}
       <div
         ref={scrollerRef}
         onScroll={onScroll}
@@ -238,10 +244,14 @@ export default function PendingRapportCard({ items, onOpen, label, marginBottom 
         );
         })}
       </div>
+      </div>
 
-      {/* Pastilles : reperes de position ET seul controle au clic (desktop, ou
-          le glissement au doigt n'existe pas). La cible tactile est portee a
-          44 px par un pseudo-element, sans grossir le point lui-meme. */}
+      {/* Pastilles : reperes de position, et deuxieme moyen d'atteindre une
+          carte precise. Les zones des bords disent le GESTE (avancer d'un
+          cran), les pastilles disent la POSITION — les deux repondent a des
+          questions differentes, aucune ne remplace l'autre.
+          La cible tactile est portee a 44 px par un pseudo-element, sans
+          grossir le point lui-meme. */}
       {!single && (
         <div className="rapport-points" role="tablist" aria-label="Navigation entre les cartes">
           {items.map((it, i) => (

@@ -12,6 +12,7 @@ import { fetchLignesLeadsBatch, compterLeads, type LignesLeads, type LigneCallLe
 import { getClientSignals, watchList, phraseSignaux, type ClientSignals } from '@/lib/clientSignals';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import Avatar, { getInitials, seedForPerson, colorFromSeed } from '@/components/ui/Avatar';
+import ZonesDefilement from '@/components/ui/ZonesDefilement';
 import PeriodPill, { type Period } from '@/components/ui/PeriodPill';
 import GrapheSeries from '@/components/analytics/GrapheSeries';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -984,6 +985,10 @@ function BandeVeille({ entrees, fil, page, setPage }: {
 
   return (
     <div style={{ marginBottom: 20 }}>
+      {/* Enveloppe qui ancre les zones cliquables des deux bords (desktop). */}
+      <div className="fil-avec-zones">
+      {!complet && <ZonesDefilement cible={fil} gap={VEILLE_GAP}
+        libelleAvant="Clients suivants" libelleArriere="Clients precedents" />}
       <div ref={fil} onScroll={surDefilement} className={`veille-fil${complet ? ' veille-fil-complet' : ''}`}>
         {entrees.map(({ client, signals }) => (
           <div className="veille-slide" key={client.id}>
@@ -1001,6 +1006,7 @@ function BandeVeille({ entrees, fil, page, setPage }: {
             </Link>
           </div>
         ))}
+      </div>
       </div>
       {!complet && (
         <div className="veille-points" role="tablist" aria-label="Position dans la liste">

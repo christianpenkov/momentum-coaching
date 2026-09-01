@@ -3219,6 +3219,108 @@ a { color: inherit; text-decoration: none; }
 }
 .rapport-fil::-webkit-scrollbar { display: none; }
 
+/* ── Les deux bords d'un fil, cliquables a la souris ───────────────────────
+   Le fil se manipule au doigt et au pave tactile. Avec une souris a molette
+   verticale il n'existait aucun geste pour avancer d'un cran : les pastilles
+   menaient a une position, jamais au voisin.
+
+   A DROITE, le bout de la carte suivante depasse deja et porte l'affordance —
+   on ne fait que le rendre cliquable, sans rien ajouter a l'ecran. A GAUCHE
+   rien ne depasse : un voile vers la couleur du fond marque la continuite (un
+   contenu qui passe dessous se lit comme « ca continue »), et le chevron ne
+   parait qu'au survol.
+
+   DESKTOP UNIQUEMENT : au doigt le glissement suffit, et ces zones
+   prendraient de la largeur utile la ou elle est le plus comptee. D'ou
+   `display: none` par defaut, leve seulement au-dela de 767px et pour un
+   pointeur fin. */
+.fil-zone { display: none; }
+
+@media (min-width: 768px) and (pointer: fine) {
+  .fil-zone {
+    display: block;
+    position: absolute;
+    top: 2px;
+    bottom: 6px;
+    width: 44px;
+    padding: 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+    /* Au-dessus des cartes, sous les couches modales (90+). */
+    z-index: 3;
+    opacity: 0;
+    /* Sans transition sur visibility, la zone resterait cliquable pendant tout
+       le fondu de sortie. */
+    visibility: hidden;
+    transition: opacity 220ms cubic-bezier(.2, .8, .3, 1), visibility 220ms;
+  }
+  .fil-zone.visible { opacity: 1; visibility: visible; }
+
+  /* Le voile lui-meme. En pseudo-element pour que l'opacite du survol soit
+     independante de celle qui fait apparaitre la zone. */
+  .fil-zone::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transition: opacity 200ms cubic-bezier(.2, .8, .3, 1);
+    pointer-events: none;
+  }
+  .fil-zone-arriere { left: 0; }
+  .fil-zone-arriere::before {
+    background: linear-gradient(to right, var(--bg) 20%, transparent);
+    opacity: .6;
+  }
+  .fil-zone-avant { right: 0; }
+  .fil-zone-avant::before {
+    background: linear-gradient(to left, var(--bg) 18%, transparent);
+    opacity: 0;
+  }
+  .fil-zone:hover::before { opacity: .92; }
+
+  .fil-zone-chevron {
+    position: absolute;
+    left: 9px;
+    top: 50%;
+    width: 14px;
+    height: 14px;
+    /* --muted tient 4,6:1 sur --bg : lisible, sans tirer l'oeil vers un bord
+       qui n'est pas le contenu. */
+    color: var(--muted);
+    opacity: 0;
+    transform: translateY(-50%) translateX(3px);
+    transition: opacity 200ms cubic-bezier(.2, .8, .3, 1),
+                transform 200ms cubic-bezier(.2, .8, .3, 1);
+    pointer-events: none;
+  }
+  .fil-zone-arriere:hover .fil-zone-chevron {
+    opacity: 1;
+    transform: translateY(-50%) translateX(0);
+  }
+  /* Au clavier la zone n'a aucun survol : sans cela elle serait focalisable
+     mais invisible. */
+  .fil-zone:focus-visible {
+    outline: 2px solid var(--accent-brand);
+    outline-offset: -2px;
+    border-radius: 8px;
+  }
+  .fil-zone-arriere:focus-visible .fil-zone-chevron {
+    opacity: 1;
+    transform: translateY(-50%) translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fil-zone, .fil-zone::before, .fil-zone-chevron { transition: none; }
+  /* Le chevron ne peut plus s'annoncer par un glissement : il reste affiche
+     des que la zone est active, plutot que d'apparaitre au survol. */
+  .fil-zone-arriere.visible .fil-zone-chevron { opacity: 1; transform: translateY(-50%); }
+}
+
+/* Ancre des zones. Sur le fil des rapports le conteneur porte deja la
+   position ; ici on la pose sur l'enveloppe commune aux deux fils. */
+.fil-avec-zones { position: relative; }
+
 .rapport-slide {
   scroll-snap-align: start;
   flex: 0 0 calc(100% - 28px);
