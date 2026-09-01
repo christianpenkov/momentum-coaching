@@ -4309,7 +4309,7 @@ function FunnelHorizontal({ platform, color, steps }: {
 
 
 
-function TabFunnel({ msgs, calls, ig, yt, shortio, period, periodIndex, onModalChange, leads: leadsFromProp, prospectLinksData, linkClickedByLeadId, clicksByUrl, sinceConnection, allTimeStart, profileId, joursCollectesShortio, premierJourCollecteShortio, premierClicLienProspect }: { msgs: IGMessages | null; calls: CallRecord[]; ig: IGStats | null; yt: YTStats | null; shortio: ShortioStats | null; period: Period; periodIndex: number; onModalChange?: (open: boolean) => void; leads?: MockLead[]; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; sinceConnection?: boolean; allTimeStart?: string | null; profileId?: string; joursCollectesShortio?: Set<string>; premierJourCollecteShortio?: string | null; premierClicLienProspect?: string | null }) {
+function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, periodIndex, onModalChange, leads: leadsFromProp, prospectLinksData, linkClickedByLeadId, clicksByUrl, sinceConnection, allTimeStart, profileId, joursCollectesShortio, premierJourCollecteShortio, premierClicLienProspect }: { msgs: IGMessages | null; calls: CallRecord[]; callsAllTime?: CallRecord[]; deals?: DealRecord[]; ig: IGStats | null; yt: YTStats | null; shortio: ShortioStats | null; period: Period; periodIndex: number; onModalChange?: (open: boolean) => void; leads?: MockLead[]; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; sinceConnection?: boolean; allTimeStart?: string | null; profileId?: string; joursCollectesShortio?: Set<string>; premierJourCollecteShortio?: string | null; premierClicLienProspect?: string | null }) {
   const leads = leadsFromProp && leadsFromProp.length > 0 ? leadsFromProp : [];
   const [callsFilter, setCallsFilter] = useState<'all' | 'ig' | 'yt'>('all');
   // La table coupait à 20 lignes sans le dire : en All-Time sur un élève actif, la
@@ -4386,7 +4386,34 @@ function TabFunnel({ msgs, calls, ig, yt, shortio, period, periodIndex, onModalC
   // recompterait comme une opportunite neuve — precisement ce que la regle evite.
   // Le resultat n'est qu'un ensemble d'identifiants ; le filtrage par periode reste
   // fait par les appelants.
-  const continuations = idsDeContinuation(calls);
+  // ⚠️ Apparie sur le jeu COMPLET, jamais sur `calls` — qui est deja coupe sur la
+  // periode des que `periodIndex > 0`. Une paire a cheval sur deux periodes devenait
+  // sinon invisible depuis la seconde, et le 2e rendez-vous y recomptait comme une
+  // opportunite neuve. C'est la regle du referentiel (« apparier sur le jeu le plus
+  // large disponible, le filtrage par periode venant ensuite ») et elle etait
+  // enfreinte ici.
+  //
+  // Atteignable au 2026-09-01 sur les donnees reelles : « Testrapportpasse », 1er
+  // rendez-vous reserve le 21/08 (semaine 17-23), continuation le 29/08 (semaine
+  // 24-30). Sur la semaine 24-30, l'onglet ne voyait que la continuation et la
+  // comptait comme une opportunite.
+  const tousLesCallsFunnel = callsAllTime ?? calls;
+  const continuations = idsDeContinuation(tousLesCallsFunnel);
+
+  // ── QUAND une vente a-t-elle ete faite ? ────────────────────────────────────
+  // Le jour du rendez-vous qui a produit l'opportunite — meme regle que `dateDeVente`
+  // cote ecriture. Un call booke se produit a la RESERVATION, une vente au RENDEZ-VOUS :
+  // deux faits, deux moments, deux dates, sur le meme ecran et c'est voulu.
+  //
+  // Aligner l'argent sur `booked_at` daterait la vente AVANT le rendez-vous qui l'a
+  // produite — faux en permanence, la ou le cas inverse (reserve le 29/08, tenu le
+  // 02/09) est rare.
+  const representantFunnel = representantDOpportunite(tousLesCallsFunnel);
+  const parIdFunnel = new Map(tousLesCallsFunnel.map(c => [c.id, c]));
+  const dateVenteDuCall = (c: CallRecord): string | null => {
+    const rep = parIdFunnel.get(representantFunnel.get(c.id) ?? c.id) ?? c;
+    return (rep as any).scheduled_at ?? (rep as any).booked_at ?? null;
+  };
 
   const calcCalls = (subset: CallRecord[]) => {
     const actifs = subset.filter(c => c.status === 'active');
@@ -4444,7 +4471,46 @@ function TabFunnel({ msgs, calls, ig, yt, shortio, period, periodIndex, onModalC
   const igOpportunites = igCallsLive.opportunitesHonorees;
   const igOpportunitesBookees = igCallsLive.opportunites;
   const igCloses  = igCallsLive.closes;
-  const igRev     = igCallsLive.rev;
+  // L'argent est date du RENDEZ-VOUS qui l'a produit, pas de la reservation. `calcCalls`
+  // le sommait sur `callsInWindow`, filtre sur `booked_at` : un rendez-vous reserve le
+  // 29 aout pour le 2 septembre voyait sa vente comptee en aout, avant meme qu'elle
+  // n'existe. On repart donc du jeu complet et on filtre sur la date de vente.
+  //
+  // La SOURCE reste `calls.revenue` (ou `callsEff` a deja injecte le montant du deal) :
+  // cet onglet attribue par plateforme, et une vente sans rendez-vous n'a ni plateforme
+  // ni contenu a crediter. Elle reste comptee dans Vue generale et l'onglet Revenus.
+  // Consequence assumee : le total de cet onglet peut etre inferieur a celui des autres.
+  const venteDansLaPeriodeFunnel = (c: CallRecord) => {
+    if (sinceConnection) return true;
+    const d = dateVenteDuCall(c);
+    if (!d) return false;
+    const t = new Date(d).getTime();
+    return t >= periodStart.getTime() && t <= periodEnd.getTime();
+  };
+  // Le montant vient de `deals`, jamais de `calls.revenue`. Les deux champs portent deux
+  // faits differents : `calls.revenue` est ce que l'eleve a DECLARE dans son rapport,
+  // `deals.amount_total` est ce qui est CONTRACTE. Corriger une vente depuis la page
+  // Paiements ne reecrit pas le rapport — cas reel en base : le rendez-vous TestBIO porte
+  // 3 000 EUR dans `calls.revenue` et 1 200 EUR dans `deals`. L'ecart entre les deux est
+  // lui-meme une information, c'est ce que surveille `ventes_sante_montants` : on ne
+  // supprime rien, on lit le bon champ.
+  //
+  // `call_id` non nul : cet onglet attribue par plateforme, et une vente sans rendez-vous
+  // n'a ni plateforme ni contenu a crediter. Elle reste comptee dans Vue generale et
+  // l'onglet Revenus. Consequence assumee : le total de cet onglet peut etre inferieur a
+  // celui des autres — c'est la SOURCE qui differe, pas la date.
+  //
+  // Somme et non premier deal trouve : un rendez-vous peut en porter plusieurs (avenant
+  // signe le meme jour). Aucun cas en base, rien ne l'interdit.
+  const montantParCall = new Map<string, number>();
+  for (const d of (deals ?? [])) {
+    if (!d.call_id || d.status === 'canceled') continue;
+    montantParCall.set(d.call_id, (montantParCall.get(d.call_id) ?? 0) + Number(d.amount_total || 0));
+  }
+  const revDeLaPeriode = (filtre: (c: CallRecord) => boolean) =>
+    tousLesCallsFunnel.filter(filtre).filter(venteDansLaPeriodeFunnel)
+      .reduce((s, c) => s + (montantParCall.get(c.id) ?? 0), 0);
+  const igRev     = revDeLaPeriode(isIGCall);
   const igNoShows = igCallsLive.noShows;
   const igRendezVous = igCallsLive.rendezVous;
 
@@ -4454,7 +4520,7 @@ function TabFunnel({ msgs, calls, ig, yt, shortio, period, periodIndex, onModalC
   const ytOpportunites = ytCallsLive.opportunitesHonorees;
   const ytOpportunitesBookees = ytCallsLive.opportunites;
   const ytCloses  = ytCallsLive.closes;
-  const ytRev     = ytCallsLive.rev;
+  const ytRev     = revDeLaPeriode(isYTCall);
   const ytNoShows = ytCallsLive.noShows;
   const ytRendezVous = ytCallsLive.rendezVous;
   const isCalendlyUrl = (l: any) => (l.originalUrl || '').toLowerCase().includes('calendly');
@@ -4785,10 +4851,27 @@ function TabFunnel({ msgs, calls, ig, yt, shortio, period, periodIndex, onModalC
   // ig_* ou yt_*, mais rien ne l'interdit).
   const callsActifs  = callsInWindow.filter(c => c.status === 'active');
   const totalBookes  = callsActifs.filter(c => !continuations.has(c.id)).length;
-  const totalHonores = callsActifs.filter(c => isCallHonored(c, now)).length;
+  // `!continuations.has(...)` : « Calls bookes » juste au-dessus compte des OPPORTUNITES,
+  // « Calls honores » comptait des RENDEZ-VOUS. Un 2e rendez-vous honore faisait donc
+  // passer les honores AU-DESSUS des bookes — impossible par definition, et c'est ce
+  // que le texte d'aide de Vue generale affirme (« ce nombre ne peut jamais depasser
+  // les calls bookes »). Vu a l'ecran le 2026-09-01 sur la semaine du 24 au 30 aout :
+  // « Calls bookes 0 » a cote de « Calls honores 1 ».
+  //
+  // Effet de bord voulu : `totalOpportunites` vaut desormais toujours `totalHonores`,
+  // donc le denominateur du closing EST le nombre affiche a cote — il se recalcule
+  // depuis l'ecran sans note explicative.
+  const totalHonores = callsActifs.filter(c => isCallHonored(c, now) && !continuations.has(c.id)).length;
   const totalOpportunites = callsActifs.filter(c => isCallHonored(c, now) && !continuations.has(c.id)).length;
   const totalCloses  = callsActifs.filter(c => c.deal_closed).length;
-  const totalRev     = callsActifs.reduce((acc, c) => acc + (c.revenue || 0), 0);
+  // Meme source et meme date que les deux totaux par plateforme juste au-dessus :
+  // le montant vient de `deals`, et il est date du rendez-vous qui l'a produit.
+  // Il lisait `calls.revenue` sur `callsActifs`, donc le montant DECLARE au rapport,
+  // decoupe sur `booked_at`. Il affichait le bon chiffre par effet de l'injection de
+  // `callsEff` — pas par la bonne source, ce qui n'est pas la meme chose : une vente
+  // corrigee depuis la page Paiements apres coup, ou un deal annule, l'aurait fait
+  // diverger sans que rien ne le signale.
+  const totalRev     = revDeLaPeriode(() => true);
   const noShowCount  = callsActifs.filter(c => c.no_show).length;
   const closingRate  = totalOpportunites > 0 ? pct(totalCloses, totalOpportunites) : 0;
   const noShowRate   = totalBookes > 0 ? pct(noShowCount, totalBookes) : 0;
@@ -10378,7 +10461,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
           {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} msgs={msgsEff} calls={callsEff} callsAllTime={callsAllTimeEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} deals={dealsEff} />}
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} abonnesAujourdHui={ig?.followers ?? null} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.yt?.snapshotError} abonnesAujourdHui={yt?.subscribers ?? null} />}
-          {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} allTimeStart={allTimeStart} profileId={profileId} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} premierClicLienProspect={premierClicLienProspect} />}
+          {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} callsAllTime={callsAllTimeEff} deals={deals} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} allTimeStart={allTimeStart} profileId={profileId} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} premierClicLienProspect={premierClicLienProspect} />}
           {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} hookRepliedEvents={hookRepliedEvents} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={callsAllTimeEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} shortioChartHistoryStory={shortioChartHistoryStory} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
           {tab === 5 && <TabRevenues encaissementsParJour={encaissementsParJour} cashParVente={cashParVente} deals={dealsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} allTimeStart={allTimeStart} stripeConnected={integStatus?.stripeConnected} />}
         </>
