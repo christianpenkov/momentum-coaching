@@ -336,5 +336,68 @@ test('un trou ne reçoit pas de point — il n’y a rien à marquer', () => {
   const g = construireGraphe({
     ...BASE, series: [serie('a', [1, null, 3, 8]), serie('b', [2, 3, 4, 5])], points: true,
   });
-  assert.equal((g.svg.match(/<circle/g) ?? []).length, 7);
+  // 3 valeurs sur la série trouée + 4 sur l'autre = 7 points de données. Le huitième
+  // cercle est le marqueur du jour isolé : la valeur 1 est suivie d'un trou, donc elle
+  // forme un tronçon d'un seul point, qui ne dessinerait aucun trait sans lui.
+  assert.equal((g.svg.match(/<circle/g) ?? []).length, 8);
+});
+
+/* ═══ Le raccord au-dessus d'un trou ══════════════════════════════════════ */
+
+test('un trou est enjambé par un pointillé, et le trait plein reste coupé', () => {
+  const g = construireGraphe({ ...BASE, series: [serie('a', [10, null, 30, 40])] });
+  const pointilles = g.svg.match(/<path[^>]*stroke-dasharray="2 3"[^>]*>/g) ?? [];
+  assert.equal(pointilles.length, 1, 'un seul raccord pour un seul trou');
+  // Le trait plein doit toujours contenir deux `M` : le raccord ne le recolle pas.
+  const chemins = g.svg.match(/ d="M[^"]*"/g) ?? [];
+  assert.ok(chemins.some(d => (d.match(/M/g) ?? []).length === 2), 'le tracé reste en deux morceaux');
+});
+
+test('sans trou, aucun raccord', () => {
+  const g = construireGraphe({ ...BASE, series: [serie('a', [10, 20, 30, 40])] });
+  assert.ok(!g.svg.includes('stroke-dasharray="2 3"'));
+});
+
+test('deux trous donnent deux raccords, jamais un seul pont de bout en bout', () => {
+  const g = construireGraphe({
+    series: [serie('a', [10, null, 30, null, 50])], n: 5, etiquettes: [], unite: '', largeur: 600,
+  });
+  assert.equal((g.svg.match(/stroke-dasharray="2 3"/g) ?? []).length, 1, 'un seul élément…');
+  const d = g.svg.match(/<path d="([^"]*)"[^>]*stroke-dasharray="2 3"/)?.[1] ?? '';
+  assert.equal((d.match(/M/g) ?? []).length, 2, '…mais deux sous-chemins distincts');
+});
+
+test("le raccord est DROIT même si les courbes sont lissées", () => {
+  // Une courbe demanderait au tracé d'inventer une forme pour un intervalle inconnu.
+  const g = construireGraphe({ ...BASE, series: [serie('a', [10, null, 30, 40])] });
+  const d = g.svg.match(/<path d="([^"]*)"[^>]*stroke-dasharray="2 3"/)?.[1] ?? '';
+  assert.ok(d.length > 0);
+  assert.ok(!d.includes('C'), 'le pont ne doit contenir aucune cubique');
+});
+
+test("l'aplat ne suit PAS le raccord — il ne remplit que sous des valeurs connues", () => {
+  // Deux tronçons de DEUX points chacun : un tronçon d'un seul point n'a aucune surface
+  // à remplir et n'entre pas dans l'aplat.
+  const g = construireGraphe({
+    series: [serie('a', [10, 20, null, 40, 50])], n: 5, etiquettes: [], unite: '', largeur: 600,
+  });
+  const aplat = g.svg.match(/<path d="([^"]*)" fill="url\(#aplat-[^)]*\)"/)?.[1] ?? '';
+  assert.equal((aplat.match(/Z/g) ?? []).length, 2, 'un aplat par tronçon, pas un seul continu');
+});
+
+test('un jour mesuré isolé entre deux trous reste visible', () => {
+  // Sans ça, la seule valeur connue de la fenêtre ne dessine RIEN — ni trait (il faut
+  // deux points), ni aplat — et le graphe paraît vide alors qu'il ne l'est pas.
+  const g = construireGraphe({
+    series: [serie('a', [null, 42, null])], n: 3, etiquettes: [], unite: '', largeur: 600,
+  });
+  assert.ok((g.svg.match(/<circle/g) ?? []).length >= 1, 'le point isolé doit être marqué');
+});
+
+test('un trou sur une série en retrait est raccordé en gris, pas en couleur', () => {
+  const g = construireGraphe({
+    ...BASE, series: [serie('a', [10, null, 30, 40]), serie('b', [5, 6, 7, 8])], vedette: 'b',
+  });
+  const raccord = g.svg.match(/<path[^>]*stroke-dasharray="2 3"[^>]*>/)?.[0] ?? '';
+  assert.ok(raccord.includes('#d7d1c3'), 'la série en retrait garde le gris jusque dans son raccord');
 });

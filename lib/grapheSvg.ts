@@ -321,6 +321,42 @@ export function construireGraphe(o: OptionsGraphe): GeometrieGraphe {
   const ligne = o.lissage === false ? joindre : lisser;
   const troncons = (serie: SerieGraphe) => tronconner(serie.valeurs, serie.decalage ?? 0, xDe, yDe);
   const tracer = (segs: Point[][]) => segs.map(ligne).join(' ');
+
+  /* Le raccord au-dessus d'un trou de collecte.
+   *
+   * Un trait plein relierait deux jours éloignés en affirmant une pente qui n'a pas eu
+   * lieu. Mais une coupure sèche ne dit pas mieux : elle se lit comme « la mesure s'est
+   * arrêtée », alors que le compte, lui, a continué d'exister. Le pointillé dit la seule
+   * chose vraie — on sait où on était avant, on sait où on est après, on ne sait pas ce
+   * qui s'est passé entre les deux.
+   *
+   * ⚠️ DROIT, jamais lissé, et l'aplat ne le suit PAS. Une courbe demanderait au tracé
+   * d'inventer une forme pour un intervalle inconnu, et un aplat sous le raccord
+   * remplirait une surface qu'aucune valeur ne soutient. Le pointillé est un pont, pas
+   * une donnée. */
+  const raccords = (segs: Point[][]) => {
+    const d: string[] = [];
+    for (let k = 1; k < segs.length; k++) {
+      const avant = segs[k - 1][segs[k - 1].length - 1];
+      const apres = segs[k][0];
+      d.push(`M${avant.x.toFixed(1)} ${avant.y.toFixed(1)} L${apres.x.toFixed(1)} ${apres.y.toFixed(1)}`);
+    }
+    return d.join(' ');
+  };
+  /** Un jour mesuré ISOLÉ entre deux trous ne dessine rien : un tronçon d'un seul point
+   *  n'a ni segment à tracer, ni surface à remplir. Sans ce point, la seule valeur
+   *  connue de la fenêtre serait invisible, et le graphe paraîtrait vide alors qu'il ne
+   *  l'est pas. */
+  const pointsIsoles = (segs: Point[][], couleur: string) => segs
+    .filter(p => p.length === 1)
+    .map(p => `<circle cx="${p[0].x.toFixed(1)}" cy="${p[0].y.toFixed(1)}" r="2.4" fill="${couleur}"/>`)
+    .join('');
+
+  const tracerRaccords = (segs: Point[][], couleur: string, largeurTrait = 1.4) => {
+    const d = raccords(segs);
+    const pont = d ? `<path d="${d}" fill="none" stroke="${couleur}" stroke-width="${largeurTrait}" stroke-dasharray="2 3" stroke-linecap="round" opacity=".45"/>` : '';
+    return pont + pointsIsoles(segs, couleur);
+  };
   /** L'aplat suit la courbe lissée puis redescend au sol — un aplat par tronçon, pour
    *  qu'un trou ne soit pas rempli comme s'il portait une valeur. */
   const aplat = (segs: Point[][]) => segs
@@ -357,7 +393,9 @@ export function construireGraphe(o: OptionsGraphe): GeometrieGraphe {
       s += `<path d="${haut}" fill="none" stroke="${TAUPE}" stroke-opacity=".3" stroke-linecap="round"/>`;
     }
     for (const serie of o.series) {
-      s += `<path d="${tracer(troncons(serie))}" fill="none" stroke="${GRIS}" stroke-width="1" stroke-linejoin="round" stroke-linecap="round" opacity=".75"/>`;
+      const segs = troncons(serie);
+      s += `<path d="${tracer(segs)}" fill="none" stroke="${GRIS}" stroke-width="1" stroke-linejoin="round" stroke-linecap="round" opacity=".75"/>`;
+      s += tracerRaccords(segs, GRIS, 1);
     }
     if (moy.length > 1) {
       s += `<path d="${aplat([moy])}" fill="url(#aplat-${echapper(cle)})" stroke="none"/>`;
@@ -385,6 +423,7 @@ export function construireGraphe(o: OptionsGraphe): GeometrieGraphe {
       // Un point par valeur mesurée. Il dit où sont les VRAIES données : entre deux
       // points, la ligne n'est qu'une jonction. Réservé aux séries en couleur — les
       // grises sont un contexte, les ponctuer ferait de la poussière.
+      s += tracerRaccords(segs, enGris ? GRIS : serie.couleur, enGris ? 1 : 1.4);
       if (o.points && !enGris) {
         for (const seg of segs) {
           for (const p of seg) {
@@ -415,6 +454,7 @@ export function construireGraphe(o: OptionsGraphe): GeometrieGraphe {
     s += `<path d="${aplat(segs)}" fill="url(#aplat-${echapper(cle)})" stroke="none"/>`;
     s += `<path d="${d}" fill="none" stroke="${FOND}" stroke-width="5.5" stroke-linejoin="round" stroke-linecap="round" opacity=".85"/>`;
     s += `<path d="${d}" fill="none" stroke="${serieVedette.couleur}" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>`;
+    s += tracerRaccords(segs, serieVedette.couleur, 2);
     const fin = segs.length ? segs[segs.length - 1][segs[segs.length - 1].length - 1] : null;
     if (fin) {
       s += pointVif(fin.x, fin.y, serieVedette.couleur);
