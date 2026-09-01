@@ -2048,30 +2048,82 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
     const leads: any[] = pipelineData?.leads ?? [];
     const events: any[] = pipelineData?.events ?? [];
 
-    const duContenu = leads.filter(l => l.media_id === post.id);
-    const idsDuContenu = new Set(duContenu.map(l => l.id).filter(Boolean));
-
-    const commentaires = duContenu.length;
-    const conversations = duContenu.filter(l => l.hook_replied).length;
-
-    // DM2 reçus = clics sur le bouton « je veux le lien » du DM1.
+    // ── LA POPULATION VIENT DU JOURNAL, JAMAIS DE LA FICHE ────────────────────
     //
-    // Le clic lui-même n'a pas d'événement dédié, mais il laisse une trace sûre :
-    // c'est à ce moment-là — et à ce moment-là seulement — que le webhook crée le
-    // lien Short.io PERSONNALISÉ du prospect (« lm-motcle-pseudo ») et l'écrit
-    // dans tracking_link. Avant le clic, tracking_link porte le lien GÉNÉRIQUE du
-    // contenu, posé dès la détection du commentaire. Comparer les deux distingue
-    // donc « a cliqué » de « a seulement commenté ».
+    // `instagram_leads` porte UNE ligne par personne, et son `media_id` est
+    // écrasé à chaque nouveau commentaire. Filtrer dessus ne retrouve donc que
+    // les gens dont le DERNIER contenu est celui-ci : quelqu'un qui commente A
+    // puis B disparaît des statistiques de A.
     //
-    // Les autres marqueurs candidats ne conviennent pas : `lead_magnet_sent` est
-    // posé à l'envoi du DM1 (donc égal aux commentaires mot-clé, une marche à
-    // 100 % qui n'apprend rien), et `dm3_scheduled_at` est remis à null par
-    // send-pending-dm3 une fois la relance partie — c'est une file d'attente,
-    // pas un historique.
-    const lienGenerique = post.lmShortUrl ?? null;
-    const dm2Recus = duContenu.filter(l =>
-      l.tracking_link && (!lienGenerique || l.tracking_link !== lienGenerique)
-    ).length;
+    // Mesuré le 2026-09-01 : le contenu 18034119419716572 affichait 0 commentaire
+    // et 0 lead magnet, alors que deux personnes y avaient pris le lead magnet
+    // (incogniton.734 et rdjdkzjd, dont les fiches pointent toutes deux ailleurs).
+    // Le contenu 18070859744433801 affichait 0 pour 1 personne. Toutes les cases
+    // en découlaient, puisqu'elles partent d'`idsDuContenu`.
+    //
+    // `instagram_lead_lm_history` est le journal : une ligne par interaction,
+    // jamais réécrite. C'est lui la source de tout compteur cumulé.
+    const lmHistory: any[] = pipelineData?.lmHistory ?? [];
+
+    // Dédupliqué par personne, et ce n'est pas cosmétique : rdjdkzjd a commenté
+    // quatre fois le même mot-clé en moins d'une heure le 05/07. Compter les
+    // lignes donnerait 4 personnes pour 1.
+    const personnes = new Set<string>(
+      lmHistory
+        .filter(h => h.media_id === post.id && h.lead_magnet_sent && h.ig_user_id)
+        .map(h => h.ig_user_id as string)
+    );
+    const idsDuContenu = new Set(
+      leads.filter(l => l.ig_user_id && personnes.has(l.ig_user_id)).map(l => l.id).filter(Boolean)
+    );
+
+    const commentaires = personnes.size;
+
+    // « Conversations » se lit au journal des événements, pas au drapeau de la
+    // fiche : `hook_replied` est remis à false par une réponse de story ou un
+    // Cold DM (trois endroits dans le webhook), donc une conversation déjà eue
+    // disparaît. Vérifié le 2026-09-01 : fiche et journal disent la même chose
+    // sur les 6 leads du profil — le changement ne bouge aucun chiffre
+    // aujourd'hui, il protège ceux de demain.
+    const conversations = new Set(
+      events
+        .filter(e => e.event_type === 'hook_replied' && idsDuContenu.has(e.ig_lead_id))
+        .map(e => e.ig_lead_id)
+    ).size;
+
+    // ── LEAD MAGNET REÇUS = l'appui sur le bouton du DM1 ──────────────────────
+    //
+    // Se déduisait de `tracking_link` : « s'il ne vaut plus le lien générique du
+    // contenu, c'est qu'un lien personnalisé a été créé, donc le prospect a
+    // appuyé ». Ce raisonnement ne peut pas marcher par contenu — `tracking_link`
+    // est un champ de la FICHE, il ne porte qu'un seul lien, le dernier.
+    //
+    // Mesuré : incogniton.734 a huit prises au journal et un `tracking_link` qui
+    // vaut exactement le lien générique du contenu 18056185901693457
+    // (« lm-publication-instagra »). Il était donc compté « n'a pas appuyé »
+    // alors qu'il a appuyé.
+    //
+    // `lm_link_requested` est écrit au moment exact de l'appui
+    // (instagram-webhook-processor.ts). C'est la seule mesure honnête.
+    const appuis = new Set(
+      events
+        .filter(e => e.event_type === 'lm_link_requested' && idsDuContenu.has(e.ig_lead_id))
+        .map(e => e.ig_lead_id)
+    );
+
+    // ⚠️ UN TIRET, JAMAIS UN ZÉRO, TANT QUE LA MESURE NE COUVRE PAS LA PÉRIODE.
+    //
+    // `lm_link_requested` n'est écrit que depuis le 2026-08-27, et aucune ligne
+    // n'existe encore. Un 0 affirmerait « personne n'appuie sur le bouton » là où
+    // la vérité est « on ne le mesurait pas ». Même règle que la borne de collecte
+    // Short.io, et même règle que la colonne « LM réclamés » du Parcours des leads
+    // (PageClientStats, commit 7638aba) — les deux écrans doivent dire la même
+    // chose.
+    const premierAppui: string | null = events
+      .filter(e => e.event_type === 'lm_link_requested' && e.occurred_at)
+      .reduce<string | null>((min, e) => (!min || e.occurred_at < min ? e.occurred_at : min), null);
+    const dm2Mesure = !!premierAppui;
+    const dm2Recus = appuis.size;
 
     const cliqueurs = new Set(
       events
@@ -2087,7 +2139,7 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
     );
 
     return {
-      commentaires, dm2Recus, clics: cliqueurs.size, conversations,
+      commentaires, dm2Recus, dm2Mesure, premierAppui, clics: cliqueurs.size, conversations,
       calls: calls.size,
       pret: !!pipelineData,
     };
@@ -2170,9 +2222,17 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
     // Dernière marche de la CHAÎNE : tout ce qui suit en découle, mais en
     // parallèle. « Lead Magnet reçus » plutôt que « DM2 reçus » — le prospect
     // reçoit un lead magnet, la numérotation des DM est notre vocabulaire à nous.
-    { cle: 'dm2', libelle: 'Lead Magnet reçus', valeur: entonnoir.dm2Recus, precision: 'bouton du DM1 cliqué' },
+    {
+      cle: 'dm2', libelle: 'Lead Magnet reçus', valeur: entonnoir.dm2Recus,
+      precision: entonnoir.dm2Mesure ? 'bouton du DM1 cliqué' : 'non mesuré',
+      nonMesure: !entonnoir.dm2Mesure,
+      titre: entonnoir.dm2Mesure
+        ? undefined
+        : "L'appui sur le bouton du DM1 n'était pas enregistré avant le 27 août 2026. Un zéro affirmerait que personne n'appuie ; la vérité est qu'on ne le mesurait pas.",
+    },
   ].filter(e => e.valeur != null) as {
     cle: string; libelle: string; valeur: number; precision?: string;
+    nonMesure?: boolean; titre?: string;
     duo?: { gauche: number; gaucheAide: string; droite: number; droiteAide: string; taux?: number | null };
   }[];
 
@@ -2185,8 +2245,10 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
   //
   // Les deux se rapportent donc à la même base, les lead magnets reçus, ce qui
   // rend enfin leurs pourcentages comparables entre eux.
+  // Aucun taux tant que la base n'est pas mesurée : rapporter un chiffre réel à
+  // un zéro qui n'en est pas un inventerait une conversion.
   const partDesRecus = (n: number): number | null =>
-    entonnoir.dm2Recus > 0 ? Math.round((n / entonnoir.dm2Recus) * 100) : null;
+    entonnoir.dm2Mesure && entonnoir.dm2Recus > 0 ? Math.round((n / entonnoir.dm2Recus) * 100) : null;
 
   const branches = [
     { cle: 'clics', libelle: 'Lead magnets ouverts', valeur: entonnoir.clics, precision: 'lien du DM2 cliqué' },
@@ -2208,6 +2270,9 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
   // deux aux lead magnets reçus et n'ont pas à être plafonnés.
   const tauxEntre = (i: number): number | null => {
     if (i === 0) return null;
+    // Une marche non mesurée n'a pas de taux, ni vers elle ni depuis elle : ce
+    // serait une conversion calculée sur un chiffre qui n'existe pas.
+    if (etapes[i].nonMesure || etapes[i - 1].nonMesure) return null;
     const prec = etapes[i - 1].valeur;
     if (prec <= 0) return null;
     return Math.min(100, Math.round((etapes[i].valeur / prec) * 100));
@@ -2303,13 +2368,18 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
                           </div>
                         </div>
                       ) : (
-                        <div style={{ fontSize: 17, fontWeight: 700, color: INK, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>
-                          {e.valeur.toLocaleString('fr-FR')}
+                        <div title={e.titre} style={{
+                          fontSize: 17, fontWeight: 700, marginTop: 2,
+                          color: e.nonMesure ? FAINT : INK,
+                          fontVariantNumeric: 'tabular-nums',
+                          cursor: e.titre ? 'help' : undefined,
+                        }}>
+                          {e.nonMesure ? '—' : e.valeur.toLocaleString('fr-FR')}
                         </div>
                       )}
 
                       {e.precision && (
-                        <div style={{ fontSize: 9, color: FAINT, marginTop: 2, lineHeight: 1.3 }}>{e.precision}</div>
+                        <div title={e.titre} style={{ fontSize: 9, color: FAINT, marginTop: 2, lineHeight: 1.3, cursor: e.titre ? 'help' : undefined }}>{e.precision}</div>
                       )}
                     </div>
                   </div>

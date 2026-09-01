@@ -89,7 +89,11 @@ export async function GET() {
       .eq('profile_id', user.id)
       .order('occurred_at', { ascending: false }),
     supa.from('instagram_lead_lm_history')
-      .select('id, ig_username, ig_user_id, keyword_matched, media_id, detected_at')
+      // `lead_magnet_sent` distingue une demande VUE d'une demande SERVIE. Une
+      // ligne à false n'a fait entrer personne dans la séquence : la compter
+      // gonflerait l'entonnoir. Cas réel : rdjdkzjd, ligne à false le 28/06 à
+      // 21h39, puis la même à true deux minutes plus tard.
+      .select('id, ig_username, ig_user_id, keyword_matched, media_id, detected_at, lead_magnet_sent')
       .eq('profile_id', user.id)
       .is('archived_at', null)
       .order('detected_at', { ascending: false }),
