@@ -282,6 +282,23 @@ au-delà de 2 jours (`etat_collecte = 'ping_absent'`). Rien à aller lire à la 
 
 # Santé de la plateforme
 
+**Aucune de ces vues n'a besoin d'être regardée.** Depuis le 2026-09-01,
+`/api/sante/alerte-vues` les parcourt toutes une fois par jour et envoie un e-mail dès
+qu'une se met à alerter — une fois par sujet, réarmée d'elle-même quand la vue redevient
+propre (table `alertes_plateforme`). Auparavant, seul le plafond de stockage prévenait :
+les dix autres attendaient qu'on pense à les consulter, ce qui n'est pas une
+surveillance mais une documentation.
+
+L'e-mail est écrit pour être lu **dans un an, par quelqu'un sans contexte** : ce que la
+vue surveille, ce que l'alerte veut dire, ce que ça coûte, les vérifications dans
+l'ordre, et un **prompt prêt à coller dans Claude Code** qui nomme le dossier du projet
+et la référence Supabase. Toute nouvelle vue de santé doit être ajoutée au tableau
+`SURVEILLANCES` de cette route — sinon elle est muette, exactement comme les dix
+précédentes.
+
+Déclenchée par `poll-leads` dans la tranche 8 h Paris, comme `alerte-stockage` : aucun
+planificateur à créer, et la clé Resend ne quitte pas les variables Vercel.
+
 ```sql
 select * from cron_runs order by ran_at desc;   -- vide = aucun incident (30j)
 select * from yt_sante_donnees;                 -- 'ok' partout
@@ -292,6 +309,7 @@ select * from ventes_sante_sur_encaissement;    -- vide = aucun deal n'a encaiss
 select * from ventes_sante_contenu;             -- 'ok' partout
 select * from ventes_sante_date;                -- aucune ligne 'ALERTE%'
 select * from ig_sante_insights_posts;          -- 'ok' partout
+select * from ig_sante_periodes;                -- aucune ligne 'ALERTE%'
 select * from base_sante_taille;                -- 'ok' = plafond de stockage loin
 select * from clics_sante_redirection;
 select * from crons_sante;                      -- aucun 'SILENCIEUX' = les crons inscrits tournent          -- 'ok' partout

@@ -2760,9 +2760,15 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
 /**
  * Un incident passager ne demande d'action a personne.
  *
- * Trois formes, toutes auto-reparees : un 500 de Short.io (leur serveur, pas notre
+ * Quatre formes, toutes auto-reparees : un 500 de Short.io (leur serveur, pas notre
  * requete), un flux de clics tronque dont la reparation est reportee au passage
- * suivant, et un ancien domaine devenu inaccessible.
+ * suivant, un ancien domaine devenu inaccessible, et un HTTP 400 de Meta sur la
+ * mesure d'une periode.
+ *
+ * Le dernier a ete ajoute le 2026-09-01, apres constat : 58 lignes dans `cron_runs`,
+ * et AUCUNE periode manquante. Les trois profils avaient leur semaine, leur mois et
+ * leur all_time frais de moins de six heures — le passage suivant repare toujours,
+ * puisque `ecrire` est rejoue tant que la ligne n'est pas fraiche.
  *
  * Sert a DEUX endroits, et c'est le meme jugement dans les deux :
  *  - `last_snapshot_error`, qui allume un bandeau rouge chez l'eleve ;
@@ -2782,7 +2788,13 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
  * se noyer dans des lignes quotidiennes qu'on ne lit plus.
  */
 const estIncidentPassager = (e: string) =>
-  e.includes('last_clicks') || e.includes('flux_clics_tronque') || e.includes('old_domain_');
+  e.includes('last_clicks') || e.includes('flux_clics_tronque') || e.includes('old_domain_')
+  // Les mesures de periode se rejouent au passage suivant. Ce qui garde l'oeil ouvert
+  // a leur place : la vue `ig_sante_periodes`, qui surveille la CONSEQUENCE — une
+  // periode COURANTE qui cesse d'etre rafraichie pendant plus de 24 h, soit quatre
+  // auto-reparations ratees d'affilee. Une panne durable ressort donc la, au lieu de
+  // se noyer dans des lignes quotidiennes qu'on ne lit plus.
+  || e.startsWith('ig_periode');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Handler principal
@@ -2992,12 +3004,28 @@ Deno.serve(async (req: Request) => {
     const heureParis = new Date(Date.now() + parisOffsetHours(new Date()) * 3600_000).getUTCHours();
     if (heureParis === 8) {
       const controleur = new AbortController();
-      const minuteur = setTimeout(() => controleur.abort(), 10_000);
+      const minuteur = setTimeout(() => controleur.abort(), 20_000);
       try {
-        await fetch(`${PLATFORM_URL}/api/sante/alerte-stockage`, {
-          headers: { authorization: `Bearer ${CRON_SECRET}` },
-          signal: controleur.signal,
-        });
+        // Les DEUX alertes, sur la meme tranche et le meme secret.
+        //
+        // `alerte-stockage` couvre le plafond du plan Supabase. `alerte-vues` couvre
+        // les onze vues de sante, qui n'avaient jusqu'ici AUCUN canal : elles
+        // attendaient qu'on pense a les regarder, ce qui n'est pas une surveillance
+        // mais une documentation. Chaque e-mail porte son contexte complet et un
+        // prompt pret a coller, parce qu'il arrivera des mois plus tard.
+        //
+        // En parallele : l'une ne doit pas retarder l'autre, et surtout l'echec de
+        // l'une ne doit pas empecher l'envoi de l'autre. `allSettled`, jamais `all`.
+        await Promise.allSettled([
+          fetch(`${PLATFORM_URL}/api/sante/alerte-stockage`, {
+            headers: { authorization: `Bearer ${CRON_SECRET}` },
+            signal: controleur.signal,
+          }),
+          fetch(`${PLATFORM_URL}/api/sante/alerte-vues`, {
+            headers: { authorization: `Bearer ${CRON_SECRET}` },
+            signal: controleur.signal,
+          }),
+        ]);
       } finally { clearTimeout(minuteur); }
     }
   } catch { /* non bloquant — retentee au prochain passage de la tranche */ }
