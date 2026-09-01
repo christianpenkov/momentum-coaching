@@ -5974,9 +5974,13 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
    * ⚠️ Cet onglet recoit le jeu COMPLET (`deals`), jamais `dealsEff` decoupe sur la
    * periode, et c'est la difference qui compte. Le Parcours des leads borne la seule
    * ENTREE : une personne entree en juin appartient a la ligne de juin meme si elle
-   * close en juillet. Avec un jeu deja decoupe, sa ligne affichait « 1 close, 0 EUR » —
-   * la cohorte suivait la personne, l'argent restait derriere. Cas reel en base :
-   * rdjdkzjd, entre en juin, 500 EUR closes en juillet.
+   * close en juillet. Avec un jeu deja decoupe sur `signed_at`, sa ligne afficherait
+   * « 1 close, 0 EUR » — le COMPTE vient d'un jeu non borne, le MONTANT d'un jeu borne.
+   *
+   * ⚠️ Aucun cas ne l'exhibe en base au 2026-09-01 : les deux ventes rattachables a une
+   * cohorte tombent dans le mois de leur entree, et la conversion la plus longue fait
+   * 8 jours sans traverser de mois. Le defaut n'attend qu'une conversion a cheval sur
+   * deux periodes — ne pas le croire absent parce que l'ecran est juste.
    *
    * En contrepartie, TOUT bornage du cash se fait ici, par `venteDansLaPeriodeB` : la
    * date de vente, jamais celle de reservation ni `signed_at`.

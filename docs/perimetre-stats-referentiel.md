@@ -239,10 +239,17 @@ Le jour où toutes les lignes seront conformes, lire `signed_at` redeviendra pos
 
 **Il reçoit le jeu de ventes COMPLET, jamais découpé sur la période.** Le Parcours des
 leads borne la seule ENTRÉE : une personne entrée en juin appartient à la ligne de juin
-même si elle close en juillet. Avec un jeu déjà découpé, sa ligne affichait
-**« 1 closé, 0 € »** — la cohorte suivait la personne, l'argent restait derrière. Cas
-réel : `rdjdkzjd`, entré en juin, 500 € closés en juillet. En contrepartie, tout le
-bornage du cash se fait désormais dans l'onglet.
+même si elle close en juillet. Avec un jeu déjà découpé sur `signed_at`, sa ligne
+afficherait **« 1 closé, 0 € »** — le compte venant d'un jeu non borné et le montant
+d'un jeu borné, la cohorte suivrait la personne et l'argent resterait derrière.
+
+⚠️ **Aucun cas ne l'exhibe aujourd'hui, et c'est précisément ce qui le rendait
+indétectable.** Vérifié le 2026-09-01 : les deux ventes rattachables à une cohorte
+tombent dans le mois de leur entrée, et la conversion la plus longue fait 8 jours sans
+traverser de mois. Le défaut n'attend qu'une conversion à cheval sur deux périodes. Ne
+pas conclure d'un écran juste que le périmètre l'était.
+
+En contrepartie, tout le bornage du cash se fait désormais dans l'onglet.
 
 **Deux fenêtres cohabitent, et les catégories du breakdown forment une partition.**
 `callsInWindow` retient les rendez-vous RÉSERVÉS dans la période, `callsVenteInWindow`
