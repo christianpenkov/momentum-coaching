@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useId } from 'react';
 import { construireGraphe, type SerieGraphe } from '@/lib/grapheSvg';
 
 /* Enveloppe React du graphe de Stats Clients.
@@ -49,6 +49,13 @@ export default function GrapheSeries({
 }: Props) {
   const conteneur = useRef<HTMLDivElement>(null);
   const hote = useRef<HTMLDivElement>(null);
+  /* Le constructeur déclare un `<linearGradient>` pour son aplat. Deux graphes montés
+   * sur la même page — le graphe principal et celui des semaines d'accompagnement —
+   * partageraient l'identifiant, et le second écraserait la couleur du premier : c'est
+   * le genre de bug qui ne se voit qu'une fois les deux graphes affichés ensemble.
+   * `useId` le règle sans que l'appelant ait à y penser ; les deux-points qu'il produit
+   * (`:r0:`) sont retirés parce qu'ils ne passent pas partout dans un `url(#…)`. */
+  const cle = useId().replace(/[^a-zA-Z0-9]/g, '');
   const [largeur, setLargeur] = useState(0);
   const [survol, setSurvol] = useState<{ i: number; x: number; y: number } | null>(null);
 
@@ -66,7 +73,7 @@ export default function GrapheSeries({
   }, []);
 
   const geo = largeur > 0
-    ? construireGraphe({ series, n, etiquettes, unite, vedette, depuisZero, largeur, hauteur, pointsCourts })
+    ? construireGraphe({ series, n, etiquettes, unite, vedette, depuisZero, largeur, hauteur, pointsCourts, cle })
     : null;
 
   useEffect(() => { if (geo) onDense?.(geo.dense); }, [geo?.dense, onDense]);
@@ -114,6 +121,21 @@ export default function GrapheSeries({
         onMouseLeave={() => setSurvol(null)}
         style={{ minHeight: hauteur }}
       />
+      {/* Le trait vertical de survol, l'équivalent du curseur que Recharts dessine.
+          C'est lui qui dit QUELLE abscisse le cartouche est en train de lire — sans lui,
+          le cartouche affiche des chiffres sans qu'on sache de quel jour ils viennent.
+          Une div positionnée plutôt qu'un élément du SVG : le survol ne redessine alors
+          pas les 39 courbes, ce qui est toute la raison d'être de ce composant. */}
+      {survol && visibles.length > 0 && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'absolute', pointerEvents: 'none', zIndex: 4,
+            left: survol.x, top: 0, width: 1, height: hauteur - 30,
+            background: 'var(--border)',
+          }}
+        />
+      )}
       {survol && visibles.length > 0 && (
         <div
           role="tooltip"
@@ -131,7 +153,10 @@ export default function GrapheSeries({
           </div>
           {visibles.map((p, k) => (
             <div key={p.nom + k} style={{ display: 'flex', alignItems: 'center', gap: 7, lineHeight: 1.75 }}>
-              <i style={{ width: 6, height: 6, borderRadius: '50%', background: p.couleur, flexShrink: 0, display: 'inline-block' }} />
+              {/* Pastille carrée à 2px, comme celle du cartouche de Mes Stats. Une
+                  pastille ronde ici et carrée là-bas, c'est le genre d'écart qu'on ne
+                  sait pas nommer mais qui fait « pas tout à fait la même app ». */}
+              <i style={{ width: 8, height: 8, borderRadius: 2, background: p.couleur, flexShrink: 0, display: 'inline-block' }} />
               <span style={{ color: 'var(--muted)', flex: 1, whiteSpace: 'nowrap' }}>{p.nom}</span>
               <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
                 {formater(p.valeur)}

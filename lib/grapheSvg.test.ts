@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   quantile, moyenne, valeursA, bornes, formaterAxe, construireGraphe,
-  SEUIL_COULEUR_PAR_DEFAUT, type SerieGraphe,
+  lisser, tronconner, SEUIL_COULEUR_PAR_DEFAUT, type SerieGraphe, type Point,
 } from './grapheSvg.ts';
 
 // Lancé par `npm test`. La géométrie du graphe est pure : ni React, ni DOM.
@@ -155,4 +155,118 @@ test('les étiquettes de l\'axe sont échappées aussi', () => {
     series: [serie('a', [1, 2])], n: 2, etiquettes: [{ i: 0, t: '<b>' }], unite: '', largeur: 900,
   });
   assert.ok(!g.svg.includes('<b>'));
+});
+
+/* ═══ Lissage ═════════════════════════════════════════════════════════════
+ *
+ * Ces tests existent pour UNE raison : une spline naïve dessine des variations qui
+ * n'ont pas eu lieu. Le graphe montre des abonnés à un coach ; inventer une baisse est
+ * une faute de fond, pas un détail d'apparence.
+ */
+
+/** Les ordonnées de tous les points de contrôle, segment par segment.
+ *
+ * Une cubique de Bézier est contenue dans l'enveloppe convexe de ses quatre points de
+ * contrôle : si les quatre restent entre deux valeurs, la courbe aussi. C'est ce qui
+ * rend le dépassement vérifiable sans échantillonner la courbe. */
+function segmentsBezier(d: string): number[][] {
+  const nombres = (bloc: string) => bloc.trim().split(/[\s,]+/).map(Number);
+  const depart = d.match(/^M([-\d.]+)\s+([-\d.]+)/);
+  if (!depart) return [];
+  let y = Number(depart[2]);
+  const out: number[][] = [];
+  for (const m of d.matchAll(/C([^MCLZ]+)/g)) {
+    const v = nombres(m[1]);
+    out.push([y, v[1], v[3], v[5]]);
+    y = v[5];
+  }
+  return out;
+}
+
+test('une suite plate puis montante ne creuse JAMAIS sous son plancher', () => {
+  // Le cas d'école qui piège Catmull-Rom : 100, 100, 150. En écran, l'ordonnée
+  // DESCEND quand la valeur monte, donc « creuser sous 100 » se lit « dépasser y=100 ».
+  const d = lisser([{ x: 0, y: 100 }, { x: 10, y: 100 }, { x: 20, y: 50 }]);
+  for (const seg of segmentsBezier(d)) {
+    for (const y of seg) {
+      assert.ok(y <= 100.001, `un point de contrôle à ${y} fait creuser la courbe sous le plancher`);
+      assert.ok(y >= 49.999, `un point de contrôle à ${y} fait dépasser la courbe au-dessus du sommet`);
+    }
+  }
+});
+
+test("aucun segment ne sort de l'intervalle de ses deux extrémités", () => {
+  // Une dentelure sévère : c'est là qu'une spline non bornée part le plus loin.
+  const pts: Point[] = [0, 90, 10, 80, 5, 95, 40].map((y, i) => ({ x: i * 10, y }));
+  for (const seg of segmentsBezier(lisser(pts))) {
+    const lo = Math.min(seg[0], seg[3]);
+    const hi = Math.max(seg[0], seg[3]);
+    for (const y of seg) {
+      assert.ok(y >= lo - 0.001 && y <= hi + 0.001, `${y} sort de [${lo}, ${hi}]`);
+    }
+  }
+});
+
+test('une suite strictement croissante reste strictement croissante', () => {
+  const pts: Point[] = [100, 90, 70, 40, 10].map((y, i) => ({ x: i * 10, y }));
+  for (const seg of segmentsBezier(lisser(pts))) {
+    for (let k = 1; k < seg.length; k++) {
+      assert.ok(seg[k] <= seg[k - 1] + 0.001, 'la courbe doit rester monotone entre deux points');
+    }
+  }
+});
+
+test('deux points donnent un trait droit, un seul point ne trace rien de faux', () => {
+  assert.equal(lisser([{ x: 0, y: 5 }, { x: 10, y: 15 }]), 'M0.0 5.0 L10.0 15.0');
+  assert.equal(lisser([{ x: 3, y: 4 }]), 'M3.0 4.0');
+  assert.equal(lisser([]), '');
+});
+
+test('un trou ouvre un tronçon, il ne relie pas deux dates éloignées', () => {
+  const t = tronconner([1, 2, null, 4, 5], 0, i => i * 10, v => v);
+  assert.equal(t.length, 2, 'le trou doit couper la série en deux');
+  assert.deepEqual(t[0].map(p => p.x), [0, 10]);
+  assert.deepEqual(t[1].map(p => p.x), [30, 40]);
+});
+
+test('le décalage place une série arrivée en cours de route au bon endroit', () => {
+  const t = tronconner([7, 8], 3, i => i * 10, v => v);
+  assert.deepEqual(t[0].map(p => p.x), [30, 40]);
+});
+
+test('une série entièrement vide ne produit aucun tronçon', () => {
+  assert.deepEqual(tronconner([null, null], 0, i => i, v => v), []);
+});
+
+/* ═══ Vocabulaire visuel partagé avec Mes Stats ═══════════════════════════ */
+
+test("le graphe n'emploie aucune couleur en dur là où un token existe", () => {
+  const g = construireGraphe({
+    series: [serie('a', [1, 5, 3])], n: 3, etiquettes: [], unite: '', largeur: 600,
+  });
+  assert.ok(g.svg.includes('var(--border)'), 'la grille doit suivre le token de bordure');
+  assert.ok(g.svg.includes('var(--muted)'), "les graduations doivent suivre le token d'encre estompée");
+});
+
+test('deux graphes sur la même page ne partagent pas leur dégradé', () => {
+  const base = { series: [serie('a', [1, 5, 3])], n: 3, etiquettes: [], unite: '' as const, largeur: 600 };
+  const a = construireGraphe({ ...base, cle: 'un' });
+  const b = construireGraphe({ ...base, cle: 'deux' });
+  assert.ok(a.svg.includes('id="aplat-un"') && b.svg.includes('id="aplat-deux"'));
+  assert.ok(!a.svg.includes('aplat-deux'), 'un identifiant partagé ferait écraser le premier dégradé');
+});
+
+test("la clé du dégradé est échappée — elle finit dans un attribut", () => {
+  const g = construireGraphe({
+    series: [serie('a', [1, 2])], n: 2, etiquettes: [], unite: '', largeur: 600,
+    cle: '"><script>',
+  });
+  assert.ok(!g.svg.includes('<script>'));
+});
+
+test('le point terminal qui pulse ne paraît que sur la courbe mise en avant', () => {
+  const base = { series: [serie('a', [1, 5, 3]), serie('b', [2, 3, 9])], n: 3, etiquettes: [], unite: '' as const, largeur: 600 };
+  assert.ok(!construireGraphe(base).svg.includes('graphe-point-vif'), 'au repos, aucun point ne doit pulser');
+  const g = construireGraphe({ ...base, vedette: 'a' });
+  assert.equal((g.svg.match(/graphe-point-vif/g) ?? []).length, 1, 'un seul point vif à la fois');
 });

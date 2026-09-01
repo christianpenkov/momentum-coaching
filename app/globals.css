@@ -4007,3 +4007,16 @@ html[data-splash='1'] .dot-wave {
 }
 .stats-search::placeholder { color: var(--muted); }
 .stats-search:focus { outline: none; border-color: var(--accent-brand); }
+
+/* Point terminal du graphe de Stats Clients. Le SVG est construit à la main
+   (lib/grapheSvg.ts) mais emprunte l'animation des graphiques Recharts de Mes Stats —
+   même keyframe, même rôle : dire où en est la donnée la plus récente. `transform-origin`
+   est posé en style inline par le constructeur, au centre exact du cercle, pour la raison
+   décrite plus haut sur `today-dot-pulse`. */
+.graphe-point-vif { animation: today-dot-pulse 1.6s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  /* Le halo reste, il ne pulse plus : c'est le repère qui porte l'information, pas
+     le mouvement. */
+  .graphe-point-vif { animation: none; opacity: 0.3; }
+}

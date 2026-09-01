@@ -1429,3 +1429,104 @@ trois index **restent** : ce sont des objets de la fonctionnalité, pas du test.
   contourne RLS. Il faudrait une session authentifiée d'un autre coach pour le prouver.
 - **Le rendu visuel à 40 élèves.** Le compte de test en a 5 : le mode dense
   (moyenne + bande, au-delà de 10 courbes) ne se déclenchera pas chez Chris.
+
+---
+
+## 23. Le rendu des graphiques (2026-09-01)
+
+Retour de Chris : « j'aime pas trop le design des graphiques, plus moderne », puis
+« plus proche des graphiques qui sont dans PageClientStats ».
+
+Le second retour est le bon cadrage, et il change la nature du travail. Ce n'était pas
+un problème de goût à résoudre en inventant un style : c'était **deux vocabulaires
+visuels pour la même chose dans la même application**, et quand ça arrive, c'est l'un
+des deux qui a tort. La règle du registre produit le dit sèchement — *« si le bouton
+Enregistrer n'a pas la même tête à deux endroits, l'un des deux est faux »*.
+
+### D64 — L'exception porte sur le MOTEUR, jamais sur l'APPARENCE
+
+`lib/grapheSvg.ts` construit son SVG à la main au lieu d'utiliser Recharts, pour une
+raison mesurée : 39 séries redessinées à chaque survol. Cette exception reste. Mais elle
+ne justifiait rien du côté de l'apparence, et c'est là qu'elle avait dérivé.
+
+Le fichier reproduit désormais à la main ce que `components/charts/AreaChart.tsx` obtient
+de Recharts, élément par élément :
+
+| Élément | Mes Stats (Recharts) | Stats Clients (à la main) |
+|---|---|---|
+| Courbe | `type="monotone"` | `lisser()`, Fritsch–Carlson |
+| Aplat | `linearGradient` .18 → 0 | même dégradé, mêmes arrêts |
+| Grille | `strokeDasharray="3 3"`, horizontale | idem |
+| Axes | `axisLine={false} tickLine={false}` | aucun trait plein |
+| Graduations | 10–11 px, `var(--muted)`, Inter | idem |
+| Point terminal | `todayDotFactory`, halo + pulsation | `pointVif()`, même keyframe |
+| Pastille du cartouche | carré, rayon 2 | idem |
+| Curseur de survol | trait vertical | trait vertical |
+
+### D65 — Le lissage doit être MONOTONE, pas seulement lisse
+
+Le choix de l'algorithme n'est pas cosmétique, et c'est le point qui méritait des tests.
+
+Une spline naïve (Catmull-Rom, le réflexe habituel) **dépasse** : sur la suite
+100, 100, 150 elle creuse sous 100 avant de remonter. Traduit à l'écran, ça dessine des
+abonnés qui baissent un jour où l'élève n'a rien perdu. **Un graphe qui invente une
+baisse est pire qu'un graphe anguleux** — et sur cette page, une baisse inventée, c'est
+un coach qui prépare un call sur un décrochage qui n'existe pas.
+
+Fritsch–Carlson borne les tangentes pour interdire ce dépassement. C'est exactement ce
+que Recharts appelle `type="monotone"`, d'où l'identité de rendu.
+
+Trois tests le verrouillent, en s'appuyant sur la propriété d'enveloppe convexe d'une
+cubique de Bézier — si les quatre points de contrôle restent dans un intervalle, la
+courbe aussi, ce qui rend le dépassement vérifiable sans échantillonner :
+
+- le cas d'école 100, 100, 150 ne creuse pas sous son plancher ;
+- aucun segment ne sort de l'intervalle de ses deux extrémités, même sur une dentelure ;
+- une suite strictement croissante le reste.
+
+### D66 — Plus d'axes en trait plein, et la marge gauche passe de 64 à 46
+
+⚠️ **Ceci défait en apparence une demande de Chris** (« pourquoi l'axe des ordonnées est
+un peu au milieu et pas tout à gauche ? »), donc il faut être précis sur ce qui a été
+compris de cette demande : le reproche portait sur la **position**, pas sur l'existence
+du trait. L'axe paraissait au milieu parce que la colonne des graduations faisait 64 px
+pour afficher « 1,2k ». `AreaChart.tsx` règle le même problème avec `width={28}`.
+
+Marge ramenée à 46 px, et les traits pleins retirés : la ligne basse de la grille tient
+déjà lieu de ligne de base, un second trait par-dessus ne fait que l'épaissir. **Si
+Chris veut le trait vertical de retour, c'est une ligne à rajouter** — le point de
+départ était sa question, pas une préférence exprimée.
+
+Le zéro, lui, garde son trait quand la fenêtre traverse le négatif : perdre des abonnés
+n'est pas « en gagner moins », c'est une frontière de sens, pas une graduation.
+
+### D67 — Les couleurs sont des variables CSS, plus des hexadécimaux recopiés
+
+Le SVG est injecté par `innerHTML` : la cascade s'y applique, donc `var(--border)` y est
+résolu normalement. Les recopier en dur créait un second jeu de couleurs qui ne suivait
+aucun changement de thème, et **elles avaient déjà commencé à diverger** : `AXE`
+(`#c9c4b8`) ne correspondait à aucun token. Un test vérifie que les tokens sont bien là.
+
+Restent en dur, et volontairement, les deux couleurs qui n'ont **pas** de token parce
+qu'elles n'existent que sur cette page : le gris des séries en retrait et le taupe de la
+moyenne.
+
+### D68 — Un aplat par graphe au maximum
+
+Trente-neuf aplats superposés ne font qu'une bouillie opaque. L'aplat va donc à la
+courbe qu'on regarde : la vedette s'il y en a une, la moyenne en mode dense, la courbe
+unique quand il n'y en a qu'une. Un aplat **par tronçon**, pour qu'un trou ne soit pas
+rempli comme s'il portait une valeur.
+
+### D69 — Le dégradé porte un identifiant unique par graphe
+
+Deux graphes coexistent sur la page (le graphe principal et celui des semaines
+d'accompagnement). Un `<linearGradient id>` partagé et le second écrase la couleur du
+premier — le genre de bug qui n'apparaît qu'une fois les deux affichés ensemble.
+`useId()` le règle sans que l'appelant ait à y penser. Deux tests le couvrent, dont
+l'échappement de la clé (elle finit dans un attribut).
+
+### La pulsation respecte `prefers-reduced-motion`
+
+Le halo reste, il ne pulse plus : c'est le repère qui porte l'information, pas le
+mouvement.

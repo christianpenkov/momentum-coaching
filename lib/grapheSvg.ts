@@ -10,6 +10,13 @@
  * NE PAS GÉNÉRALISER : toute page à moins d'une dizaine de séries continue d'utiliser
  * Recharts. L'exception se justifie par le nombre, pas par le goût.
  *
+ * ⚠️ L'exception porte sur le MOTEUR, jamais sur l'APPARENCE. Un graphe qui ne
+ * ressemble pas aux graphes de Mes Stats est un défaut, pas une signature : deux
+ * vocabulaires visuels pour la même chose dans la même app, c'est l'un des deux qui a
+ * tort. Ce fichier reproduit donc à la main ce que `components/charts/AreaChart.tsx`
+ * obtient de Recharts — courbe lissée monotone, aplat dégradé, grille pointillée
+ * horizontale seule, axes sans trait, point terminal qui pulse.
+ *
  * Tout est PUR : ces fonctions ne connaissent ni React ni le DOM, et sont testées.
  */
 
@@ -43,15 +50,28 @@ export interface OptionsGraphe {
   seuilCouleur?: number;
   /** Marque d'un point les séries trop courtes pour dessiner une ligne visible. */
   pointsCourts?: boolean;
+  /** Suffixe des identifiants internes (dégradés). Deux graphes sur la même page ne
+   *  doivent pas partager un `<linearGradient id>` : le second écraserait le premier. */
+  cle?: string;
 }
 
 export const SEUIL_COULEUR_PAR_DEFAUT = 10;
 
+/* Les couleurs sont des VARIABLES CSS, pas des hexadécimaux recopiés.
+ *
+ * Le SVG est injecté dans le document par `innerHTML` : la cascade s'y applique comme
+ * partout ailleurs, donc `var(--border)` y est résolu normalement. Les recopier en dur
+ * créait un second jeu de couleurs qui ne suivait aucun changement de thème — et elles
+ * avaient déjà commencé à diverger (`AXE` et `GRIS` n'existent dans aucun token). */
+const GRILLE = 'var(--border)';
+const ENCRE_ESTOMPEE = 'var(--muted)';
+const FOND = 'var(--surface)';
+/** Le gris des séries en retrait. Volontairement plus clair que `--border` : ces
+ *  courbes sont un contexte, elles ne doivent pas concurrencer la grille. */
 const GRIS = '#d7d1c3';
-const AXE = '#c9c4b8';
+/** La moyenne et la bande. Neutre chaud, pour ne pas se confondre avec la couleur
+ *  d'un élève en particulier. */
 const TAUPE = '#8a7350';
-const GRILLE = '#eeeae0';
-const ENCRE_ESTOMPEE = '#797569';
 
 /** Quantile linéaire. `q` entre 0 et 1. Le tableau n'est pas muté. */
 export function quantile(valeurs: number[], q: number): number {
@@ -102,7 +122,11 @@ export function bornes(series: SerieGraphe[], depuisZero: boolean): { min: numbe
     const marge = Math.abs(max) * 0.1 || 1;
     return { min: min - marge, max: max + marge };
   }
-  return { min: min - (min < 0 ? amplitude * 0.08 : 0), max: max + amplitude * 0.08 };
+  // ⚠️ Pas de marge SOUS un minimum positif, contrairement à `AreaChart.tsx`. Recharts
+  // rogne ce qui dépasse sa zone de tracé, donc il lui faut cette marge pour que le halo
+  // du point terminal ne soit pas coupé ; ici rien ne rogne, et les 30 px de marge basse
+  // accueillent le halo sans avoir à mentir sur l'échelle.
+  return { min: min - (min < 0 ? amplitude * 0.12 : 0), max: max + amplitude * 0.12 };
 }
 
 export function formaterAxe(v: number, unite: '' | '€' | '%'): string {
@@ -115,6 +139,86 @@ export function formaterAxe(v: number, unite: '' | '€' | '%'): string {
 
 function echapper(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+export interface Point { x: number; y: number }
+
+/** Une cubique lissée qui NE DÉPASSE JAMAIS ses points (Fritsch–Carlson, 1980).
+ *
+ * ⚠️ Le choix de l'algorithme n'est pas cosmétique. Une spline naïve (Catmull-Rom, le
+ * réflexe habituel) dépasse : sur la suite 100, 100, 150 elle creuse SOUS 100 avant de
+ * remonter. Traduit à l'écran, ça dessine des abonnés qui baissent un jour où l'élève
+ * n'a rien perdu. Un graphe qui invente une baisse est pire qu'un graphe anguleux.
+ *
+ * Fritsch–Carlson borne les tangentes pour interdire ce dépassement — c'est ce que fait
+ * Recharts sous le nom `type="monotone"`, d'où l'identité de rendu avec Mes Stats.
+ *
+ * Rend une commande `M` suivie de cubiques. Moins de deux points : un simple `M`. */
+export function lisser(pts: Point[]): string {
+  if (pts.length === 0) return '';
+  const r = (v: number) => v.toFixed(1);
+  if (pts.length === 1) return `M${r(pts[0].x)} ${r(pts[0].y)}`;
+  if (pts.length === 2) return `M${r(pts[0].x)} ${r(pts[0].y)} L${r(pts[1].x)} ${r(pts[1].y)}`;
+
+  const n = pts.length;
+  // Pentes des segments, puis tangentes en chaque point.
+  const d: number[] = [];
+  for (let i = 0; i < n - 1; i++) {
+    const dx = pts[i + 1].x - pts[i].x;
+    d.push(dx === 0 ? 0 : (pts[i + 1].y - pts[i].y) / dx);
+  }
+  const m: number[] = new Array(n);
+  m[0] = d[0];
+  m[n - 1] = d[n - 2];
+  for (let i = 1; i < n - 1; i++) m[i] = (d[i - 1] + d[i]) / 2;
+
+  // Le bornage proprement dit : c'est CE bloc qui empêche le dépassement.
+  for (let i = 0; i < n - 1; i++) {
+    if (d[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+    const a = m[i] / d[i];
+    const b = m[i + 1] / d[i];
+    // Un extremum local (tangente de signe opposé à la pente) est mis à plat.
+    if (a < 0) m[i] = 0;
+    if (b < 0) m[i + 1] = 0;
+    const s = a * a + b * b;
+    if (s > 9) {
+      const t = 3 / Math.sqrt(s);
+      m[i] = t * a * d[i];
+      m[i + 1] = t * b * d[i];
+    }
+  }
+
+  let out = `M${r(pts[0].x)} ${r(pts[0].y)}`;
+  for (let i = 0; i < n - 1; i++) {
+    const dx = pts[i + 1].x - pts[i].x;
+    out += ` C${r(pts[i].x + dx / 3)} ${r(pts[i].y + (m[i] * dx) / 3)}`
+      + ` ${r(pts[i + 1].x - dx / 3)} ${r(pts[i + 1].y - (m[i + 1] * dx) / 3)}`
+      + ` ${r(pts[i + 1].x)} ${r(pts[i + 1].y)}`;
+  }
+  return out;
+}
+
+/** Découpe une série en tronçons continus. Un trou OUVRE un nouveau tronçon au lieu
+ *  d'être relié : joindre deux points de part et d'autre d'un jour manquant dessinerait
+ *  une pente qui n'a pas eu lieu. */
+export function tronconner(
+  valeurs: (number | null)[],
+  decalage: number,
+  xDe: (i: number) => number,
+  yDe: (v: number) => number,
+): Point[][] {
+  const out: Point[][] = [];
+  let courant: Point[] = [];
+  valeurs.forEach((v, k) => {
+    if (v === null || v === undefined || Number.isNaN(v)) {
+      if (courant.length) out.push(courant);
+      courant = [];
+      return;
+    }
+    courant.push({ x: xDe(k + decalage), y: yDe(v) });
+  });
+  if (courant.length) out.push(courant);
+  return out;
 }
 
 export interface GeometrieGraphe {
@@ -130,11 +234,16 @@ export interface GeometrieGraphe {
 export function construireGraphe(o: OptionsGraphe): GeometrieGraphe {
   const L = o.largeur;
   const H = o.hauteur ?? 280;
-  const M = { haut: 16, droite: 20, bas: 30, gauche: 64 };
+  /* Marge gauche 46 et non 64 : la question posée sur la maquette était « pourquoi
+   * l'axe des ordonnées est-il un peu au milieu et pas tout à gauche ». Il l'était
+   * parce que la colonne des graduations était deux fois trop large. `AreaChart.tsx`
+   * règle le même problème avec `width={28}`. */
+  const M = { haut: 18, droite: 22, bas: 30, gauche: 46 };
   const li = L - M.gauche - M.droite;
   const hi = H - M.haut - M.bas;
   const n = Math.max(1, o.n);
   const xDe = (i: number) => M.gauche + (n > 1 ? (i / (n - 1)) * li : li / 2);
+  const cle = o.cle ?? 'g';
 
   const seuil = o.seuilCouleur ?? SEUIL_COULEUR_PAR_DEFAUT;
   const vedette = o.vedette ?? null;
@@ -144,76 +253,96 @@ export function construireGraphe(o: OptionsGraphe): GeometrieGraphe {
 
   const { min, max } = bornes(o.series, !!o.depuisZero);
   const yDe = (v: number) => M.haut + hi - ((v - min) / (max - min || 1)) * hi;
+  const solPlan = H - M.bas;
+
+  const serieVedette = vedette ? o.series.find(x => x.nom === vedette) : undefined;
+  // Un aplat par graphe au maximum : celui de la courbe qu'on regarde. Trente-neuf
+  // aplats superposés ne feraient qu'une bouillie opaque.
+  const couleurAplat = serieVedette ? serieVedette.couleur : TAUPE;
 
   let s = `<svg viewBox="0 0 ${L} ${H}" width="${L}" height="${H}" role="img" aria-label="Graphe de séries">`;
+  // Même dégradé que `AreaChart.tsx` : 0.18 en haut, transparent en bas.
+  s += `<defs><linearGradient id="aplat-${echapper(cle)}" x1="0" y1="0" x2="0" y2="1">`
+    + `<stop offset="5%" stop-color="${couleurAplat}" stop-opacity=".18"/>`
+    + `<stop offset="95%" stop-color="${couleurAplat}" stop-opacity="0"/>`
+    + `</linearGradient></defs>`;
 
-  // Grille et graduations
+  /* Grille horizontale pointillée SEULE, et aucun axe en trait plein — c'est
+   * `axisLine={false} tickLine={false}` plus `CartesianGrid vertical={false}` de
+   * Mes Stats. La ligne du bas de la grille tient lieu de ligne de base : un second
+   * trait plein par-dessus ne ferait que l'épaissir. */
   for (let i = 0; i <= 4; i++) {
     const v = min + (max - min) * (i / 4);
     const y = M.haut + hi - (i / 4) * hi;
-    s += `<line x1="${M.gauche}" y1="${y.toFixed(1)}" x2="${L - M.droite}" y2="${y.toFixed(1)}" stroke="${GRILLE}" stroke-dasharray="2 4"/>`;
-    s += `<text x="${M.gauche - 9}" y="${(y + 3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="${ENCRE_ESTOMPEE}" font-family="IBM Plex Mono, monospace">${echapper(formaterAxe(v, o.unite))}</text>`;
+    s += `<line x1="${M.gauche}" y1="${y.toFixed(1)}" x2="${L - M.droite}" y2="${y.toFixed(1)}" stroke="${GRILLE}" stroke-dasharray="3 3"/>`;
+    s += `<text x="${M.gauche - 8}" y="${(y + 3.5).toFixed(1)}" text-anchor="end" font-size="10.5" fill="${ENCRE_ESTOMPEE}" font-family="Inter, sans-serif">${echapper(formaterAxe(v, o.unite))}</text>`;
   }
-  // Les deux axes en trait plein. L'axe vertical à gauche répond à une question posée
-  // sur la maquette : sans lui, on ne voit pas où commence le graphe.
-  s += `<line x1="${M.gauche}" y1="${M.haut - 4}" x2="${M.gauche}" y2="${H - M.bas}" stroke="${AXE}"/>`;
-  s += `<line x1="${M.gauche}" y1="${H - M.bas}" x2="${L - M.droite}" y2="${H - M.bas}" stroke="${AXE}"/>`;
   for (const e of o.etiquettes) {
-    s += `<text x="${xDe(e.i).toFixed(1)}" y="${H - 9}" text-anchor="middle" font-size="10" fill="${ENCRE_ESTOMPEE}" font-family="IBM Plex Mono, monospace">${echapper(e.t)}</text>`;
+    s += `<text x="${xDe(e.i).toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="10" fill="${ENCRE_ESTOMPEE}" font-family="Inter, sans-serif">${echapper(e.t)}</text>`;
   }
+  // Le zéro reste marqué quand la fenêtre traverse le négatif : c'est une frontière de
+  // sens (perdre des abonnés, pas seulement en gagner moins), pas une graduation.
   if (min < 0) {
-    s += `<line x1="${M.gauche}" y1="${yDe(0).toFixed(1)}" x2="${L - M.droite}" y2="${yDe(0).toFixed(1)}" stroke="${AXE}"/>`;
+    s += `<line x1="${M.gauche}" y1="${yDe(0).toFixed(1)}" x2="${L - M.droite}" y2="${yDe(0).toFixed(1)}" stroke="${ENCRE_ESTOMPEE}" stroke-opacity=".45"/>`;
   }
 
-  const chemin = (serie: SerieGraphe) => {
-    const d: string[] = [];
-    // Un trou COUPE le trait au lieu d'être relié : relier deux points de part et
-    // d'autre d'un jour manquant dessinerait une pente qui n'a pas eu lieu. C'est
-    // pour ça que le drapeau retombe à false sur une valeur inconnue — le point
-    // suivant recommence un segment par un `M`.
-    let enCours = false;
-    serie.valeurs.forEach((v, k) => {
-      if (v === null || v === undefined || Number.isNaN(v)) { enCours = false; return; }
-      const x = xDe(k + (serie.decalage ?? 0));
-      d.push(`${enCours ? 'L' : 'M'}${x.toFixed(1)} ${yDe(v).toFixed(1)}`);
-      enCours = true;
-    });
-    return d.join(' ');
-  };
+  const troncons = (serie: SerieGraphe) => tronconner(serie.valeurs, serie.decalage ?? 0, xDe, yDe);
+  const tracer = (segs: Point[][]) => segs.map(lisser).join(' ');
+  /** L'aplat suit la courbe lissée puis redescend au sol — un aplat par tronçon, pour
+   *  qu'un trou ne soit pas rempli comme s'il portait une valeur. */
+  const aplat = (segs: Point[][]) => segs
+    .filter(p => p.length > 1)
+    .map(p => `${lisser(p)} L${p[p.length - 1].x.toFixed(1)} ${solPlan} L${p[0].x.toFixed(1)} ${solPlan} Z`)
+    .join(' ');
+
+  /** Le point terminal qui pulse, repris de `todayDotFactory` dans `AreaChart.tsx` :
+   *  même halo, même animation, même rôle — dire où en est la donnée la plus récente. */
+  const pointVif = (x: number, y: number, couleur: string) =>
+    `<circle class="graphe-point-vif" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="6" fill="${couleur}" opacity=".3" style="transform-origin:${x.toFixed(1)}px ${y.toFixed(1)}px"/>`
+    + `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.5" fill="${couleur}" stroke="${FOND}" stroke-width="1.5"/>`;
 
   if (dense) {
     // Bande interquartile : la moitié centrale des élèves, à chaque abscisse.
-    const hautP: { i: number; v: number }[] = [];
-    const basP: { i: number; v: number }[] = [];
-    const moy: { i: number; v: number }[] = [];
+    const hautP: Point[] = [];
+    const basP: Point[] = [];
+    const moy: Point[] = [];
     for (let i = 0; i < n; i++) {
       const vs = valeursA(o.series, i);
       // En dessous de quatre valeurs, un quartile ne veut rien dire.
       if (vs.length < 4) continue;
-      hautP.push({ i, v: quantile(vs, 0.75) });
-      basP.push({ i, v: quantile(vs, 0.25) });
-      moy.push({ i, v: moyenne(vs) });
+      hautP.push({ x: xDe(i), y: yDe(quantile(vs, 0.75)) });
+      basP.push({ x: xDe(i), y: yDe(quantile(vs, 0.25)) });
+      moy.push({ x: xDe(i), y: yDe(moyenne(vs)) });
     }
     if (hautP.length > 1) {
-      const haut = hautP.map((p, k) => `${k ? 'L' : 'M'}${xDe(p.i).toFixed(1)} ${yDe(p.v).toFixed(1)}`).join(' ');
-      const bas = [...basP].reverse().map(p => `L${xDe(p.i).toFixed(1)} ${yDe(p.v).toFixed(1)}`).join(' ');
-      s += `<path d="${haut} ${bas} Z" fill="${TAUPE}" fill-opacity=".10"/>`;
-      s += `<path d="${basP.map((p, k) => `${k ? 'L' : 'M'}${xDe(p.i).toFixed(1)} ${yDe(p.v).toFixed(1)}`).join(' ')}" fill="none" stroke="${TAUPE}" stroke-opacity=".35"/>`;
-      s += `<path d="${haut}" fill="none" stroke="${TAUPE}" stroke-opacity=".35"/>`;
+      // La bande se referme en suivant la MÊME courbe lissée à l'aller et au retour,
+      // sinon son bord haut serait courbe et son bord bas anguleux.
+      const haut = lisser(hautP);
+      const retour = lisser([...basP].reverse()).replace(/^M/, 'L');
+      s += `<path d="${haut} ${retour} Z" fill="${TAUPE}" fill-opacity=".10"/>`;
+      s += `<path d="${lisser(basP)}" fill="none" stroke="${TAUPE}" stroke-opacity=".3" stroke-linecap="round"/>`;
+      s += `<path d="${haut}" fill="none" stroke="${TAUPE}" stroke-opacity=".3" stroke-linecap="round"/>`;
     }
     for (const serie of o.series) {
-      s += `<path d="${chemin(serie)}" fill="none" stroke="${GRIS}" stroke-width="1" stroke-linejoin="round" opacity=".8"/>`;
+      s += `<path d="${tracer(troncons(serie))}" fill="none" stroke="${GRIS}" stroke-width="1" stroke-linejoin="round" stroke-linecap="round" opacity=".75"/>`;
     }
     if (moy.length > 1) {
-      s += `<path d="${moy.map((p, k) => `${k ? 'L' : 'M'}${xDe(p.i).toFixed(1)} ${yDe(p.v).toFixed(1)}`).join(' ')}" fill="none" stroke="${TAUPE}" stroke-width="2.2"/>`;
+      s += `<path d="${aplat([moy])}" fill="url(#aplat-${echapper(cle)})" stroke="none"/>`;
+      s += `<path d="${lisser(moy)}" fill="none" stroke="${TAUPE}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>`;
       const dernier = moy[moy.length - 1];
-      s += `<text x="${(xDe(dernier.i) - 7).toFixed(1)}" y="${(yDe(dernier.v) - 9).toFixed(1)}" text-anchor="end" font-size="10.5" font-weight="600" fill="${TAUPE}" font-family="IBM Plex Mono, monospace">moyenne</text>`;
+      s += pointVif(dernier.x, dernier.y, TAUPE);
+      s += `<text x="${(dernier.x - 10).toFixed(1)}" y="${(dernier.y - 11).toFixed(1)}" text-anchor="end" font-size="10.5" font-weight="600" fill="${TAUPE}" font-family="Inter, sans-serif">moyenne</text>`;
     }
   } else {
+    // Une seule courbe et pas de vedette : elle a droit à son aplat, comme dans Mes Stats.
+    if (!vedette && o.series.length === 1) {
+      const segs = troncons(o.series[0]);
+      s += `<path d="${aplat(segs)}" fill="url(#aplat-${echapper(cle)})" stroke="none"/>`;
+    }
     for (const serie of o.series) {
       if (vedette && serie.nom === vedette) continue;
       const enGris = !!vedette;
-      s += `<path d="${chemin(serie)}" fill="none" stroke="${enGris ? GRIS : serie.couleur}" stroke-width="${enGris ? 1.1 : 1.6}" stroke-linejoin="round" opacity="${enGris ? 1 : 0.92}"/>`;
+      s += `<path d="${tracer(troncons(serie))}" fill="none" stroke="${enGris ? GRIS : serie.couleur}" stroke-width="${enGris ? 1.1 : 1.8}" stroke-linejoin="round" stroke-linecap="round" opacity="${enGris ? 1 : 0.92}"/>`;
       if (o.pointsCourts && serie.valeurs.filter(v => v !== null).length <= 2) {
         const dernier = serie.valeurs.length - 1 + (serie.decalage ?? 0);
         const v = serie.valeurs[serie.valeurs.length - 1];
@@ -224,23 +353,19 @@ export function construireGraphe(o: OptionsGraphe): GeometrieGraphe {
     }
   }
 
-  if (vedette) {
-    const serie = o.series.find(x => x.nom === vedette);
-    if (serie) {
-      const d = chemin(serie);
-      // Trois canaux à la fois — épaisseur, couleur pleine, point terminal cerclé —
-      // parce qu'une seule courbe colorée au milieu de trente-six grises se perd dès
-      // que deux grises se croisent au même endroit.
-      s += `<path d="${d}" fill="none" stroke="#fff" stroke-width="5.5" stroke-linejoin="round" stroke-linecap="round" opacity=".85"/>`;
-      s += `<path d="${d}" fill="none" stroke="${serie.couleur}" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round"/>`;
-      const iDernier = serie.valeurs.length - 1 + (serie.decalage ?? 0);
-      const vDernier = [...serie.valeurs].reverse().find(v => v !== null && v !== undefined);
-      if (vDernier !== undefined && vDernier !== null) {
-        const x = xDe(iDernier);
-        const y = yDe(vDernier);
-        s += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4.4" fill="${serie.couleur}" stroke="#fff" stroke-width="2"/>`;
-        s += `<text x="${(x - 9).toFixed(1)}" y="${(y - 11).toFixed(1)}" text-anchor="end" font-size="11.5" font-weight="700" fill="${serie.couleur}" font-family="Inter, sans-serif">${echapper(serie.court)}</text>`;
-      }
+  if (serieVedette) {
+    const segs = troncons(serieVedette);
+    const d = tracer(segs);
+    // Quatre canaux à la fois — aplat, liseré, épaisseur, point terminal — parce
+    // qu'une seule courbe colorée au milieu de trente-six grises se perd dès que deux
+    // grises se croisent au même endroit. Le liseré blanc la détache du paquet.
+    s += `<path d="${aplat(segs)}" fill="url(#aplat-${echapper(cle)})" stroke="none"/>`;
+    s += `<path d="${d}" fill="none" stroke="${FOND}" stroke-width="5.5" stroke-linejoin="round" stroke-linecap="round" opacity=".85"/>`;
+    s += `<path d="${d}" fill="none" stroke="${serieVedette.couleur}" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>`;
+    const fin = segs.length ? segs[segs.length - 1][segs[segs.length - 1].length - 1] : null;
+    if (fin) {
+      s += pointVif(fin.x, fin.y, serieVedette.couleur);
+      s += `<text x="${(fin.x - 10).toFixed(1)}" y="${(fin.y - 12).toFixed(1)}" text-anchor="end" font-size="11.5" font-weight="700" fill="${serieVedette.couleur}" font-family="Inter, sans-serif">${echapper(serieVedette.court)}</text>`;
     }
   }
 
