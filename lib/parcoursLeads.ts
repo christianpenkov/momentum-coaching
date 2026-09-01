@@ -72,6 +72,8 @@ export interface CallParcours {
 export interface RefsParcours {
   /** `ig_user_id` → identifiant de fiche. Les fiches font le pont vers tout l'aval. */
   ficheParPersonne: Map<string, string>;
+  /** Fiches ayant APPUYÉ sur le bouton du DM1 (`lm_link_requested`). */
+  lmReclame: Set<string>;
   /** Fiches ayant cliqué leur lead magnet. */
   lmClique: Set<string>;
   /** Fiches ayant répondu au message d'accroche. */
@@ -91,6 +93,14 @@ export interface RefsParcours {
 /** Une ligne du tableau. Tout est en personnes, sauf `revenue`. */
 export interface LigneParcours {
   commentairesLm: number;
+  /**
+   * HORS CHAÎNE, tous les deux. Appuyer sur le bouton du DM1 puis cliquer le lead
+   * magnet ne sont pas obligatoires pour répondre au message d'accroche : quelqu'un peut
+   * répondre sans avoir jamais appuyé. Les mettre dans la chaîne la ferait donc remonter
+   * le jour où ça arrive — 1 clic et 2 réponses. Ils mesurent l'efficacité du message
+   * automatique, pas la progression du prospect.
+   */
+  lmReclames: number;
   clicsLm: number;
   ontRepondu: number;
   calendlyEnvoyes: number;
@@ -106,7 +116,7 @@ export interface LigneParcours {
 }
 
 const LIGNE_VIDE: Omit<LigneParcours, 'personnes'> = {
-  commentairesLm: 0, clicsLm: 0, ontRepondu: 0, calendlyEnvoyes: 0, clicsCalendly: 0,
+  commentairesLm: 0, lmReclames: 0, clicsLm: 0, ontRepondu: 0, calendlyEnvoyes: 0, clicsCalendly: 0,
   callsBookes: 0, callsHonores: 0, qualifies: { oui: 0, renseignes: 0 }, closes: 0, revenue: 0,
 };
 
@@ -225,6 +235,7 @@ export function parcoursDesLeads(
       const fiche = refs.ficheParPersonne.get(personne);
       if (!fiche) continue;
 
+      if (refs.lmReclame.has(fiche)) ligne.lmReclames += 1;
       if (refs.lmClique.has(fiche)) ligne.clicsLm += 1;
       if (refs.ontRepondu.has(fiche)) ligne.ontRepondu += 1;
       if (refs.calendlyEnvoye.has(fiche)) ligne.calendlyEnvoyes += 1;

@@ -5924,7 +5924,7 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, destinations, lmHistory, hookRepliedEvents, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, callsAllTime, deals, leadIdToMediaId, igLive, ytLive, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, joursCollectesShortio, premierJourCollecteShortio, selectedMetric, setSelectedMetric, chartFilter, setChartFilter, sinceConnection, integrationsReadyAt, allTimeStart }: {
+function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, destinations, lmHistory, hookRepliedEvents, lmReclameParLeadId, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, callsAllTime, deals, leadIdToMediaId, igLive, ytLive, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, joursCollectesShortio, premierJourCollecteShortio, selectedMetric, setSelectedMetric, chartFilter, setChartFilter, sinceConnection, integrationsReadyAt, allTimeStart }: {
   shortio: ShortioStats | null;
   shortioLoading?: boolean;
   ig: IGStats | null;
@@ -5933,6 +5933,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   leadMagnets: LeadMagnet[];
   lmHistory?: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[];
   hookRepliedEvents?: { prospect_key: string | null; occurred_at: string; metadata?: any }[];
+  /** Fiches ayant appuye sur le bouton du DM1 — hors chaine, cf. docs. */
+  lmReclameParLeadId?: Set<string>;
   destinations: DestinationLink[];
   period: Period;
   periodIndex?: number;
@@ -6029,6 +6031,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const [filterSearch, setFilterSearch] = useState('');
   const [showAllTable, setShowAllTable] = useState(false);
   const [parcoursAngle, setParcoursAngle] = useState<'contenu' | 'lm'>('contenu');
+  const [aideOuverte, setAideOuverte] = useState<string | null>(null);
   // Modale "Voir tout" (performance par contenu) : Echap la ferme. Les autres
   // couches de cette page (post, video, story selectionnes) vivent dans des
   // sous-composants distincts et sont a traiter separement.
@@ -6298,6 +6301,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 
   const refsParcours: RefsParcours = {
     ficheParPersonne: idFicheParPersonne,
+    lmReclame: lmReclameParLeadId ?? new Set<string>(),
     lmClique: new Set(lmClickedByLeadId ? [...lmClickedByLeadId.keys()] : []),
     ontRepondu: ficheAReponduParcours,
     calendlyEnvoye: ficheCalendlyEnvoyeParcours,
@@ -7023,15 +7027,40 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     closed: GREEN, booked: BLUE, pending: AMBER, noshow: RED,
   };
 
-  const SectionHead = ({ title, sub, action }: { title: string; sub?: string; action?: React.ReactNode }) => (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-      <div>
-        <div style={{ fontSize: 14, fontWeight: 700 }}>{title}</div>
-        {sub && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{sub}</div>}
+  // L'aide vit derrière un « ? » dépliable, pas en pied de tableau : une explication
+  // permanente sous chaque section finit par ne plus être lue, et elle allonge un écran
+  // déjà dense. Repliée par défaut, elle reste à un clic de l'endroit où la question se
+  // pose.
+  const SectionHead = ({ title, sub, action, aide, cleAide }: { title: string; sub?: string; action?: React.ReactNode; aide?: React.ReactNode; cleAide?: string }) => {
+    const ouverte = !!cleAide && aideOuverte === cleAide;
+    return (
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <span style={{ fontSize: 14, fontWeight: 700 }}>{title}</span>
+              {aide && cleAide && (
+                <button
+                  onClick={() => setAideOuverte(ouverte ? null : cleAide)}
+                  aria-expanded={ouverte}
+                  title={ouverte ? 'Masquer les explications' : 'À quoi sert ce tableau ?'}
+                  style={{ width: 16, height: 16, borderRadius: '50%', flex: 'none', cursor: 'pointer', fontSize: 10, fontWeight: 700, lineHeight: 1, display: 'grid', placeItems: 'center', border: `1px solid ${ouverte ? BLUE : 'var(--muted)'}`, color: ouverte ? BLUE : 'var(--muted)', background: ouverte ? BLUE + '12' : 'transparent' }}>
+                  ?
+                </button>
+              )}
+            </div>
+            {sub && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{sub}</div>}
+          </div>
+          {action}
+        </div>
+        {ouverte && aide && (
+          <div style={{ marginTop: 12, padding: '13px 15px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 9, fontSize: 11.5, color: 'var(--ink-2)', lineHeight: 1.6, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {aide}
+          </div>
+        )}
       </div>
-      {action}
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="stack">
@@ -7919,12 +7948,199 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         })()}
       </div>
 
-      {/* ── Section 2 : Performance par contenu ── */}
+      {/* ── Section 1b : Parcours des leads ── */}
+      {(() => {
+        const parContenu = parcoursAngle === 'contenu';
+        const lignesParcours = parContenu ? parcoursParContenu : parcoursParLeadMagnet;
+
+        // Le libellé d'une ligne : un contenu a un titre, une vignette et des vues ; un
+        // lead magnet a un nom et un mot-clé. Tout le reste est rigoureusement identique
+        // — c'est tout l'intérêt d'une seule fonction pour les deux angles.
+        const infoLigne = (cle: string) => {
+          if (parContenu) {
+            const r = consolidatedRows.find(x => x.postId === cle);
+            const sansTitre = !r || !r.title || r.title === '(sans titre)';
+            return {
+              titre: sansTitre ? '(sans titre)' : r!.title,
+              sousTitre: r ? `${r.type} · ${fmt(r.views)} vues` : 'contenu inconnu',
+              vignette: r?.thumbnail ?? null,
+              story: r?.platform === 'STORY_SEQUENCE',
+              vuesParCall: r?.vuesParCall ?? null,
+              cashParVue: r?.cashParVue ?? null,
+              sansTitre,
+            };
+          }
+          const lm = leadMagnets.find(l => l.id === cle);
+          return {
+            titre: lm ? lm.name : cle,
+            sousTitre: lm && lm.keyword ? `mot-clé : ${lm.keyword}` : '',
+            vignette: null, story: false, vuesParCall: null, cashParVue: null,
+            sansTitre: !lm,
+          };
+        };
+
+        const rowsParcours = [...lignesParcours.entries()]
+          .map(([cle, l]) => ({ cle, l, info: infoLigne(cle) }))
+          .filter(r => r.l.commentairesLm > 0)
+          .sort((a, b) => (b.l.callsBookes - a.l.callsBookes) || (b.l.commentairesLm - a.l.commentairesLm));
+
+        const thP: React.CSSProperties = { textAlign: 'right', fontSize: 9.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', padding: '6px 9px 9px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', verticalAlign: 'bottom' };
+        const tdP: React.CSSProperties = { padding: '9px', textAlign: 'right', borderBottom: '1px solid var(--border-soft)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
+        // Le filet qui sépare un groupe HORS CHAÎNE de la chaîne. Il n'est pas décoratif :
+        // c'est lui qui empêche de lire « 1 clic → 2 conversations » comme une remontée.
+        const filet: React.CSSProperties = { borderLeft: '1px solid var(--border)' };
+
+        const CelluleP = ({ n, sur }: { n: number; sur?: number }) => (
+          <>
+            <span style={{ fontWeight: 700, fontSize: 14, color: n > 0 ? 'var(--ink)' : 'var(--faint)' }}>{n}</span>
+            {sur !== undefined && sur > 0 && n > 0 && (
+              <span style={{ display: 'block', fontSize: 9.5, fontWeight: 600, marginTop: 1, color: n >= sur ? GREEN : n * 2 >= sur ? AMBER : RED }}>
+                {Math.round((n / sur) * 100)} %
+              </span>
+            )}
+          </>
+        );
+
+        const AIDE_PARCOURS = <>
+          <div><b>À quoi sert ce tableau.</b> Sur les personnes entrées par ce contenu, combien sont allées jusqu&apos;au bout, et à quelle étape les autres se sont arrêtées. C&apos;est l&apos;écran des goulots d&apos;étranglement.</div>
+          <div><b>Il compte des personnes, pas des rendez-vous.</b> Une personne qui réserve deux fois compte une seule fois. C&apos;est ce qui fait que les nombres ne remontent jamais de gauche à droite, et pourquoi ils diffèrent de ceux de « Ce que fait chaque contenu », juste en dessous, qui compte des événements.</div>
+          <div><b>Seuls les gens entrés par le tunnel DM figurent ici.</b> Une réservation venue d&apos;un lien de bio, d&apos;une description ou d&apos;une story n&apos;a aucune personne identifiable en amont : elle est comptée dans Vue générale et dans le Breakdown par source, pas ici. Le total de la colonne Revenue est donc normalement inférieur à celui de Vue générale, et ce n&apos;est pas un écart à corriger.</div>
+          <div><b>Le groupe « Engagement du DM1 » est hors de la chaîne</b>, entre filets. Appuyer sur le bouton du DM1 puis cliquer le lead magnet ne sont pas obligatoires pour répondre ensuite : les mettre dans la chaîne la ferait remonter le jour où quelqu&apos;un répond sans avoir cliqué. Ces deux colonnes mesurent l&apos;efficacité du message automatique, pas la progression du prospect.</div>
+          <div><b>La période porte sur la date d&apos;entrée.</b> En regardant mars, vous voyez les personnes entrées en mars et tout ce qu&apos;elles ont fait ensuite, même en juin. Un rendez-vous se range dans la ligne par laquelle la personne était entrée juste avant lui. <b>Une relance manuelle n&apos;ouvre pas de nouvelle cohorte</b> : seule une nouvelle prise de lead magnet le fait.</div>
+          <div><b>Les périodes récentes paraissent toujours faibles</b>, parce que les gens viennent d&apos;entrer et n&apos;ont pas encore eu le temps d&apos;aller au bout.</div>
+          <div><b>Pas de ligne Total.</b> Une même personne peut être entrée par plusieurs contenus : additionner les lignes la compterait plusieurs fois.</div>
+          {parContenu && <div><b>Les deux dernières colonnes sont à part.</b> Vues / call et Cash / vue portent sur <b>tous</b> les rendez-vous du contenu, y compris ceux venus d&apos;un lien en description — pas seulement sur la chaîne à leur gauche.</div>}
+        </>;
+
+        return (
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 22px' }}>
+            <SectionHead
+              title="Parcours des leads"
+              sub={`Sur les personnes entrées par ce ${parContenu ? 'contenu' : 'lead magnet'}, combien vont jusqu'au bout.`}
+              cleAide="parcours"
+              aide={AIDE_PARCOURS}
+              action={
+                <div style={{ display: 'inline-flex', gap: 3, background: 'var(--surface-2)', borderRadius: 7, padding: 3 }}>
+                  {([['contenu', 'Contenu'], ['lm', 'Lead magnet']] as const).map(([v, label]) => (
+                    <button key={v} onClick={() => setParcoursAngle(v)}
+                      style={{ fontSize: 11.5, fontWeight: 600, border: 'none', cursor: 'pointer', borderRadius: 5, padding: '5px 13px', background: parcoursAngle === v ? 'var(--surface)' : 'transparent', color: parcoursAngle === v ? 'var(--ink)' : 'var(--faint)' }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              }
+            />
+
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: parContenu ? 1000 : 880 }}>
+                <thead>
+                  {/* Intertitre du groupe hors chaîne : sans lui, deux colonnes de plus
+                      dans la rangée se lisent comme deux marches de plus. */}
+                  <tr>
+                    <th style={{ ...thP, borderBottom: 'none' }} />
+                    <th style={{ ...thP, borderBottom: 'none' }} />
+                    <th colSpan={2} style={{ ...thP, ...filet, textAlign: 'center', color: BLUE, borderBottom: 'none', paddingBottom: 2 }}>Engagement du DM1</th>
+                    <th colSpan={parContenu ? 9 : 7} style={{ ...thP, ...filet, borderBottom: 'none' }} />
+                  </tr>
+                  <tr>
+                    <th style={{ ...thP, textAlign: 'left', width: 240 }}>{parContenu ? 'Contenu' : 'Lead magnet'}</th>
+                    <th style={thP}><EnteteColonne nom="leadsGeneres">Commentaires LM</EnteteColonne></th>
+                    <th style={{ ...thP, ...filet }}><EnteteColonne nom="clicLeadMagnet">LM réclamés</EnteteColonne></th>
+                    <th style={thP}><EnteteColonne nom="clicLeadMagnet">Clics LM</EnteteColonne></th>
+                    <th style={{ ...thP, ...filet }}><EnteteColonne nom="conversationDm">Conversations</EnteteColonne></th>
+                    <th style={thP}><EnteteColonne nom="calendlyEnvoye">Calendly envoyés</EnteteColonne></th>
+                    <th style={thP}><EnteteColonne nom="clicLien">Clics Calendly</EnteteColonne></th>
+                    <th style={thP}><EnteteColonne nom="callBooke">Calls bookés</EnteteColonne></th>
+                    <th style={thP}><EnteteColonne nom="callHonore">Calls honorés</EnteteColonne></th>
+                    <th style={thP}><EnteteColonne nom="callQualifie">% qualifiés</EnteteColonne></th>
+                    <th style={thP}><EnteteColonne nom="close">Closés</EnteteColonne></th>
+                    <th style={thP}><EnteteColonne nom="revenue">Revenue</EnteteColonne></th>
+                    {parContenu && <th style={{ ...thP, ...filet }}>Vues / call</th>}
+                    {parContenu && <th style={thP}>Cash / vue</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rowsParcours.length === 0 && (
+                    <tr><td colSpan={parContenu ? 14 : 12} style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--faint)' }}>
+                      Personne n&apos;est encore entré par ce canal sur la période.
+                    </td></tr>
+                  )}
+                  {rowsParcours.map(({ cle, l, info }) => (
+                    <tr key={cle}>
+                      <td style={{ ...tdP, textAlign: 'left' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+                          {parContenu && (info.vignette
+                            ? <img src={info.vignette} alt="" style={{ width: 30, height: 38, borderRadius: 4, objectFit: 'cover', flex: 'none', border: '1px solid var(--border)' }} />
+                            : <span style={{ width: 30, height: 38, borderRadius: 4, flex: 'none', border: '1px solid var(--border)', background: info.story ? '#8B5CF618' : 'var(--surface-2)' }} />)}
+                          <span style={{ minWidth: 0 }}>
+                            <span style={{ display: 'block', fontWeight: 600, fontSize: 12.5, color: info.sansTitre ? 'var(--faint)' : 'var(--ink)', fontStyle: info.sansTitre ? 'italic' : undefined, maxWidth: 190, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{info.titre}</span>
+                            {info.sousTitre && <span style={{ display: 'block', fontSize: 10, color: 'var(--muted)', marginTop: 1 }}>{info.sousTitre}</span>}
+                          </span>
+                        </div>
+                      </td>
+                      <td style={tdP}><CelluleP n={l.commentairesLm} /></td>
+                      <td style={{ ...tdP, ...filet }}><CelluleP n={l.lmReclames} sur={l.commentairesLm} /></td>
+                      <td style={tdP}><CelluleP n={l.clicsLm} sur={l.commentairesLm} /></td>
+                      <td style={{ ...tdP, ...filet }}><CelluleP n={l.ontRepondu} sur={l.commentairesLm} /></td>
+                      <td style={tdP}><CelluleP n={l.calendlyEnvoyes} sur={l.ontRepondu} /></td>
+                      <td style={tdP}><CelluleP n={l.clicsCalendly} sur={l.calendlyEnvoyes} /></td>
+                      <td style={tdP}><CelluleP n={l.callsBookes} sur={l.clicsCalendly} /></td>
+                      <td style={tdP}><CelluleP n={l.callsHonores} sur={l.callsBookes} /></td>
+                      <td style={{ ...tdP, fontSize: 11 }}>
+                        {l.qualifies.renseignes > 0 ? (
+                          <>
+                            <span style={{ fontWeight: 700, fontSize: 14 }}>{Math.round((l.qualifies.oui / l.qualifies.renseignes) * 100)} %</span>
+                            <span style={{ display: 'block', fontSize: 9.5, color: 'var(--muted)', marginTop: 1 }}>{l.qualifies.oui} / {l.qualifies.renseignes}</span>
+                          </>
+                        ) : (
+                          <>
+                            <span style={{ color: 'var(--faint)' }}>&mdash;</span>
+                            <span style={{ display: 'block', fontSize: 9.5, color: 'var(--faint)', marginTop: 1 }}>aucun rapport</span>
+                          </>
+                        )}
+                      </td>
+                      <td style={tdP}><CelluleP n={l.closes} sur={l.callsHonores} /></td>
+                      <td style={tdP}>
+                        {l.revenue > 0
+                          ? <span style={{ fontWeight: 800, color: GREEN }}>{fmtEur(l.revenue)}</span>
+                          : <span style={{ color: 'var(--faint)' }}>&mdash;</span>}
+                      </td>
+                      {parContenu && (
+                        <td style={{ ...tdP, ...filet }}>
+                          {info.vuesParCall ? <span style={{ fontWeight: 700 }}>{fmt(info.vuesParCall)}</span> : <span style={{ color: 'var(--faint)' }}>&mdash;</span>}
+                        </td>
+                      )}
+                      {parContenu && (
+                        <td style={tdP}>
+                          {info.cashParVue ? <span style={{ fontWeight: 700 }}>{fmtEur(info.cashParVue)}</span> : <span style={{ color: 'var(--faint)' }}>&mdash;</span>}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Section 2 : Ce que fait chaque contenu ── */}
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 22px' }}>
         {/* Le sous-titre annonçait « N contenus avec activité business » alors que
             consolidatedRows contient TOUS les posts et vidéos du compte, y compris ceux
             dont chaque colonne vaut « — ». Deux chiffres désormais, tous deux vrais. */}
-        <SectionHead title="Performance par contenu" sub={`${consolidatedRows.filter(aDeLActivite).length} contenus avec activité business sur ${consolidatedRows.length}`} />
+        <SectionHead
+          title="Ce que fait chaque contenu"
+          sub={`${consolidatedRows.filter(aDeLActivite).length} contenus avec activité sur ${consolidatedRows.length}`}
+          cleAide="roles"
+          aide={<>
+            <div><b>À quoi sert ce tableau.</b> Il répond à la question : qu&apos;est-ce que ce contenu a produit ? Pas pour les gens qu&apos;il a fait entrer, mais au total — y compris pour des personnes arrivées par ailleurs.</div>
+            <div><b>Il compte des événements, pas des personnes.</b> Une personne qui réserve deux fois compte deux fois. C&apos;est pourquoi ses nombres diffèrent de ceux du Parcours des leads, juste au-dessus, qui suit des personnes.</div>
+            <div><b>Les trois chiffres ne se suivent pas, et on ne les additionne jamais.</b> Combien de personnes ce contenu a fait entrer, combien de conversations il a déclenchées, combien de rendez-vous il a produits : trois questions séparées. Un contenu peut ne faire entrer personne et produire des rendez-vous, quand des gens déjà présents réservent par son lien.</div>
+            <div><b>Les rendez-vous d&apos;un contenu viennent de plusieurs origines</b> : le lien Calendly de sa description, celui envoyé en DM après son lead magnet, et d&apos;autres. Ils sont tous comptés ici.</div>
+            <div><b>La période porte sur la date de chaque événement.</b> Un rendez-vous de juin apparaît en juin, même si la personne était entrée en mars.</div>
+          </>}
+        />
 
         {/* Barre de filtres */}
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14, paddingBottom: 14, borderBottom: '1px solid var(--border)' }}>
@@ -8104,10 +8320,6 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           );
         })()}
 
-        <div style={{ marginTop: 12, paddingTop: 11, borderTop: '1px solid var(--border)', fontSize: 10.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-          <b style={{ color: 'var(--ink)' }}>Ces trois chiffres ne se suivent pas et ne s&apos;additionnent jamais.</b> Ils répondent à trois questions séparées : combien de personnes ce contenu a fait entrer, combien de conversations il a déclenchées, combien de rendez-vous il a produits. Un contenu peut ne faire entrer personne et produire des rendez-vous, quand des gens déjà présents réservent par son lien.
-          {' '}<b style={{ color: 'var(--ink)' }}>Ce tableau compte des événements</b>, pas des personnes : une personne qui réserve deux fois compte deux fois. C&apos;est pourquoi ses nombres diffèrent de ceux du Parcours des leads.
-        </div>
 
         {/* Bouton Voir tout */}
         {consolidatedRows.length > 7 && (
@@ -8119,7 +8331,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         )}
       </div>
 
-      {/* ── Modal "Voir tout" Performance par contenu ── */}
+      {/* ── Modal "Voir tout" — le tableau détaillé, que les cartes remplacent en vue principale ── */}
       {showAllTable && createPortal(
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', zIndex: 9998, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '32px 16px', overflowY: 'auto' }}
           onClick={() => setShowAllTable(false)}>
@@ -8480,137 +8692,6 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
       })()}
 
 
-      {/* -- Section 2b : Parcours des leads -- */}
-      {(() => {
-        const parContenu = parcoursAngle === 'contenu';
-        const lignesParcours = parContenu ? parcoursParContenu : parcoursParLeadMagnet;
-
-        // Le libelle d'une ligne : un contenu a un titre et des vues, un lead magnet a un
-        // nom et un mot-cle. Tout le reste de la ligne est rigoureusement identique --
-        // c'est tout l'interet d'une seule fonction pour les deux angles.
-        const infoLigne = (cle: string) => {
-          if (parContenu) {
-            const r = consolidatedRows.find(x => x.postId === cle);
-            const sansTitre = !r || !r.title || r.title === '(sans titre)';
-            return {
-              titre: sansTitre ? '(sans titre)' : r!.title,
-              sousTitre: r ? r.type + ' · ' + fmt(r.views) + ' vues' : 'contenu inconnu',
-              sansTitre,
-            };
-          }
-          const lm = leadMagnets.find(l => l.id === cle);
-          return {
-            titre: lm ? lm.name : cle,
-            sousTitre: lm && lm.keyword ? 'mot-clé : ' + lm.keyword : '',
-            sansTitre: !lm,
-          };
-        };
-
-        const rowsParcours = [...lignesParcours.entries()]
-          .map(([cle, l]) => ({ cle, l, info: infoLigne(cle) }))
-          .filter(r => r.l.commentairesLm > 0)
-          .sort((a, b) => (b.l.callsBookes - a.l.callsBookes) || (b.l.commentairesLm - a.l.commentairesLm));
-
-        const thP: React.CSSProperties = { textAlign: 'right', fontSize: 9.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', padding: '6px 9px 9px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', verticalAlign: 'bottom' };
-        const tdP: React.CSSProperties = { padding: '9px', textAlign: 'right', borderBottom: '1px solid var(--border-soft)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
-
-        // Un taux ne s'affiche jamais sans son effectif : sur trois personnes un point de
-        // pourcentage ne veut rien dire, et le denominateur visible le rappelle.
-        const CelluleP = ({ n, sur }: { n: number; sur?: number }) => (
-          <>
-            <span style={{ fontWeight: 700, fontSize: 14, color: n > 0 ? 'var(--ink)' : 'var(--faint)' }}>{n}</span>
-            {sur !== undefined && sur > 0 && n > 0 && (
-              <span style={{ display: 'block', fontSize: 9.5, fontWeight: 600, marginTop: 1, color: n >= sur ? GREEN : n * 2 >= sur ? AMBER : RED }}>
-                {Math.round((n / sur) * 100)} %
-              </span>
-            )}
-          </>
-        );
-
-        return (
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 22px' }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 20, marginBottom: 14, flexWrap: 'wrap' }}>
-              <SectionHead title="Parcours des leads" sub={"Sur les personnes entrées par ce " + (parContenu ? 'contenu' : 'lead magnet') + ", combien vont jusqu'au bout."} />
-              <div style={{ display: 'inline-flex', gap: 3, background: 'var(--surface-2)', borderRadius: 7, padding: 3 }}>
-                {([['contenu', 'Contenu'], ['lm', 'Lead magnet']] as const).map(([v, label]) => (
-                  <button key={v} onClick={() => setParcoursAngle(v)}
-                    style={{ fontSize: 11.5, fontWeight: 600, border: 'none', cursor: 'pointer', borderRadius: 5, padding: '5px 13px', background: parcoursAngle === v ? 'var(--surface)' : 'transparent', color: parcoursAngle === v ? 'var(--ink)' : 'var(--faint)' }}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
-                <thead>
-                  <tr>
-                    <th style={{ ...thP, textAlign: 'left', width: 260 }}>{parContenu ? 'Contenu' : 'Lead magnet'}</th>
-                    <th style={thP}><EnteteColonne nom="leadsGeneres">Commentaires LM</EnteteColonne></th>
-                    <th style={thP}><EnteteColonne nom="clicLeadMagnet">Clics LM</EnteteColonne></th>
-                    <th style={thP}><EnteteColonne nom="conversationDm">Ont répondu</EnteteColonne></th>
-                    <th style={thP}><EnteteColonne nom="calendlyEnvoye">Calendly envoyés</EnteteColonne></th>
-                    <th style={thP}><EnteteColonne nom="clicLien">Clics Calendly</EnteteColonne></th>
-                    <th style={thP}><EnteteColonne nom="callBooke">Calls bookés</EnteteColonne></th>
-                    <th style={thP}><EnteteColonne nom="callHonore">Calls honorés</EnteteColonne></th>
-                    <th style={thP}><EnteteColonne nom="callQualifie">% qualifiés</EnteteColonne></th>
-                    <th style={thP}><EnteteColonne nom="close">Closés</EnteteColonne></th>
-                    <th style={thP}><EnteteColonne nom="revenue">Revenue</EnteteColonne></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rowsParcours.length === 0 && (
-                    <tr><td colSpan={11} style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--faint)' }}>
-                      Personne n&apos;est encore entré par ce canal sur la période.
-                    </td></tr>
-                  )}
-                  {rowsParcours.map(({ cle, l, info }) => (
-                    <tr key={cle}>
-                      <td style={{ ...tdP, textAlign: 'left' }}>
-                        <div style={{ fontWeight: 600, fontSize: 12.5, color: info.sansTitre ? 'var(--faint)' : 'var(--ink)', fontStyle: info.sansTitre ? 'italic' : undefined, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis' }}>{info.titre}</div>
-                        {info.sousTitre && <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 1 }}>{info.sousTitre}</div>}
-                      </td>
-                      <td style={tdP}><CelluleP n={l.commentairesLm} /></td>
-                      <td style={tdP}><CelluleP n={l.clicsLm} sur={l.commentairesLm} /></td>
-                      <td style={tdP}><CelluleP n={l.ontRepondu} sur={l.clicsLm} /></td>
-                      <td style={tdP}><CelluleP n={l.calendlyEnvoyes} sur={l.ontRepondu} /></td>
-                      <td style={tdP}><CelluleP n={l.clicsCalendly} sur={l.calendlyEnvoyes} /></td>
-                      <td style={tdP}><CelluleP n={l.callsBookes} sur={l.clicsCalendly} /></td>
-                      <td style={tdP}><CelluleP n={l.callsHonores} sur={l.callsBookes} /></td>
-                      <td style={{ ...tdP, fontSize: 11 }}>
-                        {l.qualifies.renseignes > 0 ? (
-                          <>
-                            <span style={{ fontWeight: 700, fontSize: 14 }}>{Math.round((l.qualifies.oui / l.qualifies.renseignes) * 100)} %</span>
-                            <span style={{ display: 'block', fontSize: 9.5, color: 'var(--muted)', marginTop: 1 }}>{l.qualifies.oui} / {l.qualifies.renseignes}</span>
-                          </>
-                        ) : (
-                          <>
-                            <span style={{ color: 'var(--faint)' }}>&mdash;</span>
-                            <span style={{ display: 'block', fontSize: 9.5, color: 'var(--faint)', marginTop: 1 }}>aucun rapport</span>
-                          </>
-                        )}
-                      </td>
-                      <td style={tdP}><CelluleP n={l.closes} sur={l.callsHonores} /></td>
-                      <td style={tdP}>
-                        {l.revenue > 0
-                          ? <span style={{ fontWeight: 800, color: GREEN }}>{fmtEur(l.revenue)}</span>
-                          : <span style={{ color: 'var(--faint)' }}>&mdash;</span>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div style={{ marginTop: 12, paddingTop: 11, borderTop: '1px solid var(--border)', fontSize: 10.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-              <b style={{ color: 'var(--ink)' }}>Seuls les gens entrés par le tunnel DM figurent ici.</b> Une réservation venue d&apos;un lien de bio, d&apos;une description ou d&apos;une story n&apos;a aucune personne identifiable en amont : elle est comptée dans Vue générale et dans le Breakdown par source, pas dans ce tableau. <b style={{ color: 'var(--ink)' }}>Le total de cette colonne Revenue est donc normalement inférieur à celui de Vue générale</b>, et ce n&apos;est pas un écart à corriger.
-              {' '}<b style={{ color: 'var(--ink)' }}>Pas de total non plus.</b> Une même personne peut être entrée par plusieurs contenus : additionner les lignes la compterait plusieurs fois.
-              {' '}<b style={{ color: 'var(--ink)' }}>La période porte sur la date d&apos;entrée</b> — les gens entrés sur la période, et tout ce qu&apos;ils ont fait ensuite, même bien après. Un rendez-vous se range dans la ligne par laquelle la personne était entrée juste avant lui.
-              {' '}<b style={{ color: 'var(--ink)' }}>Ce tableau compte des personnes</b>, pas des rendez-vous : c&apos;est pourquoi ses nombres diffèrent de ceux de « Ce que fait chaque contenu », qui compte des événements.
-            </div>
-          </div>
-        );
-      })()}
 
 
 
@@ -9423,7 +9504,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
   const since30d = customWindow ? customWindow.start : parisDateStr(_periodStart);
   const until30d = customWindow ? customWindow.end : parisDateStr(_periodEnd);
 
-  const [leadsRows, lmRes, calendlyRes, lmHistoryRows, prospectLinksRows, contentLinksRes, lmClickedEvents, linkClickedEvents, hookRepliedEvents] = await Promise.all([
+  const [leadsRows, lmRes, calendlyRes, lmHistoryRows, prospectLinksRows, contentLinksRes, lmClickedEvents, linkClickedEvents, hookRepliedEvents, lmRequestedEvents] = await Promise.all([
     // Paginé (fetchAllPages) — plafond fixe .limit(500) auparavant, trop facile à
     // atteindre sur le mode "Depuis connexion" (jusqu'à ~1 an) pour un profil actif.
     // not_a_lead / archived_at : mêmes filtres que lib/salesCallStats.ts (fetchIgLeadsCount)
@@ -9514,6 +9595,17 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
         .select('prospect_key, occurred_at, metadata')
         .eq('profile_id', targetId)
         .eq('event_type', 'hook_replied')
+    ),
+    // « LM reclames » — l'appui sur le BOUTON du DM1, ecrit par
+    // `instagram-webhook-processor.ts`. Ce n'est PAS l'envoi du lead magnet : seuls 30 a
+    // 50 % des gens appuient, et l'ecart entre les deux mesure la qualite du DM1. Hors
+    // chaine a l'ecran pour cette raison — repondre au message d'accroche n'exige pas
+    // d'avoir appuye.
+    fetchAllPages<{ ig_lead_id: string | null }>(() =>
+      supabase.from('prospect_events')
+        .select('ig_lead_id')
+        .eq('profile_id', targetId)
+        .eq('event_type', 'lm_link_requested')
     ),
   ]);
 
@@ -9800,6 +9892,11 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
   });
 
   // Map ig_lead_id → occurred_at pour les clics LM réels (postérieurs à detected_at, posés par poll-leads)
+  const lmReclameParLeadId = new Set<string>();
+  for (const ev of lmRequestedEvents) {
+    if (ev.ig_lead_id) lmReclameParLeadId.add(ev.ig_lead_id);
+  }
+
   const lmClickedByLeadId = new Map<string, string>();
   for (const ev of lmClickedEvents) {
     if (ev.ig_lead_id) lmClickedByLeadId.set(ev.ig_lead_id, ev.occurred_at);
@@ -9951,7 +10048,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     }
   }
 
-  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, deals: dealsRows, encaissementsParJour, cashParVente, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, hookRepliedEvents, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, joursCollectesShortio, premierJourCollecteShortio, premierClicLienProspect, integrationsReadyAt };
+  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, deals: dealsRows, encaissementsParJour, cashParVente, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, hookRepliedEvents, lmReclameParLeadId, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, joursCollectesShortio, premierJourCollecteShortio, premierClicLienProspect, integrationsReadyAt };
   } catch { return null; }
 }
 
@@ -10076,6 +10173,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   const prospectLinksData: any[] = supaData?.prospectLinksData ?? [];
   const altKwToLmId: Map<string, string> = supaData?.altKwToLmId ?? new Map();
   const lmClickedByLeadId: Map<string, string> = supaData?.lmClickedByLeadId ?? new Map();
+  const lmReclameParLeadId: Set<string> = supaData?.lmReclameParLeadId ?? new Set();
   const linkClickedByLeadId: Map<string, string> = supaData?.linkClickedByLeadId ?? new Map();
 
   // Instagram — onglets 0, 1, 3
@@ -10556,7 +10654,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} abonnesAujourdHui={ig?.followers ?? null} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.yt?.snapshotError} abonnesAujourdHui={yt?.subscribers ?? null} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} callsAllTime={callsAllTimeEff} deals={deals} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} allTimeStart={allTimeStart} profileId={profileId} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} premierClicLienProspect={premierClicLienProspect} />}
-          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} hookRepliedEvents={hookRepliedEvents} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={callsAllTimeEff} deals={dealsEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} shortioChartHistoryStory={shortioChartHistoryStory} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
+          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} hookRepliedEvents={hookRepliedEvents} lmReclameParLeadId={lmReclameParLeadId} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={callsAllTimeEff} deals={dealsEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} shortioChartHistoryStory={shortioChartHistoryStory} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
           {tab === 5 && <TabRevenues encaissementsParJour={encaissementsParJour} cashParVente={cashParVente} deals={dealsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} allTimeStart={allTimeStart} stripeConnected={integStatus?.stripeConnected} />}
         </>
       )}

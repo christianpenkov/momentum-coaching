@@ -42,6 +42,9 @@ const FICHE = { [RDJDKZJD]: 'a945e91d', [INCOGNITON]: 'a778fc33', [PENKOV]: '602
 
 const REFS: RefsParcours = {
   ficheParPersonne: new Map(Object.entries(FICHE)),
+  // Deux seulement ont appuyé sur le bouton du DM1 : l'écart avec les clics et avec
+  // les conversations mesure l'efficacité du message automatique, pas une marche.
+  lmReclame: new Set(['a945e91d', 'a778fc33']),
   lmClique: new Set(['a945e91d', 'a778fc33', '602a4e5a', '99c3662d']),
   // `galiamerdjanova` n'a jamais répondu — c'est le goulot que le tableau doit montrer.
   ontRepondu: new Set(['a945e91d', 'a778fc33', '602a4e5a']),
@@ -80,9 +83,9 @@ test('une demande dont le lead magnet n a jamais ete livre ne fait entrer person
 test('chaque colonne est un sous-ensemble de la precedente', () => {
   for (const lignes of [parContenu(), parLeadMagnet()]) {
     for (const [cle, l] of lignes) {
-      assert.ok(l.clicsLm <= l.commentairesLm, `${cle} : clics LM > commentaires`);
-      assert.ok(l.ontRepondu <= l.clicsLm, `${cle} : ont repondu > clics LM`);
-      assert.ok(l.calendlyEnvoyes <= l.ontRepondu, `${cle} : Calendly envoyes > ont repondu`);
+      // `lmReclames` et `clicsLm` sont HORS CHAINE : ils ne bornent rien.
+      assert.ok(l.ontRepondu <= l.commentairesLm, `${cle} : conversations > commentaires`);
+      assert.ok(l.calendlyEnvoyes <= l.ontRepondu, `${cle} : Calendly envoyes > conversations`);
       assert.ok(l.clicsCalendly <= l.calendlyEnvoyes, `${cle} : clics Calendly > envoyes`);
       assert.ok(l.callsBookes <= l.clicsCalendly, `${cle} : bookes > clics Calendly`);
       assert.ok(l.callsHonores <= l.callsBookes, `${cle} : honores > bookes`);
@@ -218,4 +221,40 @@ test('filtrer le journal en amont produirait le defaut que la borne evite', () =
 
   assert.equal(tronque.get(POST_LM)!.callsBookes, 1, 'le journal tronque credite a tort');
   assert.equal(correct.get(POST_LM)!.callsBookes, 0, 'la borne, elle, ne credite pas');
+});
+
+// ─── Les deux colonnes hors chaîne ne sont pas des marches ───────────────────
+
+test('on peut converser sans avoir jamais appuye ni clique', () => {
+  // BEAU : personne n'a appuye sur le bouton du DM1, et pourtant la conversation a eu
+  // lieu et la vente s'est faite. Une chaine qui passerait par la s'arreterait a zero.
+  const beau = parContenu().get(POST_BEAU)!;
+  assert.equal(beau.lmReclames, 0);
+  assert.equal(beau.ontRepondu, 1);
+  assert.equal(beau.closes, 1);
+});
+
+// ─── Une relance manuelle n'ouvre PAS de cohorte ─────────────────────────────
+
+test('seule une nouvelle prise de lead magnet ouvre une cohorte', () => {
+  // Une personne entre par A, ne repond pas, se fait relancer a la main un mois plus
+  // tard, puis reserve. La relance ne laisse AUCUNE trace au journal des lead magnets :
+  // elle ne borne donc rien, et le rendez-vous reste credite a A. C'est voulu — une
+  // relance est une etape du parcours, pas une nouvelle entree.
+  const journal: PriseParcours[] = [
+    { ig_user_id: 'p1', media_id: 'A', keyword_matched: 'A', detected_at: '2026-03-01T10:00:00Z', lead_magnet_sent: true },
+  ];
+  const refs: RefsParcours = {
+    ficheParPersonne: new Map([['p1', 'f1']]),
+    lmReclame: new Set(), lmClique: new Set(['f1']), ontRepondu: new Set(['f1']),
+    calendlyEnvoye: new Set(['f1']), calendlyClique: new Set(['f1']),
+    callsParFiche: new Map([['f1', [
+      { id: 'apres-relance', ig_lead_id: 'f1', status: 'active', scheduled_at: '2026-04-15T10:00:00Z', honore: true, closed: true, qualified: null },
+    ]]]),
+    montantParCall: new Map([['apres-relance', 2000]]),
+    continuations: new Set(),
+  };
+  const a = parcoursDesLeads(journal, p => p.media_id, refs).get('A')!;
+  assert.equal(a.callsBookes, 1, 'le rendez-vous reste dans la cohorte de mars');
+  assert.equal(a.revenue, 2000);
 });
