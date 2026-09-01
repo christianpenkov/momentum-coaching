@@ -83,6 +83,14 @@ interface DonneesStats {
   /** Séries HEBDOMADAIRES sur toute l'ancienneté, pour l'axe des semaines
    *  d'accompagnement. Hors période : ce graphe ne suit pas le sélecteur, par nature. */
   accompagnement: LigneSerie[];
+  /** Dernier jour collecté par élève. Sert à dater la page sur l'élève le PLUS EN
+   *  RETARD : un seul élève à jour ne doit pas afficher « il y a 5 min » quand la
+   *  moitié du portefeuille date d'hier. */
+  dernierJourParProfil: Map<string, string>;
+  /** Élèves dont une intégration est tombée APRÈS le gate. Leur `integrations_ready_at`
+   *  reste posé, donc ils comptent dans les totaux — avec des chiffres figés au jour de
+   *  la panne, et rien à l'écran ne le dirait sans ce bandeau. */
+  integrationsCassees: { profileId: string; nom: string }[];
   debut: Date;
   fin: Date;
   debutPrecedent: Date | null;
@@ -151,7 +159,7 @@ async function charger(period: Period, periodIndex: number, allTime: boolean): P
     ? new Date(Math.min(...arrivees))
     : new Date(Date.now() - 365 * 86_400_000);
 
-  const [seriesRes, precRes, callsRes, dealsRes, paiementsRes, leads, leadsPrec, accompRes] = await Promise.all([
+  const [seriesRes, precRes, callsRes, dealsRes, paiementsRes, leads, leadsPrec, accompRes, fraicheurRes, integRes] = await Promise.all([
     profileIds.length
       ? supabase.rpc('stats_clients_series', {
           p_profile_ids: profileIds, p_debut: jour(debut), p_fin: jour(fin), p_granularite: granularite,
@@ -188,6 +196,18 @@ async function charger(period: Period, periodIndex: number, allTime: boolean): P
           p_granularite: 'semaine',
         })
       : rien,
+    // Fraîcheur : les dix derniers jours suffisent. Un élève absent de ces lignes est
+    // en retard d'au moins dix jours, ce que l'indicateur dira sans avoir à remonter
+    // plus loin.
+    profileIds.length
+      ? supabase.from('analytics_daily_snapshots').select('profile_id, date')
+          .in('profile_id', profileIds).is('archived_at', null)
+          .gte('date', jour(new Date(Date.now() - 10 * 86_400_000)))
+          .order('date', { ascending: false })
+      : rien,
+    profileIds.length
+      ? supabase.from('integrations').select('profile_id, provider, status').in('profile_id', profileIds)
+      : rien,
   ]);
 
   if (seriesRes.error) throw seriesRes.error;
@@ -195,8 +215,26 @@ async function charger(period: Period, periodIndex: number, allTime: boolean): P
   if (dealsRes.error) throw dealsRes.error;
   if (paiementsRes.error) throw paiementsRes.error;
 
+  // Les lignes sont déjà triées par date décroissante : la première vue pour un profil
+  // est donc la plus récente.
+  const dernierJourParProfil = new Map<string, string>();
+  for (const r of (fraicheurRes.data || []) as { profile_id: string; date: string }[]) {
+    if (!dernierJourParProfil.has(r.profile_id)) dernierJourParProfil.set(r.profile_id, r.date);
+  }
+
+  // ⚠️ `status <> 'ok'` n'est PAS un filtre d'anomalie : `non_connectee` dit seulement
+  // que l'intégration n'a jamais été branchée, ce qui est le cas normal d'un élève en
+  // installation. Seule une intégration explicitement en erreur compte ici.
+  const nomParProfil = new Map(clients.filter(c => c.profile_id).map(c => [c.profile_id!, c.name]));
+  const cassesParProfil = new Set<string>();
+  for (const r of (integRes.data || []) as { profile_id: string; status: string | null }[]) {
+    if (r.status === 'error' || r.status === 'expired' || r.status === 'revoked') cassesParProfil.add(r.profile_id);
+  }
+
   return {
     clients,
+    dernierJourParProfil,
+    integrationsCassees: [...cassesParProfil].map(pid => ({ profileId: pid, nom: nomParProfil.get(pid) ?? 'Élève' })),
     series: (seriesRes.data || []) as LigneSerie[],
     seriesPrecedentes: (precRes.data || []) as LigneSerie[],
     calls: (callsRes.data || []) as any[],
@@ -535,7 +573,27 @@ export default function PageStatsClients() {
     [lignes, recherche, critere, sens],
   );
 
-  const casses = clientsContexte.length - clientsContexte.filter(c => c.onboardingStatus !== 'reconnect_needed').length;
+  /* D36 : la page est datée par l'élève le PLUS EN RETARD, jamais par le plus récent.
+   * La page ne peut pas rafraîchir elle-même (160 appels d'API), donc elle doit au
+   * moins dire honnêtement de quand datent ses chiffres. */
+  const fraicheur = useMemo(() => {
+    if (!data || data.dernierJourParProfil.size === 0) return null;
+    const actifs = data.clients.filter(c => c.profile_id && c.integrations_ready_at && !c.archived_at);
+    if (actifs.length === 0) return null;
+    let pire: string | null = null;
+    for (const c of actifs) {
+      const d = data.dernierJourParProfil.get(c.profile_id!);
+      // Un élève absent de la fenêtre de dix jours est le plus en retard de tous.
+      if (!d) return 'plus de 10 j';
+      if (pire === null || d < pire) pire = d;
+    }
+    if (!pire) return null;
+    const jours = Math.floor((Date.now() - new Date(pire + 'T12:00:00Z').getTime()) / 86_400_000);
+    if (jours <= 0) return "aujourd'hui";
+    if (jours === 1) return 'hier';
+    return `il y a ${jours} j`;
+  }, [data]);
+
   const enInstallation = lignes.filter(l => l.etat === 'installation').length;
   const actifs = lignes.length - enInstallation;
 
@@ -560,6 +618,11 @@ export default function PageStatsClients() {
           <p className="page-sub">
             {lignes.length} élève{lignes.length !== 1 ? 's' : ''}
             {enInstallation > 0 && ` · ${actifs} actif${actifs !== 1 ? 's' : ''}, ${enInstallation} en installation`}
+            {fraicheur && (
+              <span title="Fraîcheur du portefeuille entier : c'est l'élève le plus en retard qui donne la date">
+                {' · màj '}{fraicheur}
+              </span>
+            )}
           </p>
         </div>
         {/* Pas de bouton « Rafraîchir » : à 40 élèves il déclencherait 160 appels d'API
@@ -577,6 +640,13 @@ export default function PageStatsClients() {
         <EcranVide lignes={lignes} />
       ) : (
         <>
+          {data && data.integrationsCassees.length > 0 && (
+            <BandeauIntegrations
+              casses={data.integrationsCassees}
+              onVoir={() => setRecherche(data.integrationsCassees[0].nom)}
+            />
+          )}
+
           {agregats && (
             <BandeauAgrege
               a={agregats} precedent={agregatsPrecedents}
@@ -691,6 +761,39 @@ function Delta({ valeur, comparaison, unite }: { valeur: number | null; comparai
   return (
     <div style={{ fontSize: 11, marginTop: 6, fontWeight: 600, color: couleur, whiteSpace: 'nowrap' }}>
       {formaterVariation(valeur)}{unite === '€' ? ' €' : ''} {comparaison}
+    </div>
+  );
+}
+
+/* D45 : il ne s'affiche que quand il a quelque chose à dire, et il énonce la
+ * CONSÉQUENCE (« faussent les totaux »), pas seulement l'état. Sans lui, un élève dont
+ * le jeton est tombé reste compté avec des chiffres figés au jour de la panne, et rien
+ * ne le signale — le gate `integrations_ready_at` ne protège que de la PREMIÈRE
+ * connexion, jamais d'une déconnexion ultérieure.
+ *
+ * « Voir lesquels » filtre le tableau du bas : le mécanisme de la recherche, déclenché
+ * par le lien. Aucune modale, aucune écriture — on n'agit jamais depuis cette page. */
+function BandeauIntegrations({ casses, onVoir }: { casses: { profileId: string; nom: string }[]; onVoir: () => void }) {
+  const n = casses.length;
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10, padding: '10px 15px',
+      borderRadius: 'var(--r-lg)', background: 'var(--amber-soft)',
+      border: '1px solid var(--amber)', color: 'var(--amber)', fontSize: 12.5, marginBottom: 16,
+    }}>
+      <span aria-hidden="true">⚠</span>
+      <span>
+        <b>{n} élève{n > 1 ? 's ont' : ' a'} une intégration déconnectée</b>
+        {' — '}{n > 1 ? 'leurs chiffres sont figés' : 'ses chiffres sont figés'} et
+        {n > 1 ? ' faussent' : ' faussent'} les totaux ci-dessous.
+      </span>
+      <button onClick={onVoir} style={{
+        marginLeft: 'auto', fontSize: 12, fontWeight: 600, color: 'inherit',
+        textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer',
+        fontFamily: 'inherit', whiteSpace: 'nowrap',
+      }}>
+        Voir {n > 1 ? 'lesquels' : 'lequel'}
+      </button>
     </div>
   );
 }
