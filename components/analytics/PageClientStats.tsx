@@ -1817,7 +1817,24 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
   // sans donnée.
   const igDayByDate = new Map(igDaysSlice.map(d => [d.date, d]));
   const igDaysNoDataSet = new Set<string>();
-  const igDays: typeof igDaysSlice = (() => {
+  // ⚠️ `sinceConnection ? igDaysSlice : ...` — la meme garde que `ytDays` cote YouTube,
+  // qui l'avait deja et pas nous.
+  //
+  // `igDaysSlice` est bien debride en All-Time (branche plus haut), mais cette boucle de
+  // completion, elle, rebornait tout sur `igPeriodStart/igPeriodEnd`, c'est-a-dire sur la
+  // periode du SELECTEUR. La courbe « Reach par jour » ne tracait donc qu'un mois sous
+  // l'etiquette « Depuis la connexion », et lequel dependait d'ou l'on venait : septembre
+  // en arrivant depuis le mois en cours (1 seul jour de donnees), juin en arrivant depuis
+  // M-3. La carte a cote annoncait 503 personnes.
+  //
+  // Corriger la donnee sans corriger les BORNES ne suffit pas : c'est exactement ce que
+  // dit deja le commentaire de `ytDays` (« sinon ytDays reste clippe malgre le fix de
+  // ytDaysRaw plus haut »), et c'est le meme defaut qui vivait dans TabOverviewV2.
+  // Mesure a l'ecran le 2026-09-01, avant correction.
+  //
+  // En All-Time on ne complete pas : `ig.chartData` porte deja tous les jours de la
+  // fenetre, servie par le fetch sur [integrations_ready_at, aujourd'hui].
+  const igDays: typeof igDaysSlice = sinceConnection ? igDaysSlice : (() => {
     const days: typeof igDaysSlice = [];
     let d = igPeriodStart;
     while (d.getTime() <= igPeriodEnd.getTime()) {
