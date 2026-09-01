@@ -155,7 +155,18 @@ export async function POST(request: NextRequest) {
       // ou l'ancien comportement se comptait en semaines des qu'un rapport trainait.
       // Une date de vente saisissable dans le rapport fermerait ce reste ; elle se
       // brancherait ici meme, sans rien defaire.
-      if (call.scheduled_at) signedAt = new Date(call.scheduled_at).toISOString();
+      // Jamais dans le futur : une vente ne peut pas avoir ete faite demain.
+      // Rien n'empeche de remplir le rapport d'un rendez-vous a venir — le prospect
+      // peut avoir dit oui en DM avant le creneau. Sans cette borne, le cash de cette
+      // vente disparaitrait du mois en cours jusqu'a la date du rendez-vous, et
+      // tomberait dans le mois suivant si le creneau est apres le 1er. Trois
+      // rendez-vous a venir en base au 2026-09-01, le plus lointain a J+4.
+      if (call.scheduled_at) {
+        const rdv = new Date(call.scheduled_at);
+        if (!Number.isNaN(rdv.getTime()) && rdv.getTime() < Date.now()) {
+          signedAt = rdv.toISOString();
+        }
+      }
       igLeadId = igLeadId ?? call.ig_lead_id;
       prospectId = prospectId ?? call.prospect_id;
       // utm_content ne vaut que si c'est un vrai ID de contenu : le champ a
