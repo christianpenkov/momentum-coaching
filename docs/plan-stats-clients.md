@@ -1284,3 +1284,53 @@ comptée autant de fois qu'elle a été photographiée.
 brutes — 10 fenêtres hebdomadaires, dont deux partielles aux extrémités (5 jours et
 2 jours), **10 « ok », zéro écart**, sur les abonnés comme sur les vues. Publications
 vérifiées séparément par le même procédé.
+
+---
+
+## 20. Phase 2 (préparation) — les règles pures de la page
+
+### D59 — `lib/statsClients.ts` : tout ce qui se décide sans React
+
+Les correspondances métrique → titre, → unité et → **nature** vivent dans une seule
+table `METRIQUES` (D55). Avec elles : la granularité selon la période, l'intitulé calculé
+de la colonne courbe (D22), le libellé de comparaison (D7), la semaine d'accompagnement,
+les dix comparateurs de tri (D42), la recherche et le formatage.
+
+Deux règles que les tests figent parce qu'elles ne se voient pas :
+
+- **Les inconnus finissent toujours en bas du tri, dans les deux sens.** « On ne sait
+  pas » n'est pas « le plus petit » : un élève sans donnée ne doit pas coiffer la liste
+  en tri croissant.
+- **`toLocaleString('fr-FR')` sépare les milliers par une espace FINE INSÉCABLE**
+  (U+202F), pas une espace ordinaire. Le premier test écrit avec une espace normale a
+  échoué. Figé, parce que toute comparaison de chaîne écrite à la main échouera sans
+  qu'on comprenne pourquoi.
+
+### D60 — Les leads en lot, sans créer une seconde définition de « lead »
+
+À 40 élèves, appeler `fetchAllLeadsCount` en boucle ferait **160 requêtes**. Mais la
+réimplémenter aurait créé une deuxième définition de « lead » — la chose exacte que
+`lib/salesCallStats.ts` existe pour empêcher, et qui est déjà arrivée (Mes Stats
+oubliait YouTube).
+
+→ Le comptage est extrait en **fonction pure `compterLeads`**, appelée à l'identique par
+`fetchIgLeadsCount`, `fetchAllLeadsCount` et le nouveau `fetchLeadsCountsBatch`. Seule
+la façon de lire les lignes change : quatre requêtes au lieu de quatre par élève.
+
+Les deux pièges de la règle sont maintenant tenus par des tests :
+
+1. **Le filtre de date s'applique APRÈS la déduplication**, sur la date la plus ancienne.
+   Un prospect détecté en juillet dont un lien est recréé en août n'est pas « nouveau ce
+   mois ».
+2. **La déduplication est par PERSONNE, pas par call.** Calendly crée un nouvel
+   événement à chaque reprogrammation ; les compter séparément affichait 18 leads là où
+   le pipeline en montrait 17.
+
+⚠️ **Effet de bord technique assumé** : `salesCallStats.ts` importait ses valeurs via
+l'alias `@/lib`, que `node --test` ne résout pas — c'est pour ça qu'aucun test n'existait
+sur ce fichier. Converti en imports relatifs avec extension, la convention déjà suivie
+par `lib/callSeries.ts`. Les imports de **type** gardent l'alias, ils sont effacés à la
+compilation.
+
+`fetchLeadsCountsBatch` rend une `Map` où **un élève sans aucune ligne est absent**,
+jamais à 0 : l'appelant distingue « aucun lead » de « on n'a pas la donnée ».

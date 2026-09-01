@@ -5,9 +5,12 @@
 // tous les écrans et documentées dans docs/perimetre-stats-referentiel.md.
 // Neuf écarts entre écrans ont été corrigés le 2026-08-19, tous causés par une de
 // ces règles appliquée ici mais pas là. À lire avant de modifier un compteur.
-import { isCallHonored } from '@/lib/callHonored';
-import { calculerCash } from '@/lib/dealCash';
-import { CALL_TYPES_VENTE } from '@/lib/callTypes';
+// Imports relatifs avec extension, et non l'alias `@/lib` : c'est ce qui rend ce
+// module chargeable par `node --test` (meme convention que lib/callSeries.ts). Les
+// imports de TYPE gardent l'alias, ils sont effaces a la compilation.
+import { isCallHonored } from './callHonored.ts';
+import { calculerCash } from './dealCash.ts';
+import { CALL_TYPES_VENTE } from './callTypes.ts';
 import type { Call } from '@/lib/supabase/types';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -128,115 +131,191 @@ export async function fetchDealsForStats(
 // calls IG directs sans lead (clic bio/description sans jamais avoir commenté).
 // Extrait de PageClientDetail.tsx (coach) pour être réutilisé tel quel côté
 // élève (useClientSelfData) — même formule, même compte des deux côtés.
-export async function fetchIgLeadsCount(supabase: SupabaseClient, profileId: string, since: string | null): Promise<number> {
-  // Pas de filtre `since` sur ces deux requêtes : un même prospect peut apparaître dans
-  // instagram_leads ET prospect_links à des dates différentes (ex: détecté en juillet,
-  // relance/re-clic en août). Filtrer chaque source séparément par `since` avant de
-  // dédupliquer faisait recompter comme "nouveau ce mois" un lead déjà ancien dès que
-  // sa 2ème source (souvent prospect_links, recréé à chaque nouveau lien envoyé) tombait
-  // dans la période — le filtre doit s'appliquer sur la date la plus ancienne connue par
-  // username, après dédup, jamais avant.
-  const leadsQuery = supabase.from('instagram_leads').select('ig_username, detected_at')
-    .eq('profile_id', profileId).is('archived_at', null).eq('not_a_lead', false);
-  // `archived_at` : sans lui, un prospect dont le lead a été archivé (bascule vers un
-  // autre compte Instagram) resterait compté ici alors que le pipeline ne le montre
-  // plus. Volontairement PAS de filtre sur `deleted_at` : un lien supprimé depuis
-  // Gérer mes liens doit rester dans les stats, sinon le prospect sort du dénominateur
-  // du taux d'activation (voir app/api/client/prospect-links/route.ts:127).
-  const linksQuery = supabase.from('prospect_links').select('ig_username, created_at')
-    .eq('profile_id', profileId).is('archived_at', null);
 
-  // .neq('ignored', true) est indispensable ici — sans lui, ce compteur inclut
-  // aussi les calls que le coach a "supprimés" depuis le pipeline. Même filtre
-  // que app/api/client/pipeline/route.ts.
-  // Filtre sur booked_at (date de réservation réelle), pas scheduled_at (heure du
-  // call) — un call réservé avant `since` n'a pas pu être généré par le pipeline
-  // Momentum même si son scheduled_at tombe après. Fallback sur scheduled_at si
-  // booked_at manque (anciens calls importés sans cette donnée).
-  let directCallsQuery = supabase.from('calls').select('id, invitee_email, invitee_name')
-    .eq('coach_id', profileId)
+/* ─── La règle, une seule fois ────────────────────────────────────────────────
+ *
+ * Le comptage lui-même est PUR : quatre listes de lignes déjà lues, et une réponse.
+ * Il est extrait ici pour que la version « un élève » et la version « quarante élèves »
+ * appellent exactement le même code. Les recopier aurait créé une SECONDE définition
+ * de « lead » — la chose que ce fichier existe précisément pour empêcher, et qui est
+ * déjà arrivée (Mes Stats oubliait YouTube).
+ */
+
+export interface LignesLeads {
+  /** `instagram_leads` — leads détectés automatiquement. */
+  leads: { ig_username: string | null; detected_at: string | null }[];
+  /** `prospect_links` — dédupliqués par `ig_username` avec les précédents. */
+  liens: { ig_username: string | null; created_at: string | null }[];
+  /** Calls IG directs sans lead : clic bio/description sans jamais avoir commenté. */
+  callsIgDirects: { id: string; invitee_email: string | null; invitee_name: string | null }[];
+  /** Calls venus de YouTube. Vide quand on ne compte que le volet Instagram. */
+  callsYoutube: { id: string; invitee_email: string | null; invitee_name: string | null }[];
+}
+
+/** Une personne compte UNE fois, quelle que soit sa source et son nombre de calls. */
+function clefPersonne(c: { id: string; invitee_email: string | null; invitee_name: string | null }): string {
+  return (c.invitee_email || c.invitee_name || c.id).toLowerCase();
+}
+
+export function compterLeads(l: LignesLeads, since: string | null): number {
+  // Date la plus ancienne connue par username, toutes sources confondues.
+  //
+  // ⚠️ Le filtre `since` s'applique APRÈS la déduplication, sur la date la plus
+  // ancienne — jamais source par source avant. Un même prospect peut apparaître dans
+  // instagram_leads en juillet et dans prospect_links en août (un lien est recréé à
+  // chaque envoi) : filtrer chaque source séparément le recomptait comme « nouveau ce
+  // mois » alors qu'il était déjà ancien.
+  const plusAncienneParUsername = new Map<string, string>();
+  for (const r of l.leads) {
+    if (!r.ig_username || !r.detected_at) continue;
+    const cle = r.ig_username.toLowerCase();
+    const prec = plusAncienneParUsername.get(cle);
+    if (!prec || r.detected_at < prec) plusAncienneParUsername.set(cle, r.detected_at);
+  }
+  for (const r of l.liens) {
+    if (!r.ig_username || !r.created_at) continue;
+    const cle = r.ig_username.toLowerCase();
+    const prec = plusAncienneParUsername.get(cle);
+    if (!prec || r.created_at < prec) plusAncienneParUsername.set(cle, r.created_at);
+  }
+
+  const parUsername = since
+    ? Array.from(plusAncienneParUsername.values()).filter(d => d >= since).length
+    : plusAncienneParUsername.size;
+
+  // Dédoublonné par personne, pas par call : Calendly crée un NOUVEL événement à chaque
+  // reprogrammation, donc un prospect qui déplace son rendez-vous a deux lignes dans
+  // `calls`. Les compter séparément affichait 18 leads là où le pipeline en montrait 17
+  // (constaté le 2026-08-19).
+  const igDirects = new Set(l.callsIgDirects.map(clefPersonne)).size;
+
+  // Les calls YouTube ANNULÉS sont comptés : un prospect qui annule reste un prospect.
+  // Ce qu'une annulation retire, c'est un call BOOKÉ — pas un lead. Avant le
+  // 2026-08-19, ce volet excluait les annulés là où le volet Instagram les gardait :
+  // deux plateformes, deux règles, dans la même fonction.
+  const youtube = new Set(l.callsYoutube.map(clefPersonne)).size;
+
+  return parUsername + igDirects + youtube;
+}
+
+/* ─── Les trois lecteurs de cette règle ───────────────────────────────────── */
+
+function requetesLeads(supabase: SupabaseClient, profileIds: string[], since: string | null) {
+  // `archived_at` : sans lui, un prospect dont le lead a été archivé (bascule vers un
+  // autre compte Instagram) resterait compté alors que le pipeline ne le montre plus.
+  // Volontairement PAS de filtre sur `deleted_at` : un lien supprimé depuis « Gérer mes
+  // liens » doit rester dans les stats, sinon le prospect sort du dénominateur du taux
+  // d'activation (voir app/api/client/prospect-links/route.ts:127).
+  const leads = supabase.from('instagram_leads')
+    .select('profile_id, ig_username, detected_at')
+    .in('profile_id', profileIds).is('archived_at', null).eq('not_a_lead', false);
+
+  const liens = supabase.from('prospect_links')
+    .select('profile_id, ig_username, created_at')
+    .in('profile_id', profileIds).is('archived_at', null);
+
+  // ⚠️ `calls.coach_id` est le profile_id de l'ÉLÈVE, pas le coach humain
+  // (docs/calls-coach-id-piege.md). `.neq('ignored', true)` est indispensable : sans
+  // lui, ce compteur inclut les calls « supprimés » depuis le pipeline. Filtre sur
+  // `booked_at` (réservation réelle) avec repli `scheduled_at` — un call réservé avant
+  // `since` n'a pas pu être généré par le pipeline même si son rendez-vous tombe après.
+  //
+  // `like('source', 'ig\\_%')` : un préfixe, pas une liste fermée. `ig_story` manquait,
+  // donc un rendez-vous venu d'une story n'était compté nulle part (corrigé aux trois
+  // endroits le 2026-08-19). L'underscore est un joker SQL, d'où l'échappement.
+  let callsIg = supabase.from('calls')
+    .select('coach_id, id, invitee_email, invitee_name')
+    .in('coach_id', profileIds)
     .in('call_type', CALL_TYPES_VENTE)
     .neq('ignored', true)
     .is('ig_lead_id', null)
     .neq('lead_deleted', true)
-    // Préfixe plutôt qu'une liste fermée : `ig_story` manquait, donc un rendez-vous
-    // venu d'une story n'était compté ni ici, ni dans Mes Stats, ni dans le pipeline
-    // (même défaut corrigé aux trois endroits le 2026-08-19). `like` sur 'ig\_%'
-    // — l'underscore est un joker SQL, d'où l'échappement.
     .like('source', 'ig\\_%');
-  if (since) directCallsQuery = directCallsQuery.or(`booked_at.gte.${since},and(booked_at.is.null,scheduled_at.gte.${since})`);
+  if (since) callsIg = callsIg.or(`booked_at.gte.${since},and(booked_at.is.null,scheduled_at.gte.${since})`);
 
-  const [leadsRes, linksRes, directCallsRes] = await Promise.all([
-    leadsQuery, linksQuery, directCallsQuery,
-  ]);
-
-  // Date la plus ancienne connue par username, toutes sources confondues.
-  const earliestByUsername = new Map<string, string>();
-  for (const r of (leadsRes.data ?? []) as { ig_username: string | null; detected_at: string | null }[]) {
-    if (!r.ig_username || !r.detected_at) continue;
-    const key = r.ig_username.toLowerCase();
-    const prev = earliestByUsername.get(key);
-    if (!prev || r.detected_at < prev) earliestByUsername.set(key, r.detected_at);
-  }
-  for (const r of (linksRes.data ?? []) as { ig_username: string | null; created_at: string | null }[]) {
-    if (!r.ig_username || !r.created_at) continue;
-    const key = r.ig_username.toLowerCase();
-    const prev = earliestByUsername.get(key);
-    if (!prev || r.created_at < prev) earliestByUsername.set(key, r.created_at);
-  }
-
-  const count = since
-    ? Array.from(earliestByUsername.values()).filter(d => d >= since).length
-    : earliestByUsername.size;
-
-  // Dédoublonné par personne, pas par call : Calendly crée un NOUVEL événement à
-  // chaque reprogrammation, donc un prospect qui déplace son rendez-vous a deux lignes
-  // dans `calls`. Les compter séparément faisait afficher 18 leads là où le pipeline
-  // en montrait 17 (constaté le 2026-08-19). Même clé que la partie leads/liens
-  // ci-dessus : une personne compte une fois, quel que soit son nombre de calls.
-  const directCallProspects = new Set(
-    ((directCallsRes.data ?? []) as { id: string; invitee_email: string | null; invitee_name: string | null }[])
-      .map(c => (c.invitee_email || c.invitee_name || c.id).toLowerCase())
-  );
-  return count + directCallProspects.size;
-}
-
-// Leads toutes sources = fetchIgLeadsCount (Instagram) + calls YouTube bookés (source
-// commençant par "yt", non annulés). Point d'entrée unique "Leads" pour tout écran
-// (accueil élève, fiche coach, Mes stats) — évite que chacun recolle IG + YT séparément
-// et diverge silencieusement (déjà arrivé : Mes Stats oubliait YouTube).
-export async function fetchAllLeadsCount(supabase: SupabaseClient, profileId: string, since: string | null): Promise<number> {
-  let ytCallsQuery = supabase.from('calls').select('id, status, invitee_email, invitee_name')
-    .eq('coach_id', profileId)
+  let callsYt = supabase.from('calls')
+    .select('coach_id, id, invitee_email, invitee_name')
+    .in('coach_id', profileIds)
     .in('call_type', CALL_TYPES_VENTE)
     .neq('ignored', true)
     .like('source', 'yt%');
-  if (since) ytCallsQuery = ytCallsQuery.or(`booked_at.gte.${since},and(booked_at.is.null,scheduled_at.gte.${since})`);
+  if (since) callsYt = callsYt.or(`booked_at.gte.${since},and(booked_at.is.null,scheduled_at.gte.${since})`);
 
-  const [igCount, ytCallsRes] = await Promise.all([
-    fetchIgLeadsCount(supabase, profileId, since),
-    ytCallsQuery,
-  ]);
+  return { leads, liens, callsIg, callsYt };
+}
 
-  // Dédoublonné par personne, même raison que pour les calls IG directs ci-dessus.
-  //
-  // Les calls ANNULÉS sont comptés : un prospect qui annule reste un prospect (il a
-  // manifesté un intérêt, il figure dans le pipeline, qui en fait même un filtre
-  // dédié « Annulés »). Ce qu'une annulation retire, c'est un call BOOKÉ — pas un
-  // lead. Les deux notions sont distinctes et ne se filtrent pas pareil.
-  //
-  // Avant, ce volet YouTube excluait les annulés alors que le volet Instagram de
-  // fetchIgLeadsCount les gardait : deux plateformes, deux règles, dans la même
-  // fonction. Un prospect YouTube qui annulait disparaissait donc des leads, là où un
-  // prospect Instagram dans la même situation y restait. Aligné le 2026-08-19 (0 call
-  // YouTube annulé en base à cette date, donc aucun chiffre ne bouge aujourd'hui).
-  //
-  // Le comptage des calls bookés, lui, continue d'exclure les annulés — c'est
-  // computeSalesCallStats/isNotCanceled qui s'en charge, et c'est sa place.
-  const ytLeadCount = new Set(
-    ((ytCallsRes.data ?? []) as { id: string; status: string | null; invitee_email: string | null; invitee_name: string | null }[])
-      .map(c => (c.invitee_email || c.invitee_name || c.id).toLowerCase())
-  ).size;
+function grouper<T extends Record<string, any>>(lignes: T[] | null, cle: 'profile_id' | 'coach_id'): Map<string, T[]> {
+  const m = new Map<string, T[]>();
+  for (const l of lignes ?? []) {
+    const k = l[cle] as string | null;
+    if (!k) continue;
+    const liste = m.get(k);
+    if (liste) liste.push(l); else m.set(k, [l]);
+  }
+  return m;
+}
 
-  return igCount + ytLeadCount;
+/** Leads Instagram seuls (sans le volet YouTube). Signature inchangée. */
+export async function fetchIgLeadsCount(supabase: SupabaseClient, profileId: string, since: string | null): Promise<number> {
+  const q = requetesLeads(supabase, [profileId], since);
+  const [leadsRes, liensRes, callsIgRes] = await Promise.all([q.leads, q.liens, q.callsIg]);
+  return compterLeads({
+    leads: (leadsRes.data ?? []) as any[],
+    liens: (liensRes.data ?? []) as any[],
+    callsIgDirects: (callsIgRes.data ?? []) as any[],
+    callsYoutube: [],
+  }, since);
+}
+
+// Leads toutes sources = Instagram + calls YouTube bookés. Point d'entrée unique
+// « Leads » pour tout écran (accueil élève, fiche coach, Mes stats) — évite que chacun
+// recolle IG + YT séparément et diverge silencieusement (déjà arrivé).
+export async function fetchAllLeadsCount(supabase: SupabaseClient, profileId: string, since: string | null): Promise<number> {
+  const q = requetesLeads(supabase, [profileId], since);
+  const [leadsRes, liensRes, callsIgRes, callsYtRes] = await Promise.all([q.leads, q.liens, q.callsIg, q.callsYt]);
+  return compterLeads({
+    leads: (leadsRes.data ?? []) as any[],
+    liens: (liensRes.data ?? []) as any[],
+    callsIgDirects: (callsIgRes.data ?? []) as any[],
+    callsYoutube: (callsYtRes.data ?? []) as any[],
+  }, since);
+}
+
+/** Le même compte, pour N élèves, en QUATRE requêtes au lieu de quatre par élève.
+ *
+ *  Écrit pour Stats Clients : à 40 élèves, appeler `fetchAllLeadsCount` en boucle
+ *  ferait 160 requêtes. La règle appliquée est rigoureusement la même — c'est
+ *  `compterLeads` des deux côtés, seule la façon de lire les lignes change.
+ *
+ *  Un élève sans aucune ligne n'apparaît PAS dans la Map : l'appelant distingue alors
+ *  « aucun lead » de « on n'a pas la donnée », plutôt que de recevoir un 0 qui affirme. */
+export async function fetchLeadsCountsBatch(
+  supabase: SupabaseClient,
+  profileIds: string[],
+  since: string | null,
+): Promise<Map<string, number>> {
+  const resultat = new Map<string, number>();
+  if (profileIds.length === 0) return resultat;
+
+  const q = requetesLeads(supabase, profileIds, since);
+  const [leadsRes, liensRes, callsIgRes, callsYtRes] = await Promise.all([q.leads, q.liens, q.callsIg, q.callsYt]);
+
+  const parLeads = grouper(leadsRes.data as any[], 'profile_id');
+  const parLiens = grouper(liensRes.data as any[], 'profile_id');
+  // ⚠️ Les calls se groupent sur `coach_id`, qui EST le profile_id de l'élève.
+  const parCallsIg = grouper(callsIgRes.data as any[], 'coach_id');
+  const parCallsYt = grouper(callsYtRes.data as any[], 'coach_id');
+
+  for (const id of profileIds) {
+    const lignes = {
+      leads: parLeads.get(id) ?? [],
+      liens: parLiens.get(id) ?? [],
+      callsIgDirects: parCallsIg.get(id) ?? [],
+      callsYoutube: parCallsYt.get(id) ?? [],
+    };
+    const aDesLignes = lignes.leads.length || lignes.liens.length
+      || lignes.callsIgDirects.length || lignes.callsYoutube.length;
+    if (aDesLignes) resultat.set(id, compterLeads(lignes, since));
+  }
+  return resultat;
 }
