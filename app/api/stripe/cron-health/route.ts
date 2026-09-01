@@ -12,11 +12,14 @@ import { getStripeAccess, appelStripe } from '@/lib/stripe-account';
  *
  * D'abord il ne traite QUE les comptes en clé restreinte (`access_token IS
  * NULL`) — précisément l'inverse de ceux qu'on cherche à surveiller. Ensuite et
- * surtout, il tourne en Deno et n'a pas `STRIPE_SECRET_KEY` dans ses secrets :
- * sans la clé plateforme, il ne PEUT pas appeler Stripe au nom d'un compte
- * OAuth. L'y ajouter aurait donc coûté une manipulation dans la console
- * Supabase — la même nature d'étape manuelle qu'un job de plus — et, en prime,
- * une seconde copie en Deno de la règle « quelles erreurs valent une panne ».
+ * surtout, l'y porter aurait coûté une seconde copie en Deno de `getStripeAccess`,
+ * d'`appelStripe` et de la règle « quelles erreurs valent une panne » — le mode de
+ * panne dominant de ce projet, une copie figée qui périme sans que rien ne bouge.
+ *
+ * ⚠️ Une troisième raison figurait ici et a EXPIRÉ : « il n'a pas `STRIPE_SECRET_KEY`
+ * dans ses secrets ». C'était vrai à l'écriture ; la clé est posée côté Edge Functions
+ * depuis le 2026-08-31. Retirée le 2026-09-01 plutôt que laissée : une justification
+ * fausse coûte plus cher qu'une justification absente.
  *
  * ── Pourquoi ce ping existe ────────────────────────────────────────────────
  * Les appels Stripe des écrans de paiement déclarent déjà les pannes, mais ils

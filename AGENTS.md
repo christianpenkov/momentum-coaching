@@ -154,16 +154,40 @@ là-dessus : elle a cherché un discriminant dans les données, et celui qu'elle
 était inutilisable (les deux chemins écrivaient les mêmes colonnes). **La réponse est
 dans cron-job.org, nulle part ailleurs.**
 
-| Job | Fréquence | URL visée |
+| Job | Cible | URL |
 |---|---|---|
-| `poll-leads` | 5 min | ✅ **`https://nvjgwtetyuatnkjihmtw.supabase.co/functions/v1/poll-leads`** — Edge Function, confirmé le 2026-09-01 |
-| Sync Calendly | 30 min | Edge Function `sync-calendly` — le doublon Vercel a été supprimé le 2026-09-01 |
-| Notify rapport call | 30 min | à confirmer — Edge Function `notify-rapport` très probable (logs) |
-| `poll-stories` | 30 min | à confirmer |
-| `installment-reminders` | 1×/jour | à confirmer |
-| `sync-stripe-payments` | 30 min | à confirmer |
-| `/api/stripe/cron-health` | 1×/jour | ✅ **`.../api/stripe/cron-health`** — route Vercel, confirmé le 2026-09-01 |
-| `cron-refresh-tokens` | ? | ✅ **`.../api/instagram/cron-refresh-tokens`** — route Vercel, confirmé le 2026-09-01. ⚠️ Son nom ment : elle ne rafraîchit RIEN, elle **alerte par e-mail** quand un jeton Instagram meurt. Le rafraîchissement est dans `poll-leads`. |
+| `poll-leads` (5 min) | Edge | `supabase.co/functions/v1/poll-leads` |
+| `poll-stories` (30 min) | Edge | `supabase.co/functions/v1/poll-stories` |
+| `sync-calendly` (30 min) | Edge | `supabase.co/functions/v1/sync-calendly` |
+| `sync-stripe-payments` (30 min) | Edge | `supabase.co/functions/v1/sync-stripe-payments` |
+| `notify-rapport` (30 min) | Edge | `supabase.co/functions/v1/notify-rapport` |
+| `fathom-cron-sync` | Edge | `supabase.co/functions/v1/fathom-cron-sync` |
+| `installment-reminders` (1×/j) | Edge | `supabase.co/functions/v1/installment-reminders` |
+| `cron-health` (1×/j) | **Vercel** | `momentum-plateforme.vercel.app/api/stripe/cron-health` |
+| `cron-refresh-tokens` | **Vercel** | `momentum-plateforme.vercel.app/api/instagram/cron-refresh-tokens` |
+
+**Neuf jobs, confirmés un par un le 2026-09-01 dans cron-job.org.** Sept en Edge, deux
+en Vercel.
+
+⚠️ `cron-refresh-tokens` **ne rafraîchit rien** — son nom ment. Elle alerte par e-mail
+quand un jeton Instagram meurt. Le rafraîchissement, lui, est dans `poll-leads`.
+
+### Pourquoi les deux dernières restent sur Vercel
+
+Question posée le 2026-09-01 : faut-il tout uniformiser en Edge ? **Non**, et pas par
+inertie. Chacune importe du code partagé — `getIgCreds` pour l'une, `getStripeAccess` et
+`appelStripe` pour l'autre. Une Edge Function ne peut pas les importer : il faudrait en
+figer une COPIE en Deno.
+
+Or c'est le mode de panne dominant de ce projet, documenté plus haut : « chaque
+déploiement fige sa propre copie des modules partagés, donc une fonction périme sans que
+son dossier bouge ». Deux copies de plus, c'est deux angles morts de plus, pour un gain
+d'uniformité que ce tableau apporte déjà.
+
+⚠️ Une des raisons historiques a EXPIRÉ : le commentaire de `cron-health` dit qu'une Edge
+Function « n'a pas `STRIPE_SECRET_KEY` dans ses secrets ». C'était vrai à l'écriture, ça
+ne l'est plus — la clé y est posée depuis le 2026-08-31. L'argument des copies figées, lui,
+tient toujours. Corrigé dans le fichier pour ne pas laisser une justification fausse.
 
 **Comment confirmer** : ouvrir le job dans cron-job.org et lire son URL. Une URL en
 `supabase.co/functions/v1/<nom>` désigne l'Edge Function ; une en
