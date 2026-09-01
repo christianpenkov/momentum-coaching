@@ -6063,14 +6063,18 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const [filterPlatform, setFilterPlatform] = useState<'all' | 'IG' | 'YT'>('all');
   const [filterHas, setFilterHas] = useState<Set<SortKey>>(new Set());
   const [filterSearch, setFilterSearch] = useState('');
-  const [showAllTable, setShowAllTable] = useState(false);
+  // Le depliage de la grille de cartes. Il remplace la modale « Voir tout », qui
+  // rouvrait les memes contenus SOUS FORME DE LIGNES : deux mises en page pour une
+  // meme donnee, et la forme en lignes est justement celle que les cartes remplacent
+  // — en colonnes adjacentes, l'oeil lit un enchainement entre trois roles qui n'en
+  // forment pas un. La modale portait d'ailleurs encore l'ancien titre de la section.
+  const [toutAfficher, setToutAfficher] = useState(false);
   const [parcoursAngle, setParcoursAngle] = useState<'contenu' | 'lm'>('contenu');
   const [aideOuverte, setAideOuverte] = useState<string | null>(null);
   const [parcoursPlateforme, setParcoursPlateforme] = useState<'IG' | 'YT'>('IG');
   // Modale "Voir tout" (performance par contenu) : Echap la ferme. Les autres
   // couches de cette page (post, video, story selectionnes) vivent dans des
   // sous-composants distincts et sont a traiter separement.
-  useEscapeKey(() => setShowAllTable(false), showAllTable);
   // Modal détail contenu
   const [detailModal, setDetailModal] = useState<any | null>(null);
 
@@ -7074,65 +7078,6 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 
   const consolidatedRows = [...rawConsolidatedRows, ...storySequenceContentRows]
     .sort((a, b) => b.views - a.views || b.revenue - a.revenue);
-  // UNE SEULE definition de la ligne de contenu, pour le tableau ET pour la modale
-  // « Voir tout ».
-  //
-  // La modale en etait une COPIE, et la copie avait diverge quatre fois : badge de lead
-  // magnet absent (il disparaissait des qu'on cliquait « Voir tout »), et « Clics LM »
-  // et « Conversations declenchees » masques derriere « Commentaires LM » alors que le tableau
-  // ne les masquait plus. Chaque correction devait etre faite deux fois, et ne l'etait
-  // jamais.
-  //
-  // `dansModale` porte le SEUL comportement legitimement different : cliquer une ligne
-  // depuis la modale la referme, alors que depuis le tableau il n'y a rien a refermer.
-  const ContentRow = ({ row, i, dansModale = false }: { row: typeof consolidatedRows[number]; i: number; dansModale?: boolean }) => {
-    const platformColor = row.platform === 'IG' ? ACCENT : row.platform === 'STORY_SEQUENCE' ? '#8B5CF6' : RED;
-    const isSelected = selectedContentId === row.postId;
-    return (
-      <tr key={i}
-        onClick={() => { setSelectedContentId(isSelected ? null : row.postId); setDetailModal(isSelected ? null : row); if (dansModale) setShowAllTable(false); }}
-        style={{ borderBottom: '1px solid var(--border-soft)', cursor: 'pointer', background: isSelected ? BLUE + '07' : '' }}
-        onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = 'var(--surface-2)'; }}
-        onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = ''; }}>
-        <td style={{ position: 'sticky', left: 0, zIndex: 1, background: isSelected ? BLUE + '15' : 'var(--surface)', padding: '8px 10px', width: 40 }}>
-          {row.thumbnail
-            ? <img loading="lazy" decoding="async" src={row.thumbnail} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
-            : <div style={{ width: 36, height: 36, borderRadius: 6, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>{row.platform === 'IG' ? '📷' : row.platform === 'STORY_SEQUENCE' ? '📸' : '▶️'}</div>}
-        </td>
-        <td style={{ position: 'sticky', left: 44, zIndex: 1, background: isSelected ? BLUE + '15' : 'var(--surface)', padding: '8px 10px', maxWidth: 200 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>{row.title.slice(0, 45)}{row.title.length > 45 ? '…' : ''}</div>
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
-            <span style={{ fontSize: 9, fontWeight: 700, color: platformColor, background: platformColor + '18', borderRadius: 4, padding: '2px 5px' }}>{row.platform === 'STORY_SEQUENCE' ? 'STORY' : row.platform} · {row.type}</span>
-            {row.lmName && <span style={{ fontSize: 9, fontWeight: 700, color: '#8B5CF6', background: '#8B5CF618', borderRadius: 4, padding: '2px 5px' }}>{row.lmName}</span>}
-            {/* Le mot-cle a cote du nom : « Guide complet » ne dit pas sous quel mot les
-                prospects ont commente. Affiche seulement s'il apporte quelque chose — un
-                lead magnet sans nom affiche deja son mot-cle comme nom, et une sequence
-                story affiche « #MOTCLE » : dans les deux cas le repeter serait du bruit. */}
-            {row.lmKeyword && row.lmName
-              && row.lmName.replace(/^#/, '').toLowerCase() !== row.lmKeyword.toLowerCase()
-              && <span style={{ fontSize: 9, fontWeight: 600, color: 'var(--muted)', background: 'var(--surface-2)', borderRadius: 4, padding: '2px 5px' }}>#{row.lmKeyword}</span>}
-          </div>
-        </td>
-        <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.clicsDesc > 0 ? 700 : 400, color: row.clicsDesc > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.clicsDesc > 0 ? fmt(row.clicsDesc) : '—'}</td>
-        <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmDetectes > 0 ? 700 : 400, color: row.lmDetectes > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 ? row.lmDetectes : '—'}</td>
-        <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmClics > 0 ? 700 : 400, color: row.lmClics > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 || row.lmClics > 0 ? (row.lmClics > 0 ? row.lmClics : '0') : '—'}</td>
-        <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmReponses > 0 ? 700 : 400, color: row.lmReponses > 0 ? 'var(--ink)' : 'var(--faint)' }}>{/* Ne plus masquer une conversation derriere l'acquisition : depuis que les deux
-            colonnes lisent des journaux differents, une conversation peut exister
-            sans acquisition sur ce contenu, et le tiret l'aurait cachee. */}
-            {row.lmDetectes > 0 || row.lmReponses > 0 ? (row.lmReponses > 0 ? row.lmReponses : '0') : '—'}</td>
-        <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.dmCount > 0 ? 700 : 400, color: row.dmCount > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.dmCount > 0 ? row.dmCount : '—'}</td>
-        <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.callsBooked > 0 ? 700 : 400, color: row.callsBooked > 0 ? GREEN : 'var(--faint)' }}>{row.callsBooked > 0 ? row.callsBooked : '—'}</td>
-        <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.callsHonored > 0 ? 700 : 400, color: row.callsHonored > 0 ? GREEN : 'var(--faint)' }}>{row.callsHonored > 0 ? row.callsHonored : '—'}</td>
-        <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 12, color: row.qualifiedPct !== null ? 'var(--ink)' : 'var(--faint)', fontWeight: row.qualifiedPct !== null ? 600 : 400, whiteSpace: 'nowrap' }}>
-          {row.qualifiedPct !== null ? `${row.qualifiedPct}% (${row.qualifiedCount}/${row.qualifiedAnswered})` : '—'}
-        </td>
-        <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.closed > 0 ? 700 : 400, color: row.closed > 0 ? GREEN : 'var(--faint)' }}>{row.closed > 0 ? row.closed : '—'}</td>
-        <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: row.revenue > 0 ? GREEN : 'var(--faint)', whiteSpace: 'nowrap' }}>{row.revenue > 0 ? fmtEur(row.revenue) : '—'}</td>
-        <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 12, color: row.vuesParCall ? 'var(--muted)' : 'var(--faint)', fontWeight: row.vuesParCall ? 600 : 400 }}>{row.vuesParCall ? fmt(row.vuesParCall) : '—'}</td>
-        <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 12, color: row.cashParVue !== null ? 'var(--ink)' : 'var(--faint)', fontWeight: row.cashParVue !== null ? 600 : 400, whiteSpace: 'nowrap' }}>{row.cashParVue !== null ? fmtEur(row.cashParVue) : '—'}</td>
-      </tr>
-    );
-  };
 
   // « Activité business » = au moins une colonne business non nulle. Sert au sous-titre
   // de la section, qui annonçait le nombre TOTAL de contenus sous le libellé « avec
@@ -7170,7 +7115,11 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                 <button
                   onClick={() => setAideOuverte(ouverte ? null : cleAide)}
                   aria-expanded={ouverte}
-                  title={ouverte ? 'Masquer les explications' : 'À quoi sert ce tableau ?'}
+                  // L'infobulle annonce ce qu'il y a DERRIÈRE, pas la question qu'on se
+                  // pose. « À quoi sert ce tableau ? » se lisait comme le contenu entier
+                  // du panneau, alors que c'en était le titre : on croyait avoir tout lu
+                  // en survolant, et on ne cliquait pas.
+                  title={ouverte ? 'Masquer les explications' : 'Comment lire ce tableau — ce qu’il compte, ce qu’il ne compte pas, et les pièges'}
                   style={{ width: 16, height: 16, borderRadius: '50%', flex: 'none', cursor: 'pointer', fontSize: 10, fontWeight: 700, lineHeight: 1, display: 'grid', placeItems: 'center', border: `1px solid ${ouverte ? BLUE : 'var(--muted)'}`, color: ouverte ? BLUE : 'var(--muted)', background: ouverte ? BLUE + '12' : 'transparent' }}>
                   ?
                 </button>
@@ -8349,6 +8298,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             <div><b>Les trois chiffres ne se suivent pas, et on ne les additionne jamais.</b> Combien de personnes ce contenu a fait entrer, combien de conversations il a déclenchées, combien de rendez-vous il a produits : trois questions séparées. Un contenu peut ne faire entrer personne et produire des rendez-vous, quand des gens déjà présents réservent par son lien.</div>
             <div><b>Les rendez-vous d&apos;un contenu viennent de plusieurs origines</b> : le lien Calendly de sa description, celui envoyé en DM après son lead magnet, et d&apos;autres. Ils sont tous comptés ici.</div>
             <div><b>La période porte sur la date de chaque événement.</b> Un rendez-vous de juin apparaît en juin, même si la personne était entrée en mars.</div>
+            <div><b>L&apos;argent a sa propre date, et c&apos;est voulu.</b> Un rendez-vous réservé le 29 août pour le 2 septembre compte dans les calls bookés d&apos;août et dans le revenue de septembre. Un rendez-vous se produit quand on le réserve, une vente quand il a lieu : les aligner daterait la vente avant le rendez-vous qui l&apos;a produite.</div>
           </>}
         />
 
@@ -8444,7 +8394,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         </div>
 
         {(() => {
-          const rowsFiltrees = consolidatedRows
+          const rowsAvecActivite = consolidatedRows
             .filter(aDeLActivite)
             .filter(row => {
               if (filterPlatform !== 'all' && row.platform !== filterPlatform) return false;
@@ -8460,7 +8410,12 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
               const bv = (b[sortKey as keyof typeof b] as number) || 0;
               return sortDir === 'desc' ? bv - av : av - bv;
             })
-            .slice(0, 6);
+            ;
+          // Six cartes suffisent a l'usage courant ; les autres se deplient sur demande,
+          // dans la MEME forme. Un contenu sans aucune activite n'apparait jamais, ni
+          // replie ni deplie : il n'a rien produit, et l'afficher noierait ceux qui ont
+          // produit quelque chose.
+          const rowsFiltrees = toutAfficher ? rowsAvecActivite : rowsAvecActivite.slice(0, 6);
 
           // Un rôle : son libellé complet, et son chiffre. JAMAIS de flèche ni de
           // pourcentage entre deux d'entre eux — c'est toute la raison de passer en
@@ -8483,6 +8438,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           }
 
           return (
+            <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 13 }}>
               {rowsFiltrees.map(row => {
                 const selectionne = selectedContentId === row.postId;
@@ -8527,85 +8483,25 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                 );
               })}
             </div>
+            {/* Le compte porte sur les contenus qui ont RÉELLEMENT une activité, pas sur
+                tous les contenus du compte. L'ancien bouton annonçait « Voir tout (N
+                contenus) » avec N = tous les posts et vidéos, dont la plupart n'ont rien
+                produit : il promettait une liste que la grille n'aurait jamais montrée. */}
+            {rowsAvecActivite.length > 6 && (
+              <div style={{ marginTop: 14, textAlign: 'center' }}>
+                <button onClick={() => setToutAfficher(v => !v)}
+                  style={{ padding: '7px 20px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)' }}>
+                  {toutAfficher
+                    ? 'Voir moins'
+                    : `Voir les ${rowsAvecActivite.length - 6} autres contenus qui ont une activité`}
+                </button>
+              </div>
+            )}
+            </>
           );
         })()}
-
-
-        {/* Bouton Voir tout */}
-        {consolidatedRows.length > 7 && (
-          <div style={{ marginTop: 12, textAlign: 'center' }}>
-            <button onClick={() => setShowAllTable(true)} style={{ padding: '7px 20px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', transition: 'all .15s' }}>
-              Voir tout ({consolidatedRows.length} contenus)
-            </button>
-          </div>
-        )}
       </div>
 
-      {/* ── Modal "Voir tout" — le tableau détaillé, que les cartes remplacent en vue principale ── */}
-      {showAllTable && createPortal(
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', zIndex: 9998, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '32px 16px', overflowY: 'auto' }}
-          onClick={() => setShowAllTable(false)}>
-          <div style={{ width: '100%', maxWidth: 1200, background: 'var(--surface)', borderRadius: 14, padding: '24px 28px', boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}
-            onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
-              <div>
-                <div style={{ fontSize: 16, fontWeight: 700 }}>Performance par contenu</div>
-                {/* Même formulation que le sous-titre de la section : « N contenus »
-                    seul laissait croire que tous ont une activité business, alors que la
-                    liste contient chaque post et chaque vidéo du compte. */}
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>{consolidatedRows.filter(aDeLActivite).length} avec activité business sur {consolidatedRows.length} contenus</div>
-              </div>
-              <button onClick={() => setShowAllTable(false)} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--muted)', lineHeight: 1 }}>×</button>
-            </div>
-            {/* Barre de défilement horizontale rendue VISIBLE (classe .table-scroll-x).
-                Le tableau dépasse de ~400 px la largeur de la modale : « % Calls
-                qualifiés », « Closés », « Revenue », « Vues / call » et « Cash / vue »
-                étaient hors champ, et sur un système à barres flottantes (macOS,
-                Windows 11) rien ne signalait qu'elles existaient. Une barre toujours
-                affichée est l'indice le plus honnête : elle ne masque aucun contenu,
-                contrairement à un dégradé de bord. */}
-            <div className="table-scroll-x" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 180px)' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 780 }}>
-                <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
-                  <tr>
-                    <th style={{ position: 'sticky', left: 0, zIndex: 3, background: 'var(--surface)', width: 44, borderBottom: '1px solid var(--border)', padding: '6px 10px 10px' }} />
-                    <th className="eyebrow-sm" style={{ position: 'sticky', left: 44, zIndex: 3, background: 'var(--surface)', textAlign: 'left', color: 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>Contenu</th>
-                    {(['clicsDesc', 'lmDetectes', 'lmClics', 'lmReponses', 'dmCount', 'callsBooked', 'callsHonored', 'qualifiedPct', 'closed', 'revenue', 'vuesParCall', 'cashParVue'] as SortKey[]).map(key => {
-                      const labels: Record<string, string> = { clicsDesc: 'Clics desc.', lmDetectes: 'Commentaires LM', lmClics: 'Clics LM', lmReponses: 'Conversations déclenchées', dmCount: 'Calendly envoyés DM', callsBooked: 'Calls bookés', callsHonored: 'Calls honorés', qualifiedPct: '% Calls Qualifiés', closed: 'Closés', revenue: 'Revenue', vuesParCall: 'Vues / Call', cashParVue: 'Cash / Vue (all-time)' };
-                      const active = sortKey === key;
-                      return (
-                        <th key={key} onClick={() => { if (active) setSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setSortKey(key); setSortDir('desc'); } }}
-                          className="eyebrow-sm" style={{ textAlign: 'right', color: active ? BLUE : 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>
-                          {labels[key]} {active ? (sortDir === 'desc' ? '↓' : '↑') : ''}
-                        </th>
-                      );
-                    })}
-                  </tr>
-                </thead>
-                <tbody>
-                  {consolidatedRows
-                    .filter(row => {
-                      if (filterPlatform !== 'all' && row.platform !== filterPlatform) return false;
-                      if (filterSearch && !row.title.toLowerCase().includes(filterSearch.toLowerCase())) return false;
-                      for (const k of filterHas) {
-                        const val = row[k as keyof typeof row];
-                        if (!val || val === 0) return false;
-                      }
-                      return true;
-                    })
-                    .sort((a, b) => {
-                      const av = (a[sortKey as keyof typeof a] as number) || 0;
-                      const bv = (b[sortKey as keyof typeof b] as number) || 0;
-                      return sortDir === 'desc' ? bv - av : av - bv;
-                    })
-                    .map((row, i) => <ContentRow key={i} row={row} i={i} dansModale />)}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
 
       {/* ── Modal détail contenu ── */}
       {detailModal && (() => {
