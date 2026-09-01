@@ -676,14 +676,67 @@ La clé est désormais `domaine|path|jour`, et la lecture passe par
 `sum` sur les lignes jumelles ; les deux auraient produit un chiffre plausible en
 laissant la base fausse.
 
-⚠️ **Conséquence dans `poll-leads`** : le flux n'y est récupéré que pour le domaine
-**actif** — un seul appel, à cause du rate-limit Short.io observé quand deux domaines du
-même compte sont interrogés. Les liens des anciens domaines lisent donc `0`. C'est le
-comportement juste : on n'a pas observé leurs clics, on ne peut pas les compter. Avant
-le correctif ils héritaient des compteurs du domaine actif — pas une estimation, le
-trafic de quelqu'un d'autre.
+#### Interroger tous les domaines, et ne rien écrire pour celui qui n'a pas répondu
 
-### Le verdict doit pouvoir s'expliquer### Le verdict doit pouvoir s'expliquer
+`poll-leads` n'interrogeait que le domaine **actif**, tout en écrivant les liens de
+tous. Il boucle désormais sur `allDomains`. La raison écrite de ne pas le faire — un
+rate-limit Short.io observé en prod — ne tenait pas :
+
+- `lib/shortio-fetch.ts` **boucle déjà** sur `allDomains` en production depuis le début.
+  Le risque était donc déjà pris et éprouvé par l'autre writer de la même table. C'est
+  l'**asymétrie** entre les deux qui était le défaut.
+- Les identifiants Short.io sont **par profil** : le plafond de 60/min est par élève,
+  pas global. Quarante élèves à deux domaines, ce sont deux appels par clé et par
+  passage — jamais quatre-vingts contre un même budget.
+- `clicsShortioPartages` lit déjà `x-ratelimit-reset` et retente.
+
+⚠️ **Mais la boucle rend la mesure normale, elle ne rend pas l'échec impossible.** Un
+domaine qui renvoie 429 ne doit **pas** voir ses liens écrits à zéro : `0` affirme
+« aucun clic » là où la vérité est « pas mesuré », et un zéro écrit est indiscernable
+d'une vraie absence. `domainesInterroges` retient qui a répondu ; un domaine absent de
+cet ensemble fait **sauter** ses liens.
+
+La garde monotone ne protège pas de ça : elle empêche de faire baisser un compteur tant
+que la journée est **ouverte**, mais une fois la journée close l'écrasement est autorisé
+et le zéro passerait. C'est exactement ce qui serait arrivé dans la nuit du 1ᵉʳ au
+2 septembre sur la ligne dormante de `ubizenai.s.gy`.
+
+**L'échec reste tracé.** `errors.push('click_stream_domain_…')` part dans `cron_runs` :
+ce qui se tait, c'est la donnée, pas la panne. Écrire `0` aurait été l'échec silencieux
+— règle 7 de `docs/checklist-scalabilite.md`, tracer et continuer.
+
+#### Pourquoi un échec transitoire ne mérite PAS d'alerte
+
+Écrit ici parce que sans cette raison, quelqu'un ajoutera une alerte qui sonnera pour
+rien.
+
+**Un échec transitoire ne coûte rien.** La journée reste **ouverte**, donc le passage
+suivant réécrit la vraie valeur. Une alerte sonnerait pour un incident déjà réparé au
+passage d'après — et une alerte qui sonne pour rien cesse d'être lue.
+
+Une donnée n'est réellement perdue que si **tous** les passages d'une journée échouent.
+Ce cas-là remonte déjà, mais par un autre chemin : `clics_sante_redirection` verra
+Short.io compter des requêtes que la route ne compte pas. Le journal trace, la vue
+alerte — chacun son rôle.
+
+#### ⚠️ Compte Short.io partagé par les profils de test — pas un défaut de production
+
+Pour le 1ᵉʳ septembre, `link.ubizenai.com/bio-calendly-ig` porte **trois** lignes : une à
+`15/2` et deux à `2/2`, sur d'autres profils.
+
+Les quatre profils de test partagent **un seul compte Short.io**. L'API rend donc tous
+les liens du compte à chacun, et chaque profil en écrit son propre instantané. Ce n'est
+pas la duplication corrigée par la clé `domaine|path|jour` — celle-là recopiait la même
+valeur entre deux **domaines** — mais le partage de compte entre **profils**.
+
+**En production chaque élève a son propre compte Short.io**, donc le cas ne se produit
+pas. Il fausse en revanche les chiffres des profils de test, et quelqu'un le prendra
+pour un bug s'il n'est écrit nulle part.
+
+`clics_sante_redirection` n'en souffre pas : elle ne juge que la ligne du propriétaire,
+celui que nomme le `p=` de la destination.
+
+### Le verdict doit pouvoir s'expliquer
 
 `link_clicks.bot_motif` dit **quelle règle** a conclu au robot : `prefetch`, `ua_robot`,
 `sans_ua`, ou `aucune` quand aucune n'a déclenché.
