@@ -2677,24 +2677,23 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
   // Momentum (même règle que partout ailleurs, voir integrations_ready_at). Ces
   // colonnes ne sont lues par aucun écran aujourd'hui, mais restent correctes pour le
   // jour où un historique sera affiché.
-  const { data: callsClientRow } = await supa.from('clients').select('integrations_ready_at').eq('profile_id', profileId).maybeSingle();
-  const callsFirstConnectedAt: string | null = callsClientRow?.integrations_ready_at ?? null;
-  let callsQuery = supa.from('calls').select('status, scheduled_at, booked_at, no_show, deal_closed, revenue, outcome').eq('coach_id', profileId).in('call_type', CALL_TYPES_VENTE).neq('ignored', true);
-  if (callsFirstConnectedAt) {
-    callsQuery = callsQuery.or(`booked_at.gte.${callsFirstConnectedAt},and(booked_at.is.null,scheduled_at.gte.${callsFirstConnectedAt})`);
-  }
-  const { data: callsData } = await callsQuery;
-  const calls = callsData || [];
-  const now = new Date();
-  await supa.from('analytics_daily_snapshots').upsert({
-    profile_id: profileId, date: yesterday,
-    calls_booked:   calls.filter((c: any) => c.status === 'active').length,
-    calls_honored:  calls.filter((c: any) => c.status === 'active' && new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show).length,
-    calls_canceled: calls.filter((c: any) => ['canceled', 'cancelled'].includes(c.status)).length,
-    calls_no_show:  calls.filter((c: any) => c.no_show).length,
-    deals_closed:   calls.filter((c: any) => c.deal_closed).length,
-    revenue:        calls.reduce((s: number, c: any) => s + (c.revenue || 0), 0),
-  }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
+  // ── Cumuls de calls : bloc RETIRE le 2026-09-01 ──────────────────────────
+  //
+  // Il ecrivait six colonnes de `analytics_daily_snapshots` — calls_booked,
+  // calls_honored, calls_canceled, calls_no_show, deals_closed, revenue — et
+  // toutes les six sont supprimees. Trois raisons, mesurees le 2026-09-01 :
+  //
+  //   1. C'etaient des CUMULS depuis l'origine, pas des valeurs du jour : le meme
+  //      total repete sur chaque ligne (17, 17, 17, 18, 18, 18...).
+  //   2. AUCUN ecran ne les lisait. lib/statsClients.ts les documentait meme comme
+  //      « une troisieme nature » qu'il exclut de ses agregations, « les cumuls sont
+  //      recalcules depuis les tables sources ».
+  //   3. `revenue` sommait `calls.revenue`, le montant DECLARE au rapport — 12 000 EUR
+  //      la ou les ventes valent 10 200 EUR.
+  //
+  // Les corriger aurait rendu juste une donnee que personne ne lit. Le fetch de calls
+  // part avec l'upsert : il ne servait qu'a lui, c'est une requete de moins par eleve
+  // et par passage.
 
   // ── Stripe J-1 : appel RETIRE le 2026-08-31, il n'a jamais rien ecrit ────────
   //

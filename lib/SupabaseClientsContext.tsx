@@ -108,7 +108,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         // jours glissants pour tolérer un jour de cron manqué ; on garde ensuite le
         // plus récent par profile_id côté client, même pattern que PageClientStats.tsx.
         profileIds.length > 0
-          ? supabase.from('analytics_daily_snapshots').select('profile_id, date, ig_followers, yt_subscribers, mrr')
+          ? supabase.from('analytics_daily_snapshots').select('profile_id, date, ig_followers, yt_subscribers')
               .in('profile_id', profileIds)
               // Juste après une bascule de compte Instagram, la ligne archivée de J-1
               // porte encore les followers de l'ancien compte et serait retenue comme
@@ -253,12 +253,11 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       // valeur non-null rencontrée par profil (pas juste le tout premier snapshot :
       // yt_subscribers/mrr peuvent être null les derniers jours avant backfill du
       // cron, même pattern que PageClientStats.tsx).
-      const latestSnapByProfile: Record<string, { ig_followers: number | null; yt_subscribers: number | null; mrr: number | null }> = {};
+      const latestSnapByProfile: Record<string, { ig_followers: number | null; yt_subscribers: number | null }> = {};
       (snapshotsRes.data || []).forEach((s: any) => {
-        const cur = latestSnapByProfile[s.profile_id] ?? (latestSnapByProfile[s.profile_id] = { ig_followers: null, yt_subscribers: null, mrr: null });
+        const cur = latestSnapByProfile[s.profile_id] ?? (latestSnapByProfile[s.profile_id] = { ig_followers: null, yt_subscribers: null });
         if (cur.ig_followers == null && s.ig_followers != null) cur.ig_followers = s.ig_followers;
         if (cur.yt_subscribers == null && s.yt_subscribers != null) cur.yt_subscribers = s.yt_subscribers;
-        if (cur.mrr == null && s.mrr != null) cur.mrr = s.mrr;
       });
 
       // Paiements triés asc par élève — sert au total all-time et à la sparkbar cumulative.

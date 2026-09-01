@@ -93,33 +93,10 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
     }
   }
 
-  // ── Calls depuis Supabase ──
-  // coach_id = profileId de l'élève pour les calls Calendly (l'élève est l'hôte)
-  const { data: callsData } = await supabase
-    .from('calls')
-    .select('status, scheduled_at, no_show, deal_closed, revenue')
-    .eq('coach_id', profileId)
-    .in('call_type', CALL_TYPES_VENTE);
-
-  const calls = callsData || [];
-  const now = new Date();
-  const callsBooked   = calls.filter(c => c.status === 'active').length;
-  const callsHonored  = calls.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && !c.no_show).length;
-  const callsCanceled = calls.filter(c => c.status === 'canceled' || c.status === 'cancelled').length;
-  const callsNoShow   = calls.filter(c => c.no_show).length;
-  const dealsClosed   = calls.filter(c => c.deal_closed).length;
-  const revenue       = calls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
-
-  await supabase.from('analytics_daily_snapshots').upsert({
-    profile_id: profileId,
-    date: yesterday,
-    calls_booked:  callsBooked,
-    calls_honored: callsHonored,
-    calls_canceled: callsCanceled,
-    calls_no_show: callsNoShow,
-    deals_closed:  dealsClosed,
-    revenue,
-  }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
+  // ── Cumuls de calls : bloc RETIRE le 2026-09-01, colonnes supprimees ────────
+  // Voir la meme suppression dans supabase/functions/poll-leads/index.ts, qui est
+  // le chemin REELLEMENT execute. Retire ici aussi pour que personne ne « repare »
+  // un jour une ecriture vers des colonnes qui n'existent plus.
 
   // ── Stripe J-1 ──
   try {
@@ -148,14 +125,9 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
           if (stripeErr) errors.push(`stripe_payments_upsert: ${stripeErr.message}`);
         }
       }
-      if (stripe) {
-        await supabase.from('analytics_daily_snapshots').upsert({
-          profile_id: profileId,
-          date: yesterday,
-          mrr: stripe.mrr ?? null,
-          stripe_active_subs: stripe.activeSubscriptions ?? null,
-        }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
-      }
+      // `mrr` et `stripe_active_subs` : colonnes supprimees le 2026-09-01. Elles
+      // etaient VIDES sur 356 lignes — l'Edge Function ne les ecrit pas (son appel
+      // Stripe a ete retire le 2026-08-31) et cette route est du code mort.
     }
   } catch (e: any) {
     errors.push(`stripe_fetch: ${e?.message || 'unknown'}`);
