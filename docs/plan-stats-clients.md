@@ -1602,3 +1602,102 @@ visible. On retombe désormais sur le cas « démarrage inconnu », qui reste na
 
 ⚠️ `PeriodPill` est partagé avec `PageClientStats`. L'extraction ne change pas le
 comportement : c'est le même code, déplacé.
+
+---
+
+## 25. Clôture — les quatre points du /grilling (2026-09-01)
+
+### D72 — Le RLS est vérifié, pas supposé
+
+⚠️ Tous les tests précédents passaient en `service_role`, **qui contourne le RLS**. Ce
+que le plan affirmait sur l'isolation entre coachs était donc une lecture des politiques,
+jamais une preuve.
+
+Vérifié en basculant le rôle en `authenticated` et en posant `request.jwt.claims`, dans
+une transaction annulée. Aucune donnée créée.
+
+| Cas | Lignes | Attendu |
+|---|---|---|
+| Le coach demande ses élèves | 84 | > 0 ✅ |
+| **Un coach étranger demande les mêmes élèves** | **0** | = 0 ✅ |
+| Un élève demande les données d'un autre | 0 | = 0 ✅ |
+| Le même élève demande les siennes | 18 | > 0 ✅ |
+
+Le deuxième cas est le seul qui comptait vraiment : un coach qui **connaît** les
+identifiants et les passe quand même n'obtient rien. `security invoker` fait le travail,
+et les deux politiques (`coach sees clients`, `own profile only`) reposent bien sur
+`auth.uid()`.
+
+### D73 — La page à 40 élèves, mesurée sur des données réelles
+
+35 élèves fictifs insérés (`auth.users` → `profiles` → `clients` → snapshots), puis
+supprimés. Les quatre tables retrouvent leur empreinte `md5` d'origine, zéro orphelin.
+
+⚠️ **Une erreur en cours de route, corrigée par la base elle-même** : j'avais conclu que
+`profiles.id` n'avait aucune clé étrangère, parce qu'`information_schema` ne montre pas
+les contraintes pointant hors du schéma `public`. Il en existe une vers `auth.users`.
+Leçon : `information_schema` ne suffit pas pour les schémas Supabase, il faut lire
+`pg_constraint`.
+
+**Résultats :**
+
+- **10,5 ms** pour 40 élèves × 31 jours (1 169 lignes). Aucun souci de volume.
+- Ordre de suppression **imposé** par les règles relevées : `clients.profile_id` est en
+  `SET NULL`, donc supprimer l'utilisateur d'abord laisserait des fiches clients
+  orphelines. Les clients partent en premier, explicitement.
+
+**Ce que les données réelles ont montré et que les simulations cachaient** : la fonction
+rend un nombre de lignes **variable par élève** — 31 pour les uns, 18 ou 4 pour ceux dont
+les jours n'existent pas en base. Une page qui alignerait les séries par POSITION
+décalerait tout. Vérifié : elle aligne par clé de fenêtre (`fenetres.map(f => parFenetre?.get(f))`),
+donc un jour manquant devient `null` au bon endroit. Le dessin était déjà juste ; il
+n'était pas prouvé.
+
+L'échelle réelle va de **0 à 7 680 abonnés** sur le même graphe — un compte à zéro et un
+compte à sept mille. C'est précisément la situation qui justifie le mode moyenne + bande
+au-delà de dix courbes.
+
+⚠️ **Ce qui reste non vérifié** : la page React elle-même à 40 élèves, dans un navigateur.
+Le graphe a été rendu hors application avec la forme réelle, la fonction SQL a été mesurée,
+mais le tableau et la bande à surveiller n'ont pas été vus à cette échelle.
+
+### D74 — L'export CSV existe enfin
+
+Décidé dès le départ, jamais construit ; l'écart entre le plan et le code avait failli se
+faire oublier. Il reprend les lignes **déjà triées et filtrées** : un export qui ne
+correspond pas à ce qu'on a sous les yeux est pire que pas d'export.
+
+Ce n'est pas une entorse à « on n'agit jamais depuis cette page » — rien n'est écrit, on
+emporte ce qu'on voit.
+
+Cinq pièges, tous couverts par des tests :
+
+1. **Séparateur point-virgule.** Excel français lit la virgule comme séparateur décimal :
+   un CSV à virgules s'ouvre en UNE colonne, et l'export ne sert à rien.
+2. **Décimales à la virgule**, pour la même raison en sens inverse.
+3. **BOM UTF-8.** Sans lui « Léa » devient « LÃ©a » — immédiatement visible sur des noms.
+4. **Neutralisation des formules.** Une valeur commençant par `=`, `+`, `-` ou `@` est
+   exécutée par Excel comme par LibreOffice. Un nom d'élève vient d'une saisie : c'est
+   une injection, pas une coquetterie.
+5. **Une valeur inconnue laisse la cellule VIDE**, jamais zéro. Un zéro affirme qu'il ne
+   s'est rien passé ; le vide dit qu'on ne sait pas.
+
+### D75 — Un avertissement mobile, pas une version mobile
+
+La page était décidée « bureau seulement » mais **rien dans le code ne le disait**. Or
+l'app s'installe en PWA sur le téléphone, donc `/analytics` est atteignable depuis un
+iPhone : on y donnait à voir une page cassée plutôt qu'une page hors de son écran.
+
+Message honnête sous 860 px. Une vraie version mobile est un chantier, et une seconde
+mise en page à tenir.
+
+⚠️ **Le basculement est en CSS, jamais en JavaScript.** Une bascule sur la largeur lue
+dans `window` rendrait au premier passage une largeur que le serveur ne connaît pas :
+décalage d'hydratation, et l'avertissement clignoterait sur le bureau au chargement.
+
+### D76 — Les leviers d'apparence sont retirés
+
+Trois options avaient été ouvertes le temps d'une revue. Chris a tranché, elles sont
+parties le jour même, comme annoncé. Le fichier porte une note disant de ne pas les
+rouvrir « au cas où » : si une variante redevient utile, elle se remontre en dix minutes
+dans une fiche de revue — c'est comme ça que celle-ci a été tranchée.
