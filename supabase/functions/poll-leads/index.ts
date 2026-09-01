@@ -1085,7 +1085,10 @@ async function fetchShortioLinks(creds: { apiKey: string; domainId: string }) {
   return allLinks;
 }
 
-async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; domain: string; domainId: string }, joursReparation = FENETRE_REPARATION_DEFAUT): Promise<{
+// `allDomains` : un élève qui a changé de domaine Short.io garde des liens actifs sur
+// l'ancien (posts déjà publiés). Le flux de clics doit donc être récupéré pour chacun,
+// sans quoi les liens de l'ancien domaine héritent des compteurs du domaine actif.
+async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; domain: string; domainId: string; allDomains?: { id: number | string; hostname: string }[] }, joursReparation = FENETRE_REPARATION_DEFAUT): Promise<{
   errors: string[];
   rawClicks: { path: string; dt: string; human: boolean }[];
   resolveLinkCategory: (path: string, shortUrl: string, originalUrl: string) => LinkCategory | null;
@@ -1197,26 +1200,61 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
   // qu'on n'a pas pu observer, sinon une rétention plus courte que la fenêtre effacerait
   // des journées réelles en les remettant à zéro.
   let jourLePlusAncienVu: string | null = null;
-  let fluxIncomplet = true;
-  try {
-    const { clics, tronque } = await clicsShortioPartages(creds.domainId, creds.apiKey, FENETRE_REPARATION_JOURS);
-    rawClicks = clics as { path: string; dt: string; human: boolean }[];
-    fluxIncomplet = tronque;
-    // ⚠️ Le flux n'est récupéré QUE pour le domaine actif (`creds.domainId`) — un
-    // seul appel, à cause du rate-limit Short.io observé en prod sur cet endpoint
-    // quand deux domaines du même compte sont interrogés. La clé porte donc ce
-    // domaine-là, et les liens des ANCIENS domaines liront 0.
-    //
-    // C'est le comportement juste : on n'a pas observé leurs clics, on ne peut pas
-    // les compter. Avant ce correctif ils héritaient des compteurs du domaine actif,
-    // ce qui n'était pas « une estimation » mais le trafic de quelqu'un d'autre.
-    const agg = agregerClics(clics, isoDateFromInstant, creds.domain);
-    jourLePlusAncienVu = agg.jourLePlusAncienVu;
-    for (const [k, v] of agg.parPathEtJour) clicsParPathEtJour.set(k, v);
-  } catch (e: any) {
-    errors.push(`last_clicks: ${e?.message || 'unknown'}`);
-    fluxIncomplet = true;
+  let fluxIncomplet = false;
+
+  // ── Un appel par domaine, et on retient LESQUELS ont répondu ───────────────
+  //
+  // Le flux n'était récupéré que pour le domaine actif, alors que les liens de TOUS
+  // les domaines sont ensuite écrits : chaque lien d'un ancien domaine héritait donc
+  // du compte du domaine actif. Pas une estimation — le trafic d'un autre lien.
+  //
+  // La boucle n'était pas prise à cause d'un rate-limit Short.io observé en prod sur
+  // cet endpoint. Trois raisons de la prendre quand même :
+  //
+  //   • `lib/shortio-fetch.ts` boucle déjà sur `allDomains` en production depuis le
+  //     début. Le risque est donc déjà pris et éprouvé par l'autre writer de cette
+  //     table — c'est l'ASYMÉTRIE entre les deux qui est le défaut.
+  //   • Les identifiants Short.io sont par PROFIL : le plafond de 60/min est par
+  //     élève, pas global. Quarante élèves à deux domaines, ce sont deux appels par
+  //     clé et par passage — jamais quatre-vingts contre un même budget.
+  //   • `clicsShortioPartages` lit déjà `x-ratelimit-reset` et retente.
+  //
+  // ⚠️ Mais la boucle rend la mesure normale, elle ne rend pas l'échec impossible.
+  // Un domaine qui renvoie 429 ne doit PAS voir ses liens écrits à zéro : `0`
+  // affirme « aucun clic » là où la vérité est « pas mesuré », et un zéro écrit est
+  // indiscernable d'une vraie absence. C'est à ça que sert `domainesInterroges` —
+  // un domaine absent de cet ensemble fait SAUTER ses liens (voir `snapshotLink`).
+  //
+  // La garde monotone ne suffit pas à s'en protéger : elle empêche de faire baisser
+  // un compteur tant que la journée est OUVERTE, mais une fois la journée close
+  // l'écrasement est autorisé et le zéro passerait.
+  const domainesInterroges = new Set<string>();
+  const domaines = (creds.allDomains?.length ?? 0) > 0
+    ? creds.allDomains!
+    : [{ id: creds.domainId, hostname: creds.domain }];
+  for (const d of domaines) {
+    try {
+      const { clics, tronque } = await clicsShortioPartages(d.id, creds.apiKey, FENETRE_REPARATION_JOURS);
+      domainesInterroges.add(d.hostname);
+      rawClicks.push(...(clics as { path: string; dt: string; human: boolean }[]));
+      if (tronque) fluxIncomplet = true;
+      const agg = agregerClics(clics, isoDateFromInstant, d.hostname);
+      // Le plus RÉCENT des plus anciens jours vus : on ne s'autorise à réécrire
+      // qu'une journée que TOUS les domaines interrogés ont couverte. Prendre le plus
+      // ancien laisserait réécrire, pour un domaine, un jour que son propre flux
+      // n'atteignait pas.
+      if (agg.jourLePlusAncienVu && (!jourLePlusAncienVu || agg.jourLePlusAncienVu > jourLePlusAncienVu)) {
+        jourLePlusAncienVu = agg.jourLePlusAncienVu;
+      }
+      for (const [k, v] of agg.parPathEtJour) clicsParPathEtJour.set(k, v);
+    } catch (e: any) {
+      // Tracé, jamais avalé : c'est la DONNÉE qui se tait, pas l'échec. Il part dans
+      // `cron_runs`. Écrire 0 serait l'échec silencieux (règle 7 de
+      // docs/checklist-scalabilite.md : tracer et continuer).
+      errors.push(`click_stream_domain_${d.hostname}: ${e?.message || 'unknown'}`);
+    }
   }
+  if (domainesInterroges.size === 0) fluxIncomplet = true;
 
   // Jours à (ré)écrire : de J-6 à J-0, bornés au plus ancien jour réellement observé.
   const joursAEcrire: string[] = [];
@@ -1278,9 +1316,19 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
     let link_type: string | null = null;
     try { link_type = new URL(originalUrl).searchParams.get('utm_medium') || null; } catch { /* lien sans URL exploitable */ }
     const link_category = resolveLinkCategory(path, shortUrl, originalUrl);
-    const compte = clicsParPathEtJour.get(
-      cleClic(hoteDuLien(shortUrl, creds.domain), path, date),
-    ) ?? { human: 0, total: 0 };
+    // ⚠️ Domaine non interrogé (429, panne réseau) : on ne sait rien de ses clics.
+    // Sauter, jamais écrire zéro. L'échec est déjà dans `errors`, donc dans
+    // `cron_runs` — ce qui se tait ici est la donnée, pas la panne.
+    //
+    // Coût d'un échec transitoire : nul. La journée reste OUVERTE, donc le passage
+    // suivant réécrit la vraie valeur. C'est ce raisonnement qui justifie de ne PAS
+    // alerter là-dessus : une alerte sonnerait pour un incident déjà réparé au
+    // passage d'après. Une donnée n'est réellement perdue que si TOUS les passages
+    // d'une journée échouent — et ce cas-là remonte par `clics_sante_redirection`,
+    // qui verra Short.io compter des clics que la route ne compte pas.
+    const hote = hoteDuLien(shortUrl, creds.domain);
+    if (!domainesInterroges.has(hote)) return;
+    const compte = clicsParPathEtJour.get(cleClic(hote, path, date)) ?? { human: 0, total: 0 };
 
     // Une journée close, sans clic dans le flux et sans clic déjà en base, n'a rien à
     // écrire : la ligne serait un zéro de plus, identique à ce qu'une absence de ligne
