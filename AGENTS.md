@@ -196,6 +196,7 @@ select * from integrations_sante;               -- 'ok' ou 'non_connectee'
 select * from ventes_sante_montants;            -- vide = rapport et deal concordent
 select * from stripe_sante_rattachement;        -- vide = chaque encaissement a sa vente
 select * from ventes_sante_sur_encaissement;    -- vide = aucun deal n'a encaisse 2x
+select * from ventes_sante_contenu;             -- 'ok' partout
 select * from ig_sante_insights_posts;          -- 'ok' partout
 select * from base_sante_taille;                -- 'ok' = plafond de stockage loin
 select * from clics_sante_redirection;          -- 'ok' partout
@@ -275,6 +276,17 @@ d'un autre client dans les totaux.
 `ventes_sante_montants` compare les DEUX écritures du cash : le montant saisi dans le
 rapport de call et le deal qui en découle. Les écrans lisent `deals` ; une ligne ici
 signifie qu'un élève a saisi un montant que ses stats n'affichent pas.
+
+`ventes_sante_contenu` compare les DEUX lectures de l'attribution d'une vente :
+`deals.first_touch_content_id`, que lisent les **quatre routes de paiement**
+(`payments/by-origin`, `payments/chain`, `payments/deals/[id]/amount` et `/terms`), et
+le contenu que porte le **call**, que Business micro recalcule via `contenuConversion()`
+— `utm_content`, puis repli sur `prospect_links.content_id`. La colonne est une copie
+figée à la création du deal ; tant qu'elle concorde personne ne voit rien, et le jour où
+elle diverge le même euro est crédité à deux contenus différents selon l'écran. C'est le
+mécanisme d'`instagram_leads` : une copie que personne ne confronte à sa source finit par
+mentir. ⚠️ `vente sans rendez-vous` n'est **pas** une anomalie — un upsell n'a aucun call,
+donc aucun contenu à créditer, et il est exclu de Business micro pour cette raison.
 
 ⚠️ **`analytics_daily_snapshots` mélange TROIS natures, et deux noms de colonnes
 mentent.** Relevé le 2026-09-01 en préparant Stats Clients :
