@@ -11,7 +11,7 @@ Les calculs eux-mêmes n'étaient presque jamais faux. Ce qui divergeait, c'éta
 
 ---
 
-## Les six règles
+## Les sept règles
 
 ### 1. Date de démarrage : `integrations_ready_at`, jamais autre chose
 
@@ -144,6 +144,95 @@ d'un problème qui ne concernait que le taux.
 
 ---
 
+### 7. Le cash : deux notions, deux dates, jamais deux dates pour un même chiffre
+
+Posée le 2026-09-01, après qu'un même montant a été trouvé daté de trois façons
+différentes selon l'écran.
+
+**Cash contracté** — ce que le client s'est engagé à payer.
+Source : `deals.amount_total`, jamais `calls.revenue`.
+Date : **`signed_at`**, et voir ci-dessous ce que ce champ vaut exactement.
+
+**Cash encaissé** — ce qui est réellement rentré.
+Source : `deal_payments`, via `calculerCash` (`lib/dealCash.ts`).
+Date : celle du versement.
+N'existe que dans l'onglet Revenus, où la question est la trésorerie.
+
+Un deal de 2 100 € vendu au rendez-vous du 21 août et payé en trois fois : le contracté
+est **entièrement en août partout**, l'encaissé s'étale sur trois mois dans Revenus.
+
+#### Ce que `signed_at` vaut exactement
+
+**La date de TENUE du PREMIER rendez-vous de la chaîne d'opportunité.** Pas l'instant de
+saisie du rapport, pas la date de réservation, pas le rendez-vous où la vente a été
+déclarée.
+
+La règle vit dans `dateDeVente` (`lib/callSeries.ts`), avec cinq tests. Elle est posée à
+l'**écriture** : aucune règle de découpe ne change côté lecture, c'est la donnée qui est
+vraie. `created_at` porte toujours la date de saisie.
+
+Les trois choix, et ce que chacun corrigeait :
+
+| Choix | Ce qu'il évite |
+|---|---|
+| le rendez-vous, pas la saisie | les brouillons de rapport vivent 30 jours : un rendez-vous de fin août rapporté en septembre basculait son cash dans le mois suivant, **sur les quatre écrans à la fois** — donc sans qu'aucun ne contredise l'autre |
+| sa **tenue** (`scheduled_at`), pas sa réservation | dater sur la réservation place la vente **avant** le rendez-vous qui l'a produite : faux en permanence, là où le cas inverse (réservé le 29/08, tenu le 02/09) est rare |
+| le **premier** rendez-vous de la chaîne | un 2ᵉ rendez-vous ne crée pas d'opportunité : sans ça, une période affichait une vente closée sans cash et la suivante du cash sans aucun rendez-vous |
+
+Repli sur l'instant de saisie dans deux cas : aucun rendez-vous exploitable, ou
+rendez-vous **encore à venir** — une vente ne peut pas avoir été faite demain, et rien
+n'empêche de rapporter avant le créneau.
+
+⚠️ **Limite assumée.** Une vente conclue en **relance** quelques jours après le
+rendez-vous est datée du rendez-vous. L'écart se compte alors en jours. Une date de vente
+saisissable dans le rapport la fermerait, et se brancherait dans `dateDeVente`.
+
+#### Deux dates sur le même écran, et c'est voulu
+
+Un rendez-vous **réservé le 29 août pour le 2 septembre** compte dans les **calls bookés
+d'août** et dans le **cash de septembre**, sur le même écran.
+
+Ce n'est pas une incohérence : un call booké se produit au moment de la réservation, une
+vente au moment du rendez-vous. Deux faits, deux moments, deux dates. Les aligner de
+force daterait la vente avant le rendez-vous qui l'a produite.
+
+Concerne aujourd'hui : **Vue générale**, **Funnel & Calls**, **l'accueil coach**.
+
+#### Où la source diffère volontairement
+
+Les écrans qui attribuent **par contenu ou par plateforme** lisent le montant rattaché au
+rendez-vous (`call_id` non nul), donc une vente **sans** rendez-vous n'y figure pas :
+elle n'a ni plateforme ni contenu à créditer. Elle reste comptée dans Vue générale et
+dans l'onglet Revenus.
+
+Conséquence assumée : le total de ces écrans peut être **inférieur** à celui des autres.
+C'est la source qui diffère, pas la date.
+
+⚠️ **`calls.revenue` n'est pas le montant de la vente.** C'est ce que l'élève a
+**déclaré** dans son rapport. Corriger un montant depuis la page Paiements ne le réécrit
+pas — le rendez-vous `TestBIO` porte 3 000 € d'un côté et 1 200 € de l'autre au
+2026-09-01. Les deux champs restent, ils portent deux faits, et l'écart entre eux est
+lui-même une information : c'est ce que surveille `ventes_sante_montants`.
+
+#### État de la migration vers `deals`
+
+Cinq lectures de `calls.revenue` pour du cash subsistaient au 2026-09-01. **Aucune n'est
+dans Vue générale ni dans Funnel & Calls**, tous deux passés sur `deals` :
+
+| Site | Écran | Décision |
+|---|---|---|
+| `PageClientStats.tsx` (Top contenus, branches IG et YT) | Vue générale | **volontaire** — attribution par contenu, voir ci-dessus |
+| `lib/salesCallStats.ts:92` | repli partagé | **volontaire et documenté** — certains appelants n'ont qu'une liste de calls (batch multi-élèves) ; le repli ne sert que sans `deals` |
+| `app/api/instagram/story-sequences-stats/route.ts` | Business micro | **à aligner** |
+| `app/api/instagram/poll-leads/route.ts` | collecte | **à vérifier** |
+
+⚠️ **Business micro n'est pas aligné** au 2026-09-01 : il somme `calls.revenue` découpé
+sur `booked_at`. L'onglet est en reconstruction dans une session dédiée, qui doit
+l'amener sur `deals` + `dateDeVente`. **Ne pas y toucher depuis une autre session** —
+deux sessions s'y sont déjà écrasées une fois.
+
+---
+
 ## Les onze écarts corrigés le 2026-08-19
 
 | # | Symptôme | Cause | Règle |
@@ -186,22 +275,18 @@ périmètre doit être répercutée dans les trois.
 
 ## Ce qui reste ouvert
 
-**Le cash vient de deux sources.** `computeSalesCallStats` lit la table `deals`,
-`PageClientStats` somme `calls.revenue`. Aujourd'hui : 6 600 € des deux côtés, 4 deals
-tous rattachés à un call. Un deal **sans call** (upsell, vente hors pipeline) serait
-invisible dans Mes Stats.
+**Le cash sur `deals` : fait.** La décision du 2026-08-19 — totaux sur `deals`, cartes
+par contenu sur le montant rattaché au rendez-vous — est appliquée depuis le 2026-09-01
+sur Vue générale, Funnel & Calls, l'accueil et l'onglet Revenus. Voir la **règle 7**
+ci-dessus pour l'état complet, y compris ce qui reste volontairement sur `calls.revenue`.
 
-Décision prise le 2026-08-19 : basculer les **totaux** sur `deals`, garder les cartes
-**par contenu** sur `calls.revenue` — un upsell vendu six mois après ne doit pas gonfler
-la performance du post qui a amené le client. Non implémenté : `PageClientStats` ne
-charge pas encore la table `deals` (seulement `deal_payments`).
+⚠️ Ce paragraphe a affirmé pendant douze jours que « `PageClientStats` ne charge pas
+encore la table `deals` », alors que c'était fait depuis le 2026-08-20. Une session
+d'audit a perdu une demi-journée sur cette réserve périmée. **Une note datée n'est pas
+un fait : la revérifier avant de bâtir dessus.**
 
-**Divergence sur le cash contracté entre deux écrans.** L'accueil (`useCoachData`)
-rattache son cash au mois de **signature** du deal ; Mes Stats somme `calls.revenue` et
-le rattache donc au mois de **réservation** du call. Les deux divergent dès qu'une
-signature ne tombe pas dans le mois de son call. Aucun cas à ce jour (cycle de quelques
-heures). La convergence passe par le chantier « cash sur `deals` » ci-dessus — c'est le
-même correctif.
+**Reste ouvert : Business micro.** Seul écran encore sur `calls.revenue` découpé sur
+`booked_at`. Reconstruction en cours dans une session dédiée — voir la règle 7.
 
 **Le parcours lead magnet depuis une story n'a jamais été exercé.** Le code existe
 (`source = 'story_reply'`), la catégorie d'affichage existe, aucun lead de ce type en
