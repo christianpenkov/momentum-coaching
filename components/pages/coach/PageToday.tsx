@@ -16,7 +16,7 @@ import { StaggerGrid, StaggerItem } from '@/components/ui/StaggerGrid';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { useUser } from '@/lib/UserContext';
 import { useNotifications, type AppNotif } from '@/lib/useNotifications';
-import { getClientSignals, getAggregatedSignals } from '@/lib/clientSignals';
+import { getClientSignals, getAggregatedSignals, watchList, phraseSignaux } from '@/lib/clientSignals';
 import { getClientWeek } from '@/lib/clientWeek';
 import { isNotCanceled } from '@/lib/salesCallStats';
 import { isCallReallyOver, isCallJoinable } from '@/lib/sessionRapport';
@@ -83,12 +83,20 @@ export default function PageToday() {
   }, [loading, nextCall?.scheduled_at, rapportNotifs.length]);
 
   const activeCount = clients.length;
-  const clientsWithSignals = clients.map(c => ({ client: c, signals: getClientSignals(c.tasks, c.sessionReports) }));
+  // Trois signaux : tâches du coach en retard, no-shows non acquittés, et arrêt de
+  // publication depuis SEUIL_JOURS_SANS_PUBLIER jours. `joursSansPublier` vient du
+  // contexte, chargé une seule fois pour toutes les pages coach.
+  const clientsWithSignals = clients.map(c => ({
+    client: c,
+    signals: getClientSignals(c.tasks, c.sessionReports, c.joursSansPublier),
+  }));
   const aggregatedSignals = getAggregatedSignals(clientsWithSignals.map(cs => cs.signals));
-  const watchList = clientsWithSignals
-    .filter(cs => cs.signals.total > 0)
-    .sort((a, b) => b.signals.total - a.signals.total)
-    .slice(0, 4);
+  // ⚠️ Règle PARTAGÉE avec Stats Clients (lib/clientSignals.ts) : filtre, tri et
+  // libellés identiques des deux côtés. Seule différence assumée, le plafond — cet
+  // écran montre les 4 plus urgents et renvoie vers Stats Clients, qui les fait tous
+  // défiler dans un carrousel. La recopier ici rouvrirait le motif des onze écarts
+  // entre écrans du 2026-08-19.
+  const aSurveiller = watchList(clientsWithSignals, 4);
 
   const callsToday = calls.filter(call => {
     if (!call.scheduled_at || !isNotCanceled(call)) return false;
@@ -117,7 +125,7 @@ export default function PageToday() {
       label: 'Élèves actifs', sub: 'en cours de coaching', value: activeCount,
     },
     {
-      label: 'Alertes', sub: 'tâches en retard + no-shows', value: aggregatedSignals.total,
+      label: 'Alertes', sub: 'tâches, no-shows, publication', value: aggregatedSignals.total,
       href: '/tasks?filter=overdue',
     },
     {
@@ -395,26 +403,25 @@ export default function PageToday() {
             <div className="card-head">
               <div>
                 <div className="card-title">Clients à surveiller</div>
-                <div className="card-sub">Tâches en retard ou no-show non traité</div>
+                <div className="card-sub">Tâches en retard, no-show non traité ou publication arrêtée</div>
               </div>
-              <Link href="/clients" className="btn-ghost" style={{ fontSize: 12 }}>
+              {/* Renvoie vers Stats Clients et non vers la liste des clients : là-bas,
+                  la même bande les montre TOUS en défilant, sans le plafond de 4. */}
+              <Link href="/analytics" className="btn-ghost" style={{ fontSize: 12 }}>
                 Voir tout <Icon name="chevR" size={12} />
               </Link>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 16 }}>
-              {watchList.length === 0 && (
+              {aSurveiller.length === 0 && (
                 <div style={{ fontSize: 13, color: 'var(--green)', padding: '8px 0' }}>Aucun signal actif ✓</div>
               )}
-              {watchList.map(({ client, signals }) => (
+              {aSurveiller.map(({ client, signals }) => (
                 <div key={client.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <Avatar initials={client.initials || getInitials(client.name)} avatarUrl={client.avatar_url} size={36} seed={client.id} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--accent)' }}>{client.name}</span>
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                      {[
-                        signals.overdueTasksCount > 0 ? `${signals.overdueTasksCount} tâche${signals.overdueTasksCount > 1 ? 's' : ''} en retard` : null,
-                        signals.activeNoShowsCount > 0 ? `${signals.activeNoShowsCount} no-show${signals.activeNoShowsCount > 1 ? 's' : ''}` : null,
-                      ].filter(Boolean).join(' · ')}
+                      {phraseSignaux(signals)}
                     </div>
                   </div>
                   <Link href={`/clients/${client.id}`} transitionTypes={['nav-forward']} className="btn-ghost" style={{ fontSize: 11 }}>

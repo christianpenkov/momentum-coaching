@@ -16,6 +16,12 @@ export interface CurrentStats {
 }
 
 export interface ClientWithMetrics extends Client {
+  /** Jours depuis la dernière publication (Instagram ou YouTube), ou null quand on ne
+   *  sait pas. Alimente le 3e signal de la bande « à regarder » — voir
+   *  SEUIL_JOURS_SANS_PUBLIER dans lib/clientSignals.ts. Chargé une seule fois par
+   *  SupabaseClientsContext, pour que l'accueil coach et Stats Clients évaluent le
+   *  même signal sur les mêmes élèves. */
+  joursSansPublier: number | null;
   tasks: Task[];
   sessionReports: SessionReport[];
   currentStats: CurrentStats | null;

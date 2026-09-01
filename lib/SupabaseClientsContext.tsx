@@ -102,7 +102,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       const now = new Date();
       const startOfMonth = getPeriodWindow(0, 'month').periodStart.toISOString();
 
-      const [snapshotsRes, tasksRes, sessionReportsRes, callsRes, avatarsRes, integrationsRes, stripePaymentsRes, stripePaymentsAllTimeRes, clientPaymentsRes, clientDealsRes, salesCallsRes, manualCallsRes, coachSalesCallsRes, coachLeadsAllTime, coachLeadsThisMonth, coachIntegrationsRes, coachStripePaymentsAllTimeRes] = await Promise.all([
+      const [snapshotsRes, tasksRes, sessionReportsRes, callsRes, avatarsRes, integrationsRes, stripePaymentsRes, stripePaymentsAllTimeRes, clientPaymentsRes, clientDealsRes, salesCallsRes, manualCallsRes, coachSalesCallsRes, coachLeadsAllTime, coachLeadsThisMonth, coachIntegrationsRes, coachStripePaymentsAllTimeRes, dernierePublicationRes] = await Promise.all([
         // Dernier snapshot par élève pour followers IG/YT + MRR actuels — remplace
         // weekly_metrics (jamais écrite par aucun cron, table morte). Fenêtre de 3
         // jours glissants pour tolérer un jour de cron manqué ; on garde ensuite le
@@ -205,6 +205,19 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
           .eq('deals.profile_id', user.id)
           .not('paid_at', 'is', null)
           .order('paid_at', { ascending: true }),
+        // Dernière publication par élève — alimente le 3e signal de la bande « à
+        // regarder » (arrêt de publication), que l'accueil coach ET Stats Clients
+        // doivent évaluer à l'identique pour montrer les mêmes élèves.
+        //
+        // Chargée ICI plutôt que dans chaque page : une seule requête, dans le
+        // Promise.all existant donc sans latence ajoutée, et une seule source à
+        // maintenir. La vue est en `security_invoker` : le filtrage par coach vient
+        // des politiques des tables sources, pas d'un `.eq()` qu'on pourrait oublier.
+        profileIds.length > 0
+          ? supabase.from('derniere_publication_par_profil')
+              .select('profile_id, derniere_publication')
+              .in('profile_id', profileIds)
+          : { data: [], error: null },
       ]);
 
       if (snapshotsRes.error) throw snapshotsRes.error;
@@ -222,6 +235,19 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       if (coachSalesCallsRes.error) throw coachSalesCallsRes.error;
       if (salesCallsRes.error) throw salesCallsRes.error;
       if (manualCallsRes.error) throw manualCallsRes.error;
+      if (dernierePublicationRes.error) throw dernierePublicationRes.error;
+
+      // Jours entiers depuis la dernière publication, par profil.
+      //
+      // ⚠️ Un profil ABSENT de la vue reste absent de cette table : `getClientSignals`
+      // recevra `null` et n'évaluera alors pas le signal. C'est délibéré — écrire 0
+      // affirmerait « a publié aujourd'hui » pour un élève dont on ne sait rien.
+      const joursSansPublierParProfil: Record<string, number> = {};
+      for (const row of (dernierePublicationRes.data || []) as { profile_id: string; derniere_publication: string | null }[]) {
+        if (!row.derniere_publication) continue;
+        const ecart = Date.now() - new Date(row.derniere_publication).getTime();
+        joursSansPublierParProfil[row.profile_id] = Math.max(0, Math.floor(ecart / 86_400_000));
+      }
 
       // Snapshots triés desc par date → pour chaque métrique, on garde la première
       // valeur non-null rencontrée par profil (pas juste le tout premier snapshot :
@@ -374,6 +400,9 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         return {
           ...c,
           name: liveFullName || c.name,
+          joursSansPublier: c.profile_id && c.profile_id in joursSansPublierParProfil
+            ? joursSansPublierParProfil[c.profile_id]
+            : null,
           tasks: tasksMap[c.id] || [],
           sessionReports: sessionReportsMap[c.id] || [],
           currentStats,

@@ -63,23 +63,97 @@ export function getTaskBucket(t: Task): TaskBucket {
 export interface ClientSignals {
   overdueTasksCount: number;
   activeNoShowsCount: number;
+  /** Jours depuis la dernière publication, ou `null` quand on ne sait pas — un appelant
+   *  qui ne fournit pas la donnée n'affirme pas « 0 jour », il n'affirme rien. */
+  joursSansPublier: number | null;
+  publicationArretee: boolean;
   total: number;
 }
 
-// Par élève : tâches assignées par le coach en retard (non résolues) + no-shows non acquittés.
+/** Le seul seuil de la page Stats Clients. Les deux autres signaux n'en ont pas besoin :
+ *  une tâche est en retard ou ne l'est pas, un no-show est acquitté ou ne l'est pas.
+ *  Choisi par Chris le 2026-09-01, contre 21 recommandés — parti pris de sensibilité,
+ *  à revoir si la bande finit toujours pleine (une bande toujours pleine n'est plus lue). */
+export const SEUIL_JOURS_SANS_PUBLIER = 7;
+
+// Par élève : tâches assignées par le coach en retard (non résolues), no-shows non
+// acquittés, et arrêt de publication.
+//
 // Les tâches personnelles de l'élève (added_by='client') ne comptent jamais ici — elles
 // restent son affaire privée, le coach n'a de comptes à rendre que sur ce qu'il a assigné.
-export function getClientSignals(tasks: Task[], sessionReports: SessionReport[]): ClientSignals {
+//
+// ⚠️ `joursSansPublier` est le TROISIÈME paramètre et il est optionnel, délibérément :
+// les sept sites d'appel existants passent deux arguments et gardent donc exactement le
+// comportement d'avant. Seuls les écrans qui disposent de la donnée (accueil coach et
+// Stats Clients) la passent. Sans elle, le signal n'est pas « à zéro », il est ABSENT.
+export function getClientSignals(
+  tasks: Task[],
+  sessionReports: SessionReport[],
+  joursSansPublier: number | null = null,
+): ClientSignals {
   const overdueTasksCount = tasks.filter(t => t.added_by === 'coach' && isTaskOverdue(t)).length;
   const activeNoShowsCount = sessionReports.filter(r => r.attended === false && !r.acknowledged_at).length;
-  return { overdueTasksCount, activeNoShowsCount, total: overdueTasksCount + activeNoShowsCount };
+  const publicationArretee = joursSansPublier !== null && joursSansPublier >= SEUIL_JOURS_SANS_PUBLIER;
+  return {
+    overdueTasksCount,
+    activeNoShowsCount,
+    joursSansPublier,
+    publicationArretee,
+    total: overdueTasksCount + activeNoShowsCount + (publicationArretee ? 1 : 0),
+  };
+}
+
+export interface AggregatedSignals {
+  overdueTasksCount: number;
+  activeNoShowsCount: number;
+  publicationArreteeCount: number;
+  total: number;
 }
 
 // Agrégée pour le coach, sur tous ses élèves.
-export function getAggregatedSignals(perClient: ClientSignals[]): ClientSignals {
+export function getAggregatedSignals(perClient: ClientSignals[]): AggregatedSignals {
   return perClient.reduce((acc, s) => ({
     overdueTasksCount: acc.overdueTasksCount + s.overdueTasksCount,
     activeNoShowsCount: acc.activeNoShowsCount + s.activeNoShowsCount,
+    publicationArreteeCount: acc.publicationArreteeCount + (s.publicationArretee ? 1 : 0),
     total: acc.total + s.total,
-  }), { overdueTasksCount: 0, activeNoShowsCount: 0, total: 0 });
+  }), { overdueTasksCount: 0, activeNoShowsCount: 0, publicationArreteeCount: 0, total: 0 });
+}
+
+/* ─── Ce que DEUX écrans partagent : la sélection et la phrase ─────────────────
+ *
+ * L'accueil coach (carte « Clients à surveiller ») et la page Stats Clients doivent
+ * montrer LES MÊMES élèves. Ces deux fonctions étaient une expression locale dans
+ * PageToday ; les recopier ailleurs aurait rouvert le motif des onze écarts entre
+ * écrans du 2026-08-19 — une règle dupliquée diverge dès que l'une des copies bouge.
+ *
+ * Seule différence assumée entre les deux écrans : le PLAFOND. L'accueil montre les 4
+ * plus urgents et renvoie vers Stats Clients ; Stats Clients les montre tous dans un
+ * carrousel. C'est un argument, pas une seconde règle.
+ */
+
+export interface AvecSignaux<T> {
+  client: T;
+  signals: ClientSignals;
+}
+
+export function watchList<T>(entries: AvecSignaux<T>[], max?: number): AvecSignaux<T>[] {
+  const retenus = entries
+    .filter(e => e.signals.total > 0)
+    .sort((a, b) => b.signals.total - a.signals.total);
+  return max === undefined ? retenus : retenus.slice(0, max);
+}
+
+/** La phrase affichée sous le nom : « 3 tâches en retard · 1 no-show ».
+ *  Elle dit ce qui s'est passé, jamais un score — un score ne s'explique pas à l'écran. */
+export function phraseSignaux(s: ClientSignals): string {
+  return [
+    s.overdueTasksCount > 0
+      ? `${s.overdueTasksCount} tâche${s.overdueTasksCount > 1 ? 's' : ''} en retard`
+      : null,
+    s.activeNoShowsCount > 0
+      ? `${s.activeNoShowsCount} no-show${s.activeNoShowsCount > 1 ? 's' : ''}`
+      : null,
+    s.publicationArretee ? `aucune publication depuis ${s.joursSansPublier} jours` : null,
+  ].filter(Boolean).join(' · ');
 }
