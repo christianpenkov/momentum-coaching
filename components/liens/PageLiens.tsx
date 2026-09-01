@@ -2111,18 +2111,36 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
         .map(e => e.ig_lead_id)
     );
 
-    // ⚠️ UN TIRET, JAMAIS UN ZÉRO, TANT QUE LA MESURE NE COUVRE PAS LA PÉRIODE.
+    // ⚠️ UN TIRET, JAMAIS UN ZÉRO, TANT QUE LA MESURE NE COUVRE PAS **CE**
+    //    CONTENU.
     //
-    // `lm_link_requested` n'est écrit que depuis le 2026-08-27, et aucune ligne
-    // n'existe encore. Un 0 affirmerait « personne n'appuie sur le bouton » là où
-    // la vérité est « on ne le mesurait pas ». Même règle que la borne de collecte
-    // Short.io, et même règle que la colonne « LM réclamés » du Parcours des leads
-    // (PageClientStats, commit 7638aba) — les deux écrans doivent dire la même
-    // chose.
+    // La couverture se juge contenu par contenu, pas globalement. Comparer au
+    // premier appui du profil ne suffit pas : le tout premier appui enregistré
+    // (rdjdkzjd, 01/09) débloquerait d'un coup TOUS les contenus, y compris ceux
+    // dont l'histoire est antérieure — qui afficheraient alors un 0.
+    //
+    // Ce 0 serait démontrablement faux, et l'entonnoir le dit lui-même : sur le
+    // contenu GUIDE, deux personnes ont un `lm_clicked`. Elles ont donc OUVERT un
+    // lead magnet — impossible sans l'avoir reçu, donc sans avoir appuyé. La case
+    // afficherait « 0 reçus » à côté de « 2 ouverts ».
+    //
+    // La règle : la mesure couvre ce contenu si le premier appui du profil est
+    // antérieur à sa première prise de lead magnet. Un contenu né après le début
+    // de la mesure affiche donc un vrai 0 quand personne n'appuie — c'est bien un
+    // zéro, pas une ignorance.
+    //
+    // Même principe que la borne de collecte Short.io et que « LM réclamés » du
+    // Parcours des leads (PageClientStats, 7638aba), où la comparaison se fait
+    // avec le début de la période affichée.
     const premierAppui: string | null = events
       .filter(e => e.event_type === 'lm_link_requested' && e.occurred_at)
       .reduce<string | null>((min, e) => (!min || e.occurred_at < min ? e.occurred_at : min), null);
-    const dm2Mesure = !!premierAppui;
+    const premierePrise: string | null = lmHistory
+      .filter(h => h.media_id === post.id && h.detected_at)
+      .reduce<string | null>((min, h) => (!min || h.detected_at < min ? h.detected_at : min), null);
+    // Sans aucune prise, il n'y a rien à couvrir : la mesure vaut dès qu'elle
+    // existe, et un 0 est alors un vrai 0.
+    const dm2Mesure = !!premierAppui && (!premierePrise || premierAppui <= premierePrise);
     const dm2Recus = appuis.size;
 
     const cliqueurs = new Set(
@@ -2228,7 +2246,9 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
       nonMesure: !entonnoir.dm2Mesure,
       titre: entonnoir.dm2Mesure
         ? undefined
-        : "L'appui sur le bouton du DM1 n'était pas enregistré avant le 27 août 2026. Un zéro affirmerait que personne n'appuie ; la vérité est qu'on ne le mesurait pas.",
+        : entonnoir.premierAppui
+          ? `L'appui sur le bouton du DM1 n'est enregistré que depuis le ${new Date(entonnoir.premierAppui).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}, alors que ce contenu reçoit des lead magnets depuis plus longtemps. Le chiffre ne couvrirait qu'une partie de son histoire.`
+          : "L'appui sur le bouton du DM1 n'a encore jamais été enregistré. Un zéro affirmerait que personne n'appuie ; la vérité est qu'on ne le mesure pas encore.",
     },
   ].filter(e => e.valeur != null) as {
     cle: string; libelle: string; valeur: number; precision?: string;
