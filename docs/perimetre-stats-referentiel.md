@@ -224,7 +224,7 @@ dans Vue générale ni dans Funnel & Calls**, tous deux passés sur `deals` :
 | `PageClientStats.tsx` (Top contenus, branches IG et YT) | Vue générale | **volontaire** — attribution par contenu, voir ci-dessus |
 | `lib/salesCallStats.ts:92` | repli partagé | **volontaire et documenté** — certains appelants n'ont qu'une liste de calls (batch multi-élèves) ; le repli ne sert que sans `deals` |
 | `app/api/instagram/story-sequences-stats/route.ts` | Business micro | **à aligner** |
-| `app/api/instagram/poll-leads/route.ts` | collecte | **à vérifier** |
+| ~~`app/api/instagram/poll-leads/route.ts`~~ | — | **fichier supprimé le 2026-09-01** — code mort, doublon de l'Edge Function |
 
 ⚠️ **Business micro n'est pas aligné** au 2026-09-01 : il somme `calls.revenue` découpé
 sur `booked_at`. L'onglet est en reconstruction dans une session dédiée, qui doit

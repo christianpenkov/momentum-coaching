@@ -147,9 +147,45 @@ raison de robustesse : pas de saut réseau, pas de compte tiers dans le chemin c
 
 ## cron-job.org — hors de la base
 
-Sync Calendly (30 min) · Notify rapport call (30 min) · `poll-leads` (5 min) ·
-`poll-stories` (30 min) · `installment-reminders` (1×/jour) ·
-`/api/stripe/cron-health` (1×/jour).
+⚠️ **Quelle URL chaque job vise ne se lit PAS dans le dépôt.** Plusieurs traitements
+existent en DEUX exemplaires — une Edge Function Supabase et une route Vercel du même nom
+— et rien dans le code ne dit lequel tourne. Une session du 2026-09-01 a perdu du temps
+là-dessus : elle a cherché un discriminant dans les données, et celui qu'elle a trouvé
+était inutilisable (les deux chemins écrivaient les mêmes colonnes). **La réponse est
+dans cron-job.org, nulle part ailleurs.**
+
+| Job | Fréquence | URL visée |
+|---|---|---|
+| `poll-leads` | 5 min | ✅ **`https://nvjgwtetyuatnkjihmtw.supabase.co/functions/v1/poll-leads`** — Edge Function, confirmé le 2026-09-01 |
+| Sync Calendly | 30 min | à confirmer — Edge Function `sync-calendly` très probable, `/api/calendly/cron-sync` étant du code mort mesuré |
+| Notify rapport call | 30 min | à confirmer — Edge Function `notify-rapport` très probable (logs) |
+| `poll-stories` | 30 min | à confirmer |
+| `installment-reminders` | 1×/jour | à confirmer |
+| `sync-stripe-payments` | 30 min | à confirmer |
+| `/api/stripe/cron-health` | 1×/jour | route Vercel — aucune Edge Function du même nom |
+
+**Comment confirmer** : ouvrir le job dans cron-job.org et lire son URL. Une URL en
+`supabase.co/functions/v1/<nom>` désigne l'Edge Function ; une en
+`momentum-plateforme.vercel.app/api/<chemin>` désigne la route Next.js. **Reporter la
+réponse dans ce tableau** — c'est la seule trace que la session suivante pourra lire.
+
+### Les doublons Vercel ↔ Edge Function
+
+Trois routes Vercel dupliquaient une Edge Function sans jamais être appelées. Elles ne
+sont pas inoffensives : quelqu'un finit par les corriger en croyant réparer quelque
+chose, et le vrai chemin ne bouge pas.
+
+| Route Vercel | Edge Function | État |
+|---|---|---|
+| ~~`app/api/instagram/poll-leads`~~ | `poll-leads` | **supprimée le 2026-09-01** |
+| `app/api/calls/notify-rapport` | `notify-rapport` | code mort — zéro appelant dans le dépôt |
+| `app/api/calendly/cron-sync` | `sync-calendly` | code mort — zéro appel en 24 h dans les logs Vercel le 2026-08-31 |
+
+Les deux dernières attendent la même confirmation d'URL avant suppression.
+
+**Avant d'ajouter une route qui porte le nom d'une Edge Function existante**, se demander
+laquelle sera réellement appelée. La réponse par défaut, sur ce projet, est l'Edge
+Function.
 
 `sync-stripe-payments` **existe et tourne toutes les 30 minutes** (créé le
 2026-08-31). ⚠️ **Ne pas en recréer un** : c'est le filet du cash, un doublon ferait

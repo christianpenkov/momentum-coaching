@@ -567,7 +567,7 @@ export async function upsertIgSnapshot(
     backfill_source:       source,
   };
   // La règle était « tout sauf le backfill ». Elle laissait passer le cas qui compte :
-  // `app/api/instagram/poll-leads/route.ts` écrit avec source 'cron' sur la date d'HIER,
+  // le cron `poll-leads` écrit avec source 'cron' sur la date d'HIER,
   // et y déposait donc le nombre d'abonnés d'aujourd'hui — exactement le défaut corrigé
   // le 2026-08-30 côté Edge Function, où le rattrapage l'étalait jusqu'à 720 jours en
   // arrière (lignes du 22 juillet au 18 août toutes écrites le 27 août, toutes à 255).
