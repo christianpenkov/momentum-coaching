@@ -216,6 +216,20 @@ lui-même une information : c'est ce que surveille `ventes_sante_montants`.
 
 #### État de la migration vers `deals`
 
+**Terminée le 2026-09-02.** Il ne reste que deux lectures de `calls.revenue`, toutes deux
+volontaires et documentées ci-dessous. La dernière à aligner, la route des séquences de
+story, l'a été avec deux corrections de plus que prévu — elle ne retirait pas non plus
+les continuations (un 2ᵉ rendez-vous y comptait comme une opportunité nouvelle) et lisait
+`hook_replied` sur la fiche mutable au lieu du journal.
+
+⚠️ **Aucune des trois corrections ne change un chiffre aujourd'hui.** Vérifié en base :
+les 8 rendez-vous porteurs d'un deal concordent avec leur drapeau `deal_closed`, aucun
+des 2 rendez-vous de la séquence n'est une continuation, et fiche et journal disent la
+même chose sur la seule conversation concernée. C'est le cas le plus dangereux — une
+correction invisible se fait retirer par la première personne qui la trouve superflue.
+Elles protègent la première fusion de fiches, le premier 2ᵉ rendez-vous sur une séquence,
+et la première correction de montant faite depuis la page Paiements.
+
 Cinq lectures de `calls.revenue` pour du cash subsistaient au 2026-09-01. **Aucune n'est
 dans Vue générale ni dans Funnel & Calls**, tous deux passés sur `deals` :
 
@@ -223,7 +237,7 @@ dans Vue générale ni dans Funnel & Calls**, tous deux passés sur `deals` :
 |---|---|---|
 | `PageClientStats.tsx` (Top contenus, branches IG et YT) | Vue générale | **volontaire** — attribution par contenu, voir ci-dessus |
 | `lib/salesCallStats.ts:92` | repli partagé | **volontaire et documenté** — certains appelants n'ont qu'une liste de calls (batch multi-élèves) ; le repli ne sert que sans `deals` |
-| `app/api/instagram/story-sequences-stats/route.ts` | Business micro | **à aligner** |
+| ~~`app/api/instagram/story-sequences-stats/route.ts`~~ | Business micro | ✅ **aligné le 2026-09-02** |
 | ~~`app/api/instagram/poll-leads/route.ts`~~ | — | **fichier supprimé le 2026-09-01** — code mort, doublon de l'Edge Function |
 
 ✅ **Business micro est aligné** depuis le 2026-09-01 : source `deals`, date de vente.

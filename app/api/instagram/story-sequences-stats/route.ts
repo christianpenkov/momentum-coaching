@@ -1,11 +1,76 @@
 import { NextResponse } from 'next/server';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
+import { idsDeContinuation } from '@/lib/callSeries';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+/**
+ * Les deux corrections que cette route attendait, au meme endroit pour les deux chemins.
+ *
+ * 1. LE CASH VIENT DE `deals`, jamais de `calls.revenue`. Les deux champs portent deux
+ *    faits differents : `calls.revenue` est ce que l'eleve a DECLARE dans son rapport,
+ *    `deals.amount_total` est ce qui est CONTRACTE. Ils ont diverge en base — 3 000 EUR
+ *    d'un cote, 1 200 EUR de l'autre sur un meme rendez-vous. C'etait la DERNIERE
+ *    lecture de `calls.revenue` pour du cash sur la plateforme.
+ *
+ * 2. UN 2e RENDEZ-VOUS N'EST PAS UNE NOUVELLE OPPORTUNITE. Sans cette exclusion, une
+ *    sequence se voit crediter deux rendez-vous pour un seul prospect, et le taux
+ *    « clics -> calls » peut depasser 100 % structurellement.
+ *
+ * ⚠️ Les chaines se construisent sur le jeu COMPLET des rendez-vous du coach, jamais sur
+ * ceux d'une seule sequence. `idsDeContinuation` a besoin de voir le rendez-vous
+ * PRECEDENT du meme prospect pour savoir si celui-ci le prolonge — et ce precedent peut
+ * appartenir a un autre contenu. Lui passer un sous-ensemble ne renvoie pas d'erreur :
+ * il renvoie une reponse plausible et fausse. C'est le piege « la fonction qui a besoin
+ * d'un contexte plus large que ce qu'on lui passe » de docs/perimetre-stats-referentiel.md.
+ */
+async function chainesEtCash(profileId: string) {
+  const [tous, deals] = await Promise.all([
+    serviceSupabase
+      .from('calls')
+      .select('id, scheduled_at, booked_at, outcome, invitee_email, invitee_name')
+      .eq('coach_id', profileId)
+      .neq('ignored', true),
+    serviceSupabase
+      .from('deals')
+      .select('call_id, amount_total, status')
+      .eq('profile_id', profileId)
+      .not('call_id', 'is', null),
+  ]);
+  const continuations = idsDeContinuation((tous.data ?? []) as any[]);
+  const montantParCall = new Map<string, number>();
+  for (const d of deals.data ?? []) {
+    if (!d.call_id || d.status === 'canceled') continue;
+    montantParCall.set(d.call_id, (montantParCall.get(d.call_id) ?? 0) + Number(d.amount_total || 0));
+  }
+  return { continuations, montantParCall };
+}
+
+/**
+ * Les personnes de ces fiches ayant repondu au message d'accroche, lues AU JOURNAL.
+ *
+ * `instagram_leads.hook_replied` est remis a `false` des qu'une reponse de story ou un
+ * Cold DM le remplace : une conversation deja eue disparaissait de la sequence qui
+ * l'avait produite. `prospect_events` n'ajoute jamais que des lignes.
+ *
+ * Repli sur le drapeau de la fiche quand le journal ne connait pas la personne : les
+ * evenements `hook_replied` ne commencent qu'au 08/07/2026, et un zero affirmerait
+ * « personne n'a repondu » la ou la verite est « on ne l'enregistrait pas encore ».
+ */
+async function fichesAyantRepondu(profileId: string, leads: { id: string }[]): Promise<Set<string>> {
+  if (!leads.length) return new Set();
+  const { data } = await serviceSupabase
+    .from('prospect_events')
+    .select('ig_lead_id')
+    .eq('profile_id', profileId)
+    .eq('event_type', 'hook_replied')
+    .in('ig_lead_id', leads.map(l => l.id));
+  return new Set((data ?? []).map((e: any) => e.ig_lead_id).filter(Boolean));
+}
 
 async function resolveProfileId(userId: string, profileId: string | null): Promise<string | null> {
   if (!profileId || profileId === userId) return userId;
@@ -174,16 +239,22 @@ export async function GET(request: Request) {
     const { data: byLead } = byLeadQuery ? await byLeadQuery : { data: [] };
     const byLeadFiltered = byLead || [];
 
+    const { continuations, montantParCall } = await chainesEtCash(targetProfileId);
     const seenCallIds = new Set<string>();
     const now = new Date();
     for (const c of [...(bySequence || []), ...byLeadFiltered]) {
       if (seenCallIds.has(c.id)) continue;
       seenCallIds.add(c.id);
-      if (c.status === 'active') {
+      // Des OPPORTUNITES : un 2e rendez-vous prolonge la meme vente, aucune nouvelle
+      // story ne l'a produit.
+      if (c.status === 'active' && !continuations.has(c.id)) {
         callsBooked++;
         if (new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show) callsHonored++;
       }
-      if (c.deal_closed) { dealsClosed++; revenue += c.revenue || 0; }
+      // `closed` garde l'autre grain : une vente se compte la ou elle a ete signee, meme
+      // au 2e rendez-vous. Et le montant vient de `deals`, pas du rapport.
+      if (c.deal_closed) dealsClosed++;
+      revenue += montantParCall.get(c.id) ?? 0;
     }
   }
 
@@ -330,6 +401,9 @@ async function listSequenceFunnelRows(profileId: string) {
     leadsBySequence.get(l.story_sequence_id)!.push(l);
   }
 
+  const { continuations, montantParCall } = await chainesEtCash(profileId);
+  const ficheARepondu = await fichesAyantRepondu(profileId, leads ?? []);
+
   const now = new Date();
   const rows = await Promise.all(sequences.map(async seq => {
     const seqStories = storiesBySequence.get(seq.id) || [];
@@ -382,7 +456,9 @@ async function listSequenceFunnelRows(profileId: string) {
       if (seenCallIds.has(c.id)) continue;
       seenCallIds.add(c.id);
       const isCalendly = !!(bySequence || []).find(bc => bc.id === c.id);
-      if (c.status === 'active') {
+      // Des OPPORTUNITES : un 2e rendez-vous prolonge la meme vente, aucune nouvelle
+      // story ne l'a produit. Meme grain que Business micro et Funnel & Calls.
+      if (c.status === 'active' && !continuations.has(c.id)) {
         callsBooked++;
         if (isCalendly) callsBookedCalendly++; else callsBookedLm++;
         if (new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show) {
@@ -390,10 +466,15 @@ async function listSequenceFunnelRows(profileId: string) {
           if (isCalendly) callsHonoredCalendly++; else callsHonoredLm++;
         }
       }
+      // `closed` garde l'autre grain : une vente se compte la ou elle a ete signee, meme
+      // au 2e rendez-vous. Le montant vient de `deals`, jamais de `calls.revenue`.
+      const montant = montantParCall.get(c.id) ?? 0;
       if (c.deal_closed) {
-        closed++; revenue += c.revenue || 0;
-        if (isCalendly) { closedCalendly++; revenueCalendly += c.revenue || 0; } else { closedLm++; revenueLm += c.revenue || 0; }
+        closed++;
+        if (isCalendly) closedCalendly++; else closedLm++;
       }
+      revenue += montant;
+      if (isCalendly) revenueCalendly += montant; else revenueLm += montant;
     }
 
     return {
@@ -408,7 +489,8 @@ async function listSequenceFunnelRows(profileId: string) {
       views,
       lmDetectes: seqLeads.length,
       lmSent: seqLeads.filter(l => l.lead_magnet_sent).length,
-      lmReponses: seqLeads.filter(l => l.hook_replied).length,
+      // Au JOURNAL, avec repli sur la fiche : voir `fichesAyantRepondu`.
+      lmReponses: seqLeads.filter(l => ficheARepondu.has(l.id) || l.hook_replied).length,
       callsBooked,
       callsHonored,
       closed,
