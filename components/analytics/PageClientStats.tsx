@@ -5924,7 +5924,7 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, destinations, lmHistory, hookRepliedEvents, lmReclameParLeadId, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, callsAllTime, deals, leadIdToMediaId, igLive, ytLive, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, joursCollectesShortio, premierJourCollecteShortio, selectedMetric, setSelectedMetric, chartFilter, setChartFilter, sinceConnection, integrationsReadyAt, allTimeStart }: {
+function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, destinations, lmHistory, hookRepliedEvents, lmReclameParLeadId, premierLmReclame, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, callsAllTime, deals, leadIdToMediaId, igLive, ytLive, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, joursCollectesShortio, premierJourCollecteShortio, selectedMetric, setSelectedMetric, chartFilter, setChartFilter, sinceConnection, integrationsReadyAt, allTimeStart }: {
   shortio: ShortioStats | null;
   shortioLoading?: boolean;
   ig: IGStats | null;
@@ -5935,6 +5935,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   hookRepliedEvents?: { prospect_key: string | null; occurred_at: string; metadata?: any }[];
   /** Fiches ayant appuye sur le bouton du DM1 — hors chaine, cf. docs. */
   lmReclameParLeadId?: Set<string>;
+  /** Date du tout premier appui enregistre. `null` = mesure jamais alimentee ici. */
+  premierLmReclame?: string | null;
   destinations: DestinationLink[];
   period: Period;
   periodIndex?: number;
@@ -8032,6 +8034,13 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           </>
         );
 
+        // « LM réclamés » n'existe que depuis que l'événement est écrit. Avant, un zéro
+        // affirmerait que personne n'a appuyé sur le bouton, alors qu'on ne regardait pas.
+        const lmReclameCouvre = !!premierLmReclame && new Date(premierLmReclame) <= periodStart;
+        const lmReclameNote = premierLmReclame
+          ? `Mesuré depuis le ${new Date(premierLmReclame).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} — avant cette date, l'appui sur le bouton du DM1 n'était pas enregistré.`
+          : "L'appui sur le bouton du DM1 n'a encore jamais été enregistré sur ce compte. Un zéro affirmerait que personne n'appuie ; la vérité est qu'on ne le mesure pas encore.";
+
         const AIDE_PARCOURS = <>
           <div><b>À quoi sert ce tableau.</b> Sur les personnes entrées par ce contenu, combien sont allées jusqu&apos;au bout, et à quelle étape les autres se sont arrêtées. C&apos;est l&apos;écran des goulots d&apos;étranglement.</div>
           <div><b>Il compte des personnes, pas des rendez-vous.</b> Une personne qui réserve deux fois compte une seule fois. C&apos;est ce qui fait que les nombres ne remontent jamais de gauche à droite, et pourquoi ils diffèrent de ceux de « Ce que fait chaque contenu », juste en dessous, qui compte des événements.</div>
@@ -8040,6 +8049,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           <div><b>La période porte sur la date d&apos;entrée.</b> En regardant mars, vous voyez les personnes entrées en mars et tout ce qu&apos;elles ont fait ensuite, même en juin. Un rendez-vous se range dans la ligne par laquelle la personne était entrée juste avant lui. <b>Une relance manuelle n&apos;ouvre pas de nouvelle cohorte</b> : seule une nouvelle prise de lead magnet le fait.</div>
           <div><b>Les périodes récentes paraissent toujours faibles</b>, parce que les gens viennent d&apos;entrer et n&apos;ont pas encore eu le temps d&apos;aller au bout.</div>
           <div><b>Pas de ligne Total.</b> Une même personne peut être entrée par plusieurs contenus : additionner les lignes la compterait plusieurs fois.</div>
+          {!lmReclameCouvre && !estYT && <div><b>« LM réclamés » affiche un tiret, pas un zéro.</b> {lmReclameNote}</div>}
           {estYT && <div><b>Sur YouTube la chaîne est plus courte, parce qu&apos;elle l&apos;est réellement.</b> Pas de commentaire mot-clé, pas de lead magnet, pas de conversation : le lien est en description et on réserve directement. <b>Les clics restent hors chaîne</b> — Short.io compte des clics, il ne sait pas qui clique. L&apos;identité n&apos;apparaît qu&apos;à la réservation, par l&apos;e-mail de l&apos;invité Calendly, et c&apos;est donc là que la chaîne commence. Aucun taux ne traverse ce filet : comparer des clics anonymes à des personnes ne voudrait rien dire.</div>}
           {parContenu && <div><b>Les deux dernières colonnes sont à part.</b> Vues / call et Cash / vue portent sur <b>tous</b> les rendez-vous du contenu, y compris ceux venus d&apos;un lien en description — pas seulement sur la chaîne à leur gauche.</div>}
         </>;
@@ -8136,7 +8146,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                         ? <td style={{ ...tdP, ...filet }}><CelluleP n={info.clicsDesc} /></td>
                         : <>
                             <td style={tdP}><CelluleP n={l.commentairesLm} /></td>
-                            <td style={{ ...tdP, ...filet }}><CelluleP n={l.lmReclames} sur={l.commentairesLm} /></td>
+                            <td style={{ ...tdP, ...filet }}>
+                        {lmReclameCouvre
+                          ? <CelluleP n={l.lmReclames} sur={l.commentairesLm} />
+                          : <>
+                              <span style={{ color: 'var(--faint)' }} title={lmReclameNote}>&mdash;</span>
+                              <span style={{ display: 'block', fontSize: 9, color: 'var(--faint)', marginTop: 1 }}>non mesuré</span>
+                            </>}
+                      </td>
                             <td style={tdP}><CelluleP n={l.clicsLm} sur={l.commentairesLm} /></td>
                             <td style={{ ...tdP, ...filet }}><CelluleP n={l.ontRepondu} sur={l.commentairesLm} /></td>
                             <td style={tdP}><CelluleP n={l.calendlyEnvoyes} sur={l.ontRepondu} /></td>
@@ -9662,9 +9679,9 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     // 50 % des gens appuient, et l'ecart entre les deux mesure la qualite du DM1. Hors
     // chaine a l'ecran pour cette raison — repondre au message d'accroche n'exige pas
     // d'avoir appuye.
-    fetchAllPages<{ ig_lead_id: string | null }>(() =>
+    fetchAllPages<{ ig_lead_id: string | null; occurred_at: string }>(() =>
       supabase.from('prospect_events')
-        .select('ig_lead_id')
+        .select('ig_lead_id, occurred_at')
         .eq('profile_id', targetId)
         .eq('event_type', 'lm_link_requested')
     ),
@@ -9954,8 +9971,14 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
 
   // Map ig_lead_id → occurred_at pour les clics LM réels (postérieurs à detected_at, posés par poll-leads)
   const lmReclameParLeadId = new Set<string>();
+  // Le premier appui JAMAIS enregistre pour ce profil. `null` = cette mesure n'a jamais
+  // rien produit ici, et la colonne doit alors afficher un trou, pas un zero : un zero
+  // affirmerait « personne n'a appuye sur le bouton » la ou la verite est « on ne
+  // mesurait pas ». L'evenement `lm_link_requested` n'est ecrit que depuis le 2026-08-28.
+  let premierLmReclame: string | null = null;
   for (const ev of lmRequestedEvents) {
     if (ev.ig_lead_id) lmReclameParLeadId.add(ev.ig_lead_id);
+    if (ev.occurred_at && (!premierLmReclame || ev.occurred_at < premierLmReclame)) premierLmReclame = ev.occurred_at;
   }
 
   const lmClickedByLeadId = new Map<string, string>();
@@ -10109,7 +10132,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     }
   }
 
-  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, deals: dealsRows, encaissementsParJour, cashParVente, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, hookRepliedEvents, lmReclameParLeadId, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, joursCollectesShortio, premierJourCollecteShortio, premierClicLienProspect, integrationsReadyAt };
+  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, deals: dealsRows, encaissementsParJour, cashParVente, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, hookRepliedEvents, lmReclameParLeadId, premierLmReclame, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, joursCollectesShortio, premierJourCollecteShortio, premierClicLienProspect, integrationsReadyAt };
   } catch { return null; }
 }
 
@@ -10235,6 +10258,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   const altKwToLmId: Map<string, string> = supaData?.altKwToLmId ?? new Map();
   const lmClickedByLeadId: Map<string, string> = supaData?.lmClickedByLeadId ?? new Map();
   const lmReclameParLeadId: Set<string> = supaData?.lmReclameParLeadId ?? new Set();
+  const premierLmReclame: string | null = supaData?.premierLmReclame ?? null;
   const linkClickedByLeadId: Map<string, string> = supaData?.linkClickedByLeadId ?? new Map();
 
   // Instagram — onglets 0, 1, 3
@@ -10715,7 +10739,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} abonnesAujourdHui={ig?.followers ?? null} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.yt?.snapshotError} abonnesAujourdHui={yt?.subscribers ?? null} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} callsAllTime={callsAllTimeEff} deals={deals} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} allTimeStart={allTimeStart} profileId={profileId} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} premierClicLienProspect={premierClicLienProspect} />}
-          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} hookRepliedEvents={hookRepliedEvents} lmReclameParLeadId={lmReclameParLeadId} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={callsAllTimeEff} deals={dealsEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} shortioChartHistoryStory={shortioChartHistoryStory} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
+          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} hookRepliedEvents={hookRepliedEvents} lmReclameParLeadId={lmReclameParLeadId} premierLmReclame={premierLmReclame} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={callsAllTimeEff} deals={dealsEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} shortioChartHistoryStory={shortioChartHistoryStory} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
           {tab === 5 && <TabRevenues encaissementsParJour={encaissementsParJour} cashParVente={cashParVente} deals={dealsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} allTimeStart={allTimeStart} stripeConnected={integStatus?.stripeConnected} />}
         </>
       )}
