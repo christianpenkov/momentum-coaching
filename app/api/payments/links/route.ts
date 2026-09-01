@@ -115,17 +115,47 @@ export async function POST(request: NextRequest) {
   let attributionSource = 'manual';
   // Un prospect sélectionné depuis un call sans lead : on récupère au passage son
   // ig_lead_id/prospect_id s'il en a un, et l'attribution portée par le call.
+  // Date de la VENTE. Par defaut l'instant de la saisie ; remplacee par la date du
+  // rendez-vous des qu'il y en a un — voir le bloc `if (body.callId)` juste dessous.
+  let signedAt = new Date().toISOString();
   let igLeadId: string | null = body.igLeadId ?? null;
   let prospectId: string | null = body.prospectId ?? null;
 
   if (body.callId) {
     const { data: call } = await supa
       .from('calls')
-      .select('ig_lead_id, prospect_id, utm_content, source')
+      .select('ig_lead_id, prospect_id, utm_content, source, scheduled_at')
       .eq('id', body.callId)
       .eq('coach_id', profileId)
       .maybeSingle();
     if (call) {
+      // ── QUAND la vente a-t-elle ete faite ? ────────────────────────────────
+      //
+      // Pendant le rendez-vous. Pas au moment ou le vendeur remplit son rapport.
+      //
+      // `signed_at` valait `new Date()`, donc l'instant de la SAISIE. Sur le profil
+      // de test, les quatre ventes reelles ont ete saisies 25 a 32 heures apres leur
+      // rendez-vous — et rien n'oblige a remplir le lendemain : les brouillons de
+      // rapport sont conserves 30 jours, donc l'ecart peut atteindre un mois.
+      //
+      // Un rendez-vous du 28 aout rapporte le 2 septembre faisait donc basculer son
+      // cash dans septembre, sur les QUATRE ecrans qui lisent `signed_at` : Vue
+      // generale, l'onglet Revenus, l'accueil et la page Paiements. Tous d'accord
+      // entre eux, tous decales du meme mois.
+      //
+      // On corrige a l'ECRITURE, pas a la lecture : aucune regle de decoupe ne
+      // change nulle part, c'est la donnee qui devient vraie. La date de saisie
+      // reste disponible dans `created_at`, qui est la pour ca.
+      //
+      // La migration du 2026-08-18 posait deja `signed_at = scheduled_at` sur les
+      // ventes qu'elle a creees : les deux chemins d'ecriture se contredisaient.
+      //
+      // ⚠️ Limite assumee : une vente conclue en RELANCE quelques jours apres le
+      // rendez-vous est datee du rendez-vous. L'ecart se compte alors en jours, la
+      // ou l'ancien comportement se comptait en semaines des qu'un rapport trainait.
+      // Une date de vente saisissable dans le rapport fermerait ce reste ; elle se
+      // brancherait ici meme, sans rien defaire.
+      if (call.scheduled_at) signedAt = new Date(call.scheduled_at).toISOString();
       igLeadId = igLeadId ?? call.ig_lead_id;
       prospectId = prospectId ?? call.prospect_id;
       // utm_content ne vaut que si c'est un vrai ID de contenu : le champ a
@@ -177,7 +207,7 @@ export async function POST(request: NextRequest) {
     payment_plan: plan,
     installments_count: count,
     installment_interval: plan === 'one_shot' ? null : interval,
-    signed_at: new Date().toISOString(),
+    signed_at: signedAt,
     status: 'open',
     first_touch_content_id: firstTouch,
     last_touch_content_id: firstTouch,
