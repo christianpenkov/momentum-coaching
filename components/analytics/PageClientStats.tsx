@@ -6274,10 +6274,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // son rapport, l'autre ce qui est engagé, et les deux ont divergé en base. `call_id`
   // non nul : une vente sans rendez-vous n'a aucun contenu à créditer, donc elle
   // n'apparaît pas dans cet onglet, et son total peut être inférieur à Vue générale.
-  const montantParCallParcours = new Map<string, number>();
+  const montantParCallB = new Map<string, number>();
   for (const d of (deals ?? [])) {
     if (!d.call_id || d.status === 'canceled') continue;
-    montantParCallParcours.set(d.call_id, (montantParCallParcours.get(d.call_id) ?? 0) + Number(d.amount_total || 0));
+    montantParCallB.set(d.call_id, (montantParCallB.get(d.call_id) ?? 0) + Number(d.amount_total || 0));
   }
 
   // « Ont répondu » se lit au JOURNAL, pas au drapeau `hook_replied` de la fiche : ce
@@ -6303,7 +6303,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     calendlyEnvoye: ficheCalendlyEnvoyeParcours,
     calendlyClique: new Set(linkClickedByLeadId ? [...linkClickedByLeadId.keys()] : []),
     callsParFiche: callsParFicheParcours,
-    montantParCall: montantParCallParcours,
+    montantParCall: montantParCallB,
     continuations: continuationsContenu,
   };
 
@@ -6609,7 +6609,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
       if (isCallHonored(c, now)) cur.honored += 1;
     }
     if (c.deal_closed) cur.closed += 1;
-    cur.revenue += c.revenue || 0;
+    cur.revenue += montantParCallB.get(c.id) ?? 0;
     callsPerDay.set(day, cur);
   }
   // null (trou) hors couverture, comme les autres séries : avant l'arrivée de l'élève
@@ -6861,7 +6861,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const callsBooked = postOpportunites.filter(c => c.status === 'active').length;
     const callsHonored = postOpportunites.filter(c => isCallHonored(c, now)).length;
     const closed = postCalls.filter(c => c.deal_closed).length;
-    const revenue = postCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
+    const revenue = postCalls.reduce((s: number, c: any) => s + (montantParCallB.get(c.id) ?? 0), 0);
     // Meme exclusion que `postOpportunites` juste au-dessus. Sans elle, le post 9699
     // affichait 2 dans le breakdown par source et 1 dans Performance par contenu, sous
     // le meme libelle « calls bookes » : `postCallsDesc` etait le seul compteur de la
@@ -6870,7 +6870,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const callsBookedDesc = postOpportunitesDesc.filter(c => c.status === 'active').length;
     const callsHonoredDesc = postOpportunitesDesc.filter(c => isCallHonored(c, now)).length;
     const closedDesc = postCallsDesc.filter(c => c.deal_closed).length;
-    const revenueDesc = postCallsDesc.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
+    const revenueDesc = postCallsDesc.reduce((s: number, c: any) => s + (montantParCallB.get(c.id) ?? 0), 0);
     // « via lead magnet » se lit sur la source, pas sur le rattachement — même
     // correction que le tunnel de l'accueil (commit 4a7a792).
     const postCallsLm = postCalls.filter(c => c.source === 'ig_dm');
@@ -6878,11 +6878,11 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const callsBookedLm = postOpportunitesLm.filter(c => c.status === 'active').length;
     const callsHonoredLm = postOpportunitesLm.filter(c => isCallHonored(c, now)).length;
     const closedLm = postCallsLm.filter(c => c.deal_closed).length;
-    const revenueLm = postCallsLm.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
+    const revenueLm = postCallsLm.reduce((s: number, c: any) => s + (montantParCallB.get(c.id) ?? 0), 0);
     const vuesParCall = callsBooked > 0 && views > 0 ? Math.round(views / callsBooked) : null;
 
     // Cash/Vue lifetime : revenue cumulé depuis publication / vues cumulées depuis publication
-    const revenueLifetime = postCallsLifetime.reduce((s, c) => s + (c.revenue || 0), 0);
+    const revenueLifetime = postCallsLifetime.reduce((s, c) => s + (montantParCallB.get(c.id) ?? 0), 0);
     const cashParVue = viewsLifetime !== null && viewsLifetime > 0 ? revenueLifetime / viewsLifetime : null;
 
     // % Calls Qualifiés : parmi les calls honorés dont `qualified` est renseigné
@@ -7412,11 +7412,11 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           const bioIGBooked = nbBooked(bioIGCalls);
           const bioIGHonored = nbHonored(bioIGCalls);
           const bioIGClosed = bioIGCalls.filter(c => c.deal_closed === true).length;
-          const bioIGRevenue = bioIGCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
+          const bioIGRevenue = bioIGCalls.reduce((s: number, c: any) => s + (montantParCallB.get(c.id) ?? 0), 0);
           const bioYTBooked = nbBooked(bioYTCalls);
           const bioYTHonored = nbHonored(bioYTCalls);
           const bioYTClosed = bioYTCalls.filter(c => c.deal_closed === true).length;
-          const bioYTRevenue = bioYTCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
+          const bioYTRevenue = bioYTCalls.reduce((s: number, c: any) => s + (montantParCallB.get(c.id) ?? 0), 0);
 
           // Meme source que la ligne « Lead magnet » (le JOURNAL, cf. `fichesAvecLm`), et
           // pas `instagram_leads.lead_magnet_sent`. Ces deux lectures forment une
@@ -7511,14 +7511,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           const coldBooked = nbBooked(coldCalls);
           const coldHonored = nbHonored(coldCalls);
           const coldClosed = coldCalls.filter(c => c.deal_closed === true).length;
-          const coldRevenue = coldCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
+          const coldRevenue = coldCalls.reduce((s: number, c: any) => s + (montantParCallB.get(c.id) ?? 0), 0);
           const coldClics = coldDMLinks.filter((l: any) => l.ig_lead_id && linkClickedByLeadId?.has(l.ig_lead_id)).length;
 
           const organicCalls = callsForLinks(organicDMLinksAll);
           const organicBooked = nbBooked(organicCalls);
           const organicHonored = nbHonored(organicCalls);
           const organicClosed = organicCalls.filter(c => c.deal_closed === true).length;
-          const organicRevenue = organicCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
+          const organicRevenue = organicCalls.reduce((s: number, c: any) => s + (montantParCallB.get(c.id) ?? 0), 0);
           const organicClics = organicDMLinks.filter((l: any) => l.ig_lead_id && linkClickedByLeadId?.has(l.ig_lead_id)).length;
 
           // "Story - Lead Magnet" : calls dont le lead vient d'un reply à une story
@@ -7528,7 +7528,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           const storyLmBooked = nbBooked(storyLmCalls);
           const storyLmHonored = nbHonored(storyLmCalls);
           const storyLmClosed = storyLmCalls.filter(c => c.deal_closed === true).length;
-          const storyLmRevenue = storyLmCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
+          const storyLmRevenue = storyLmCalls.reduce((s: number, c: any) => s + (montantParCallB.get(c.id) ?? 0), 0);
           const storyLmClics = storyReplyDMLinks.filter((l: any) => l.ig_lead_id && linkClickedByLeadId?.has(l.ig_lead_id)).length;
 
           // "Story - Calendly" : calls dont utm_content matche une séquence story dont
@@ -7539,7 +7539,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           const storyCalendlyBooked = nbBooked(storyCalendlyCalls);
           const storyCalendlyHonored = nbHonored(storyCalendlyCalls);
           const storyCalendlyClosed = storyCalendlyCalls.filter(c => c.deal_closed === true).length;
-          const storyCalendlyRevenue = storyCalendlyCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
+          const storyCalendlyRevenue = storyCalendlyCalls.reduce((s: number, c: any) => s + (montantParCallB.get(c.id) ?? 0), 0);
 
           // LM : liens envoyés = filtrés sur calendly_link_sent_at (comme avant) pour le
           // KPI "liens Calendly envoyés", mais calls booked/honored/closed = tout lead LM
@@ -7579,7 +7579,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           const lmBooked = nbBooked(lmCalls);
           const lmHonored = nbHonored(lmCalls);
           const lmClosed = lmCalls.filter(c => c.deal_closed === true).length;
-          const lmRevenue = lmCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
+          const lmRevenue = lmCalls.reduce((s: number, c: any) => s + (montantParCallB.get(c.id) ?? 0), 0);
 
           const igContentClics = igContentLinks.reduce((s: number, l: any) => s + linkClics(l), 0);
           const igContentBooked = igRows.reduce((s, r) => s + (r.callsBookedDesc ?? 0), 0);
@@ -7612,7 +7612,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           const otherBooked = nbBooked(otherCalls);
           const otherHonored = nbHonored(otherCalls);
           const otherClosed = otherCalls.filter(c => c.deal_closed === true).length;
-          const otherRevenue = otherCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
+          const otherRevenue = otherCalls.reduce((s: number, c: any) => s + (montantParCallB.get(c.id) ?? 0), 0);
 
           type SourceRow = {
             label: string; labelSuffix?: React.ReactNode; badge: string; badgeColor: string;
@@ -8434,14 +8434,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             const sansTitre = !r || !r.title || r.title === '(sans titre)';
             return {
               titre: sansTitre ? '(sans titre)' : r!.title,
-              sousTitre: r ? r.type + ' - ' + fmt(r.views) + ' vues' : 'contenu inconnu',
+              sousTitre: r ? r.type + ' · ' + fmt(r.views) + ' vues' : 'contenu inconnu',
               sansTitre,
             };
           }
           const lm = leadMagnets.find(l => l.id === cle);
           return {
             titre: lm ? lm.name : cle,
-            sousTitre: lm && lm.keyword ? 'mot-cle : ' + lm.keyword : '',
+            sousTitre: lm && lm.keyword ? 'mot-clé : ' + lm.keyword : '',
             sansTitre: !lm,
           };
         };
@@ -8470,7 +8470,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         return (
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 22px' }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 20, marginBottom: 14, flexWrap: 'wrap' }}>
-              <SectionHead title="Parcours des leads" sub={"Sur les personnes entrees par ce " + (parContenu ? 'contenu' : 'lead magnet') + ", combien vont jusqu'au bout."} />
+              <SectionHead title="Parcours des leads" sub={"Sur les personnes entrées par ce " + (parContenu ? 'contenu' : 'lead magnet') + ", combien vont jusqu'au bout."} />
               <div style={{ display: 'inline-flex', gap: 3, background: 'var(--surface-2)', borderRadius: 7, padding: 3 }}>
                 {([['contenu', 'Contenu'], ['lm', 'Lead magnet']] as const).map(([v, label]) => (
                   <button key={v} onClick={() => setParcoursAngle(v)}
@@ -8488,20 +8488,20 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     <th style={{ ...thP, textAlign: 'left', width: 260 }}>{parContenu ? 'Contenu' : 'Lead magnet'}</th>
                     <th style={thP}><EnteteColonne nom="leadsGeneres">Commentaires LM</EnteteColonne></th>
                     <th style={thP}><EnteteColonne nom="clicLeadMagnet">Clics LM</EnteteColonne></th>
-                    <th style={thP}><EnteteColonne nom="conversationDm">Ont repondu</EnteteColonne></th>
-                    <th style={thP}><EnteteColonne nom="calendlyEnvoye">Calendly envoyes</EnteteColonne></th>
+                    <th style={thP}><EnteteColonne nom="conversationDm">Ont répondu</EnteteColonne></th>
+                    <th style={thP}><EnteteColonne nom="calendlyEnvoye">Calendly envoyés</EnteteColonne></th>
                     <th style={thP}><EnteteColonne nom="clicLien">Clics Calendly</EnteteColonne></th>
-                    <th style={thP}><EnteteColonne nom="callBooke">Calls bookes</EnteteColonne></th>
-                    <th style={thP}><EnteteColonne nom="callHonore">Calls honores</EnteteColonne></th>
-                    <th style={thP}><EnteteColonne nom="callQualifie">% qualifies</EnteteColonne></th>
-                    <th style={thP}><EnteteColonne nom="close">Closes</EnteteColonne></th>
+                    <th style={thP}><EnteteColonne nom="callBooke">Calls bookés</EnteteColonne></th>
+                    <th style={thP}><EnteteColonne nom="callHonore">Calls honorés</EnteteColonne></th>
+                    <th style={thP}><EnteteColonne nom="callQualifie">% qualifiés</EnteteColonne></th>
+                    <th style={thP}><EnteteColonne nom="close">Closés</EnteteColonne></th>
                     <th style={thP}><EnteteColonne nom="revenue">Revenue</EnteteColonne></th>
                   </tr>
                 </thead>
                 <tbody>
                   {rowsParcours.length === 0 && (
                     <tr><td colSpan={11} style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--faint)' }}>
-                      Personne n&apos;est encore entre par ce canal sur la periode.
+                      Personne n&apos;est encore entré par ce canal sur la période.
                     </td></tr>
                   )}
                   {rowsParcours.map(({ cle, l, info }) => (
@@ -8543,9 +8543,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             </div>
 
             <div style={{ marginTop: 12, paddingTop: 11, borderTop: '1px solid var(--border)', fontSize: 10.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-              <b style={{ color: 'var(--ink)' }}>Pas de total.</b> Une meme personne peut etre entree par plusieurs contenus : additionner les lignes la compterait plusieurs fois.
-              {' '}<b style={{ color: 'var(--ink)' }}>La periode porte sur la date d&apos;entree</b> — les gens entres sur la periode, et tout ce qu&apos;ils ont fait ensuite, meme apres. Un rendez-vous se range dans la ligne par laquelle la personne etait entree juste avant lui.
-              {' '}<b style={{ color: 'var(--ink)' }}>Ce tableau compte des personnes</b>, pas des rendez-vous : c&apos;est pourquoi ses nombres different de ceux de la section precedente, qui compte des evenements.
+              <b style={{ color: 'var(--ink)' }}>Seuls les gens entrés par le tunnel DM figurent ici.</b> Une réservation venue d&apos;un lien de bio, d&apos;une description ou d&apos;une story n&apos;a aucune personne identifiable en amont : elle est comptée dans Vue générale et dans le Breakdown par source, pas dans ce tableau. <b style={{ color: 'var(--ink)' }}>Le total de cette colonne Revenue est donc normalement inférieur à celui de Vue générale</b>, et ce n&apos;est pas un écart à corriger.
+              {' '}<b style={{ color: 'var(--ink)' }}>Pas de total non plus.</b> Une même personne peut être entrée par plusieurs contenus : additionner les lignes la compterait plusieurs fois.
+              {' '}<b style={{ color: 'var(--ink)' }}>La période porte sur la date d&apos;entrée</b> — les gens entrés sur la période, et tout ce qu&apos;ils ont fait ensuite, même bien après. Un rendez-vous se range dans la ligne par laquelle la personne était entrée juste avant lui.
+              {' '}<b style={{ color: 'var(--ink)' }}>Ce tableau compte des personnes</b>, pas des rendez-vous : c&apos;est pourquoi ses nombres diffèrent de ceux de « Ce que fait chaque contenu », qui compte des événements.
             </div>
           </div>
         );
