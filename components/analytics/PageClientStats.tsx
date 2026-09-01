@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { CALL_TYPES_VENTE } from '@/lib/callTypes';
+import { parcoursDesLeads, type RefsParcours, type CallParcours, type PriseParcours } from '@/lib/parcoursLeads';
 import InlineLoader from '@/components/ui/InlineLoader';
 import BandeauIntegrations from '@/components/analytics/BandeauIntegrations';
 import { useQuery } from '@tanstack/react-query';
@@ -5923,7 +5924,7 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, destinations, lmHistory, hookRepliedEvents, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, callsAllTime, leadIdToMediaId, igLive, ytLive, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, joursCollectesShortio, premierJourCollecteShortio, selectedMetric, setSelectedMetric, chartFilter, setChartFilter, sinceConnection, integrationsReadyAt, allTimeStart }: {
+function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, destinations, lmHistory, hookRepliedEvents, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, callsAllTime, deals, leadIdToMediaId, igLive, ytLive, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, joursCollectesShortio, premierJourCollecteShortio, selectedMetric, setSelectedMetric, chartFilter, setChartFilter, sinceConnection, integrationsReadyAt, allTimeStart }: {
   shortio: ShortioStats | null;
   shortioLoading?: boolean;
   ig: IGStats | null;
@@ -5947,6 +5948,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   linkClickedByLeadId?: Map<string, string>;
   calls?: CallRecord[];
   callsAllTime?: CallRecord[];
+  /** Le cash CONTRACTE. `calls.revenue` est ce que l'eleve a DECLARE — voir docs. */
+  deals?: DealRecord[];
   leadIdToMediaId?: Map<string, string>;
   igLive?: IGStats | null;
   ytLive?: YTStats | null;
@@ -6025,6 +6028,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const [filterHas, setFilterHas] = useState<Set<SortKey>>(new Set());
   const [filterSearch, setFilterSearch] = useState('');
   const [showAllTable, setShowAllTable] = useState(false);
+  const [parcoursAngle, setParcoursAngle] = useState<'contenu' | 'lm'>('contenu');
   // Modale "Voir tout" (performance par contenu) : Echap la ferme. Les autres
   // couches de cette page (post, video, story selectionnes) vivent dans des
   // sous-composants distincts et sont a traiter separement.
@@ -6235,6 +6239,92 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 
   const acquisitionParContenuGlobal = acquisitionParContenu(
     lmHistoryPourRoles.filter(h => isInPeriod(h.detected_at)),
+  );
+
+  // ── PARCOURS DES LEADS — ce que la chaîne sait des personnes ────────────────
+  //
+  // Assemblé ici une seule fois, puis passé tel quel aux DEUX angles. La logique vit
+  // dans `lib/parcoursLeads.ts` : cet écran ne fait que lui présenter ses données.
+  //
+  // ⚠️ Les rendez-vous ne sont PAS bornés à la période. Le Parcours filtre sur la date
+  // d'ENTRÉE et suit ensuite les gens indéfiniment : une personne entrée en juin qui
+  // réserve en septembre appartient à la ligne de juin. Le seul cas réel de conversion
+  // longue fait déjà 69 jours (entrée le 7 juin, rendez-vous le 15 août) — borner les
+  // rendez-vous le ferait disparaître de sa propre cohorte.
+  const callsPourParcours = callsAllTime ?? calls ?? [];
+  const callsParFicheParcours = new Map<string, CallParcours[]>();
+  for (const c of callsPourParcours) {
+    if (!c.ig_lead_id) continue;
+    const ligne: CallParcours = {
+      id: c.id,
+      ig_lead_id: c.ig_lead_id,
+      status: c.status,
+      // La date de TENUE, pas de réservation : c'est elle qui range le rendez-vous dans
+      // la cohorte ouverte au moment où il a eu lieu. Même choix que `dateDeVente`.
+      scheduled_at: c.scheduled_at ?? null,
+      honore: isCallHonored(c, now),
+      closed: c.deal_closed === true,
+      qualified: c.qualified ?? null,
+    };
+    const liste = callsParFicheParcours.get(c.ig_lead_id);
+    if (liste) liste.push(ligne); else callsParFicheParcours.set(c.ig_lead_id, [ligne]);
+  }
+
+  // Le cash CONTRACTÉ, jamais `calls.revenue` — l'un est ce que l'élève a déclaré dans
+  // son rapport, l'autre ce qui est engagé, et les deux ont divergé en base. `call_id`
+  // non nul : une vente sans rendez-vous n'a aucun contenu à créditer, donc elle
+  // n'apparaît pas dans cet onglet, et son total peut être inférieur à Vue générale.
+  const montantParCallParcours = new Map<string, number>();
+  for (const d of (deals ?? [])) {
+    if (!d.call_id || d.status === 'canceled') continue;
+    montantParCallParcours.set(d.call_id, (montantParCallParcours.get(d.call_id) ?? 0) + Number(d.amount_total || 0));
+  }
+
+  // « Ont répondu » se lit au JOURNAL, pas au drapeau `hook_replied` de la fiche : ce
+  // drapeau retombe à false dès qu'une réponse de story ou un Cold DM le remplace, donc
+  // une conversation déjà eue disparaissait.
+  const ficheAReponduParcours = new Set<string>();
+  for (const ev of (hookRepliedEvents ?? [])) {
+    const personne = ev.prospect_key ? igUserIdParPseudo.get(ev.prospect_key.toLowerCase()) : undefined;
+    const fiche = personne ? idFicheParPersonne.get(personne) : undefined;
+    if (fiche) ficheAReponduParcours.add(fiche);
+  }
+
+  const ficheCalendlyEnvoyeParcours = new Set<string>();
+  for (const pl of (prospectLinksData ?? [])) {
+    if (!pl.ig_lead_id) continue;
+    if (wasCalendlyLinkSent(pl, linkClickedByLeadId)) ficheCalendlyEnvoyeParcours.add(pl.ig_lead_id);
+  }
+
+  const refsParcours: RefsParcours = {
+    ficheParPersonne: idFicheParPersonne,
+    lmClique: new Set(lmClickedByLeadId ? [...lmClickedByLeadId.keys()] : []),
+    ontRepondu: ficheAReponduParcours,
+    calendlyEnvoye: ficheCalendlyEnvoyeParcours,
+    calendlyClique: new Set(linkClickedByLeadId ? [...linkClickedByLeadId.keys()] : []),
+    callsParFiche: callsParFicheParcours,
+    montantParCall: montantParCallParcours,
+    continuations: continuationsContenu,
+  };
+
+  // Le journal reste ENTIER — la période s'applique au prédicat, jamais en amont. Le
+  // tronquer ferait remonter un rendez-vous vers une cohorte antérieure sans qu'aucun
+  // chiffre ne paraisse faux ; un test de `parcoursLeads.test.ts` le démontre.
+  const entreeDansLaPeriodeParcours = (p: PriseParcours) => isInPeriod(p.detected_at);
+
+  const parcoursParContenu = parcoursDesLeads(
+    lmHistoryPourRoles, p => p.media_id, refsParcours, entreeDansLaPeriodeParcours,
+  );
+  // Les mots-clés alternatifs comptent pour le lead magnet qu'ils déclenchent : « BEAU »
+  // peut pointer sur « Ubizen AI ». Sans ce repli, un contenu à mot-clé custom ouvrirait
+  // une ligne fantôme portant le mot-clé au lieu du nom du lead magnet.
+  const lmIdDuMotCle = (kw: string | null): string | null => {
+    if (!kw) return null;
+    const bas = kw.toLowerCase();
+    return altKwToLmId?.get(bas) ?? leadMagnets.find(lm => (lm.keyword || '').toLowerCase() === bas)?.id ?? null;
+  };
+  const parcoursParLeadMagnet = parcoursDesLeads(
+    lmHistoryPourRoles, p => lmIdDuMotCle(p.keyword_matched), refsParcours, entreeDansLaPeriodeParcours,
   );
 
   // Une reponse = une CONVERSATION, creditee au contenu du dernier lead magnet pris
@@ -8330,207 +8420,132 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
       })()}
 
 
-      {/* ── Section 2b : Performance LM ── */}
+      {/* -- Section 2b : Parcours des leads -- */}
       {(() => {
+        const parContenu = parcoursAngle === 'contenu';
+        const lignesParcours = parContenu ? parcoursParContenu : parcoursParLeadMagnet;
 
-        const ratePct = (v: number, of: number) => of > 0 ? Math.round((v / of) * 100) : 0;
-        const rateColor = (pct: number, high = 50, mid = 30) =>
-          pct >= high ? GREEN : pct >= mid ? AMBER : RED;
-        const closeColor = (pct: number) => pct >= 70 ? GREEN : pct >= 50 ? AMBER : RED;
-
-        const thS: React.CSSProperties = {
-          textAlign: 'right', fontSize: 10, fontWeight: 600, textTransform: 'uppercase',
-          color: 'var(--muted)', padding: '6px 12px 10px', borderBottom: '1px solid var(--border)',
-          whiteSpace: 'nowrap',
+        // Le libelle d'une ligne : un contenu a un titre et des vues, un lead magnet a un
+        // nom et un mot-cle. Tout le reste de la ligne est rigoureusement identique --
+        // c'est tout l'interet d'une seule fonction pour les deux angles.
+        const infoLigne = (cle: string) => {
+          if (parContenu) {
+            const r = consolidatedRows.find(x => x.postId === cle);
+            const sansTitre = !r || !r.title || r.title === '(sans titre)';
+            return {
+              titre: sansTitre ? '(sans titre)' : r!.title,
+              sousTitre: r ? r.type + ' - ' + fmt(r.views) + ' vues' : 'contenu inconnu',
+              sansTitre,
+            };
+          }
+          const lm = leadMagnets.find(l => l.id === cle);
+          return {
+            titre: lm ? lm.name : cle,
+            sousTitre: lm && lm.keyword ? 'mot-cle : ' + lm.keyword : '',
+            sansTitre: !lm,
+          };
         };
-        const tdS: React.CSSProperties = {
-          padding: '10px 12px', textAlign: 'right', fontSize: 13, verticalAlign: 'top',
-          borderBottom: '1px solid var(--border-soft)',
-        };
 
-        const Sub = ({ pct, isClose }: { pct: number; isClose?: boolean }) => (
-          <div style={{ fontSize: 10, fontWeight: 600, color: isClose ? closeColor(pct) : rateColor(pct), marginTop: 2 }}>{pct}%</div>
+        const rowsParcours = [...lignesParcours.entries()]
+          .map(([cle, l]) => ({ cle, l, info: infoLigne(cle) }))
+          .filter(r => r.l.commentairesLm > 0)
+          .sort((a, b) => (b.l.callsBookes - a.l.callsBookes) || (b.l.commentairesLm - a.l.commentairesLm));
+
+        const thP: React.CSSProperties = { textAlign: 'right', fontSize: 9.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', padding: '6px 9px 9px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', verticalAlign: 'bottom' };
+        const tdP: React.CSSProperties = { padding: '9px', textAlign: 'right', borderBottom: '1px solid var(--border-soft)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
+
+        // Un taux ne s'affiche jamais sans son effectif : sur trois personnes un point de
+        // pourcentage ne veut rien dire, et le denominateur visible le rappelle.
+        const CelluleP = ({ n, sur }: { n: number; sur?: number }) => (
+          <>
+            <span style={{ fontWeight: 700, fontSize: 14, color: n > 0 ? 'var(--ink)' : 'var(--faint)' }}>{n}</span>
+            {sur !== undefined && sur > 0 && n > 0 && (
+              <span style={{ display: 'block', fontSize: 9.5, fontWeight: 600, marginTop: 1, color: n >= sur ? GREEN : n * 2 >= sur ? AMBER : RED }}>
+                {Math.round((n / sur) * 100)} %
+              </span>
+            )}
+          </>
         );
 
         return (
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 22px' }}>
-            <SectionHead title="Performance LM" sub={leadMagnets.length > 0 ? `${leadMagnets.length} lead magnet${leadMagnets.length > 1 ? 's' : ''} — agrégat tous contenus` : 'Aucun lead magnet configuré'} />
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 20, marginBottom: 14, flexWrap: 'wrap' }}>
+              <SectionHead title="Parcours des leads" sub={"Sur les personnes entrees par ce " + (parContenu ? 'contenu' : 'lead magnet') + ", combien vont jusqu'au bout."} />
+              <div style={{ display: 'inline-flex', gap: 3, background: 'var(--surface-2)', borderRadius: 7, padding: 3 }}>
+                {([['contenu', 'Contenu'], ['lm', 'Lead magnet']] as const).map(([v, label]) => (
+                  <button key={v} onClick={() => setParcoursAngle(v)}
+                    style={{ fontSize: 11.5, fontWeight: 600, border: 'none', cursor: 'pointer', borderRadius: 5, padding: '5px 13px', background: parcoursAngle === v ? 'var(--surface)' : 'transparent', color: parcoursAngle === v ? 'var(--ink)' : 'var(--faint)' }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 960 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
                 <thead>
                   <tr>
-                    <th style={{ ...thS, textAlign: 'left', width: 140 }}>Lead magnet</th>
-                    <th style={thS}><EnteteColonne nom="clicLien">Clics desc.</EnteteColonne></th>
-                    <th style={thS}><EnteteColonne nom="leadsGeneres">Leads générés</EnteteColonne></th>
-                    <th style={thS}><EnteteColonne nom="clicLeadMagnet">Clics LM DM</EnteteColonne></th>
-                    <th style={thS}><EnteteColonne nom="conversationDm">Ont répondu</EnteteColonne></th>
-                    <th style={thS}><EnteteColonne nom="calendlyEnvoye">Calendly envoyés DM</EnteteColonne></th>
-                    <th style={thS}><EnteteColonne nom="clicLien">Clics Calendly DM</EnteteColonne></th>
-                    <th style={thS}><EnteteColonne nom="callBooke">Calls bookés</EnteteColonne></th>
-                    <th style={thS}><EnteteColonne nom="callHonore">Calls honorés</EnteteColonne></th>
-                    <th style={thS}><EnteteColonne nom="callQualifie">% Calls Qualifiés</EnteteColonne></th>
-                    <th style={thS}><EnteteColonne nom="close">Closés</EnteteColonne></th>
-                    <th style={thS}><EnteteColonne nom="revenue">Revenue</EnteteColonne></th>
+                    <th style={{ ...thP, textAlign: 'left', width: 260 }}>{parContenu ? 'Contenu' : 'Lead magnet'}</th>
+                    <th style={thP}><EnteteColonne nom="leadsGeneres">Commentaires LM</EnteteColonne></th>
+                    <th style={thP}><EnteteColonne nom="clicLeadMagnet">Clics LM</EnteteColonne></th>
+                    <th style={thP}><EnteteColonne nom="conversationDm">Ont repondu</EnteteColonne></th>
+                    <th style={thP}><EnteteColonne nom="calendlyEnvoye">Calendly envoyes</EnteteColonne></th>
+                    <th style={thP}><EnteteColonne nom="clicLien">Clics Calendly</EnteteColonne></th>
+                    <th style={thP}><EnteteColonne nom="callBooke">Calls bookes</EnteteColonne></th>
+                    <th style={thP}><EnteteColonne nom="callHonore">Calls honores</EnteteColonne></th>
+                    <th style={thP}><EnteteColonne nom="callQualifie">% qualifies</EnteteColonne></th>
+                    <th style={thP}><EnteteColonne nom="close">Closes</EnteteColonne></th>
+                    <th style={thP}><EnteteColonne nom="revenue">Revenue</EnteteColonne></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {leadMagnets.length === 0 && (
-                    <tr><td colSpan={12} style={{ padding: '20px', textAlign: 'center', fontSize: 12, color: 'var(--faint)' }}>Aucun lead magnet configuré — ajoutez-en via les paramètres</td></tr>
+                  {rowsParcours.length === 0 && (
+                    <tr><td colSpan={11} style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--faint)' }}>
+                      Personne n&apos;est encore entre par ce canal sur la periode.
+                    </td></tr>
                   )}
-                  {leadMagnets.map((lm, i) => {
-                    // Pivot unique : keyword_matched — même clé sur lmHistory, prospect_links, et shortio path
-                    const kw = (lm.keyword || '').toLowerCase();
-                    // En mode "depuis connexion", lmHistory/prospectLinksData sont déjà bornés
-                    // [connectedAt, aujourd'hui] par le fetch — pas de re-filtre calendaire ici.
-                    const periodStartDate = sinceConnection ? '' : periodStart.toISOString();
-                    const periodEndDate = sinceConnection ? null : (_pIdx === 0 ? null : periodEnd.toISOString());
-
-                    // Tous les mots-clés alternatifs pour ce LM (définis dans content_links par contenu)
-                    // Ex: LM Ubizen AI (keyword: LM) peut aussi être déclenché par BEAU via un contenu
-                    const altKws = new Set<string>([kw]);
-                    if (altKwToLmId) {
-                      for (const [altKw, lmId] of altKwToLmId) {
-                        if (lmId === lm.id) altKws.add(altKw);
-                      }
-                    }
-
-                    // Leads : depuis instagram_lead_lm_history — une ligne par VRAIE interaction
-                    // (detected_at figé à cet événement précis), pas depuis instagram_leads qui
-                    // n'a qu'une ligne par personne et écrase keyword_matched à chaque nouvelle
-                    // interaction (ex: un lead qui prend #GUIDE en juin puis #PROMO en août
-                    // disparaissait silencieusement des stats de #GUIDE — bug découvert en test
-                    // réel sur le flux stories, cf. session 2026-07-26).
-                    const lmHistoryMatches = (lmHistory ?? []).filter(h =>
-                      altKws.has((h.keyword_matched || '').toLowerCase()) &&
-                      h.detected_at >= periodStartDate && (!periodEndDate || h.detected_at <= periodEndDate)
-                    );
-                    // Dédupliqué par ig_user_id — "Leads générés" compte des PROSPECTS, pas des
-                    // interactions : une personne qui redétecte le même mot-clé plusieurs fois
-                    // (commentaires répétés) ne doit pas gonfler artificiellement ce chiffre (cas
-                    // réel observé : 1 prospect détecté 5 fois en 24h comptait à tort pour 5).
-                    const uniqueSentUserIds = new Set(lmHistoryMatches.filter(h => h.lead_magnet_sent).map(h => h.ig_user_id));
-                    const leadsCount = uniqueSentUserIds.size;
-                    // reponses/clicsLM restent basés sur l'état ACTUEL du lead (instagram_leads) —
-                    // pas d'historique par-interaction disponible pour hookReplied/clics aujourd'hui ;
-                    // matché par ig_user_id présent dans lmHistoryMatches pour rester scopé au LM.
-                    const lmHistoryUserIds = new Set(lmHistoryMatches.map(h => h.ig_user_id));
-                    const lmLeads = leads.filter(l => l.igUserId && lmHistoryUserIds.has(l.igUserId));
-                    // Journal, pas `l.hookReplied` : ce drapeau de fiche retombe a false
-                    // a chaque nouveau lead magnet envoye. Cf. `personnesAyantRepondu`.
-                    const reponses = lmLeads.filter(l => l.igUserId && personnesAyantRepondu.has(l.igUserId)).length;
-
-                    // Clics LM : même logique que le pipeline — prospect_events.lm_clicked par lead
-                    // (un lead = 0 ou 1 clic, ignore les clics de test antérieurs à la création du lead)
-                    const clicsLM = lmLeads.filter((l: MockLead) => l.id && lmClickedByLeadId?.has(l.id)).length;
-
-                    // Clics description (lm_desc_ig + lm_desc_yt) — clics bruts Short.io depuis clicksByUrl
-                    const clicsDesc = (() => {
-                      if (!lm.url) return 0;
-                      let total = 0;
-                      for (const l of allShortioLinks) {
-                        if ((l.linkCategory === 'lm_desc_ig' || l.linkCategory === 'lm_desc_yt') &&
-                            (l.originalUrl || '').includes(lm.url.split('?')[0])) {
-                          total += linkClics(l);
-                        }
-                      }
-                      return total;
-                    })();
-
-                    // Liens Calendly + tout le reste : pivot direct sur keyword_matched dans prospect_links
-                    // Inclut les keywords alternatifs (ex: BEAU pour LM Ubizen AI)
-                    // Même logique que Business Micro : calendly_link_sent + filtre période [periodStart, periodEnd]
-                    const supaProspects = (prospectLinksData ?? []).filter((pl: any) => {
-                      if (!altKws.has((pl.keyword_matched || '').toLowerCase())) return false;
-                      if (!wasCalendlyLinkSent(pl, linkClickedByLeadId)) return false;
-                      const ts = calendlySentAt(pl, linkClickedByLeadId);
-                      if (!ts) return false;
-                      const iso = new Date(ts).toISOString();
-                      return iso >= periodStartDate && (!periodEndDate || iso <= periodEndDate);
-                    });
-                    // UNE ligne par PERSONNE. `prospect_links` n'a AUCUNE contrainte
-                    // d'unicite (verifie sur pg_indexes : seule la cle primaire existe) et
-                    // l'application recree bien des lignes — le lien de rdjdkzjd a ete
-                    // supprime puis regenere. Deux lignes pour une personne comptaient donc
-                    // deux fois dans les sept colonnes qui suivent, sans que rien ne
-                    // l'empeche. Une seule deduplication en amont les couvre toutes.
-                    //
-                    // Repli sur le pseudo pour les liens crees hors flux Instagram, qui
-                    // n'ont pas d'`ig_lead_id`. La ligne la plus recente gagne : c'est
-                    // celle qui porte l'etat courant du lien.
-                    const parPersonne = new Map<string, any>();
-                    for (const pl of supaProspects) {
-                      const cle = pl.ig_lead_id ?? (pl.ig_username ? `@${String(pl.ig_username).toLowerCase()}` : `#${pl.id}`);
-                      if (!parPersonne.has(cle)) parPersonne.set(cle, pl);
-                    }
-                    const personnes = [...parPersonne.values()];
-
-                    const liensCalendly = personnes.length;
-
-                    // Clics Calendly : même logique que le pipeline — prospect_events.link_clicked par lead
-                    const clicsCalendly = personnes.filter((pl: any) => pl.ig_lead_id && linkClickedByLeadId?.has(pl.ig_lead_id)).length;
-
-                    const booked  = personnes.filter((pl: any) => pl.callBooked).length;
-                    const honored = personnes.filter((pl: any) => pl.callHonored).length;
-                    const closed  = personnes.filter((pl: any) => pl.dealClosed === true).length;
-                    const revenue = personnes.reduce((s: number, pl: any) => s + (pl.revenue || 0), 0);
-
-                    // % qualifié : parmi les calls honorés avec qualified renseigné (exclut non-renseignés)
-                    const qualifiableProspects = personnes.filter((pl: any) => pl.callHonored && pl.qualified !== null);
-                    const qualifiedCount = qualifiableProspects.filter((pl: any) => pl.qualified === true).length;
-                    const qualifiedAnswered = qualifiableProspects.length;
-                    const qualifiedPct = qualifiedAnswered > 0 ? Math.round((qualifiedCount / qualifiedAnswered) * 100) : null;
-
-                    // `clicsDesc` est affiché indépendamment de hasActivity (colonne
-                    // « Clics desc. » ci-dessous) : le laisser hors de cette condition
-                    // faisait cohabiter la mention « Aucune activité » et « 2 clics » sur
-                    // la même ligne (observé sur le LM « Tunnel Closing », août 2026).
-                    const hasActivity = leadsCount > 0 || clicsDesc > 0;
-
-                    return (
-                      <tr key={i} style={{ borderBottom: '1px solid var(--border-soft)' }}>
-                        <td style={{ ...tdS, textAlign: 'left', fontWeight: 600, fontSize: 12, color: 'var(--ink)' }}>
-                          {lm.name}
-                          <div style={{ fontSize: 10, color: 'var(--faint)', fontWeight: 400, marginTop: 2 }}>mot-clé : {lm.keyword}</div>
-                          {!hasActivity && <div style={{ fontSize: 10, color: 'var(--faint)', fontWeight: 400 }}>Aucune activité</div>}
-                        </td>
-                        <td style={{ ...tdS, fontWeight: clicsDesc > 0 ? 700 : 400, color: clicsDesc > 0 ? 'var(--ink)' : 'var(--faint)' }}>{clicsDesc > 0 ? clicsDesc : '—'}</td>
-                        <td style={{ ...tdS, fontWeight: leadsCount > 0 ? 700 : 400, color: leadsCount > 0 ? 'var(--ink)' : 'var(--faint)' }}>{hasActivity ? leadsCount : '—'}</td>
-                        <td style={tdS}>
-                          <div style={{ fontWeight: hasActivity && clicsLM > 0 ? 700 : 400, color: hasActivity && clicsLM > 0 ? 'var(--ink)' : 'var(--faint)' }}>{hasActivity ? clicsLM : '—'}</div>
-                          {hasActivity && leadsCount > 0 && <Sub pct={ratePct(clicsLM, leadsCount)} />}
-                        </td>
-                        <td style={tdS}>
-                          <div style={{ fontWeight: hasActivity && reponses > 0 ? 700 : 400, color: hasActivity && reponses > 0 ? 'var(--ink)' : 'var(--faint)' }}>{hasActivity ? reponses : '—'}</div>
-                          {hasActivity && clicsLM > 0 && <Sub pct={ratePct(reponses, clicsLM)} />}
-                        </td>
-                        <td style={{ ...tdS, fontWeight: hasActivity && liensCalendly > 0 ? 700 : 400, color: hasActivity && liensCalendly > 0 ? 'var(--ink)' : 'var(--faint)' }}>{hasActivity ? liensCalendly : '—'}</td>
-                        <td style={tdS}>
-                          <div style={{ fontWeight: hasActivity && clicsCalendly > 0 ? 700 : 400, color: hasActivity && clicsCalendly > 0 ? 'var(--ink)' : 'var(--faint)' }}>{hasActivity ? clicsCalendly : '—'}</div>
-                          {hasActivity && liensCalendly > 0 && <Sub pct={ratePct(clicsCalendly, liensCalendly)} />}
-                        </td>
-                        <td style={tdS}>
-                          <div style={{ fontWeight: hasActivity && booked > 0 ? 700 : 400, color: hasActivity && booked > 0 ? GREEN : 'var(--faint)' }}>{hasActivity ? booked : '—'}</div>
-                          {hasActivity && clicsCalendly > 0 && <Sub pct={ratePct(booked, clicsCalendly)} />}
-                        </td>
-                        <td style={tdS}>
-                          <div style={{ fontWeight: hasActivity && honored > 0 ? 700 : 400, color: hasActivity && honored > 0 ? GREEN : 'var(--faint)' }}>{hasActivity ? honored : '—'}</div>
-                          {hasActivity && booked > 0 && <Sub pct={ratePct(honored, booked)} isClose />}
-                        </td>
-                        <td style={{ ...tdS, fontSize: 11, whiteSpace: 'nowrap', fontWeight: qualifiedPct !== null ? 600 : 400, color: qualifiedPct !== null ? 'var(--ink)' : 'var(--faint)' }}>
-                          {qualifiedPct !== null ? `${qualifiedPct}% (${qualifiedCount}/${qualifiedAnswered})` : '—'}
-                        </td>
-                        <td style={tdS}>
-                          <div style={{ fontWeight: hasActivity && closed > 0 ? 700 : 400, color: hasActivity && closed > 0 ? GREEN : 'var(--faint)' }}>{hasActivity ? closed : '—'}</div>
-                          {hasActivity && honored > 0 && <Sub pct={ratePct(closed, honored)} isClose />}
-                        </td>
-                        <td style={{ ...tdS, fontWeight: 700, color: hasActivity && revenue > 0 ? GREEN : 'var(--faint)', whiteSpace: 'nowrap' }}>
-                          {hasActivity && revenue > 0 ? fmtEur(revenue) : '—'}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {rowsParcours.map(({ cle, l, info }) => (
+                    <tr key={cle}>
+                      <td style={{ ...tdP, textAlign: 'left' }}>
+                        <div style={{ fontWeight: 600, fontSize: 12.5, color: info.sansTitre ? 'var(--faint)' : 'var(--ink)', fontStyle: info.sansTitre ? 'italic' : undefined, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis' }}>{info.titre}</div>
+                        {info.sousTitre && <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 1 }}>{info.sousTitre}</div>}
+                      </td>
+                      <td style={tdP}><CelluleP n={l.commentairesLm} /></td>
+                      <td style={tdP}><CelluleP n={l.clicsLm} sur={l.commentairesLm} /></td>
+                      <td style={tdP}><CelluleP n={l.ontRepondu} sur={l.clicsLm} /></td>
+                      <td style={tdP}><CelluleP n={l.calendlyEnvoyes} sur={l.ontRepondu} /></td>
+                      <td style={tdP}><CelluleP n={l.clicsCalendly} sur={l.calendlyEnvoyes} /></td>
+                      <td style={tdP}><CelluleP n={l.callsBookes} sur={l.clicsCalendly} /></td>
+                      <td style={tdP}><CelluleP n={l.callsHonores} sur={l.callsBookes} /></td>
+                      <td style={{ ...tdP, fontSize: 11 }}>
+                        {l.qualifies.renseignes > 0 ? (
+                          <>
+                            <span style={{ fontWeight: 700, fontSize: 14 }}>{Math.round((l.qualifies.oui / l.qualifies.renseignes) * 100)} %</span>
+                            <span style={{ display: 'block', fontSize: 9.5, color: 'var(--muted)', marginTop: 1 }}>{l.qualifies.oui} / {l.qualifies.renseignes}</span>
+                          </>
+                        ) : (
+                          <>
+                            <span style={{ color: 'var(--faint)' }}>&mdash;</span>
+                            <span style={{ display: 'block', fontSize: 9.5, color: 'var(--faint)', marginTop: 1 }}>aucun rapport</span>
+                          </>
+                        )}
+                      </td>
+                      <td style={tdP}><CelluleP n={l.closes} sur={l.callsHonores} /></td>
+                      <td style={tdP}>
+                        {l.revenue > 0
+                          ? <span style={{ fontWeight: 800, color: GREEN }}>{fmtEur(l.revenue)}</span>
+                          : <span style={{ color: 'var(--faint)' }}>&mdash;</span>}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
+            </div>
+
+            <div style={{ marginTop: 12, paddingTop: 11, borderTop: '1px solid var(--border)', fontSize: 10.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+              <b style={{ color: 'var(--ink)' }}>Pas de total.</b> Une meme personne peut etre entree par plusieurs contenus : additionner les lignes la compterait plusieurs fois.
+              {' '}<b style={{ color: 'var(--ink)' }}>La periode porte sur la date d&apos;entree</b> — les gens entres sur la periode, et tout ce qu&apos;ils ont fait ensuite, meme apres. Un rendez-vous se range dans la ligne par laquelle la personne etait entree juste avant lui.
+              {' '}<b style={{ color: 'var(--ink)' }}>Ce tableau compte des personnes</b>, pas des rendez-vous : c&apos;est pourquoi ses nombres different de ceux de la section precedente, qui compte des evenements.
             </div>
           </div>
         );
@@ -10480,7 +10495,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} abonnesAujourdHui={ig?.followers ?? null} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.yt?.snapshotError} abonnesAujourdHui={yt?.subscribers ?? null} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} callsAllTime={callsAllTimeEff} deals={deals} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} allTimeStart={allTimeStart} profileId={profileId} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} premierClicLienProspect={premierClicLienProspect} />}
-          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} hookRepliedEvents={hookRepliedEvents} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={callsAllTimeEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} shortioChartHistoryStory={shortioChartHistoryStory} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
+          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} hookRepliedEvents={hookRepliedEvents} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={callsAllTimeEff} deals={dealsEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} shortioChartHistoryStory={shortioChartHistoryStory} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
           {tab === 5 && <TabRevenues encaissementsParJour={encaissementsParJour} cashParVente={cashParVente} deals={dealsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} allTimeStart={allTimeStart} stripeConnected={integStatus?.stripeConnected} />}
         </>
       )}
