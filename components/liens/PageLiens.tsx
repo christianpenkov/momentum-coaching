@@ -2219,6 +2219,12 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
       duo: post.comments != null
         ? {
             gauche: post.comments, gaucheAide: 'Total',
+            // Les deux chiffres n'ont pas la même horloge, et ça se voit dès
+            // qu'un commentaire est supprimé : « 0 Total │ 3 Lead Magnets » se
+            // lit comme une contradiction tant que personne ne dit que le
+            // premier est un état et le second un cumul.
+            gaucheTitre: "Commentaires encore en ligne sous le post, tels qu'Instagram les compte aujourd'hui. Un commentaire supprimé disparaît de ce chiffre.",
+            droiteTitre: "Personnes ayant commenté le mot-clé depuis la publication. C'est un cumul : il ne baisse pas quand un commentaire est supprimé, d'où un total parfois plus petit.",
             droite: entonnoir.commentaires, droiteAide: 'Lead Magnets',
             // Part des commentaires qui portent le mot-clé.
             //
@@ -2253,7 +2259,7 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
   ].filter(e => e.valeur != null) as {
     cle: string; libelle: string; valeur: number; precision?: string;
     nonMesure?: boolean; titre?: string;
-    duo?: { gauche: number; gaucheAide: string; droite: number; droiteAide: string; taux?: number | null };
+    duo?: { gauche: number; gaucheAide: string; gaucheTitre?: string; droite: number; droiteAide: string; droiteTitre?: string; taux?: number | null };
   }[];
 
   // ── Les deux issues, en branche ────────────────────────────────────────────
@@ -2362,7 +2368,7 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
                         // griser la première la faisait passer pour une note de
                         // bas de page. Ce sont les libellés qui les distinguent.
                         <div style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center', gap: 6, marginTop: 2 }}>
-                          <div style={{ flex: 1, minWidth: 0 }}>
+                          <div title={e.duo.gaucheTitre} style={{ flex: 1, minWidth: 0, cursor: e.duo.gaucheTitre ? 'help' : undefined }}>
                             <div style={{ fontSize: 17, fontWeight: 700, color: INK, fontVariantNumeric: 'tabular-nums' }}>
                               {e.duo.gauche.toLocaleString('fr-FR')}
                             </div>
@@ -2380,7 +2386,7 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
                             )}
                             <span style={{ width: 1, flex: 1, background: BORDER }} />
                           </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
+                          <div title={e.duo.droiteTitre} style={{ flex: 1, minWidth: 0, cursor: e.duo.droiteTitre ? 'help' : undefined }}>
                             <div style={{ fontSize: 17, fontWeight: 700, color: INK, fontVariantNumeric: 'tabular-nums' }}>
                               {e.duo.droite.toLocaleString('fr-FR')}
                             </div>
