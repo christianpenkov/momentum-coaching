@@ -216,3 +216,48 @@ export function idsDeContinuation(calls: CallPourContinuation[]): Set<string> {
   }
   return ids;
 }
+
+/**
+ * QUAND une vente a-t-elle ete faite ?
+ *
+ * Reponse : **le jour du rendez-vous qui a produit l'opportunite**. Ni le jour ou le
+ * vendeur remplit son rapport, ni celui ou le prospect avait reserve.
+ *
+ * Trois choix, chacun pour une raison :
+ *
+ * 1. **Le rendez-vous, pas la saisie.** `signed_at` valait l'instant du remplissage.
+ *    Or les brouillons de rapport vivent 30 jours : un rendez-vous de fin aout rapporte
+ *    en septembre faisait basculer son cash dans le mois suivant, sur les quatre ecrans
+ *    qui lisent cette date a la fois — donc sans qu'aucun ne contredise l'autre.
+ *
+ * 2. **Sa date de TENUE (`scheduled_at`), pas de reservation.** Un rendez-vous reserve
+ *    le 29 aout pour le 2 septembre a produit sa vente en septembre : c'est la qu'elle
+ *    s'est faite. Dater sur la reservation placerait la vente AVANT le rendez-vous qui
+ *    l'a produite — faux en permanence, la ou le cas inverse est rare.
+ *
+ * 3. **Le PREMIER rendez-vous de la chaine.** Un 2e rendez-vous ne cree pas
+ *    d'opportunite nouvelle (voir `idsDeContinuation`) : les calls bookes et le closing
+ *    sont ancres au premier. Si l'argent restait ancre au second, une periode pouvait
+ *    afficher une vente closee sans cash et la suivante du cash sans aucun rendez-vous.
+ *
+ * Repli sur `maintenant` dans deux cas : aucun rendez-vous exploitable, ou rendez-vous
+ * ENCORE A VENIR. Rien n'empeche de rapporter une vente avant le creneau — le prospect
+ * peut avoir dit oui en DM — et une vente ne peut pas avoir ete faite demain.
+ *
+ * ⚠️ Limite assumee : une vente conclue en RELANCE quelques jours apres le rendez-vous
+ * est datee du rendez-vous. L'ecart se compte alors en jours. Une date de vente
+ * saisissable dans le rapport la fermerait, et se brancherait ici meme.
+ */
+export function dateDeVente(
+  callsDuProspect: CallPourContinuation[],
+  callRapporteId: string,
+  maintenant: Date,
+): string {
+  const representant = representantDOpportunite(callsDuProspect).get(callRapporteId) ?? callRapporteId;
+  const call = callsDuProspect.find(c => c.id === representant);
+  const tenu = call?.scheduled_at ? new Date(call.scheduled_at) : null;
+  if (tenu && !Number.isNaN(tenu.getTime()) && tenu.getTime() < maintenant.getTime()) {
+    return tenu.toISOString();
+  }
+  return maintenant.toISOString();
+}

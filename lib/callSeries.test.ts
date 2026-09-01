@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { callDayKey, bucketCallsByBookedDay, parisDayRange, tauxOuTrou, idsDeContinuation, representantDOpportunite } from './callSeries.ts';
+import { callDayKey, bucketCallsByBookedDay, parisDayRange, tauxOuTrou, idsDeContinuation, representantDOpportunite, dateDeVente } from './callSeries.ts';
 
 // Cas qui a motivé la fonction : un call réservé entre minuit et 2 h heure de Paris
 // tombe la VEILLE en UTC. Le découpage précédent (`new Date('YYYY-MM-DD')`, donc
@@ -267,4 +267,56 @@ test('une chaine de trois rendez-vous se rattache toute au premier', () => {
   ]);
   assert.equal(rep.get('deux'), 'un');
   assert.equal(rep.get('trois'), 'un');
+});
+
+// ─── dateDeVente : les quatre cas ────────────────────────────────────────────
+//
+// Cette regle etait invérifiable en base : elle ne s'observe qu'au moment ou une vente
+// est creee, et aucune ne l'avait ete depuis sa mise en place. Une regle qu'on ne peut
+// pas verifier est une regle qu'on affirme — d'ou ces tests.
+
+const RDV = { id: 'rdv', scheduled_at: '2026-08-28T14:00:00.000Z', booked_at: '2026-08-20T09:00:00.000Z',
+              outcome: 'closed', invitee_email: 'paul@x.fr' };
+
+test('rapport rempli le jour meme : la vente est datee du rendez-vous', () => {
+  const d = dateDeVente([RDV], 'rdv', new Date('2026-08-28T18:00:00.000Z'));
+  assert.equal(d, '2026-08-28T14:00:00.000Z');
+});
+
+test('rapport rempli trois jours apres : toujours la date du rendez-vous', () => {
+  // Le cas qui faisait basculer le cash d'un mois a l'autre : les brouillons de rapport
+  // vivent 30 jours, l'ecart peut donc traverser un 1er du mois.
+  const d = dateDeVente([RDV], 'rdv', new Date('2026-08-31T22:00:00.000Z'));
+  assert.equal(d, '2026-08-28T14:00:00.000Z');
+});
+
+test('vente declaree sur un 2e rendez-vous : datee du PREMIER', () => {
+  // Les calls bookes et le closing sont ancres au premier rendez-vous ; sans cette
+  // regle, l'argent partait dans la periode du second et une semaine affichait une
+  // vente closee sans cash pendant que la suivante affichait du cash sans rendez-vous.
+  const chaine = [
+    { id: 'un',   scheduled_at: '2026-08-21T05:00:00.000Z', booked_at: '2026-08-21T04:59:00.000Z',
+      outcome: 'second_call', invitee_email: 'paul@x.fr' },
+    { id: 'deux', scheduled_at: '2026-09-03T10:00:00.000Z', booked_at: '2026-08-29T23:17:00.000Z',
+      outcome: 'closed',      invitee_email: 'paul@x.fr' },
+  ];
+  const d = dateDeVente(chaine, 'deux', new Date('2026-09-03T12:00:00.000Z'));
+  assert.equal(d, '2026-08-21T05:00:00.000Z');
+});
+
+test('rendez-vous encore a venir : on garde l instant de la saisie', () => {
+  // Une vente ne peut pas avoir ete faite demain. Le prospect a pu dire oui en DM avant
+  // le creneau ; sans cette borne, le cash disparaissait du mois en cours.
+  const saisie = new Date('2026-08-25T09:00:00.000Z');
+  const d = dateDeVente([RDV], 'rdv', saisie);   // RDV le 28, saisie le 25
+  assert.equal(d, saisie.toISOString());
+});
+
+test('aucun rendez-vous exploitable : repli sur l instant de la saisie', () => {
+  const saisie = new Date('2026-08-25T09:00:00.000Z');
+  assert.equal(dateDeVente([], 'inconnu', saisie), saisie.toISOString());
+  assert.equal(
+    dateDeVente([{ id: 'x', scheduled_at: null, invitee_email: 'a@b.fr' }], 'x', saisie),
+    saisie.toISOString(),
+  );
 });

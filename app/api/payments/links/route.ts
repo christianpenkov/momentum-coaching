@@ -4,6 +4,7 @@ import { createClient as createServerClient } from '@/lib/supabase/server';
 import { getStripeAccess, resolveTargetProfile } from '@/lib/stripe-account';
 import { createDealPaymentLink } from '@/lib/stripe-payment-links';
 import { isValidContentId } from '@/lib/contentId';
+import { dateDeVente } from '@/lib/callSeries';
 
 /**
  * Création d'un deal et de son (ses) lien(s) de paiement.
@@ -124,49 +125,46 @@ export async function POST(request: NextRequest) {
   if (body.callId) {
     const { data: call } = await supa
       .from('calls')
-      .select('ig_lead_id, prospect_id, utm_content, source, scheduled_at')
+      .select('ig_lead_id, prospect_id, utm_content, source, scheduled_at, booked_at, outcome, invitee_email, invitee_name')
       .eq('id', body.callId)
       .eq('coach_id', profileId)
       .maybeSingle();
     if (call) {
       // ── QUAND la vente a-t-elle ete faite ? ────────────────────────────────
       //
-      // Pendant le rendez-vous. Pas au moment ou le vendeur remplit son rapport.
+      // La regle vit dans `dateDeVente` (lib/callSeries.ts), avec ses tests. Elle
+      // n'est PAS inline ici : elle ne s'observe qu'au moment ou une vente est
+      // creee, donc elle serait invérifiable tant qu'aucune ne l'est — une regle
+      // qu'on ne peut pas verifier est une regle qu'on affirme.
       //
-      // `signed_at` valait `new Date()`, donc l'instant de la SAISIE. Sur le profil
-      // de test, les quatre ventes reelles ont ete saisies 25 a 32 heures apres leur
-      // rendez-vous — et rien n'oblige a remplir le lendemain : les brouillons de
-      // rapport sont conserves 30 jours, donc l'ecart peut atteindre un mois.
+      // En resume : la date de TENUE du PREMIER rendez-vous de la chaine, avec
+      // repli sur l'instant de saisie si ce rendez-vous n'a pas encore eu lieu.
       //
-      // Un rendez-vous du 28 aout rapporte le 2 septembre faisait donc basculer son
-      // cash dans septembre, sur les QUATRE ecrans qui lisent `signed_at` : Vue
-      // generale, l'onglet Revenus, l'accueil et la page Paiements. Tous d'accord
-      // entre eux, tous decales du meme mois.
-      //
-      // On corrige a l'ECRITURE, pas a la lecture : aucune regle de decoupe ne
-      // change nulle part, c'est la donnee qui devient vraie. La date de saisie
-      // reste disponible dans `created_at`, qui est la pour ca.
-      //
-      // La migration du 2026-08-18 posait deja `signed_at = scheduled_at` sur les
-      // ventes qu'elle a creees : les deux chemins d'ecriture se contredisaient.
-      //
-      // ⚠️ Limite assumee : une vente conclue en RELANCE quelques jours apres le
-      // rendez-vous est datee du rendez-vous. L'ecart se compte alors en jours, la
-      // ou l'ancien comportement se comptait en semaines des qu'un rapport trainait.
-      // Une date de vente saisissable dans le rapport fermerait ce reste ; elle se
-      // brancherait ici meme, sans rien defaire.
-      // Jamais dans le futur : une vente ne peut pas avoir ete faite demain.
-      // Rien n'empeche de remplir le rapport d'un rendez-vous a venir — le prospect
-      // peut avoir dit oui en DM avant le creneau. Sans cette borne, le cash de cette
-      // vente disparaitrait du mois en cours jusqu'a la date du rendez-vous, et
-      // tomberait dans le mois suivant si le creneau est apres le 1er. Trois
-      // rendez-vous a venir en base au 2026-09-01, le plus lointain a J+4.
-      if (call.scheduled_at) {
-        const rdv = new Date(call.scheduled_at);
-        if (!Number.isNaN(rdv.getTime()) && rdv.getTime() < Date.now()) {
-          signedAt = rdv.toISOString();
+      // Il faut donc les autres rendez-vous de la meme personne : un 2e rendez-vous
+      // ne cree pas d'opportunite nouvelle, et c'est le premier qui date la vente.
+      // On les cherche par `prospect_id` — la fiche persistante — avec repli sur
+      // l'e-mail, seul lien disponible quand la fiche n'existe pas encore.
+      const critere: [string, string] | null = call.prospect_id
+        ? ['prospect_id', call.prospect_id]
+        : (call.invitee_email ? ['invitee_email', call.invitee_email] : null);
+      let callsDuProspect: any[] = [{ ...call, id: body.callId }];
+      if (critere) {
+        const { data: fratrie } = await supa
+          .from('calls')
+          .select('id, scheduled_at, booked_at, outcome, invitee_email, invitee_name')
+          .eq('coach_id', profileId)
+          .eq(critere[0], critere[1])
+          .neq('ignored', true);
+        // Le rendez-vous rapporte doit etre dans le lot : sans lui, `dateDeVente` ne
+        // trouve pas son opportunite et retombe sur l'instant de saisie en silence.
+        if (fratrie?.length) {
+          callsDuProspect = fratrie.some(c => c.id === body.callId)
+            ? fratrie
+            : [...fratrie, { ...call, id: body.callId }];
         }
       }
+      signedAt = dateDeVente(callsDuProspect, body.callId, new Date());
+
       igLeadId = igLeadId ?? call.ig_lead_id;
       prospectId = prospectId ?? call.prospect_id;
       // utm_content ne vaut que si c'est un vrai ID de contenu : le champ a
