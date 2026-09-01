@@ -322,6 +322,42 @@ const callPeriodDate = (c: { booked_at?: string | null; scheduled_at?: string | 
 
 function pct(a: number, b: number) { return b > 0 ? Math.round((a / b) * 100) : 0; }
 
+/**
+ * LES VENTES D'UNE PERIODE — la seule definition, pour tout « Mes stats ».
+ *
+ * Trois choses, et chacune a corrige un ecart reel :
+ *
+ * 1. **La source est `deals`, jamais les calls.** Un deal peut exister SANS rendez-vous —
+ *    un upsell, une vente hors pipeline. Le sommer depuis les calls le rend invisible.
+ * 2. **La decoupe est `signed_at`**, volontairement une AUTRE date que celle des calls :
+ *    un deal signe ce mois sur un rendez-vous du mois dernier appartient au cash de ce
+ *    mois — c'est le mois ou l'argent a ete engage. Meme regle que `useCoachData`, donc
+ *    l'accueil et Mes stats convergent sur la meme source ET la meme date.
+ * 3. **Les ventes annulees sont exclues** : une vente annulee n'a pas ete signee. Meme
+ *    filtre que `computeDealTotals` dans lib/salesCallStats.ts.
+ *
+ * En « depuis la connexion », les deals arrivent deja bornes par le fetch : on ne
+ * refiltre pas sur une fenetre calendaire qui n'a pas de sens dans ce mode.
+ *
+ * Extraite le 2026-09-01 : l'onglet Revenus portait cette regle, Vue generale sommait
+ * encore `calls.revenue` sur `booked_at`. Une regle qui vaut partout ne doit exister
+ * qu'a un endroit — c'est la recopie qui les fait diverger.
+ */
+function dealsDeLaPeriode(
+  deals: DealRecord[] | undefined,
+  debut: Date,
+  fin: Date,
+  sinceConnection?: boolean,
+): DealRecord[] {
+  return (deals ?? []).filter(d => {
+    if (d.status === 'canceled') return false;
+    if (sinceConnection) return true;
+    if (!d.signed_at) return false;
+    const ds = new Date(d.signed_at);
+    return ds >= debut && ds <= fin;
+  });
+}
+
 const libelleJourCourbe = (iso: string) =>
   new Date(iso + 'T12:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
 
@@ -904,7 +940,7 @@ type Period = 7 | 30;
 
 // ─── TAB "Vue générale (B)" — version épurée ─────────────────────────────────
 
-function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, calendlyStaticClicsFromDb, igLive, ytLive, sinceConnection, leads, lmHistory, integrationsReadyAt, allTimeStart }: { ig: IGStats | null; yt: YTStats | null; msgs: IGMessages | null; calls: CallRecord[]; callsAllTime?: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; calendlyStaticClicsFromDb?: number; igLive?: IGStats | null; ytLive?: YTStats | null; sinceConnection?: boolean; leads?: MockLead[]; lmHistory?: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[]; integrationsReadyAt?: string | null; allTimeStart?: string | null }) {
+function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, calendlyStaticClicsFromDb, igLive, ytLive, sinceConnection, leads, lmHistory, integrationsReadyAt, allTimeStart, deals }: { ig: IGStats | null; yt: YTStats | null; msgs: IGMessages | null; calls: CallRecord[]; callsAllTime?: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; calendlyStaticClicsFromDb?: number; igLive?: IGStats | null; ytLive?: YTStats | null; sinceConnection?: boolean; leads?: MockLead[]; lmHistory?: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[]; integrationsReadyAt?: string | null; allTimeStart?: string | null; deals?: DealRecord[] }) {
   // Etiquette de fenetre. En All-Time les cartes affichaient « 30j » alors que le
   // bandeau annonce « All-Time » — meme defaut que celui corrige dans les onglets
   // Instagram et YouTube (2026-08-22).
@@ -1106,7 +1142,25 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   const dealsCloses = (callsAllTime ?? calls).filter(c =>
     c.deal_closed && idsDansLaPeriode.has(representantOv.get(c.id) ?? c.id)
   ).length;
-  const totalRev     = callsInPeriod.reduce((s, c) => s + (c.revenue || 0), 0);
+  // Le cash contracte vient des VENTES, pas des rendez-vous. Vue generale etait le
+  // dernier ecran a le sommer depuis les calls, donc a le decouper sur `booked_at` —
+  // la date qui credite le CONTENU d'avoir genere un rendez-vous, pas celle ou l'argent
+  // a ete engage. Deux consequences que cette ligne fait disparaitre :
+  //
+  //   - une vente SANS rendez-vous (upsell, vente hors pipeline) etait invisible ici,
+  //     alors que l'onglet Revenus et l'accueil la comptaient ;
+  //   - une vente signee le mois suivant son rendez-vous tombait dans le mois du
+  //     rendez-vous, la ou les deux autres ecrans la mettaient dans son mois de signature.
+  //
+  // Aucun des deux cas n'existe en base au 2026-09-01 (0 vente sans rendez-vous, 0
+  // signature hors du mois de sa reservation, ecart maximal 1,39 jour) — c'est justement
+  // pour ca qu'il fallait le corriger avant qu'il ne se voie.
+  //
+  // Les cartes PAR CONTENU gardent, elles, le montant rattache au rendez-vous : un upsell
+  // vendu six mois plus tard ne doit pas gonfler la performance du post qui a amene le
+  // client. Voir docs/perimetre-stats-referentiel.md.
+  const ventesDeLaPeriode = dealsDeLaPeriode(deals, ovPeriodStart, ovPeriodEnd, sinceConnection);
+  const totalRev = ventesDeLaPeriode.reduce((s, d) => s + Number(d.amount_total || 0), 0);
   const noShowRate   = rendezVous > 0 ? pct(noShows, rendezVous) : 0;
   const closingRate  = callsHonores > 0 ? pct(dealsCloses, callsHonores) : 0;
   const revPerCall   = callsBookes > 0 ? Math.round(totalRev / callsBookes) : 0;
@@ -1188,7 +1242,12 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   // ── Signaux ────────────────────────────────────────────────────────────────
   const signalData: { type: SignalType; text: string }[] = [];
   if (nextCall) signalData.push({ type: 'green', text: `Prochain call : ${nextCall.invitee_name} — ${new Date(nextCall.scheduled_at).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` });
-  if (dealsCloses > 0) signalData.push({ type: 'green', text: `${dealsCloses} deal${dealsCloses > 1 ? 's' : ''} closé${dealsCloses > 1 ? 's' : ''} sur ${sinceConnection ? 'toute la période' : period + ' jours'} — ${fmtEur(totalRev)} générés` });
+  // Le compte ET le montant viennent tous deux de `ventesDeLaPeriode`. Avant, la phrase
+  // melangeait deux bases : un nombre de deals rattaches aux opportunites de la periode
+  // (regle de cohorte, celle de la carte « Closing ») et un montant decoupe autrement.
+  // « ventes signées » plutot que « deals closés » pour que le lecteur ne confonde pas ce
+  // compte avec celui, different et voisin, du sous-titre de la carte Closing.
+  if (ventesDeLaPeriode.length > 0) signalData.push({ type: 'green', text: `${ventesDeLaPeriode.length} vente${ventesDeLaPeriode.length > 1 ? 's' : ''} signée${ventesDeLaPeriode.length > 1 ? 's' : ''} sur ${sinceConnection ? 'toute la période' : period + ' jours'} — ${fmtEur(totalRev)} contractés` });
   // « des calls bookés » etait faux : le no-show est le seul compteur de Mes stats qui
   // parle en RENDEZ-VOUS, et son aide insiste precisement sur cette distinction. Le
   // signal disait donc l'inverse de la carte qu'il commente. On nomme le denominateur.
@@ -5432,13 +5491,7 @@ function TabRevenues({ encaissementsParJour, cashParVente, deals, period, period
   //
   // Deals annulés exclus (une vente annulée n'a pas été signée), même filtre que
   // computeDealTotals dans lib/salesCallStats.ts.
-  const dealsInPeriod = (deals ?? []).filter(d => {
-    if (d.status === 'canceled') return false;
-    if (sinceConnection) return true;
-    if (!d.signed_at) return false;
-    const ds = new Date(d.signed_at);
-    return ds >= periodStart && ds <= periodEnd;
-  });
+  const dealsInPeriod = dealsDeLaPeriode(deals, periodStart, periodEnd, sinceConnection);
   const cashContracte = dealsInPeriod.reduce((s, d) => s + Number(d.amount_total || 0), 0);
 
   // NET, pas brut : encaissé − remboursé − contesté, via `calculerCash`, la règle
@@ -10411,7 +10464,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
 
       {loading ? <InlineLoader /> : (
         <>
-          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} msgs={msgsEff} calls={callsEff} callsAllTime={callsAllTimeEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
+          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} msgs={msgsEff} calls={callsEff} callsAllTime={callsAllTimeEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} deals={dealsEff} />}
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} abonnesAujourdHui={ig?.followers ?? null} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.yt?.snapshotError} abonnesAujourdHui={yt?.subscribers ?? null} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} allTimeStart={allTimeStart} profileId={profileId} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} premierClicLienProspect={premierClicLienProspect} />}
