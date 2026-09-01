@@ -1162,6 +1162,12 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   const ventesDeLaPeriode = dealsDeLaPeriode(deals, ovPeriodStart, ovPeriodEnd, sinceConnection);
   const totalRev = ventesDeLaPeriode.reduce((s, d) => s + Number(d.amount_total || 0), 0);
   const noShowRate   = rendezVous > 0 ? pct(noShows, rendezVous) : 0;
+  // Meme phrase qu'au hero de Funnel & Calls, et pour la meme raison : sans elle,
+  // « Calls bookés » et « No-show » se lisent comme deux vues du meme total alors
+  // qu'ils comptent deux choses. Affichee seulement quand les deux different.
+  const aideBookesAvecNombres = callsBookes !== rendezVous
+    ? `${callsBookes} calls bookés, mais ${rendezVous} rendez-vous. ${AIDE_CALLS_BOOKES}`
+    : AIDE_CALLS_BOOKES;
   const closingRate  = callsHonores > 0 ? pct(dealsCloses, callsHonores) : 0;
   const revPerCall   = callsBookes > 0 ? Math.round(totalRev / callsBookes) : 0;
 
@@ -1403,7 +1409,7 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
           { label: 'Abonnés YT', value: abonnesYt !== null ? fmt(abonnesYt) : '—', sub: "aujourd'hui", color: (abonnesYt !== null ? YT_COLOR : 'var(--faint)') as string },
           null, // carte Publications custom
           'leads', // carte Leads custom (badge nouveaux à droite du chiffre)
-          { label: 'Calls bookés', value: fmt(callsBookes), sub: ovEtiquettePeriode, color: 'var(--ink)' as string, aide: AIDE_CALLS_BOOKES },
+          { label: 'Calls bookés', value: fmt(callsBookes), sub: ovEtiquettePeriode, color: 'var(--ink)' as string, aide: aideBookesAvecNombres },
         ] as const).map((item, i) => {
           if (item === 'leads') return (
             <div key="leads" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
@@ -1672,7 +1678,7 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
 
 // ─── TAB 2 : Instagram ────────────────────────────────────────────────────────
 
-function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, connexionCassee, abonnesAujourdHui }: { ig: IGStats | null; period: Period; periodIndex?: number; profileId?: string; sinceConnection?: boolean; connexionCassee?: boolean; abonnesAujourdHui?: number | null }) {
+function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, connexionCassee, abonnesAujourdHui, allTimeStart }: { ig: IGStats | null; period: Period; periodIndex?: number; profileId?: string; sinceConnection?: boolean; connexionCassee?: boolean; abonnesAujourdHui?: number | null; allTimeStart?: string | null }) {
   const [selectedPost, setSelectedPost] = useState<IGPost | null>(null);
   const [statModal, setStatModal] = useState<{ label: string; value: string; color: string; data: { date: string; v: number }[]; unit?: string } | null>(null);
   const [contentSubTab, setContentSubTab] = useState<'posts' | 'stories'>('posts');
@@ -1880,7 +1886,17 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
   }));
 
   // Publications par jour depuis les vrais timestamps des posts
-  const postsInPeriod = ig.posts.filter(p => new Date(p.timestamp) >= cutoffIg).length;
+  // ⚠️ En All-Time, `cutoffIg` vaut le MOIS EN COURS : `getPeriodWindow` ignore
+  // `sinceConnection`. Cette carte comptait donc les publications du mois courant sous
+  // l'étiquette « total ». Même défaut que celui corrigé dans Vue générale et sur la
+  // courbe de reach — la donnée était débridée, la BORNE ne l'était pas.
+  //
+  // On ne peut pas se contenter de compter tout `ig.posts` en All-Time : cette liste
+  // contient les posts qui ont un INSTANTANÉ dans la fenêtre, pas ceux qui y ont été
+  // PUBLIÉS. Un post de février est encore photographié chaque jour, il y figure donc.
+  // La borne reste donc une date de publication, celle de la mise en route.
+  const debutPublicationsIg = sinceConnection && allTimeStart ? new Date(allTimeStart) : cutoffIg;
+  const postsInPeriod = ig.posts.filter(p => new Date(p.timestamp) >= debutPublicationsIg).length;
   const pubsByDay = igDays.map(d => ({
     date: d.date,
     v: igDaysNoDataSet.has(d.date) ? (null as any) : ig.posts.filter(p => parisDateStr(new Date(p.timestamp)) === d.date).length,
@@ -2882,7 +2898,7 @@ function StorySequenceDetailModal({ profileId, sequence, onClose }: { profileId?
 
 // ─── TAB 3 : YouTube ──────────────────────────────────────────────────────────
 
-function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceConnection, connexionCassee, abonnesAujourdHui }: { yt: YTStats | null; period: Period; profileId?: string; periodIndex?: number; ytIsFallback?: boolean; sinceConnection?: boolean; connexionCassee?: boolean; abonnesAujourdHui?: number | null }) {
+function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceConnection, connexionCassee, abonnesAujourdHui, allTimeStart }: { yt: YTStats | null; period: Period; profileId?: string; periodIndex?: number; ytIsFallback?: boolean; sinceConnection?: boolean; connexionCassee?: boolean; abonnesAujourdHui?: number | null; allTimeStart?: string | null }) {
   const [selectedVideo, setSelectedVideo] = useState<YTVideo | null>(null);
   useEscapeKey(() => setSelectedVideo(null), !!selectedVideo);
   const [videosTypeFilter, setVideosTypeFilter] = useState<'all' | 'short' | 'long'>('all');
@@ -3155,9 +3171,15 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   const viewsPerSubShorts = ratioFenetreCoherente && subsRef > 0 && shortsViewsP > 0 ? Math.round(shortsViewsP / subsRef) : null;
   const viewsPerSubLong = ratioFenetreCoherente && subsRef > 0 && longViewsP > 0 ? Math.round(longViewsP / subsRef) : null;
 
+  // Même correction qu'`postsInPeriod` côté Instagram : en All-Time, `ytPeriodStart` et
+  // `ytPeriodEnd` valent le mois en cours. « Vidéos publiées · total » ne comptait donc
+  // que les vidéos du mois courant, et la répartition Shorts / Vidéos qui en dérive
+  // aussi. La borne haute devient « maintenant », la basse la mise en route.
+  const debutVideosYt = sinceConnection && allTimeStart ? new Date(allTimeStart) : ytPeriodStart;
+  const finVideosYt = sinceConnection ? new Date() : ytPeriodEnd;
   const videosInPeriod = yt.videos.filter(v => {
     const t = new Date(v.publishedAt).getTime();
-    return t >= ytPeriodStart.getTime() && t <= ytPeriodEnd.getTime();
+    return t >= debutVideosYt.getTime() && t <= finVideosYt.getTime();
   });
   const ytShortsCount = videosInPeriod.filter(v => v.isShort).length;
   const ytLongCount = videosInPeriod.filter(v => !v.isShort).length;
@@ -4908,8 +4930,17 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
   // diverger sans que rien ne le signale.
   const totalRev     = revDeLaPeriode(() => true);
   const noShowCount  = callsActifs.filter(c => c.no_show).length;
+  // Le denominateur du no-show, c'est les RENDEZ-VOUS — tous les creneaux poses,
+  // prolongations comprises. Il divisait par `totalBookes`, qui EXCLUT les
+  // prolongations : un numerateur en rendez-vous sur un denominateur en calls bookes.
+  // Le hero affichait 17,6 % la ou la regle donne 16,7 %, et son sous-titre « % des
+  // bookes » decrivait fidelement ce que faisait le code — donc rien ne le
+  // contredisait. Meme famille que le piege de la partition : deux endroits qui
+  // doivent s'accorder, dont un seul est visible depuis l'autre. `calcCalls` et Vue
+  // generale tenaient deja la bonne regle ; le hero etait le seul a diverger.
+  const totalRendezVous = callsActifs.length;
   const closingRate  = totalOpportunites > 0 ? pct(totalCloses, totalOpportunites) : 0;
-  const noShowRate   = totalBookes > 0 ? pct(noShowCount, totalBookes) : 0;
+  const noShowRate   = totalRendezVous > 0 ? pct(noShowCount, totalRendezVous) : 0;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 48 }}>
@@ -4918,21 +4949,35 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
       {(() => {
         const revPerCall = totalBookes > 0 ? Math.round(totalRev / totalBookes) : 0;
 
-        const heroItems = [
-          { label: 'Calls bookés',  value: fmt(totalBookes),   sub: 'toutes sources' },
+        // La phrase dynamique n'apparait QUE si les deux nombres different — sinon
+        // « 17 calls bookés, mais 17 rendez-vous » n'apprend rien. Elle prefixe le
+        // texte partage sans le reecrire : AIDE_CALLS_BOOKES reste la regle, une
+        // seule fois, pour tous ses emplacements.
+        const aideBookesAvecNombres = totalBookes !== totalRendezVous
+          ? `${totalBookes} calls bookés, mais ${totalRendezVous} rendez-vous. ${AIDE_CALLS_BOOKES}`
+          : AIDE_CALLS_BOOKES;
+
+        const heroItems: { label: string; value: string; sub: string; aide?: string }[] = [
+          { label: 'Calls bookés',  value: fmt(totalBookes),   sub: 'toutes sources', aide: aideBookesAvecNombres },
           { label: 'Calls IG',      value: fmt(igBookes),      sub: `${igCloses} closés` },
           { label: 'Calls YT',      value: fmt(ytBookes),      sub: `${ytCloses} closés` },
-          { label: 'Calls honorés', value: fmt(totalHonores),  sub: `${noShowRate}% no-show` },
-          { label: 'No-show',       value: fmt(noShowCount),   sub: `${noShowRate}% des bookés` },
+          { label: 'Calls honorés', value: fmt(totalHonores),  sub: `${noShowRate}% no-show`, aide: AIDE_CALLS_HONORES },
+          // Le denominateur est ECRIT a cote, parce qu'il n'est pas celui de la carte
+          // voisine : sans lui, on additionne honores et no-show, on ne retombe pas
+          // sur les bookes, et on conclut a un bug.
+          { label: 'No-show',       value: fmt(noShowCount),
+            sub: totalRendezVous > 0 ? `${noShowCount} sur ${totalRendezVous} rendez-vous` : 'aucun rendez-vous',
+            aide: AIDE_NO_SHOW },
           // Le sous-titre nomme le denominateur des qu'il s'ecarte du nombre d'honores
           // affiche juste a cote : « 57% closing » a cote de « 15 honores » se
           // recalcule en 8/15 = 53 %, et l'ecart reste inexplique.
           { label: 'Deals closés',  value: fmt(totalCloses),
             sub: totalOpportunites !== totalHonores
               ? `${closingRate}% sur ${totalOpportunites} opportunités`
-              : `${closingRate}% closing` },
+              : `${closingRate}% closing`,
+            aide: AIDE_CLOSING },
           { label: 'Revenue total', value: fmtEur(totalRev),   sub: 'cumulé' },
-          { label: 'Rev / call',    value: fmtEur(revPerCall), sub: 'par call booké' },
+          { label: 'Rev / call',    value: fmtEur(revPerCall), sub: 'par call booké', aide: AIDE_REV_PAR_CALL },
         ];
 
         return (
@@ -4955,7 +5000,9 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
                     onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--surface-2)'; }}
                     onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'var(--surface)'; }}
                   >
-                    <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8 }}>{h.label}</div>
+                    {/* AideColonne fait deja stopPropagation : le « ? » n'ouvre pas
+                        la modale du graphe. */}
+                    <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8, display: 'flex', alignItems: 'center' }}>{h.label}{h.aide ? <AideColonne texte={h.aide} /> : null}</div>
                     <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--ink)', lineHeight: 1, marginBottom: 4 }}>{h.value}</div>
                     <div style={{ fontSize: 11, color: 'var(--muted)' }}>{h.sub}</div>
                   </div>
@@ -7014,10 +7061,32 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const callsHonoredLm = postOpportunitesLm.filter(c => isCallHonored(c, now)).length;
     const closedLm = postCallsLm.filter(c => c.deal_closed).length;
     const revenueLm = cashDeLot(postCallsVente.filter(c => c.source === 'ig_dm'));
-    const vuesParCall = callsBooked > 0 && views > 0 ? Math.round(views / callsBooked) : null;
-
-    // Cash/Vue lifetime : revenue cumulé depuis publication / vues cumulées depuis publication
+    // ── Les deux ratios sont en ALL-TIME, des deux côtés ────────────────────────
+    //
+    // Les vues d'un contenu sont CUMULATIVES : un post de juin en gagne encore en
+    // septembre. Les diviser par les rendez-vous d'une fenêtre compare un cumul à un
+    // flux — le résultat change quand on change de période sans qu'aucune des deux
+    // grandeurs n'appartienne vraiment à cette période.
+    //
+    // C'était pire que ça, et différemment selon la plateforme : `views` valait le
+    // cumul du post à la fin de la période côté Instagram, mais les 30 DERNIERS JOURS
+    // côté YouTube (`views30d`), fixes quelle que soit la période affichée. Sur une
+    // semaine, YouTube divisait donc 30 jours de vues par 7 jours de rendez-vous. Deux
+    // incohérences différentes sous un même libellé — le genre d'écart qui ne produit
+    // jamais de nombre absurde, seulement un nombre plausible et faux.
+    //
+    // Les deux colonnes répondent désormais à la même question : ce que ce contenu a
+    // produit depuis sa publication. Elles ne bougent donc PAS avec le sélecteur de
+    // période, et leur en-tête le dit — une colonne qui ignore le sélecteur doit
+    // l'annoncer, sinon elle se lit comme les autres.
+    //
+    // Même grain d'OPPORTUNITÉS que le reste du tableau : un 2ᵉ rendez-vous n'est
+    // produit par aucune nouvelle vue.
+    const postOpportunitesLifetime = postCallsLifetime.filter(c => !continuationsContenu.has(c.id));
+    const callsBookedLifetime = postOpportunitesLifetime.filter(c => c.status === 'active').length;
     const revenueLifetime = postCallsLifetime.reduce((s, c) => s + (montantParCallB.get(c.id) ?? 0), 0);
+    const vuesParCall = viewsLifetime !== null && viewsLifetime > 0 && callsBookedLifetime > 0
+      ? Math.round(viewsLifetime / callsBookedLifetime) : null;
     const cashParVue = viewsLifetime !== null && viewsLifetime > 0 ? revenueLifetime / viewsLifetime : null;
 
     // % Calls Qualifiés : parmi les calls honorés dont `qualified` est renseigné
@@ -7068,7 +7137,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     callsHonoredLm: seq.callsHonoredLm ?? 0,
     closedLm: seq.closedLm ?? 0,
     revenueLm: seq.revenueLm ?? 0,
-    vuesParCall: seq.callsBooked > 0 && seq.views > 0 ? Math.round(seq.views / seq.callsBooked) : null,
+    // Un trou, pas un nombre. La colonne annonce « depuis publication », or cette ligne
+    // ne peut pas tenir cette promesse : ses vues sont finales (une story meurt en 24 h)
+    // mais ses rendez-vous viennent de `story-sequences-stats`, bornés à la période — et
+    // cette route est par ailleurs la dernière que le référentiel signale comme non
+    // alignée sur `deals`. Afficher le rapport quand même donnerait un nombre plausible
+    // sous un libellé qui en promet un autre. Le jour où la route est alignée, ce ratio
+    // se rebranche ici même.
+    vuesParCall: null,
     cashParVue: null,
     qualifiedPct: null, qualifiedCount: 0, qualifiedAnswered: 0,
     lmName: seq.lmKeyword ? `#${seq.lmKeyword}` : null,
@@ -8132,7 +8208,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           <div><b>Pas de ligne Total.</b> Une même personne peut être entrée par plusieurs contenus : additionner les lignes la compterait plusieurs fois.</div>
           {!lmReclameCouvre && !estYT && <div><b>« LM réclamés » affiche un tiret, pas un zéro.</b> {lmReclameNote}</div>}
           {estYT && <div><b>Sur YouTube la chaîne est plus courte, parce qu&apos;elle l&apos;est réellement.</b> Pas de commentaire mot-clé, pas de lead magnet, pas de conversation : le lien est en description et on réserve directement. <b>Les clics restent hors chaîne</b> — Short.io compte des clics, il ne sait pas qui clique. L&apos;identité n&apos;apparaît qu&apos;à la réservation, par l&apos;e-mail de l&apos;invité Calendly, et c&apos;est donc là que la chaîne commence. Aucun taux ne traverse ce filet : comparer des clics anonymes à des personnes ne voudrait rien dire.</div>}
-          {parContenu && <div><b>Les deux dernières colonnes sont à part.</b> Vues / call et Cash / vue portent sur <b>tous</b> les rendez-vous du contenu, y compris ceux venus d&apos;un lien en description — pas seulement sur la chaîne à leur gauche.</div>}
+          {parContenu && <div><b>Les deux dernières colonnes sont à part, sur deux points.</b> D&apos;abord elles portent sur <b>tous</b> les rendez-vous du contenu, y compris ceux venus d&apos;un lien en description — pas seulement sur la chaîne à leur gauche. Ensuite elles sont en <b>all-time, depuis la publication du contenu</b>, et ne changent donc pas quand vous changez de période. C&apos;est volontaire : les vues d&apos;un contenu sont cumulatives, un post de juin en gagne encore aujourd&apos;hui. Les diviser par les rendez-vous d&apos;une seule semaine comparerait un total à un extrait, et le chiffre bougerait sans que le contenu ait rien fait de différent.</div>}
         </>;
 
         return (
@@ -8198,8 +8274,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     <th style={thP}><EnteteColonne nom="callQualifie">% qualifiés</EnteteColonne></th>
                     <th style={thP}><EnteteColonne nom="close">Closés</EnteteColonne></th>
                     <th style={thP}><EnteteColonne nom="revenue">Revenue</EnteteColonne></th>
-                    {parContenu && <th style={{ ...thP, ...filet }}>Vues / call</th>}
-                    {parContenu && <th style={thP}>Cash / vue</th>}
+                    {parContenu && <th style={{ ...thP, ...filet }}>Vues / call<span style={{ display: 'block', fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--faint)', fontSize: 9 }}>depuis publication</span></th>}
+                    {parContenu && <th style={thP}>Cash / vue<span style={{ display: 'block', fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--faint)', fontSize: 9 }}>depuis publication</span></th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -10765,8 +10841,8 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
       {loading ? <InlineLoader /> : (
         <>
           {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} msgs={msgsEff} calls={callsEff} callsAllTime={callsAllTimeEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} deals={dealsEff} />}
-          {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} abonnesAujourdHui={ig?.followers ?? null} />}
-          {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.yt?.snapshotError} abonnesAujourdHui={yt?.subscribers ?? null} />}
+          {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} abonnesAujourdHui={ig?.followers ?? null} allTimeStart={allTimeStart} />}
+          {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.yt?.snapshotError} abonnesAujourdHui={yt?.subscribers ?? null} allTimeStart={allTimeStart} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} callsAllTime={callsAllTimeEff} deals={deals} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} allTimeStart={allTimeStart} profileId={profileId} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} premierClicLienProspect={premierClicLienProspect} />}
           {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} hookRepliedEvents={hookRepliedEvents} lmReclameParLeadId={lmReclameParLeadId} premierLmReclame={premierLmReclame} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={callsAllTimeEff} deals={deals} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} shortioChartHistoryStory={shortioChartHistoryStory} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
           {tab === 5 && <TabRevenues encaissementsParJour={encaissementsParJour} cashParVente={cashParVente} deals={dealsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} allTimeStart={allTimeStart} stripeConnected={integStatus?.stripeConnected} />}

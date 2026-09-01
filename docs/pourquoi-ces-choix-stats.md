@@ -128,6 +128,30 @@ nom porte la question et non sa provenance.
 
 ---
 
+## Deux colonnes ignorent le sélecteur de période, volontairement
+
+**Vues / call** et **Cash / vue** sont en all-time, depuis la publication du contenu.
+Elles ne bougent pas quand on change de période. C'est le troisième choix
+contre-intuitif de l'écran, et il aura l'air d'un bug.
+
+Le motif : **les vues d'un contenu sont cumulatives.** Vérifié en base sur 64
+instantanés — le compteur d'un post ne fait que monter, un post de juin en gagne encore
+aujourd'hui. Les diviser par les rendez-vous d'une seule semaine compare un **total** à
+un **extrait** : le chiffre bougerait à chaque changement de période sans que le contenu
+ait rien fait de différent.
+
+Ce que ça remplace était pire, et différemment selon la plateforme : côté Instagram, le
+cumul du post à la fin de la période ÷ les calls de la période ; côté YouTube, les
+**30 derniers jours** de vues (fixes, quelle que soit la période affichée) ÷ les calls de
+la période. Sur une semaine, YouTube divisait donc 30 jours de vues par 7 jours de
+rendez-vous. Deux incohérences différentes sous un même libellé — et **aucune ne
+produisait un nombre absurde**, seulement un nombre plausible et faux.
+
+**La règle qui en sort :** une colonne qui ignore le sélecteur de période doit
+l'annoncer dans son en-tête. Sans ça, elle se lit comme ses voisines.
+
+---
+
 ## Le cash vient de `deals`, jamais de `calls.revenue`
 
 Les deux champs existent toujours et portent **deux faits différents** :
