@@ -7984,69 +7984,129 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             placeholder="Recherche par titre…"
             style={{ flex: 1, minWidth: 160, padding: '6px 10px', fontSize: 12, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)' }}
           />
+
+          {/* Zone 4 : tri. Il vivait dans les en-têtes de colonnes ; les cartes n'en ont
+              plus, et sans lui un élève à quarante contenus ne peut plus trouver ses
+              meilleurs. Même mécanique que le tri du Breakdown par source. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 10, color: 'var(--faint)' }}>Trier par</span>
+            <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+              <select
+                value={sortKey}
+                onChange={e => { setSortKey(e.target.value as SortKey); setSortDir('desc'); }}
+                style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '5px 20px 5px 8px', cursor: 'pointer', appearance: 'none' }}
+              >
+                <option value="callsBooked">Calls déclenchés</option>
+                <option value="lmDetectes">Leads entrés</option>
+                <option value="lmReponses">Conversations déclenchées</option>
+                <option value="revenue">Revenue</option>
+                <option value="closed">Closés</option>
+                <option value="callsHonored">Calls honorés</option>
+                <option value="views">Vues</option>
+                <option value="clicsDesc">Clics description</option>
+              </select>
+              <span style={{ position: 'absolute', right: 6, fontSize: 9, color: 'var(--faint)', pointerEvents: 'none' }}>▾</span>
+            </div>
+            <button
+              onClick={() => setSortDir(d => (d === 'desc' ? 'asc' : 'desc'))}
+              title={sortDir === 'desc' ? 'Du plus grand au plus petit' : 'Du plus petit au plus grand'}
+              style={{ fontSize: 11, fontWeight: 700, color: BLUE, background: BLUE + '12', border: 'none', borderRadius: 6, padding: '5px 9px', cursor: 'pointer', minWidth: 28 }}
+            >
+              {sortDir === 'desc' ? '↓' : '↑'}
+            </button>
+          </div>
         </div>
 
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 780 }}>
-            <thead>
-              <tr>
-                {/* Thumbnail — fixe au scroll horizontal */}
-                <th style={{ position: 'sticky', left: 0, zIndex: 2, background: 'var(--surface)', width: 44, borderBottom: '1px solid var(--border)', padding: '6px 10px 10px' }} />
-                {/* Contenu — pas de tri, fixe au scroll horizontal */}
-                <th className="eyebrow-sm" style={{ position: 'sticky', left: 44, zIndex: 2, background: 'var(--surface)', textAlign: 'left', color: 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>Contenu</th>
-                {([
-                  ['clicsDesc',    'Clics desc.',            'clicLien'],
-                  ['lmDetectes',   'Commentaires LM',        'commentaireLm'],
-                  ['lmClics',      'Clics LM',               'clicLeadMagnet'],
-                  ['lmReponses',   'Conversations déclenchées', 'conversationDm'],  // infobulle posee plus bas
-                  ['dmCount',      'Calendly envoyés DM',    'calendlyEnvoye'],
-                  ['callsBooked',  'Calls bookés',           'callBooke'],
-                  ['callsHonored', 'Calls honorés',          'callHonore'],
-                  ['qualifiedPct', '% Calls Qualifiés',      'callQualifie'],
-                  ['closed',       'Closés',                 'close'],
-                  ['revenue',      'Revenue',                'revenue'],
-                  ['vuesParCall',  'Vues / Call',            'vuesParCall'],
-                  ['cashParVue',   'Cash / Vue (all-time)',  'cashParVue'],
-                ] as [SortKey, string, NomIcone][]).map(([key, label, icone]) => {
-                  const active = sortKey === key;
-                  return (
-                    <th key={key} onClick={() => { if (active) setSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setSortKey(key); setSortDir('desc'); } }}
-                      // Sans cette infobulle, « Conversations declenchees » se lit spontanement
-                      // comme un nombre de PERSONNES, et le chiffre surprend des qu'on le
-                      // compare aux leads : il peut legitimement le depasser.
-                      title={key === 'lmReponses' ? "Compte chaque reprise de conversation, pas chaque personne unique. Une discussion qui s'éteint puis redémarre grâce à un autre contenu compte deux fois, et chacune est créditée au contenu qui l'a relancée — ce nombre peut donc dépasser les leads du contenu." : undefined}
-                      className="eyebrow-sm" style={{ textAlign: 'right', color: active ? BLUE : 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>
-                      <EnteteColonne nom={icone}>{label} {active ? (sortDir === 'desc' ? '↓' : '↑') : ''}</EnteteColonne>
-                      {key === 'callsBooked' && <AideColonne texte={AIDE_CALLS_BOOKES} />}
-                      {key === 'callsHonored' && <AideColonne texte={AIDE_CALLS_HONORES} />}
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            {(() => {
-                const filteredRows = consolidatedRows
-                  .filter(row => {
-                    if (filterPlatform !== 'all' && row.platform !== filterPlatform) return false;
-                    if (filterSearch && !row.title.toLowerCase().includes(filterSearch.toLowerCase())) return false;
-                    for (const k of filterHas) {
-                      const val = row[k as keyof typeof row];
-                      if (!val || val === 0) return false;
-                    }
-                    return true;
-                  })
-                  .sort((a, b) => {
-                    const av = (a[sortKey as keyof typeof a] as number) || 0;
-                    const bv = (b[sortKey as keyof typeof b] as number) || 0;
-                    return sortDir === 'desc' ? bv - av : av - bv;
-                  });
-                const displayRows = filteredRows.slice(0, 7);
+        {(() => {
+          const rowsFiltrees = consolidatedRows
+            .filter(aDeLActivite)
+            .filter(row => {
+              if (filterPlatform !== 'all' && row.platform !== filterPlatform) return false;
+              if (filterSearch && !row.title.toLowerCase().includes(filterSearch.toLowerCase())) return false;
+              for (const k of filterHas) {
+                const val = row[k as keyof typeof row];
+                if (!val || val === 0) return false;
+              }
+              return true;
+            })
+            .sort((a, b) => {
+              const av = (a[sortKey as keyof typeof a] as number) || 0;
+              const bv = (b[sortKey as keyof typeof b] as number) || 0;
+              return sortDir === 'desc' ? bv - av : av - bv;
+            })
+            .slice(0, 6);
 
+          // Un rôle : son libellé complet, et son chiffre. JAMAIS de flèche ni de
+          // pourcentage entre deux d'entre eux — c'est toute la raison de passer en
+          // cartes. En colonnes adjacentes, l'œil lit un enchaînement et conclut que les
+          // conversations sont celles des leads de la même ligne. Elles ne le sont pas :
+          // ce sont trois questions séparées, sur trois populations différentes.
+          const Role = ({ libelle, valeur }: { libelle: string; valeur: number }) => (
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, padding: '7px 0' }}>
+              <span style={{ fontSize: 10.5, color: 'var(--muted)', lineHeight: 1.3 }}>{libelle}</span>
+              <span style={{ fontSize: 19, fontWeight: 700, lineHeight: 1, color: valeur > 0 ? 'var(--ink)' : 'var(--faint)' }}>{valeur}</span>
+            </div>
+          );
 
-                return <tbody>{displayRows.map((row, i) => <ContentRow key={i} row={row} i={i} />)}</tbody>;
-              })()}
-          </table>
+          if (rowsFiltrees.length === 0) {
+            return (
+              <div style={{ padding: '28px 0', textAlign: 'center', fontSize: 12, color: 'var(--faint)' }}>
+                Aucun contenu ne correspond à ces filtres.
+              </div>
+            );
+          }
 
+          return (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 13 }}>
+              {rowsFiltrees.map(row => {
+                const selectionne = selectedContentId === row.postId;
+                const couleur = row.platform === 'IG' ? ACCENT : row.platform === 'STORY_SEQUENCE' ? '#8B5CF6' : RED;
+                const sansTitre = !row.title || row.title === '(sans titre)';
+                return (
+                  <div key={row.postId}
+                    onClick={() => { setSelectedContentId(selectionne ? null : row.postId); setDetailModal(selectionne ? null : row); }}
+                    style={{ background: 'var(--surface)', border: `1px solid ${selectionne ? BLUE : 'var(--border)'}`, borderRadius: 12, padding: '13px 14px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 11 }}>
+
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                      {row.thumbnail
+                        ? <img src={row.thumbnail} alt="" style={{ width: 38, height: 48, borderRadius: 5, objectFit: 'cover', flex: 'none', border: '1px solid var(--border)' }} />
+                        : <span style={{ width: 38, height: 48, borderRadius: 5, flex: 'none', background: 'var(--surface-2)', border: '1px solid var(--border)' }} />}
+                      <span style={{ minWidth: 0 }}>
+                        <span style={{ display: 'block', fontWeight: 600, fontSize: 12.5, color: sansTitre ? 'var(--faint)' : 'var(--ink)', fontStyle: sansTitre ? 'italic' : undefined, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {sansTitre ? '(sans titre)' : row.title}
+                        </span>
+                        <span style={{ display: 'block', fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
+                          <span style={{ color: couleur, fontWeight: 700 }}>{row.platform === 'STORY_SEQUENCE' ? 'STORY' : row.platform}</span>
+                          {' · '}{row.type}{row.views > 0 ? ` · ${fmt(row.views)} vues` : ''}
+                        </span>
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <Role libelle="Leads entrés par ce contenu" valeur={row.lmDetectes} />
+                      <div style={{ borderTop: '1px solid var(--border-soft)' }} />
+                      <Role libelle="Conversations déclenchées par ce contenu" valeur={row.lmReponses} />
+                      <div style={{ borderTop: '1px solid var(--border-soft)' }} />
+                      <Role libelle="Calls déclenchés par ce contenu" valeur={row.callsBooked} />
+                    </div>
+
+                    {/* Les résultats n'appartiennent qu'au TROISIÈME rôle : les mettre dans
+                        la pile au-dessus suggérerait une suite qui n'existe pas. */}
+                    <div style={{ display: 'flex', gap: 14, paddingTop: 9, borderTop: '1px solid var(--border)', fontSize: 10.5, color: 'var(--muted)' }}>
+                      <span>Honorés<b style={{ display: 'block', fontSize: 13, fontWeight: 700, color: row.callsHonored > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.callsHonored}</b></span>
+                      <span>Closés<b style={{ display: 'block', fontSize: 13, fontWeight: 700, color: row.closed > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.closed}</b></span>
+                      <span>Revenue<b style={{ display: 'block', fontSize: 13, fontWeight: 700, color: row.revenue > 0 ? GREEN : 'var(--faint)' }}>{row.revenue > 0 ? fmtEur(row.revenue) : '—'}</b></span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
+
+        <div style={{ marginTop: 12, paddingTop: 11, borderTop: '1px solid var(--border)', fontSize: 10.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+          <b style={{ color: 'var(--ink)' }}>Ces trois chiffres ne se suivent pas et ne s&apos;additionnent jamais.</b> Ils répondent à trois questions séparées : combien de personnes ce contenu a fait entrer, combien de conversations il a déclenchées, combien de rendez-vous il a produits. Un contenu peut ne faire entrer personne et produire des rendez-vous, quand des gens déjà présents réservent par son lien.
+          {' '}<b style={{ color: 'var(--ink)' }}>Ce tableau compte des événements</b>, pas des personnes : une personne qui réserve deux fois compte deux fois. C&apos;est pourquoi ses nombres diffèrent de ceux du Parcours des leads.
         </div>
 
         {/* Bouton Voir tout */}
