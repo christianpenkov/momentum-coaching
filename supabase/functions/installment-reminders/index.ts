@@ -97,6 +97,28 @@ Deno.serve(async (req) => {
     return new Response('Unauthorized', { status: 401 });
   }
 
+  // Filigrane de passage : la preuve que ce cron est encore INVOQUE.
+  //
+  // Pose AU PLUS TOT, juste apres l'authentification, et non a la fin. La question que
+  // pose `crons_sante` est « le planificateur appelle-t-il encore cette URL ? » — c'est
+  // la panne invisible de la plateforme : un cron qui ne tourne plus n'echoue pas, il
+  // se tait, et un silence ne se distingue pas d'un succes.
+  //
+  // Un echec SURVENU PENDANT l'execution est deja couvert par `cron_runs`, et les deux
+  // ne doivent pas se recouvrir. Marquer a la fin ferait en plus passer un simple
+  // depassement de temps pour une mort du cron — une fausse alerte, c'est-a-dire le
+  // debut d'une alerte qu'on n'ouvre plus.
+  //
+  // Le seuil de silence vit sur la LIGNE (`crons_passages.silence_max`), pas ici : la
+  // RPC ne met a jour que l'horodatage, donc changer la cadence de ce cron se repercute
+  // en base sans toucher au code.
+  //
+  // Strictement non bloquant : un filigrane muet vaut mieux qu'un cron qui tombe.
+  try {
+    const { error: filigraneErr } = await sb.rpc('marquer_passage_cron', { p_nom: 'installment-reminders' });
+    if (filigraneErr) console.error('[installment-reminders] filigrane de passage:', filigraneErr.message);
+  } catch (e) { console.error('[installment-reminders] filigrane de passage:', e); }
+
   const today = new Date().toISOString().slice(0, 10);
   const inTwoDays = new Date(Date.now() + 2 * 86400_000).toISOString().slice(0, 10);
   const twoDaysAgo = new Date(Date.now() - 2 * 86400_000).toISOString().slice(0, 10);

@@ -298,6 +298,28 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ error: 'Non autorisé' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
   }
 
+  // Filigrane de passage : la preuve que ce cron est encore INVOQUE.
+  //
+  // Pose AU PLUS TOT, juste apres l'authentification, et non a la fin. La question que
+  // pose `crons_sante` est « le planificateur appelle-t-il encore cette URL ? » — c'est
+  // la panne invisible de la plateforme : un cron qui ne tourne plus n'echoue pas, il
+  // se tait, et un silence ne se distingue pas d'un succes.
+  //
+  // Un echec SURVENU PENDANT l'execution est deja couvert par `cron_runs`, et les deux
+  // ne doivent pas se recouvrir. Marquer a la fin ferait en plus passer un simple
+  // depassement de temps pour une mort du cron — une fausse alerte, c'est-a-dire le
+  // debut d'une alerte qu'on n'ouvre plus.
+  //
+  // Le seuil de silence vit sur la LIGNE (`crons_passages.silence_max`), pas ici : la
+  // RPC ne met a jour que l'horodatage, donc changer la cadence de ce cron se repercute
+  // en base sans toucher au code.
+  //
+  // Strictement non bloquant : un filigrane muet vaut mieux qu'un cron qui tombe.
+  try {
+    const { error: filigraneErr } = await supa.rpc('marquer_passage_cron', { p_nom: 'poll-stories' });
+    if (filigraneErr) console.error('[poll-stories] filigrane de passage:', filigraneErr.message);
+  } catch (e) { console.error('[poll-stories] filigrane de passage:', e); }
+
   const { data: integrations } = await supa.from('integrations').select('profile_id').eq('provider', 'instagram');
   if (!integrations?.length) return new Response(JSON.stringify({ polled: 0 }), { headers: { 'Content-Type': 'application/json' } });
 

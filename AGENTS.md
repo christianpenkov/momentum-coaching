@@ -214,8 +214,26 @@ pas le même. Un cron s'inscrit en un appel : `rpc('marquer_passage_cron', { p_n
 | Cron | Son silence est-il détecté ? |
 |---|---|
 | `cron-health` | ✅ par `integrations.last_synced_at` + `integrations_sante` (`ping_absent`) |
-| `cron-refresh-tokens` | ✅ par `crons_passages` — **ajouté le 2026-09-01** |
-| les sept autres | ❌ **pas encore inscrits** — un `marquer_passage_cron` à la fin de chacun suffit |
+| les huit autres | ✅ par `crons_passages` — **tous inscrits le 2026-09-01** |
+
+⚠️ **Une ligne ABSENTE de `crons_passages` est invisible pour `crons_sante`** : la vue ne
+peut signaler que le silence d'un cron qu'elle connaît. `cron-refresh-tokens` était
+instrumenté depuis le matin du 2026-09-01 mais n'avait encore jamais tourné — donc
+aucune ligne, donc aucune surveillance, exactement le trou qu'on croyait fermé. **Insérer
+la ligne à l'inscription, sans attendre le premier passage.**
+
+⚠️ **Poser aussi `silence_max` à l'insertion.** Le défaut est de 2 jours, ce qui est
+absurde pour un cron aux 5 minutes. Règle : environ quatre cadences, jamais moins de deux
+heures — un planificateur externe saute un passage de temps en temps, et une alerte qui
+crie pour un passage manqué est une alerte qu'on apprend à ignorer.
+
+**Où poser l'appel : au plus tôt, juste après l'authentification.** La question posée est
+« le planificateur appelle-t-il encore cette URL ? ». Un échec survenu *pendant*
+l'exécution est déjà couvert par `cron_runs`, et les deux ne doivent pas se recouvrir.
+Marquer à la fin ferait en plus passer un simple dépassement de temps pour une mort du
+cron — une fausse alerte, c'est-à-dire le début d'une alerte qu'on n'ouvre plus.
+(`cron-refresh-tokens` marque à la fin et porte en prime un contexte de résultat ; c'est
+l'exception, pas le modèle.)
 
 ⚠️ Ne PAS réutiliser `integrations.last_synced_at` pour un cron qui touche Instagram :
 `poll-leads` l'écrit déjà toutes les 5 minutes, et le battement de l'un masquerait la mort

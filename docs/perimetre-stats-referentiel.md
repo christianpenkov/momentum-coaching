@@ -386,6 +386,45 @@ l'autre.**
 
 ---
 
+## Piège nommé : l'instrument qui se dégrade sans jamais se tromper
+
+Posé le 2026-09-01. Même forme que les deux précédents — rien ne casse, aucun nombre
+absurde n'apparaît — mais il frappe l'outil de mesure au lieu de la mesure.
+
+Un journal d'incidents comptait **58 lignes**. Vérification faite : **aucune ne
+correspondait à un problème réel**. Meta renvoie des HTTP 400 passagers sur la mesure
+des périodes Instagram, et le passage suivant réécrit toujours — les trois profils
+avaient leur semaine, leur mois et leur all-time frais de moins de six heures.
+
+Aucune de ces lignes n'était fausse. Chacune décrivait un échec qui avait bien eu lieu.
+Le défaut n'est pas dans les lignes, il est dans ce qu'elles font à l'instrument : le
+contrat de `cron_runs` est **« table vide = aucun incident »**, et c'est ce contrat qui
+lui donne sa valeur. Une table qu'on ouvre pour y trouver cinquante-huit problèmes déjà
+résolus, on cesse de l'ouvrir. Le jour d'un vrai incident, la ligne s'y ajoute et
+personne ne la voit.
+
+**Le réflexe.** Avant de journaliser un échec, se demander : **est-ce qu'il sera rejoué
+automatiquement ?** Si oui, il n'appartient pas au journal des incidents actionnables.
+
+Et sa contrepartie, indissociable : **surveiller la conséquence plutôt que la cause,
+quand la cause se répare seule.** Retirer le bruit sans rien mettre à la place crée un
+angle mort. Ce qui garde l'œil ouvert, c'est une vue qui regarde non pas « un appel
+a-t-il échoué » mais « la donnée a-t-elle cessé d'être rafraîchie », avec un seuil
+exprimé en **nombre de cycles de réparation ratés** — quatre pour `ig_sante_periodes`,
+sept jours pour `shortio_sante_donnees`.
+
+**La parenté avec les deux autres pièges.** La partition : deux endroits doivent
+s'accorder, on n'en corrige qu'un. Le contexte trop étroit : deux périmètres doivent
+s'accorder, le plus étroit gagne en silence. Ici : le signal et le bruit partagent un
+canal, et le bruit gagne — non pas en falsifiant le signal, mais en le rendant
+illisible. **Trois formes d'une même famille : quelque chose se dégrade sans qu'aucune
+valeur affichée ne devienne fausse.**
+
+C'est aussi ce qui rend ces trois pièges invisibles à la relecture de code. Aucune
+fonction n'est incorrecte. Ce qui est incorrect, c'est ce que l'ensemble produit.
+
+---
+
 ## Le réflexe à garder
 
 Avant d'ajouter un compteur, se demander :
