@@ -1961,7 +1961,23 @@ async function majPeriodesIg(profileId: string, token: string, igAccountId: stri
   //
   // Lue depuis analytics_daily_snapshots, qui historise ig_followers chaque jour.
   // Repli sur la valeur du jour si l'historique manque (compte tout juste connecte).
-  async function abonnesMoyens(debut: string, fin: string): Promise<number | null> {
+  /**
+   * Le denominateur d'« Abonnes touches » : le nombre d'abonnes AU MOMENT DE LA MESURE,
+   * c'est-a-dire au dernier jour de la periode.
+   *
+   * C'etait une MOYENNE sur la fenetre jusqu'au 2026-09-01. L'argument de la moyenne
+   * (sur un compte en croissance, 300 abonnes touches sur un mois passant de 1 000 a
+   * 1 500 donnent 30 % au debut et 20 % a la fin) est reel, mais il repond a une autre
+   * question que celle posee : la portee dedupliquee est mesuree par Meta EN UNE FOIS,
+   * sur la fenetre, au moment du dernier appel. Son denominateur doit donc etre la
+   * population a ce moment-la, pas une population moyenne qui n'a existe aucun jour.
+   *
+   * Decision de Chris, 2026-09-01. Elle aligne aussi le calcul sur ce que l'ecran
+   * AFFICHE : le sous-titre annonce « sur tes N abonnes » avec le compte de fin de
+   * periode, alors que la division portait sur la moyenne — 254 contre 255 sur deux des
+   * six dernieres periodes du profil de test, un taux qu'on ne pouvait pas recalculer.
+   */
+  async function abonnesFinDePeriode(debut: string, fin: string): Promise<number | null> {
     const finBornee = fin > aujourdhui ? aujourdhui : fin;
     const { data } = await supa
       .from('analytics_daily_snapshots')
@@ -1969,9 +1985,11 @@ async function majPeriodesIg(profileId: string, token: string, igAccountId: stri
       .eq('profile_id', profileId)
       .is('archived_at', null)
       .gte('date', debut).lte('date', finBornee)
-      .not('ig_followers', 'is', null);
-    const vals = (data || []).map((r: any) => r.ig_followers as number).filter((v) => v > 0);
-    if (vals.length) return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+      .not('ig_followers', 'is', null)
+      .order('date', { ascending: false })
+      .limit(1);
+    const dernier = (data || [])[0]?.ig_followers as number | undefined;
+    if (dernier && dernier > 0) return dernier;
     try {
       const r = await fetch(`https://graph.instagram.com/v22.0/${igAccountId}?fields=followers_count&access_token=${token}`);
       if (r.ok) return (await safeJson(r))?.followers_count ?? null;
@@ -2009,7 +2027,7 @@ async function majPeriodesIg(profileId: string, token: string, igAccountId: stri
       profile_id: profileId, ig_account_id: igAccountId,
       type, debut, fin,
       reach_total: m.total, reach_abonnes: m.abonnes, reach_non_abonnes: m.nonAbonnes,
-      abonnes: await abonnesMoyens(debut, fin), figee, mesure_le: new Date().toISOString(),
+      abonnes: await abonnesFinDePeriode(debut, fin), figee, mesure_le: new Date().toISOString(),
     });
     if (error) throw new Error(error.message);
   }

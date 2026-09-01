@@ -157,12 +157,13 @@ dans cron-job.org, nulle part ailleurs.**
 | Job | Fréquence | URL visée |
 |---|---|---|
 | `poll-leads` | 5 min | ✅ **`https://nvjgwtetyuatnkjihmtw.supabase.co/functions/v1/poll-leads`** — Edge Function, confirmé le 2026-09-01 |
-| Sync Calendly | 30 min | à confirmer — Edge Function `sync-calendly` très probable, `/api/calendly/cron-sync` étant du code mort mesuré |
+| Sync Calendly | 30 min | Edge Function `sync-calendly` — le doublon Vercel a été supprimé le 2026-09-01 |
 | Notify rapport call | 30 min | à confirmer — Edge Function `notify-rapport` très probable (logs) |
 | `poll-stories` | 30 min | à confirmer |
 | `installment-reminders` | 1×/jour | à confirmer |
 | `sync-stripe-payments` | 30 min | à confirmer |
-| `/api/stripe/cron-health` | 1×/jour | route Vercel — aucune Edge Function du même nom |
+| `/api/stripe/cron-health` | 1×/jour | ✅ **`.../api/stripe/cron-health`** — route Vercel, confirmé le 2026-09-01 |
+| `cron-refresh-tokens` | ? | ✅ **`.../api/instagram/cron-refresh-tokens`** — route Vercel, confirmé le 2026-09-01. ⚠️ Son nom ment : elle ne rafraîchit RIEN, elle **alerte par e-mail** quand un jeton Instagram meurt. Le rafraîchissement est dans `poll-leads`. |
 
 **Comment confirmer** : ouvrir le job dans cron-job.org et lire son URL. Une URL en
 `supabase.co/functions/v1/<nom>` désigne l'Edge Function ; une en
@@ -178,10 +179,15 @@ chose, et le vrai chemin ne bouge pas.
 | Route Vercel | Edge Function | État |
 |---|---|---|
 | ~~`app/api/instagram/poll-leads`~~ | `poll-leads` | **supprimée le 2026-09-01** |
-| `app/api/calls/notify-rapport` | `notify-rapport` | code mort — zéro appelant dans le dépôt |
-| `app/api/calendly/cron-sync` | `sync-calendly` | code mort — zéro appel en 24 h dans les logs Vercel le 2026-08-31 |
+| ~~`app/api/calendly/cron-sync`~~ | `sync-calendly` | **supprimée le 2026-09-01** — zéro appel en 24 h dans les logs Vercel le 2026-08-31 |
 
-Les deux dernières attendent la même confirmation d'URL avant suppression.
+**`notify-rapport` n'est plus un doublon** : sa route Vercel a disparu lors d'une session
+antérieure, seule l'Edge Function subsiste. Ce document l'a listée comme doublon plus
+longtemps qu'elle n'a existé.
+
+⚠️ **« Route morte » ne veut jamais dire « fonctionnalité morte ».** Le rappel de rapport
+d'appel et la synchro Calendly tournent tous les deux — par l'Edge Function. Ce qui était
+mort, c'est le fichier Vercel que personne n'appelait.
 
 **Avant d'ajouter une route qui porte le nom d'une Edge Function existante**, se demander
 laquelle sera réellement appelée. La réponse par défaut, sur ce projet, est l'Edge
@@ -242,9 +248,10 @@ select * from clics_sante_redirection;          -- 'ok' partout
 erreurs partaient dans une réponse HTTP que cron-job.org jette). Filtrer par
 `fonction` pour savoir qui a échoué.
 
-⚠️ **`/api/calendly/cron-sync` est du CODE MORT** malgré son commentaire « Cron
-Vercel 6h » — zéro appel en 24 h dans les logs Vercel le 2026-08-31. Le vrai chemin
-est l'Edge Function `sync-calendly`. Même piège que `notify-rapport`.
+⚠️ **`/api/calendly/cron-sync` a été SUPPRIMÉE** le 2026-09-01. Elle portait un
+commentaire « Cron Vercel 6h » qui n'a jamais été vrai — zéro appel en 24 h dans les logs
+Vercel le 2026-08-31. Le vrai chemin est, et a toujours été, l'Edge Function
+`sync-calendly`.
 
 
 
