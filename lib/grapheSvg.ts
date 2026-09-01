@@ -334,10 +334,15 @@ export function construireGraphe(o: OptionsGraphe): GeometrieGraphe {
       s += `<text x="${(dernier.x - 10).toFixed(1)}" y="${(dernier.y - 11).toFixed(1)}" text-anchor="end" font-size="10.5" font-weight="600" fill="${TAUPE}" font-family="Inter, sans-serif">moyenne</text>`;
     }
   } else {
-    // Une seule courbe et pas de vedette : elle a droit à son aplat, comme dans Mes Stats.
-    if (!vedette && o.series.length === 1) {
-      const segs = troncons(o.series[0]);
-      s += `<path d="${aplat(segs)}" fill="url(#aplat-${echapper(cle)})" stroke="none"/>`;
+    /* Une seule courbe et pas de vedette : c'est exactement la situation d'un graphe de
+     * Mes Stats, donc elle reçoit le même traitement complet — aplat ET point terminal.
+     *
+     * ⚠️ Le point terminal s'arrête à ce cas-là. Au-delà d'une courbe il faudrait en
+     * poser un par élève, tous à la même abscisse : dix halos qui pulsent côte à côte
+     * ne diraient plus « voici la donnée la plus récente », ils feraient du bruit. */
+    const solo = !vedette && o.series.length === 1 ? troncons(o.series[0]) : null;
+    if (solo) {
+      s += `<path d="${aplat(solo)}" fill="url(#aplat-${echapper(cle)})" stroke="none"/>`;
     }
     for (const serie of o.series) {
       if (vedette && serie.nom === vedette) continue;
@@ -350,6 +355,10 @@ export function construireGraphe(o: OptionsGraphe): GeometrieGraphe {
           s += `<circle cx="${xDe(dernier).toFixed(1)}" cy="${yDe(v).toFixed(1)}" r="2.6" fill="${enGris ? GRIS : serie.couleur}"/>`;
         }
       }
+    }
+    if (solo && solo.length) {
+      const fin = solo[solo.length - 1][solo[solo.length - 1].length - 1];
+      s += pointVif(fin.x, fin.y, o.series[0].couleur);
     }
   }
 

@@ -264,6 +264,19 @@ test("la clé du dégradé est échappée — elle finit dans un attribut", () =
   assert.ok(!g.svg.includes('<script>'));
 });
 
+test('une courbe seule reçoit le traitement complet de Mes Stats : aplat ET point terminal', () => {
+  const g = construireGraphe({ series: [serie('a', [1, 5, 3])], n: 3, etiquettes: [], unite: '', largeur: 600, cle: 'z' });
+  assert.ok(g.svg.includes('url(#aplat-z)'), "une courbe seule doit porter son aplat");
+  assert.equal((g.svg.match(/graphe-point-vif/g) ?? []).length, 1);
+});
+
+test("au-delà d'une courbe, plus de point terminal — dix halos côte à côte feraient du bruit", () => {
+  const g = construireGraphe({
+    series: [serie('a', [1, 5, 3]), serie('b', [2, 3, 9])], n: 3, etiquettes: [], unite: '', largeur: 600,
+  });
+  assert.ok(!g.svg.includes('graphe-point-vif'));
+});
+
 test('le point terminal qui pulse ne paraît que sur la courbe mise en avant', () => {
   const base = { series: [serie('a', [1, 5, 3]), serie('b', [2, 3, 9])], n: 3, etiquettes: [], unite: '' as const, largeur: 600 };
   assert.ok(!construireGraphe(base).svg.includes('graphe-point-vif'), 'au repos, aucun point ne doit pulser');
