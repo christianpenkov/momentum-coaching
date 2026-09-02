@@ -51,6 +51,7 @@ export default function ModifierMontant({ deal, detail, onClose, onDone, onRembo
   const [envoi, setEnvoi] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const [resultat, setResultat] = useState<Resultat | null>(null);
+  const [fermeture, setFermeture] = useState(false);
 
   const mode = modeDe(deal);
   const echeances = detail?.installments ?? [];
@@ -168,6 +169,9 @@ export default function ModifierMontant({ deal, detail, onClose, onDone, onRembo
 
   // ── Écran de résultat ─────────────────────────────────────────────────────
   if (resultat) {
+    // Le solde AVANT la modification. `deal` porte encore l'ancien montant à cet
+    // instant : la fiche derrière n'est rafraîchie qu'à la fermeture.
+    const resteAvant = Math.max(0, deal.amountTotal - resultat.encaisse);
     return (
       <ModaleAction
         titre={`Montant modifié · ${fmtEurExact(deal.amountTotal)} → ${fmtEurExact(resultat.montant)}`}
@@ -185,7 +189,21 @@ export default function ModifierMontant({ deal, detail, onClose, onDone, onRembo
               <button className="btn-ghost" style={{ fontSize: 12.5 }} onClick={onDone}>Fermer</button>
             </>
           ) : (
-            <button className="btn-primary-brand" style={{ fontSize: 12.5 }} onClick={onDone}>Terminé</button>
+            // Fermer déclenche le rechargement de la fiche : environ une
+            // seconde pendant laquelle, sans repère, l'écran semble ne rien
+            // faire — et on reclique. Le bouton dit qu'il travaille.
+            <button className="btn-primary-brand" style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 8 }}
+              disabled={fermeture}
+              onClick={() => { setFermeture(true); onDone(); }}>
+              {fermeture && (
+                <span aria-hidden style={{
+                  width: 12, height: 12, borderRadius: '50%', flexShrink: 0,
+                  border: '2px solid rgba(255,255,255,.35)', borderTopColor: '#fff',
+                  animation: 'spin .6s linear infinite',
+                }} />
+              )}
+              {fermeture ? 'Fermeture…' : 'Terminé'}
+            </button>
           )
         }>
 
@@ -200,10 +218,30 @@ export default function ModifierMontant({ deal, detail, onClose, onDone, onRembo
             )}
           </Encart>
         ) : (
+          // ── Dire d'où sort le chiffre, pas seulement le chiffre ──────────────
+          // « Il reste 500,00 € à encaisser » se lisait comme une différence de
+          // montants (1 500 − 1 200 = 300 ?) au lieu d'un solde. Le nombre était
+          // juste, mais rien à l'écran ne permettait de le refaire de tête, donc
+          // il donnait l'impression d'une erreur — sur l'écran où l'on vient
+          // justement de toucher à de l'argent.
+          //
+          // On pose les trois termes de l'opération, et ce que ce solde valait
+          // avant : c'est le « par rapport à avant » qui manquait.
           <Encart ton="bien" titre="C’est fait">
-            {resultat.resteAEncaisser > 0.005
-              ? <>Il reste {fmtEurExact(resultat.resteAEncaisser)} à encaisser.</>
-              : <>Cette vente est soldée : il n’y a plus rien à encaisser.</>}
+            {resultat.resteAEncaisser > 0.005 ? (
+              <>
+                {fmtEurExact(resultat.encaisse)} déjà encaissés sur {fmtEurExact(resultat.montant)}.
+                Il reste donc <strong>{fmtEurExact(resultat.resteAEncaisser)}</strong> à encaisser
+                {resteAvant > 0.005 && Math.abs(resteAvant - resultat.resteAEncaisser) > 0.005
+                  ? <>, au lieu de {fmtEurExact(resteAvant)}.</>
+                  : <>.</>}
+              </>
+            ) : (
+              <>
+                Cette vente est soldée : {fmtEurExact(resultat.encaisse)} encaissés
+                sur {fmtEurExact(resultat.montant)}, il n’y a plus rien à encaisser.
+              </>
+            )}
           </Encart>
         )}
 

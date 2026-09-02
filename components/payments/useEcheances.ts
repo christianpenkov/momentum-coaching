@@ -58,7 +58,19 @@ export function useEcheancesAVenir(deal: DealRow, detail?: DealDetail): Echeanci
       .then(d => { if (vivant) { setSched(d.schedule); setChargement(false); } })
       .catch(() => { if (vivant) setChargement(false); });
     return () => { vivant = false; };
-  }, [deal.id, viaStripe]);
+    // ⚠️ Les TERMES de la vente font partie des dépendances, et ce n'est pas
+    // cosmétique. Avec `[deal.id, viaStripe]` seuls, l'échéancier était lu chez
+    // Stripe une fois au montage et plus jamais : modifier le montant
+    // rafraîchissait bien la vente (total, pourcentage, KPI) mais laissait les
+    // lignes d'échéances sur leurs ANCIENS montants, jusqu'à un rechargement de
+    // page. Constaté le 2026-09-02 — la fiche annonçait 1 500 € et 67 % encaissé
+    // au-dessus de deux échéances à 100 €, qui valaient 250 € chez Stripe.
+    //
+    // Une mise à jour partielle est pire qu'une absence de mise à jour : rien ne
+    // signale que la moitié de l'écran est périmée, et c'est la moitié qui porte
+    // les chiffres qu'on vient de changer.
+  }, [deal.id, viaStripe, deal.amountTotal, deal.installmentsCount,
+      deal.installmentInterval, deal.collected]);
 
   if (!viaStripe) {
     return {
