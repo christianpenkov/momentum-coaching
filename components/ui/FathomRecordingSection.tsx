@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Icon from '@/components/ui/Icon';
 
 interface Props {
@@ -19,6 +19,15 @@ interface Props {
   // décider d'afficher le bouton ; `callId` sert à aller le chercher au clic.
   callId?: string | null;
   hasTranscript?: boolean;
+  /**
+   * Autorise la lecture intégrée sur mobile, via le MP4 servi par l'API Fathom
+   * plutôt que par l'iframe du lecteur (qui fait planter WebKit, voir plus bas).
+   *
+   * Volontairement en OPT-IN et non activé partout : première mise en service
+   * limitée à la modale Infos des pages Calls. Sans ce drapeau, le comportement
+   * reste strictement celui d'avant — un lien vers Fathom.
+   */
+  inlineVideoOnMobile?: boolean;
 }
 
 function parseActionItems(raw: unknown): string[] {
@@ -80,9 +89,54 @@ function isMobile(): boolean {
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
 
-export default function FathomRecordingSection({ shareUrl, summary, actionItems, transcript, currentUserEmail, callId, hasTranscript }: Props) {
+export default function FathomRecordingSection({ shareUrl, summary, actionItems, transcript, currentUserEmail, callId, hasTranscript, inlineVideoOnMobile }: Props) {
   const [showTranscript, setShowTranscript] = useState(false);
   const [onMobile] = useState(isMobile);
+
+  // Lecture intégrée sur mobile : on demande à Fathom un MP4 et on le joue dans
+  // une balise <video> native. Le lecteur Fathom n'est jamais chargé, donc le
+  // crash WebKit ne peut pas se produire.
+  //
+  // Mesuré sur une captation de 30 min : 10 s la première fois, 0,4 s ensuite
+  // (Fathom garde le fichier ~24 h), 16,3 Mo, lecture en flux dès le début.
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [videoState, setVideoState] = useState<'idle' | 'loading' | 'ready' | 'failed'>('idle');
+  const tenteLectureIntegree = onMobile && !!inlineVideoOnMobile && !!callId && !!shareUrl;
+
+  useEffect(() => {
+    if (!tenteLectureIntegree) return;
+    let vivant = true;
+    setVideoState('loading');
+
+    (async () => {
+      // La génération est asynchrone : Fathom répond `processing` puis il faut
+      // redemander. Borné à ~45 s — au-delà on laisse le lien Fathom prendre le
+      // relais plutôt que de faire attendre indéfiniment.
+      for (let essai = 0; essai < 15 && vivant; essai++) {
+        try {
+          const res = await fetch(`/api/calls/${callId}/fathom-download`, { method: 'POST' });
+          if (!res.ok) { if (vivant) setVideoState('failed'); return; }
+          const data = await res.json();
+
+          if (data.status === 'completed' && data.url) {
+            if (vivant) { setVideoUrl(data.url); setVideoState('ready'); }
+            return;
+          }
+          if (data.status === 'failed' || data.status === 'expired') {
+            if (vivant) setVideoState('failed');
+            return;
+          }
+        } catch {
+          if (vivant) setVideoState('failed');
+          return;
+        }
+        await new Promise(r => setTimeout(r, 3000));
+      }
+      if (vivant) setVideoState('failed');
+    })();
+
+    return () => { vivant = false; };
+  }, [tenteLectureIntegree, callId]);
   // Transcript récupéré à la demande. `transcript` (prop) reste prioritaire pour
   // les appelants qui l'ont déjà en mémoire — aucun changement de comportement
   // pour eux.
@@ -128,15 +182,35 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
       {shareUrl && (
         <div style={{ marginBottom: 16 }}>
           {onMobile ? (
-            <a
-              href={shareUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn-primary-brand"
-              style={{ fontSize: 13, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}
-            >
-              <Icon name="video" size={15} /> Voir l'enregistrement
-            </a>
+            // Le MP4 quand il est prêt, le lien Fathom sinon — pendant la
+            // génération comme en cas d'échec. Le repli n'est jamais un cul-de-sac.
+            videoState === 'ready' && videoUrl ? (
+              <video
+                src={videoUrl}
+                controls
+                playsInline
+                preload="metadata"
+                poster={undefined}
+                style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 10, background: '#000', display: 'block' }}
+              />
+            ) : (
+              <div>
+                <a
+                  href={shareUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-primary-brand"
+                  style={{ fontSize: 13, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}
+                >
+                  <Icon name="video" size={15} /> Voir l'enregistrement
+                </a>
+                {videoState === 'loading' && (
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
+                    Préparation de la vidéo…
+                  </div>
+                )}
+              </div>
+            )
           ) : (
             <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 10, overflow: 'hidden', background: 'var(--surface-2)' }}>
               <iframe
