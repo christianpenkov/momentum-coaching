@@ -962,25 +962,52 @@ async function syncYtCtr(profileId: string, accessToken: string): Promise<{ sync
   const TELECHARGEMENTS_SIMULTANES = 2;
   const newReports = enRetard.slice(0, RAPPORTS_PAR_PASSAGE);
 
-  const perVideoMap: Record<string, { impressions: number; clicks: number }> = {};
-  await mapWithConcurrency(newReports, TELECHARGEMENTS_SIMULTANES, async (report: any) => {
+  // Chaque rapport est mis de cote SEPAREMENT. La fusion n'a lieu qu'ensuite, et
+  // seulement sur le prefixe contigu de succes — voir le bloc suivant.
+  const lignesParRapport: ({ video_id: string; impressions: number; clicks: number }[] | null)[] =
+    new Array(newReports.length).fill(null);
+  await mapWithConcurrency(newReports, TELECHARGEMENTS_SIMULTANES, async (report: any, i: number) => {
     try {
       const dlRes = await fetch(report.downloadUrl, { headers: auth });
       if (!dlRes.ok) { errors.push(`dl_${report.id}: HTTP ${dlRes.status}`); return; }
       const buf = await dlRes.arrayBuffer();
       const csv = await gunzip(buf);
-      const rows = parseReachCsv(csv);
-      for (const r of rows) {
-        if (!perVideoMap[r.video_id]) perVideoMap[r.video_id] = { impressions: 0, clicks: 0 };
-        perVideoMap[r.video_id].impressions += r.impressions;
-        perVideoMap[r.video_id].clicks += r.clicks;
-      }
+      lignesParRapport[i] = parseReachCsv(csv);
     } catch (e: any) { errors.push(`parse_${report.id}: ${e?.message || 'unknown'}`); }
   });
 
-  // Le filigrane avance sur le dernier rapport REELLEMENT traite, pas sur le
-  // dernier disponible : le reliquat est repris au passage suivant.
-  const latestReport = newReports[newReports.length - 1];
+  // ── Le filigrane ne saute JAMAIS un rapport en echec ───────────────────────
+  //
+  // Il avancait sur `newReports[newReports.length - 1]`, le dernier du lot, que son
+  // telechargement ait reussi ou non. Un rapport en echec au milieu du lot etait donc
+  // perdu DEFINITIVEMENT : le passage suivant repartait apres lui. Le commentaire
+  // disait « le dernier rapport REELLEMENT traite » — il decrivait une intention, pas
+  // le code.
+  //
+  // ⚠️ Et il ne suffit pas de reculer le filigrane, car `upsert_yt_ctr` ADDITIONNE
+  // (`impressions + EXCLUDED.impressions`). Ecrire les rapports posterieurs a un trou
+  // tout en gardant le filigrane avant lui les ferait recompter au passage suivant :
+  // on remplacerait une perte silencieuse par un double comptage silencieux.
+  //
+  // D'ou la seule regle coherente : on ne retient que le PREFIXE CONTIGU de succes.
+  // Ce qui suit un trou est jete et sera retelecharge — le cout est nul, le job produit
+  // un rapport par jour et la fonction tourne toutes les heures.
+  //
+  // Cas jamais survenu a ce jour (cron_runs vide sur 30 jours au 2026-09-02) : corrige
+  // par principe, avant qu'il ne se produise.
+  let traites = 0;
+  while (traites < newReports.length && lignesParRapport[traites] !== null) traites++;
+  if (traites === 0) return { synced: 0, errors };
+
+  const perVideoMap: Record<string, { impressions: number; clicks: number }> = {};
+  for (let i = 0; i < traites; i++) {
+    for (const r of lignesParRapport[i]!) {
+      if (!perVideoMap[r.video_id]) perVideoMap[r.video_id] = { impressions: 0, clicks: 0 };
+      perVideoMap[r.video_id].impressions += r.impressions;
+      perVideoMap[r.video_id].clicks += r.clicks;
+    }
+  }
+  const latestReport = newReports[traites - 1];
 
   if (Object.keys(perVideoMap).length > 0) {
     const upsertRows = Object.entries(perVideoMap).map(([video_id, s]) => ({
@@ -989,21 +1016,30 @@ async function syncYtCtr(profileId: string, accessToken: string): Promise<{ sync
       clicks: parseFloat(s.clicks.toFixed(4)),
       updated_at: new Date().toISOString(),
     }));
-    const BATCH = 50;
-    for (let i = 0; i < upsertRows.length; i += BATCH) {
-      const batch = upsertRows.slice(i, i + BATCH);
-      const { error } = await supa.rpc('upsert_yt_ctr', { rows: batch });
-      if (error) {
-        const { error: upsertErr } = await supa.from('youtube_video_ctr').upsert(batch, { onConflict: 'profile_id,video_id', ignoreDuplicates: false });
-        if (upsertErr) errors.push(`upsert_batch_${i}: ${upsertErr.message}`);
-      }
+    // UN seul appel, et plus de repli. Deux raisons, toutes deux liees au fait que
+    // `upsert_yt_ctr` ADDITIONNE :
+    //
+    //   - Le repli `.upsert()` de PostgREST REMPLACE au lieu d'additionner. Il ne
+    //     rattrapait donc pas l'echec, il ecrasait le cumul par le seul total du lot
+    //     courant — une sous-evaluation silencieuse, pire que l'erreur qu'il traitait.
+    //   - Decouper en lots de 50 rendait l'ecriture partielle : un lot passe, le
+    //     suivant echoue, et il devient impossible de decider du filigrane sans soit
+    //     perdre le lot en echec, soit recompter celui qui a reussi. La fonction boucle
+    //     dans UNE transaction : un seul appel est donc tout ou rien.
+    //
+    // En echec, on ne touche pas au filigrane : rien n'a ete ecrit, le passage suivant
+    // reprend les memes rapports sans risque de double comptage.
+    const { error } = await supa.rpc('upsert_yt_ctr', { rows: upsertRows });
+    if (error) {
+      errors.push(`upsert_ctr: ${error.message}`);
+      return { synced: 0, errors };
     }
   }
 
   await supa.from('youtube_ctr_sync_state').upsert({
     profile_id: profileId, last_report_id: latestReport.id,
     last_synced_at: new Date().toISOString(),
-    reports_processed: (syncState?.reports_processed ?? 0) + newReports.length,
+    reports_processed: (syncState?.reports_processed ?? 0) + traites,
   }, { onConflict: 'profile_id' });
 
   return { synced: Object.keys(perVideoMap).length, errors };
