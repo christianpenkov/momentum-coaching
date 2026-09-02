@@ -143,7 +143,7 @@ export async function GET(request: NextRequest) {
       stripe_subscription_id, stripe_customer_id, stripe_payment_link_id,
       first_touch_content_id, attribution_source, shortio_link_id,
       ended_by, ended_at, ended_reason, stops_at, dispute_due_by, unexpected_payment_at,
-      deal_payments ( id, installment_id, amount, status, paid_at, stripe_payment_id, failure_reason ),
+      deal_payments ( id, installment_id, amount, status, paid_at, stripe_payment_id, failure_reason, refund_reason, refund_reason_note ),
       deal_installments ( id, rank, amount, due_on, status, short_url, sent_at, shortio_link_id )
     `)
     .eq('profile_id', profileId)

@@ -75,7 +75,32 @@ export interface DealPayment {
   paid_at: string | null;
   stripe_payment_id: string;
   failure_reason: string | null;
+  /**
+   * Pourquoi ce remboursement a eu lieu. Sur une ligne `refunded` uniquement.
+   *
+   * ⚠️ `null` = la question n'a PAS encore été posée, jamais « aucune raison ».
+   * C'est cet état qui fait apparaître le bandeau sur la fiche : sans raison, on
+   * ne sait pas si l'argent est encore dû, et la vente ne peut pas s'expliquer.
+   */
+  refund_reason?: RaisonRemboursement | null;
+  refund_reason_note?: string | null;
 }
+
+/**
+ * Les quatre réponses possibles à « pourquoi cet argent est-il reparti ? ».
+ *
+ * Une seule laisse l'argent DÛ (`erreur`) ; `autre` fait poser la question
+ * explicitement. Les deux premières valent une remise : le montant de la vente
+ * baisse d'autant, et elle redevient soldée à 100 %.
+ */
+export type RaisonRemboursement = 'geste_commercial' | 'retractation' | 'erreur' | 'autre';
+
+export const LIBELLE_RAISON: Record<RaisonRemboursement, string> = {
+  geste_commercial: 'geste commercial',
+  retractation: 'rétractation partielle',
+  erreur: 'remboursement parti par erreur',
+  autre: 'autre raison',
+};
 
 export interface DealInstallment {
   id: string;

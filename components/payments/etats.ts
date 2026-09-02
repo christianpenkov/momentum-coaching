@@ -80,20 +80,16 @@ export function precisionEtat(d: DealRow): string | null {
   // cours, et la prochaine échéance sera bien prélevée.
   if (d.stopsAt) return `s’arrête après le ${jour(d.stopsAt)}`;
 
-  // ── Soldée alors qu'il « manque » de l'argent ─────────────────────────────
-  // Une vente soldée puis remboursée en partie RESTE soldée : un remboursement
-  // dit qu'un mouvement d'argent a eu lieu, jamais pourquoi. Erreur de saisie,
-  // geste commercial, rétractation — trois raisons courantes, deux conclusions
-  // opposées. La déclasser relancerait le client sur l'argent qu'on vient de lui
-  // rendre. (Règle portée par `statutDeal`, lib/dealCash.ts.)
+  // ⚠️ Rien ici sur les remboursements, volontairement. Une première version
+  // affichait « soldée avant remboursement — rien n'est réclamé », faute de
+  // savoir POURQUOI l'argent était reparti. La raison est désormais demandée
+  // (RaisonRemboursement.tsx), et elle change le fait lui-même : un geste
+  // commercial ramène le montant de la vente, qui redevient vraiment soldée à
+  // 100 %. La phrase serait donc fausse au moment précis où elle s'appliquerait.
   //
-  // Mais l'écran affichait « Soldée » à côté de « 80 % encaissé » sans jamais
-  // faire le lien, et les deux se lisent comme une contradiction — au point
-  // qu'on prend la règle pour un bug. Une règle qui ne se justifie pas à
-  // l'endroit où elle surprend finit par être « corrigée » par quelqu'un.
-  if (d.status === 'paid' && d.refunded > 0.005) {
-    return 'soldée avant remboursement — rien n’est réclamé';
-  }
+  // `precisionEtat` ne voit que DealRow, sans les lignes de paiement : elle ne
+  // PEUT pas connaître la raison. C'est la fiche qui l'affiche, à côté du
+  // montant remboursé — là où elle explique quelque chose.
   return null;
 }
 

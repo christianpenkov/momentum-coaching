@@ -7,9 +7,9 @@ import Portal from './Portal';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { ETATS, etatDe, precisionEtat, modeDe, moyenDefini, libelleModalites, compteDansLesTotaux } from './etats';
 import { useEcheancesAVenir } from './useEcheances';
-import { fmtEur, fmtEurExact, fmtDateLong, type DealRow, type DealDetail, type PersonRow } from './types';
+import { LIBELLE_RAISON, fmtEur, fmtEurExact, fmtDateLong, type DealRow, type DealDetail, type PersonRow } from './types';
 import ModifierMontant from './ModifierMontant';
-import Reclamer from './Reclamer';
+import RaisonRemboursement from './RaisonRemboursement';
 import ModifierModalites from './ModifierModalites';
 import Rembourser, { type MotifRemboursement } from './Rembourser';
 import { Cloturer, Annuler, ArreterPrelevements, PaiementInattendu } from './FinDeVie';
@@ -36,7 +36,7 @@ import { Cloturer, Annuler, ArreterPrelevements, PaiementInattendu } from './Fin
  */
 
 type Action =
-  | { quoi: 'montant' | 'modalites' | 'cloturer' | 'annuler' | 'arreter' | 'inattendu' | 'reclamer'; dealId: string }
+  | { quoi: 'montant' | 'modalites' | 'cloturer' | 'annuler' | 'arreter' | 'inattendu' | 'raisonRemboursement'; dealId: string }
   | { quoi: 'rembourser'; dealId: string; motif: MotifRemboursement; montant: number; arret: boolean };
 
 export default function FicheClient({
@@ -229,8 +229,8 @@ export default function FicheClient({
                 quoi: 'rembourser', dealId: action.dealId, motif: 'annulation', montant, arret,
               })} />
           )}
-          {action.quoi === 'reclamer' && (
-            <Reclamer deal={dealDeLaction}
+          {action.quoi === 'raisonRemboursement' && (
+            <RaisonRemboursement deal={dealDeLaction} detail={details[action.dealId]}
               onClose={() => setAction(null)} onDone={apresAction} />
           )}
           {action.quoi === 'arreter' && (
@@ -271,6 +271,17 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
   const [ouvertes, setOuvertes] = useState({
     echeances: true, origine: !isMobile, journal: !isMobile,
   });
+
+  // ── Les remboursements et leur raison ────────────────────────────────────
+  // Un remboursement sans raison est une question EN ATTENTE, pas une absence de
+  // raison : tant qu'on ignore pourquoi l'argent est reparti, on ne sait pas s'il
+  // est encore dû, et le pourcentage de la vente ne s'explique pas.
+  const remboursements = (detail?.payments ?? []).filter(p => p.status === 'refunded');
+  const sansRaison = remboursements.filter(p => !p.refund_reason);
+  const raisonsRemboursement = [...new Set(
+    remboursements.filter(p => p.refund_reason)
+      .map(p => LIBELLE_RAISON[p.refund_reason!]),
+  )];
 
   const etat = etatDe(deal);
   const e = ETATS[etat];
@@ -350,10 +361,40 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
             legende={`${fmtEurExact(deal.collected)} encaissés sur ${fmtEurExact(deal.amountTotal)} · ${pct} %`} />
         </div>
 
+        {/* ── La question en attente ─────────────────────────────────────
+            Un bandeau et non un bouton dans la barre du bas : ce n'est pas une
+            action qu'on va chercher, c'est une question que la plateforme pose.
+            Tant qu'on n'y répond pas, le pourcentage de cette vente reste
+            inexplicable — et c'est ce qui fait prendre la règle pour un bug. */}
+        {sansRaison.length > 0 && (
+          <button onClick={() => onAction('raisonRemboursement')} style={{
+            display: 'block', width: '100%', textAlign: 'left', marginTop: 10,
+            background: 'var(--amber-soft)', border: '1px solid rgba(181,128,37,.28)',
+            borderRadius: 10, padding: '11px 13px', cursor: 'pointer', fontFamily: 'inherit',
+          }}>
+            <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--amber-ink)', marginBottom: 2 }}>
+              Pourquoi {fmtEurExact(Math.abs(Number(sansRaison[0].amount)))} sont-ils repartis ?
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--ink-2)', lineHeight: 1.55 }}>
+              Sans la raison, on ne sait pas si {deal.buyerName.split(' ')[0]} te doit
+              encore cette somme — et c’est elle qui explique le pourcentage ci-dessus.
+            </div>
+          </button>
+        )}
+
         {/* Ce que les totaux ne montrent pas : l'argent rendu ou repris. */}
         {(deal.refunded > 0.005 || deal.disputed > 0.005 || deal.aRendre > 0.005) && (
           <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7, lineHeight: 1.6 }}>
-            {deal.refunded > 0.005 && <div>{fmtEurExact(deal.refunded)} remboursés — déjà déduits ci-dessus.</div>}
+            {deal.refunded > 0.005 && (
+              <div>
+                {fmtEurExact(deal.refunded)} remboursés — déjà déduits ci-dessus.
+                {/* La raison, dès qu'elle est connue : c'est elle qui explique
+                    pourquoi le pourcentage n'est pas celui qu'on attendait. */}
+                {raisonsRemboursement.length > 0 && (
+                  <> ({raisonsRemboursement.join(', ')})</>
+                )}
+              </div>
+            )}
             {/* Le ruban du haut plafonne le cash encaissé au montant de chaque vente :
                 sans cette ligne, l'argent versé en trop ne serait nulle part. Il est ici
                 parce que c'est ici qu'on le rend. */}
@@ -524,16 +565,6 @@ function BarreActions({ deal, etat, mode, onAction }: {
   } else if (etat === 'ended') {
     boutons.push(['Annuler', 'annuler', true]);
   } else {
-    // ── Le seul chemin pour contredire un remboursement ────────────────────
-    // Une vente soldée puis remboursée en partie reste soldée, faute de savoir
-    // POURQUOI l'argent est reparti. Quand c'était une erreur, aucun geste ne
-    // permettait de le dire : retaper le même montant laisse le bouton inactif,
-    // le monter gonfle le cash contracté, et un lien à part fabrique une seconde
-    // vente. Le bouton n'apparaît que dans ce cas, et disparaît une fois réclamé
-    // (la vente n'est alors plus soldée).
-    if (etat === 'paid' && deal.refunded > 0.005) {
-      boutons.push(['Réclamer le remboursement', 'reclamer']);
-    }
     boutons.push(['Montant', 'montant']);
     // ── Le même écran, deux situations, deux noms ──────────────────────────
     // « Modalités » suppose qu'il y en a : c'est le nom d'un réglage à ajuster.
