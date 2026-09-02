@@ -58,7 +58,12 @@ export default function FicheClient({
 }) {
   const isMobile = useIsMobile();
   const [action, setAction] = useState<Action | null>(actionInitiale ?? null);
-  const [terminéesOuvertes, setTerminéesOuvertes] = useState(false);
+  // null = on suit la situation, un booléen = l'utilisateur a tranché.
+  // Dérivé plutôt que stocké : replier par défaut protège les ventes vivantes
+  // d'être poussées hors de l'écran, mais quand il n'y en a AUCUNE, ce même repli
+  // affiche une fiche vide sous un simple titre — il cache la seule chose qu'il y
+  // avait à montrer. Le défaut suit donc ce que le client a réellement.
+  const [ouvertureChoisie, setOuvertureChoisie] = useState<boolean | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !action) onClose(); };
@@ -68,6 +73,9 @@ export default function FicheClient({
 
   const actives = deals.filter(d => !estTerminee(d));
   const terminees = deals.filter(estTerminee);
+
+  // Le repli par défaut n'a de sens que s'il reste quelque chose au-dessus.
+  const terminéesOuvertes = ouvertureChoisie ?? actives.length === 0;
 
   const contracte = deals.filter(compteDansLesTotaux).reduce((s, d) => s + d.amountTotal, 0);
   const encaisse = deals.filter(compteDansLesTotaux).reduce((s, d) => s + d.collected, 0);
@@ -152,7 +160,7 @@ export default function FicheClient({
           <>
             {/* Repliées : elles n'appellent aucune action et pousseraient les
                 ventes vivantes hors de l'écran chez un client de longue date. */}
-            <button onClick={() => setTerminéesOuvertes(v => !v)}
+            <button onClick={() => setOuvertureChoisie(!terminéesOuvertes)}
               style={{
                 display: 'flex', alignItems: 'center', gap: 8, width: '100%', background: 'none',
                 border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: '10px 0',
