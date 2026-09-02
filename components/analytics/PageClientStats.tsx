@@ -7589,6 +7589,21 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           // reportee ici. Le numerateur reste strictement inclus dans le denominateur,
           // donc le ratio ne peut pas depasser 100 % — la garde d'origine est preservee,
           // par construction cette fois plutot que par un filtre.
+          // La regle, decidee par Chris le 2026-09-02 : parmi les personnes ayant recu un
+          // lead magnet DANS LA PERIODE, combien ont clique AU MOINS UNE FOIS. Le « au
+          // moins une fois » porte sur la personne, pas sur l'envoi : quelqu'un qui prend
+          // trois lead magnets et en clique un compte pour une personne activee, pas pour
+          // un tiers.
+          //
+          // ⚠️ Consequence assumee : le clic n'a pas a SUIVRE l'envoi de la periode.
+          // `rdjdkzjd` a clique le 08/07 puis repris un lead magnet le 01/09 — il compte
+          // comme active en septembre. La carte mesure donc « ces gens-la sont-ils du
+          // genre a cliquer », pas « ce lead magnet-ci a-t-il ete clique ». Le second se
+          // lit dans le Parcours des leads, colonne « Clics LM », par cohorte d'entree.
+          //
+          // Le commentaire d'origine annoncait « lm_clicked posterieur a detected_at ».
+          // Cette regle n'a jamais ete implementee, et elle n'est pas celle qu'on veut :
+          // c'est bien la version sans contrainte d'ordre qui est retenue.
           const lmClics = [...personnesAvecLm].filter(personne => {
             const fiche = idFicheParPersonne.get(personne);
             return !!fiche && !!lmClickedByLeadId?.has(fiche);
@@ -8767,9 +8782,19 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                             <span style={{ display: 'block', fontSize: 9.5, color: 'var(--muted)', marginTop: 1 }}>{l.qualifies.oui} / {l.qualifies.renseignes}</span>
                           </>
                         ) : (
+                          // Deux causes derriere une case vide, une seule merite un mot.
+                          // Aucun call honore : il n'y avait rien a juger, le tiret suffit
+                          // et ajouter du texte ferait croire a un manquement. Des calls
+                          // honores mais aucun jugement : la question du rapport est restee
+                          // sans reponse, et la le dire sert — c'est une action a faire.
+                          //
+                          // « aucun rapport » disait faux dans les deux cas : un rapport
+                          // peut exister sans que cette question ait ete remplie.
                           <>
                             <span style={{ color: 'var(--faint)' }}>&mdash;</span>
-                            <span style={{ display: 'block', fontSize: 9.5, color: 'var(--faint)', marginTop: 1 }}>aucun rapport</span>
+                            {l.callsHonores > 0 && (
+                              <span style={{ display: 'block', fontSize: 9.5, color: 'var(--faint)', marginTop: 1 }}>non renseigné</span>
+                            )}
                           </>
                         )}
                       </td>
@@ -8833,34 +8858,25 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
               LARGE, il ne se choisit pas au meme moment que les autres. Il regagne au
               passage la place d'ecrire « Instagram » et « YouTube » en toutes lettres,
               plutot que deux sigles, et rend sa largeur aux filtres qui restent. */}
-          {/* Zone 1 : "au moins 1" — 2 lignes */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          {/* Un filtre ne porte que sur un nombre AFFICHE, et sous le nom que la carte
+              lui donne.
+
+              Trois filtres portaient sur des chiffres absents des cartes — clics
+              description, clics lead magnet, liens DM envoyes. Filtrer sur un nombre
+              qu'on ne voit pas rend le resultat inexplicable : la grille se vide, et rien
+              a l'ecran ne dit pourquoi.
+
+              Les six restants reprennent le vocabulaire des cartes, mot pour mot :
+              « min. 1 commentaire LM » filtrait ce que la carte appelle « Leads entres ».
+              Deux noms pour un meme nombre, c'est deja une divergence. */}
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
             {([
-              ['clicsDesc', 'min. 1 clic desc.'],
-              ['lmDetectes', 'min. 1 commentaire LM'],
-              ['lmClics', 'min. 1 clic LM'],
-              ['lmReponses', 'min. 1 réponse LM'],
-              ['dmCount', 'min. 1 lien DM'],
-            ] as [SortKey, string][]).map(([key, label]) => {
-              const active = filterHas.has(key);
-              return (
-                <button key={key} onClick={() => {
-                  const next = new Set(filterHas);
-                  active ? next.delete(key) : next.add(key);
-                  setFilterHas(next);
-                }} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: `1px solid ${active ? BLUE : 'var(--border)'}`, background: active ? BLUE + '12' : 'transparent', color: active ? BLUE : 'var(--muted)', transition: 'all .12s' }}>
-                  {label}
-                </button>
-              );
-            })}
-            </div>
-            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-            {([
-              ['callsBooked', 'min. 1 call booké'],
+              ['lmDetectes', 'min. 1 lead entré'],
+              ['lmReponses', 'min. 1 conversation'],
+              ['callsBooked', 'min. 1 call déclenché'],
               ['callsHonored', 'min. 1 call honoré'],
               ['closed', 'min. 1 closé'],
-              ['revenue', 'min. 1 € revenue'],
+              ['revenue', 'min. 1 € de revenue'],
             ] as [SortKey, string][]).map(([key, label]) => {
               const active = filterHas.has(key);
               return (
@@ -8868,12 +8884,11 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                   const next = new Set(filterHas);
                   active ? next.delete(key) : next.add(key);
                   setFilterHas(next);
-                }} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: `1px solid ${active ? BLUE : 'var(--border)'}`, background: active ? BLUE + '12' : 'transparent', color: active ? BLUE : 'var(--muted)', transition: 'all .12s' }}>
+                }} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: `1px solid ${active ? BLUE : 'var(--border)'}`, background: active ? BLUE + '14' : 'transparent', color: active ? BLUE : 'var(--muted)', transition: 'all .15s' }}>
                   {label}
                 </button>
               );
             })}
-            </div>
           </div>
           {/* Zone 3 : recherche */}
           <input
