@@ -2380,22 +2380,16 @@ export default function PagePipeline() {
   // Board ou Liste. Le board répond à « où en est chaque lead », la liste à
   // « lequel dois-je traiter maintenant ». Le choix est conservé d'une visite à
   // l'autre : y revenir à chaque fois serait un pas de plus à refaire sans cesse.
-  // ── `null` = ON NE SAIT PAS ENCORE QUELLE VUE AFFICHER ─────────────────────
+  // ── LE PIPELINE S'OUVRE TOUJOURS SUR LE BOARD ──────────────────────────────
   //
-  // La préférence vit dans `localStorage`, que le SERVEUR n'a pas. En partant de
-  // « board », il rendait donc un board dans le HTML, et quelqu'un qui travaille
-  // en vue liste le voyait à chaque arrivée sur la page, jusqu'à l'hydratation.
+  // Choix de Chris : la vue quittée n'est PAS retenue. On revient sur le pipeline
+  // pour voir où en est tout le monde d'un coup d'œil — c'est le board qui répond
+  // à ça. La liste sert à traiter, on y va quand on a décidé de traiter.
   //
-  // Lire la préférence dans l'initialiseur de `useState` ne suffit pas : le
-  // serveur rendrait toujours « board » pendant que le client rendrait
-  // « liste », et cette divergence d'hydratation se corrige par un repaint —
-  // donc le clignotement revient.
-  //
-  // Le serveur ne SAIT pas : il affiche donc le chargeur, comme il le fait déjà
-  // pendant le chargement des données. Client et serveur rendent la même chose,
-  // et la bonne vue est peinte dès l'hydratation. La mauvaise n'est jamais
-  // montrée.
-  const [vue, setVue] = useState<'board' | 'liste' | null>(null);
+  // La préférence n'est donc ni écrite ni relue. Une vieille valeur
+  // `pipeline-vue` peut traîner dans le stockage de quelqu'un ; elle est
+  // simplement ignorée, la nettoyer ne vaut pas une ligne de code.
+  const [vue, setVue] = useState<'board' | 'liste'>('board');
 
   // Les colonnes repliées du board. Conservées d'une visite à l'autre : replier
   // « Commentaire LM » et ses 412 fiches pour dégager la vue n'aurait aucun
@@ -2438,19 +2432,13 @@ export default function PagePipeline() {
   const effetAvantPeinture = typeof window === 'undefined' ? useEffect : useLayoutEffect;
   effetAvantPeinture(() => {
     try {
-      const v = window.localStorage.getItem('pipeline-vue');
-      setVue(v === 'liste' ? 'liste' : 'board');
       const r = window.localStorage.getItem('pipeline-colonnes-repliees');
       if (r) setColonnesRepliees(new Set(JSON.parse(r) as string[]));
-    } catch {
-      // Navigation privée, cookies bloqués : on ne restera pas sur le chargeur.
-      setVue('board');
-    }
+    } catch { /* navigation privée, cookies bloqués : le repli par défaut suffit */ }
   }, []);
-  const changerVue = (v: 'board' | 'liste') => {
-    setVue(v);
-    try { window.localStorage.setItem('pipeline-vue', v); } catch { /* sans effet */ }
-  };
+  // Pas d'écriture en stockage : la vue ne se retient pas d'une visite à l'autre,
+  // elle vaut pour celle-ci seulement.
+  const changerVue = (v: 'board' | 'liste') => setVue(v);
   const [filterCanceled, setFilterCanceled] = useState(false);
   const [filterRescheduled, setFilterRescheduled] = useState(false);
 
@@ -4091,10 +4079,8 @@ export default function PagePipeline() {
         <style>{`[data-pipeline-card] { pointer-events: none !important; }`}</style>
       )}
 
-      {/* Kanban board — le chargeur couvre AUSSI le moment où la vue préférée
-          n'est pas encore connue, c'est-à-dire jusqu'à l'hydratation. Sans ça, le
-          serveur devrait deviner, et il devinait faux une fois sur deux. */}
-      {loading || vue === null ? (
+      {/* Kanban board */}
+      {loading ? (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <InlineLoader />
         </div>
