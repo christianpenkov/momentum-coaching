@@ -8675,7 +8675,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           <div><b>À quoi sert ce tableau.</b> Sur les personnes entrées par ce contenu, combien sont allées jusqu&apos;au bout, et à quelle étape les autres se sont arrêtées. C&apos;est l&apos;écran des goulots d&apos;étranglement.</div>
           <div><b>Il compte des personnes, pas des rendez-vous.</b> Une personne qui réserve deux fois compte une seule fois. C&apos;est ce qui fait que les nombres ne remontent jamais de gauche à droite, et pourquoi ils diffèrent de ceux de « Ce que fait chaque contenu », juste en dessous, qui compte des événements.</div>
           <div><b>Seuls les gens entrés par le tunnel DM figurent ici.</b> Une réservation venue d&apos;un lien de bio, d&apos;une description ou d&apos;une story n&apos;a aucune personne identifiable en amont : elle est comptée dans Vue générale et dans le Breakdown par source, pas ici. Le total de la colonne Revenue est donc normalement inférieur à celui de Vue générale, et ce n&apos;est pas un écart à corriger.</div>
-          <div><b>Le groupe « Engagement du DM1 » est hors de la chaîne</b>, et <b>replié par défaut</b> : le bouton du même nom, à droite des filtres, l'ouvre. Une fois ouvert il s'isole entre filets juste après le nom du contenu, volontairement AVANT la chaîne, pour que celle-ci se lise ensuite d'un trait sans coupure. Appuyer sur le bouton du DM1 puis cliquer le lead magnet ne sont pas obligatoires pour répondre ensuite : les mettre dans la chaîne la ferait remonter le jour où quelqu&apos;un répond sans avoir cliqué. Ces deux colonnes mesurent l&apos;efficacité du message automatique, pas la progression du prospect.</div>
+          <div><b>Le groupe « Engagement du DM1 » est hors de la chaîne</b>, et <b>replié par défaut</b> : le petit chevron à droite de « Commentaires LM » l'ouvre, juste là où ses deux colonnes apparaissent. Replié, la chaîne se lit d'un trait ; ouvert, il s'isole entre filets, parce qu'il dérive des commentaires sans en être la suite. Appuyer sur le bouton du DM1 puis cliquer le lead magnet ne sont pas obligatoires pour répondre ensuite : les mettre dans la chaîne la ferait remonter le jour où quelqu&apos;un répond sans avoir cliqué. Ces deux colonnes mesurent l&apos;efficacité du message automatique, pas la progression du prospect.</div>
           <div><b>La période porte sur la date d&apos;entrée.</b> En regardant mars, vous voyez les personnes entrées en mars et tout ce qu&apos;elles ont fait ensuite, même en juin. Un rendez-vous se range dans la ligne par laquelle la personne était entrée juste avant lui. <b>Une relance manuelle n&apos;ouvre pas de nouvelle cohorte</b> : seule une nouvelle prise de lead magnet le fait.</div>
           <div><b>Les périodes récentes paraissent toujours faibles</b>, parce que les gens viennent d&apos;entrer et n&apos;ont pas encore eu le temps d&apos;aller au bout.</div>
           <div><b>Pas de ligne Total.</b> Une même personne peut être entrée par plusieurs contenus : additionner les lignes la compterait plusieurs fois.</div>
@@ -8744,31 +8744,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     );
                   })}
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
-                  {/* Meme forme que les filtres a sa gauche : meme hauteur, meme rayon,
-                      meme paire de couleurs actif/inactif. Un affordance de plus a
-                      apprendre serait un affordance de trop — c'est un reglage
-                      d'affichage, pas une fonction nouvelle.
-
-                      Le glyphe CHANGE au lieu de tourner : un etat se lit, il n'a pas
-                      besoin d'etre anime, et rien ne reste a desactiver en
-                      `prefers-reduced-motion`.
-
-                      L'explication du groupe voyage dans l'infobulle du bouton. Sans
-                      elle, replier le groupe reviendrait a cacher aussi la raison de son
-                      existence — le « ? » de l'intertitre disparait avec lui. */}
-                  {!estYT && (
-                    <button
-                      onClick={() => setDm1Ouvert(o => !o)}
-                      aria-expanded={dm1Ouvert}
-                      title={dm1Ouvert
-                        ? "Masquer les colonnes « LM réclamés » et « Clics LM »."
-                        : "Afficher les colonnes « LM réclamés » et « Clics LM ».\n\nCes deux colonnes ne sont pas des étapes du parcours : on peut répondre au message d'accroche sans avoir appuyé sur le bouton du DM1, et sans avoir cliqué son lead magnet. Elles mesurent l'efficacité du message automatique, pas la progression du prospect — d'où les filets qui les isolent, et d'où ce repliage."}
-                      style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: `1px solid ${dm1Ouvert ? BLUE : 'var(--border)'}`, background: dm1Ouvert ? BLUE + '14' : 'transparent', color: dm1Ouvert ? BLUE : 'var(--muted)', transition: 'all .15s', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                      <span style={{ fontSize: 8, lineHeight: 1 }}>{dm1Ouvert ? '▾' : '▸'}</span>
-                      Engagement du DM1
-                    </button>
-                  )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
                   <span style={{ fontSize: 10, color: 'var(--faint)' }}>Trier par</span>
                   <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
                     <select value={triParcoursValide} onChange={e => { setParcoursTri(e.target.value); setParcoursTriDir('desc'); }}
@@ -8796,6 +8772,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                   {!estYT && (dm1Ouvert || parContenu) && (
                     <tr>
                       <th style={{ ...thP, borderBottom: 'none' }} />
+                      {/* Deux cellules de tete : « Contenu » et « Commentaires LM ». Le
+                          groupe se replie ENTRE la base de la mesure et la suite de la
+                          chaine, la ou il se lit. */}
+                      <th style={{ ...thP, borderBottom: 'none' }} />
                       {dm1Ouvert && (
                       <th colSpan={2} style={{ ...thP, ...filet, textAlign: 'center', color: BLUE, borderBottom: 'none', paddingBottom: 2 }}>
                         Engagement du DM1
@@ -8806,12 +8786,13 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                         </span>
                       </th>
                       )}
-                      {/* Remplissage de « Commentaires LM » a « Revenue » : colonnes 4 a 12
-                          dans les DEUX angles. Il valait 9 (ou 7) et laissait la rangee UNE cellule plus
-                          courte que le corps du tableau — sans effet visible, le navigateur
-                          completant en silence, mais toute colonne ajoutee decalait
-                          l'intertitre sans que rien ne le signale. */}
-                      <th colSpan={9} style={{ ...thP, ...filet, borderBottom: 'none' }} />
+                      {/* Remplissage de « Conversations » a « Revenue » : colonnes 5 a 12
+                          depliees, 3 a 10 repliees — HUIT dans les deux cas, et dans les deux
+                          angles. Ce compte ne se devine pas : une rangee d'intertitre plus
+                          courte que le corps ne provoque aucune erreur, le navigateur
+                          complete en silence, et l'intertitre glisse d'une colonne sans que
+                          rien ne le signale. */}
+                      <th colSpan={8} style={{ ...thP, ...filet, borderBottom: 'none' }} />
                       {/* L'all-time chapeaute les DEUX colonnes d'un coup, plutot qu'une
                           mention repetee sous chaque en-tete : c'est la meme information
                           pour les deux, et le motif existe deja au-dessus. */}
@@ -8829,17 +8810,37 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     {estYT
                       ? <th style={{ ...thP, ...filet }}><EnteteColonne nom="clicLien">Clics desc.</EnteteColonne></th>
                       : <>
-                          {/* Le groupe hors chaine passe AVANT la chaine, pour que celle-ci
-                              se lise d'un trait : Commentaires LM -> Conversations ->
-                              Calendly envoyes -> Clics Calendly -> Calls bookes. Place au
-                              milieu, il coupait la lecture a l'endroit meme ou l'oeil
-                              cherche la marche suivante. */}
+                          {/* Le repli vit DANS la rangee d'en-tete, accroche a la colonne
+                              dont le groupe derive. « LM réclamés » et « Clics LM » sont
+                              deux sous-mesures des commentaires LM : les ouvrir juste a
+                              droite de leur base, la ou elles vont apparaitre, evite
+                              d'aller chercher une commande ailleurs dans l'ecran.
+
+                              Etat porte par la FORME (▸ / ▾), pas par la couleur seule.
+                              Aucune animation : un etat se lit, et il ne reste rien a
+                              neutraliser en `prefers-reduced-motion`. L'anneau de focus du
+                              navigateur est conserve, jamais supprime. */}
+                          <th style={thP}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
+                              <EnteteColonne nom="leadsGeneres">Commentaires LM</EnteteColonne>
+                              <button
+                                type="button"
+                                onClick={() => setDm1Ouvert(o => !o)}
+                                aria-expanded={dm1Ouvert}
+                                aria-label={dm1Ouvert ? "Masquer l'engagement du DM1" : "Afficher l'engagement du DM1"}
+                                title={dm1Ouvert
+                                  ? "Masquer « LM réclamés » et « Clics LM »."
+                                  : "Afficher « LM réclamés » et « Clics LM ».\n\nCes deux colonnes ne sont pas des étapes du parcours : on peut répondre au message d'accroche sans avoir appuyé sur le bouton du DM1, et sans avoir cliqué son lead magnet. Elles mesurent l'efficacité du message automatique, pas la progression du prospect — d'où les filets qui les isolent, et d'où ce repliage."}
+                                style={{ display: 'inline-grid', placeItems: 'center', width: 16, height: 16, padding: 0, flex: 'none', borderRadius: 4, border: 'none', background: dm1Ouvert ? BLUE + '18' : 'transparent', color: dm1Ouvert ? BLUE : 'var(--muted)', fontSize: 9, lineHeight: 1, cursor: 'pointer', transition: 'background .15s, color .15s' }}>
+                                {dm1Ouvert ? '▾' : '▸'}
+                              </button>
+                            </span>
+                          </th>
                           {dm1Ouvert && <th style={{ ...thP, ...filet }}><EnteteColonne nom="clicLeadMagnet">LM réclamés</EnteteColonne></th>}
                           {dm1Ouvert && <th style={thP}><EnteteColonne nom="clicLeadMagnet">Clics LM</EnteteColonne></th>}
-                          {/* Le filet FERME le groupe : sans lui a gauche, il ne doit pas
-                              rester a droite, sinon un trait flotte apres « Contenu ». */}
-                          <th style={dm1Ouvert ? { ...thP, ...filet } : thP}><EnteteColonne nom="leadsGeneres">Commentaires LM</EnteteColonne></th>
-                          <th style={thP}><EnteteColonne nom="conversationDm">Conversations</EnteteColonne></th>
+                          {/* Le filet FERME le groupe. Replie, il ne doit pas rester : un
+                              trait flotterait entre deux colonnes de la chaine. */}
+                          <th style={dm1Ouvert ? { ...thP, ...filet } : thP}><EnteteColonne nom="conversationDm">Conversations</EnteteColonne></th>
                           <th style={thP}><EnteteColonne nom="calendlyEnvoye">Calendly envoyés</EnteteColonne></th>
                           <th style={thP}><EnteteColonne nom="clicLien">Clics Calendly</EnteteColonne></th>
                         </>}
@@ -8881,6 +8882,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                       {estYT
                         ? <td style={{ ...tdP, ...filet }}><CelluleP n={info.clicsDesc} /></td>
                         : <>
+                           <td style={tdP}><CelluleP n={l.commentairesLm} /></td>
                            {dm1Ouvert && (
                              <td style={{ ...tdP, ...filet }}>
                                {lmReclameCouvre
@@ -8892,8 +8894,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                              </td>
                            )}
                            {dm1Ouvert && <td style={tdP}><CelluleP n={l.clicsLm} sur={l.commentairesLm} /></td>}
-                           <td style={dm1Ouvert ? { ...tdP, ...filet } : tdP}><CelluleP n={l.commentairesLm} /></td>
-                           <td style={tdP}><CelluleP n={l.ontRepondu} sur={l.commentairesLm} /></td>
+                           <td style={dm1Ouvert ? { ...tdP, ...filet } : tdP}><CelluleP n={l.ontRepondu} sur={l.commentairesLm} /></td>
                             <td style={tdP}><CelluleP n={l.calendlyEnvoyes} sur={l.ontRepondu} /></td>
                             <td style={tdP}><CelluleP n={l.clicsCalendly} sur={l.calendlyEnvoyes} /></td>
                           </>}
