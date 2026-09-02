@@ -614,6 +614,15 @@ const AIDE_ECART_DEDUP = (abo: number, non: number, total: number) =>
   + "Les pourcentages se rapportent aux parts, pour qu'ils fassent exactement 100 %. "
   + "Le reach total, lui, reste le nombre réel de personnes touchées.";
 
+const AIDE_RETENTION_VIDEO =
+  "La part de la vidéo qui est regardée en moyenne, sur TOUTE SA VIE — pas sur la "
+  + "période affichée en haut de page.\n\n"
+  + "C'est une propriété de la vidéo, pas d'une période : « 45 % de ma vidéo est "
+  + "regardée » ne dépend pas de la fenêtre qu'on consulte. La colonne ne bouge donc "
+  + "pas quand vous changez de période, c'est normal.\n\n"
+  + "Au-delà de 100 %, les spectateurs ont revu des passages. Fréquent sur les Shorts, "
+  + "qui tournent en boucle.";
+
 const AIDE_REACH_STORY =
   "Le nombre de PERSONNES qui ont vu cette story, chacune comptée une seule fois "
   + "même si elle l'a rouverte.\n\n"
@@ -4042,16 +4051,19 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 ['Type', null],
                 ['Vues totales', 'views'],
                 ['Vues 30j', 'views30d'],
-                ['Rétention', 'avgViewPct'],
+                ['Rétention', 'avgViewPct', AIDE_RETENTION_VIDEO],
                 ['Durée', null],
                 ['Likes', 'likes'],
                 ['Date', 'publishedAt'],
-              ] as [string, typeof videosSortKey | null][]).map(([h, key]) => {
+              ] as [string, typeof videosSortKey | null, string?][]).map(([h, key, aide]) => {
                 const active = key !== null && videosSortKey === key;
                 return (
                   <th key={h} onClick={key ? () => { if (active) setVideosSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setVideosSortKey(key); setVideosSortDir('desc'); } } : undefined}
                     className="eyebrow-sm" style={{ textAlign: 'left', color: active ? BLUE : 'var(--muted)', padding: '8px 10px', cursor: key ? 'pointer' : 'default', userSelect: 'none', whiteSpace: 'nowrap' }}>
                     {h} {active ? (videosSortDir === 'desc' ? '↓' : '↑') : ''}
+                    {/* stopPropagation est deja fait par AideColonne : ouvrir l'aide
+                        ne declenche pas le tri de la colonne. */}
+                    {aide ? <AideColonne texte={aide} /> : null}
                   </th>
                 );
               })}
@@ -4101,7 +4113,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 <td style={{ padding: '10px', fontSize: 13 }}>
                   {!v.avgViewPct ? '—' : v.avgViewPct > 100 ? (
                     <span
-                      title={`${fmtPct(v.avgViewPct)} sur les 30 derniers jours : au-delà de 100 %, cela signifie que les spectateurs ont revu des passages. Fréquent sur les Shorts, qui tournent en boucle. Sur toute la vie de la vidéo, la rétention est plus basse.`}
+                      title={`${fmtPct(v.avgViewPct)} en moyenne sur toute la vie de la vidéo : au-delà de 100 %, cela signifie que les spectateurs ont revu des passages. Fréquent sur les Shorts, qui tournent en boucle.`}
                       style={{ cursor: 'help', borderBottom: '1px dotted var(--muted)' }}
                     >
                       &gt;100&nbsp;%

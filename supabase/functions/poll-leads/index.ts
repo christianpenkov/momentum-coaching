@@ -1716,6 +1716,20 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
     const BATCH_ANALYTICS = 40;
     const startDate = isoDate(30);
     const analyticsMap: Record<string, any> = {};
+    // Retention moyenne : mesuree sur TOUTE LA VIE de la video, pas sur 30 jours.
+    //
+    // ⚠️ Deux chemins ecrivaient le meme champ avec deux fenetres differentes. La route
+    // live (app/api/youtube/stats/route.ts) interroge averageViewPercentage depuis
+    // 2020-01-01 ; ce cron l'interrogeait sur 30 jours glissants. La colonne
+    // « Retention » du tableau des videos changeait donc de SENS selon la periode
+    // consultee — vie entiere sur la periode courante, 30 jours des qu'on naviguait en
+    // arriere ou en All-Time. Exactement le defaut deja corrige sur `views30d`, deux
+    // requetes plus haut dans la route.
+    //
+    // La retention est une propriete de la VIDEO, pas d'une periode : « 45 % de ma
+    // video a ete regardee » ne depend pas de la fenetre qu'on regarde. D'ou une
+    // requete dediee, alignee sur celle de la route live.
+    const retentionAllTimeMap: Record<string, number> = {};
     for (let i = 0; i < videoIds.length; i += BATCH_ANALYTICS) {
       const batch = videoIds.slice(i, i + BATCH_ANALYTICS);
       const analyticsRes = await fetch(
@@ -1726,6 +1740,21 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
         const analyticsData = await safeJson(analyticsRes);
         for (const row of analyticsData.rows || []) {
           analyticsMap[row[0]] = { views: row[1], watchMin: row[2], likes: row[3], comments: row[4], shares: row[5], avgViewPct: row[6], subsGained: row[7] };
+        }
+        // Requete dediee : meme lot, meme filtre, mais depuis l'origine de la chaine.
+        // Un echec ici laisse simplement la retention a null pour ce lot — un trou, pas
+        // un faux zero, et surtout pas une valeur sur 30 jours qui se ferait passer
+        // pour une moyenne de vie entiere.
+        const retRes = await fetch(
+          `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&dimensions=video&filters=video==${batch.join(',')}&metrics=averageViewPercentage&startDate=2020-01-01&endDate=${yesterday}`,
+          { headers: auth },
+        );
+        if (retRes.ok) {
+          const retData = await safeJson(retRes);
+          for (const row of retData.rows || []) retentionAllTimeMap[row[0]] = row[1];
+        } else {
+          errors.push(`yt_videos_retention: HTTP ${retRes.status}`);
+          console.error(`[poll-leads] profile=${profileId} yt_videos_retention: HTTP ${retRes.status}`);
         }
       } else {
         // Contrairement aux details ci-dessus, on n'interrompt PAS : les metriques par
@@ -1810,7 +1839,10 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
           likes: parseInt(detail?.statistics?.likeCount ?? '0') ?? null,
           comments: parseInt(detail?.statistics?.commentCount ?? '0') ?? null,
           shares: analytics.shares ?? null,
-          avg_view_pct: analytics.avgViewPct ?? null,
+          // Vie entiere (voir `retentionAllTimeMap`). Repli sur la valeur 30 jours
+          // seulement si la requete dediee a echoue pour ce lot : mieux vaut une
+          // retention approchee qu'un trou, et l'echec est journalise dans `errors`.
+          avg_view_pct: retentionAllTimeMap[videoId] ?? analytics.avgViewPct ?? null,
           subs_gained: analytics.subsGained ?? null,
           ctr: ctrMap[videoId] ?? null,
           url: `https://youtube.com/watch?v=${videoId}`,
