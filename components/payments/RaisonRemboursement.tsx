@@ -76,8 +76,9 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
   const [encoreDu, setEncoreDu] = useState<boolean | null>(null);
   const [encaissement, setEncaissement] = useState<'lien' | 'offline'>(
     () => (moyenDe(deal) === 'offline' ? 'offline' : 'lien'));
-  // Présélectionné sur « ça continue » : c'est l'option qui ne ferme rien. Un
-  // défaut qui clôturerait la vente à l'insu de l'élève serait le pire des deux.
+  // Présélectionné d'après la raison, parce qu'elle le dit presque : une
+  // rétractation est un arrêt, un geste commercial ne l'est pas. Rien n'est
+  // décidé pour autant — la question reste posée et visible.
   const [continue_, setContinue] = useState(true);
   const [coche, setCoche] = useState(false);
   const [envoi, setEnvoi] = useState(false);
@@ -105,7 +106,7 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           raison, note, encoreDu: duFinal, encaissement,
-          cloturer: !duFinal && !seraSoldee && !continue_,
+          cloturer: !duFinal && !continue_,
         }),
       });
       const d = await r.json();
@@ -136,6 +137,7 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
       <ModaleAction
         titre={resultat.encoreDu
           ? `${fmtEurExact(montant)} de nouveau à encaisser`
+          : resultat.cloture ? 'Vente clôturée'
           : `Vente ramenée à ${fmtEurExact(resultat.apres ?? nouveauMontant)}`}
         onClose={onDone}
         pied={<button className="btn-primary-brand" style={{ fontSize: 12.5 }} onClick={onDone}>Terminé</button>}>
@@ -161,18 +163,25 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
             )}
           </>
         ) : (
-          <Encart ton="bien" titre="C’est fait">
-            Cette vente vaut désormais{' '}
-            <strong>{fmtEurExact(resultat.apres ?? nouveauMontant)}</strong>
-            {seraSoldee
-              ? <>, et elle est <strong>soldée à 100 %</strong>.</>
-              : resultat.cloture
-                ? <>, et elle est <strong>clôturée</strong> : tu n’attends plus
-                  les {fmtEurExact(resteApres)} restants.</>
+          resultat.cloture ? (
+            <Encart ton="bien" titre="C’est fait">
+              La vente est <strong>clôturée</strong> : l’accompagnement s’est
+              arrêté avant la fin. Elle reste comptée{' '}
+              <strong>{fmtEurExact(resultat.apres ?? deal.amountTotal)}</strong> —
+              c’est ce que tu avais vendu — et les {fmtEurExact(montant)} rendus
+              restent visibles comme tels. Elle sort des relances.
+            </Encart>
+          ) : (
+            <Encart ton="bien" titre="C’est fait">
+              Cette vente vaut désormais{' '}
+              <strong>{fmtEurExact(resultat.apres ?? nouveauMontant)}</strong>
+              {seraSoldee
+                ? <>, et elle est <strong>soldée à 100 %</strong>.</>
                 : <>, et il reste <strong>{fmtEurExact(resteApres)}</strong> à encaisser.</>}
-            {' '}Le montant d’origine ({fmtEurExact(resultat.avant ?? deal.amountTotal)})
-            reste inscrit au journal de la vente.
-          </Encart>
+              {' '}Le montant d’origine ({fmtEurExact(resultat.avant ?? deal.amountTotal)})
+              reste inscrit au journal de la vente.
+            </Encart>
+          )
         )}
       </ModaleAction>
     );
@@ -206,7 +215,12 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
           {RAISONS.map(r => (
-            <button key={r.cle} onClick={() => setRaison(r.cle)} style={{
+            <button key={r.cle} onClick={() => {
+              setRaison(r.cle);
+              // Une rétractation EST un arrêt ; un geste commercial ne l'est pas.
+              // Le défaut suit donc la raison — la question reste posée et visible.
+              setContinue(r.cle !== 'retractation');
+            }} style={{
               textAlign: 'left', width: '100%', cursor: 'pointer', fontFamily: 'inherit',
               background: raison === r.cle ? 'var(--surface-2)' : 'var(--surface)',
               border: `1px solid ${raison === r.cle ? 'var(--accent-brand)' : 'var(--border)'}`,
@@ -296,66 +310,84 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
           {/* Le point qui doit être limpide : la vente ne « perd » pas d'argent,
               elle en valait moins. Sans cette phrase, baisser le montant se lit
               comme une correction cachée des chiffres. */}
-          <Encart ton="bien" titre="Ce que ça veut dire">
-            Tu as vendu {fmtEurExact(deal.amountTotal)} et rendu {fmtEurExact(montant)} :
-            cette vente valait en réalité <strong>{fmtEurExact(nouveauMontant)}</strong>.
-            Son montant est ramené à cette somme.
-            {seraSoldee
-              ? <> Elle redevient <strong>soldée à 100 %</strong> — il n’y a
-                effectivement plus rien à encaisser.</>
-              : continue_
-                ? <> Il restera <strong>{fmtEurExact(resteApres)}</strong> à
-                  encaisser sur ce nouveau montant.</>
-                : <> Et comme tu n’attends plus le reste, elle sera{' '}
-                  <strong>clôturée</strong> : les {fmtEurExact(resteApres)} restants
-                  ne seront jamais réclamés.</>}
-          </Encart>
-          <div style={{ marginTop: 12 }}>
-            <Ligne label="Cash contracté" barre={fmtEurExact(deal.amountTotal)}
-              valeur={fmtEurExact(nouveauMontant)} ton="fort" />
-            <Ligne label="Cash encaissé" valeur={`${fmtEurExact(deal.collected)} — inchangé`} />
-            <Ligne label="Encaissé sur contracté"
-              barre={`${Math.round((deal.collected / (deal.amountTotal || 1)) * 100)} %`}
-              valeur={`${Math.round((deal.collected / (nouveauMontant || 1)) * 100)} %`} ton="fort" />
-            {/* « Non » n'est vrai que si plus rien n'est attendu. Sur une vente
-                qui continue, le client SERA relancé pour le reste — l'annoncer
-                autrement serait la promesse la plus facile à démentir. */}
-            <Ligne label={`${prenom} sera relancé`}
-              valeur={seraSoldee || !continue_ ? 'Non' : `Oui, pour les ${fmtEurExact(resteApres)} restants`} />
-          </div>
-          {/* ── La question que baisser le montant ne pose pas ──────────────
-              Rendre 100 € ne dit rien du reste. Une rétractation partielle en
-              pleine série d'échéances peut vouloir dire deux choses opposées :
-              le plan continue à un montant plus bas, ou l'accompagnement
-              s'arrête là. Sans la question, le second cas laissait la vente en
-              cours et relançait le client pour ce à quoi il venait de renoncer.
+          {/* ── La question qui sépare les deux histoires ────────────────────
+              Rendre de l'argent ne dit pas POURQUOI la vente s'arrête là. Deux
+              faits que rien ne rapproche se cachaient derrière le même geste :
 
-              Elle ne se pose pas sur une vente soldée : il n'y a plus rien à ne
-              plus attendre — c'est déjà pourquoi « Clôturer » y est masqué. */}
-          {!seraSoldee && (
-            <div style={{ marginTop: 14 }}>
-              <Section marge={0}>Attends-tu encore les {fmtEurExact(resteApres)} restants ?</Section>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <Chip on={continue_} onClick={() => setContinue(true)}>
-                  Oui, l’accompagnement continue
-                </Chip>
-                <Chip on={!continue_} onClick={() => setContinue(false)}>
-                  Non, ça s’arrête là
-                </Chip>
-              </div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7, lineHeight: 1.6 }}>
-                {continue_
-                  ? `${prenom} reste dans tes relances pour ce qui reste dû.`
-                  : `La vente passe en clôturée : elle sort des relances, et ces ${fmtEurExact(resteApres)} ne seront jamais réclamés. Le cash déjà encaissé, lui, reste compté.`}
-              </div>
+               · l'accompagnement va à son terme et tu as rendu de l'argent → tu
+                 as vendu moins cher, le montant baisse, la vente est soldée ;
+               · l'accompagnement S'ARRÊTE en route → tu avais bien vendu
+                 1 000 €, le montant ne bouge pas, la vente est clôturée, et
+                 l'écart reste visible parce qu'il raconte exactement ça.
+
+              Le second cas est celui d'un plan interrompu, où l'élève clôture. Il
+              arrive juste par un autre chemin quand tout avait été payé d'avance,
+              et doit donner le MÊME état — sinon deux clients qui ont décroché
+              pareil se lisent différemment dans la liste. */}
+          <div>
+            <Section marge={0}>L’accompagnement s’est-il arrêté ?</Section>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <Chip on={continue_} onClick={() => setContinue(true)}>
+                Non — il continue, ou il est allé au bout
+              </Chip>
+              <Chip on={!continue_} onClick={() => setContinue(false)}>
+                Oui — il s’est arrêté avant la fin
+              </Chip>
             </div>
-          )}
-
-          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10, lineHeight: 1.6 }}>
-            Le montant d’origine ({fmtEurExact(deal.amountTotal)}) reste inscrit au
-            journal de la vente : rien n’est effacé, la vente est simplement
-            enregistrée pour ce qu’elle a réellement valu.
           </div>
+
+          {continue_ ? (
+            <>
+              {/* Sans cette phrase, baisser le montant se lit comme une
+                  correction cachée des chiffres. */}
+              <Encart ton="bien" titre="Ce que ça veut dire">
+                Tu as vendu {fmtEurExact(deal.amountTotal)} et rendu {fmtEurExact(montant)} :
+                cette vente valait en réalité <strong>{fmtEurExact(nouveauMontant)}</strong>.
+                Son montant est ramené à cette somme.
+                {seraSoldee
+                  ? <> Elle est <strong>soldée à 100 %</strong> — il n’y a
+                    effectivement plus rien à encaisser.</>
+                  : <> Il restera <strong>{fmtEurExact(resteApres)}</strong> à
+                    encaisser sur ce nouveau montant.</>}
+              </Encart>
+              <div style={{ marginTop: 12 }}>
+                <Ligne label="Cash contracté" barre={fmtEurExact(deal.amountTotal)}
+                  valeur={fmtEurExact(nouveauMontant)} ton="fort" />
+                <Ligne label="Cash encaissé" valeur={`${fmtEurExact(deal.collected)} — inchangé`} />
+                <Ligne label="Encaissé sur contracté"
+                  barre={`${Math.round((deal.collected / (deal.amountTotal || 1)) * 100)} %`}
+                  valeur={`${Math.round((deal.collected / (nouveauMontant || 1)) * 100)} %`} ton="fort" />
+                <Ligne label={`${prenom} sera relancé`}
+                  valeur={seraSoldee ? 'Non' : `Oui, pour les ${fmtEurExact(resteApres)} restants`} />
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10, lineHeight: 1.6 }}>
+                Le montant d’origine ({fmtEurExact(deal.amountTotal)}) reste inscrit au
+                journal : rien n’est effacé, la vente est simplement enregistrée pour
+                ce qu’elle a réellement valu.
+              </div>
+            </>
+          ) : (
+            <>
+              <Encart ton="bien" titre="Ce que ça veut dire">
+                Tu avais bien vendu <strong>{fmtEurExact(deal.amountTotal)}</strong> —
+                ce montant ne bouge pas. La vente passe en <strong>Clôturée</strong> :
+                l’accompagnement s’est arrêté avant la fin, et les{' '}
+                {fmtEurExact(montant)} rendus restent visibles comme tels.
+                {' '}C’est exactement ce qui se serait passé sur un paiement en
+                plusieurs fois interrompu — même situation, même état.
+              </Encart>
+              <div style={{ marginTop: 12 }}>
+                <Ligne label="Cash contracté" valeur={`${fmtEurExact(deal.amountTotal)} — inchangé`} />
+                <Ligne label="Cash encaissé" valeur={`${fmtEurExact(deal.collected)} — inchangé`} />
+                <Ligne label="La vente passe en" valeur="Clôturée" ton="fort" />
+                <Ligne label={`${prenom} sera relancé`} valeur="Non" />
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10, lineHeight: 1.6 }}>
+                L’écart entre les deux chiffres n’est pas une anomalie : c’est
+                l’argent que tu as rendu parce que l’accompagnement s’est arrêté.
+              </div>
+            </>
+          )}
         </>
       )}
 
@@ -363,7 +395,9 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
         <CaseResponsabilite niveau="orange" coche={coche} onChange={setCoche}
           texte={duFinal
             ? `Ce remboursement était une erreur : ${prenom} me doit toujours cette somme, et j’assume les rappels qui vont lui être envoyés.`
-            : `Cet argent n’est plus dû. J’accepte que cette vente soit désormais comptée pour ${fmtEurExact(nouveauMontant)} dans mes statistiques.`} />
+            : continue_
+              ? `Cet argent n’est plus dû. J’accepte que cette vente soit désormais comptée pour ${fmtEurExact(nouveauMontant)} dans mes statistiques.`
+              : `Cet argent n’est plus dû et l’accompagnement s’est arrêté. J’accepte que cette vente soit clôturée, et qu’elle reste comptée pour ${fmtEurExact(deal.amountTotal)}.`} />
       </div>
 
       {erreur && (

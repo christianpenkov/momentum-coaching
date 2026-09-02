@@ -118,8 +118,24 @@ export async function POST(
 
   // ── L'argent n'est plus dû : la vente vaut moins ──────────────────────────
   if (!encoreDu) {
+    // ── Deux histoires, deux traitements ──────────────────────────────────
+    // Une première version baissait le montant dans TOUS les cas. C'était
+    // confondre deux faits que rien ne rapproche :
+    //
+    //  · l'accompagnement va à son terme et tu as rendu de l'argent → tu as
+    //    vendu moins cher. Le montant baisse, la vente est soldée à 100 %.
+    //
+    //  · l'accompagnement s'ARRÊTE en cours de route → tu avais bien vendu
+    //    1 000 €. Le montant ne bouge pas, la vente est CLÔTURÉE, et l'écart
+    //    reste visible parce qu'il raconte précisément ce qui s'est passé.
+    //
+    // Le second cas est exactement celui d'un plan interrompu, où l'élève
+    // clôture. Il arrive juste par un autre chemin quand tout avait été payé
+    // d'avance — et il doit donner le même état, sinon deux clients qui ont
+    // décroché de la même façon se lisent différemment dans la liste.
     const avant = Number(deal.amount_total);
-    const apres = Math.max(0, Math.round((avant - montantRembourse) * 100) / 100);
+    const cloture = body?.cloturer === true;
+    const apres = cloture ? avant : Math.max(0, Math.round((avant - montantRembourse) * 100) / 100);
 
     // ⚠️ Le statut se RECALCULE, il ne se décrète pas. Le forcer à `paid` était
     // juste sur une vente déjà soldée et faux partout ailleurs : sur une vente
@@ -127,20 +143,6 @@ export async function POST(
     // rendus), baisser le montant à 900 € ne la solde évidemment pas — elle
     // aurait été affichée « Soldée » avec 200 € encaissés sur 900.
     const statut = statutDeal(cash, apres, deal.status) ?? deal.status;
-
-    // ── Baisser le montant ne dit RIEN du reste ──────────────────────────
-    // Sur une vente encore en cours, rendre 100 € ne répond pas à « est-ce que
-    // j'attends encore les 700 qui restent ? ». Une rétractation partielle en
-    // pleine série d'échéances peut vouloir dire deux choses opposées : le
-    // plan continue à un montant plus bas, ou l'accompagnement s'arrête là.
-    //
-    // Sans la question, le second cas laissait la vente en cours et relançait le
-    // client pour un accompagnement auquel il venait de renoncer.
-    //
-    // La question ne se pose PAS sur une vente soldée : il n'y a plus rien à ne
-    // plus attendre — c'est déjà pourquoi « Clôturer » y est masqué.
-    const resteApres = Math.round((apres - cash.net) * 100) / 100;
-    const cloture = body?.cloturer === true && resteApres > CENTIME;
 
     await supa.from('deals').update({
       amount_total: apres,
@@ -156,7 +158,9 @@ export async function POST(
     await supa.from('deal_events').insert({
       deal_id: dealId,
       kind: 'amount_changed',
-      label: `${libelle(raison)} · ${fmt(avant)} → ${fmt(apres)}`,
+      label: cloture
+        ? `${libelle(raison)} · vente clôturée, ${fmt(montantRembourse)} rendus`
+        : `${libelle(raison)} · ${fmt(avant)} → ${fmt(apres)}`,
       actor_id: user.id,
       meta: { avant, apres, rembourse: montantRembourse, raison },
     });
