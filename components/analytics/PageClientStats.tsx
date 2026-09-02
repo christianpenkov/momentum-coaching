@@ -3197,7 +3197,7 @@ function StorySequenceDetailModal({ profileId, sequence, onClose }: { profileId?
 
 // ─── TAB 3 : YouTube ──────────────────────────────────────────────────────────
 
-function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceConnection, connexionCassee, abonnesAujourdHui, allTimeStart }: { yt: YTStats | null; period: Period; profileId?: string; periodIndex?: number; ytIsFallback?: boolean; sinceConnection?: boolean; connexionCassee?: boolean; abonnesAujourdHui?: number | null; allTimeStart?: string | null }) {
+function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceConnection, connexionCassee, abonnesAujourdHui, allTimeStart, retentionVivante }: { yt: YTStats | null; period: Period; profileId?: string; periodIndex?: number; ytIsFallback?: boolean; sinceConnection?: boolean; connexionCassee?: boolean; abonnesAujourdHui?: number | null; allTimeStart?: string | null; retentionVivante?: Map<string, number> }) {
   const [selectedVideo, setSelectedVideo] = useState<YTVideo | null>(null);
   useEscapeKey(() => setSelectedVideo(null), !!selectedVideo);
   const [videosTypeFilter, setVideosTypeFilter] = useState<'all' | 'short' | 'long'>('all');
@@ -4073,8 +4073,15 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             {yt.videos
               .filter(v => videosTypeFilter === 'all' ? true : videosTypeFilter === 'short' ? v.isShort : !v.isShort)
               .sort((a, b) => {
-                const av = videosSortKey === 'publishedAt' ? new Date(a.publishedAt).getTime() : (a[videosSortKey] ?? 0);
-                const bv = videosSortKey === 'publishedAt' ? new Date(b.publishedAt).getTime() : (b[videosSortKey] ?? 0);
+                // La retention se trie sur la valeur AFFICHEE, pas sur celle du
+                // snapshot : sans ca, l'ordre des lignes ne correspondrait plus aux
+                // chiffres de la colonne — une incoherence d'autant plus penible
+                // qu'elle n'apparait qu'apres un clic sur l'en-tete.
+                const val = (v: typeof a): number => videosSortKey === 'avgViewPct'
+                  ? (retentionVivante?.get(v.id) ?? v.avgViewPct ?? 0)
+                  : Number((v as any)[videosSortKey] ?? 0);
+                const av = videosSortKey === 'publishedAt' ? new Date(a.publishedAt).getTime() : val(a);
+                const bv = videosSortKey === 'publishedAt' ? new Date(b.publishedAt).getTime() : val(b);
                 return videosSortDir === 'desc' ? bv - av : av - bv;
               })
               .slice(0, showAllVideos ? undefined : VIDEOS_PREVIEW)
@@ -4111,14 +4118,20 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                     On affiche « >100 % » avec l'explication au survol : annoncer un
                     chiffre precis donnerait une fausse impression d'exactitude. */}
                 <td style={{ padding: '10px', fontSize: 13 }}>
-                  {!v.avgViewPct ? '—' : v.avgViewPct > 100 ? (
-                    <span
-                      title={`${fmtPct(v.avgViewPct)} en moyenne sur toute la vie de la vidéo : au-delà de 100 %, cela signifie que les spectateurs ont revu des passages. Fréquent sur les Shorts, qui tournent en boucle.`}
-                      style={{ cursor: 'help', borderBottom: '1px dotted var(--muted)' }}
-                    >
-                      &gt;100&nbsp;%
-                    </span>
-                  ) : fmtPct(v.avgViewPct)}
+                  {(() => {
+                    // Repli sur la valeur du snapshot quand la video n'est pas dans la
+                    // liste vivante : l'API n'en renvoie que 50. Un chiffre approche
+                    // vaut mieux qu'un trou, et le cas est rare.
+                    const retention = retentionVivante?.get(v.id) ?? v.avgViewPct;
+                    return !retention ? '—' : retention > 100 ? (
+                      <span
+                        title={`${fmtPct(retention)} en moyenne sur toute la vie de la vidéo : au-delà de 100 %, cela signifie que les spectateurs ont revu des passages. Fréquent sur les Shorts, qui tournent en boucle.`}
+                        style={{ cursor: 'help', borderBottom: '1px dotted var(--muted)' }}
+                      >
+                        &gt;100&nbsp;%
+                      </span>
+                    ) : fmtPct(retention);
+                  })()}
                 </td>
                 <td style={{ padding: '10px', fontSize: 12, color: 'var(--muted)' }}>{v.duration}</td>
                 <td style={{ padding: '10px', fontSize: 13 }}>{fmt(v.likes)}</td>
@@ -11011,6 +11024,17 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   const encaissementsParJour = (sinceConnection
     ? (sinceConnSnap?.encaissementsParJour ?? [])
     : (periodIndex > 0 ? (snapData?.encaissementsParJour ?? []) : (supaData?.encaissementsParJour ?? []))) as JourEncaisse[];
+  // Cle : id de video. Source : l'objet YouTube VIVANT, jamais `ytEff` — ce dernier
+  // vaut le snapshot de la periode des qu'on navigue en arriere, et c'est justement
+  // la valeur figee qu'on veut cesser de lire pour cette colonne.
+  const retentionVivanteYt = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const v of (yt?.videos ?? []) as any[]) {
+      if (typeof v?.avgViewPct === 'number' && v.avgViewPct > 0) m.set(v.id, v.avgViewPct);
+    }
+    return m;
+  }, [yt]);
+
   const cashParVente = (sinceConnection
     ? (sinceConnSnap?.cashParVente ?? [])
     : (periodIndex > 0 ? (snapData?.cashParVente ?? []) : (supaData?.cashParVente ?? []))) as VenteCash[];
@@ -11181,7 +11205,14 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
         <>
           {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} msgs={msgsEff} calls={callsEff} callsAllTime={callsAllTimeEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} deals={dealsEff} cashParVente={cashParVente} />}
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} abonnesAujourdHui={ig?.followers ?? null} allTimeStart={allTimeStart} />}
-          {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.yt?.snapshotError} abonnesAujourdHui={yt?.subscribers ?? null} allTimeStart={allTimeStart} />}
+          {/* La retention est une PROPRIETE DE LA VIDEO, pas une metrique de periode :
+              « 45 % de ma video est regardee » ne depend pas de la fenetre consultee.
+              La stocker jour par jour etait l'erreur de modelisation — chaque ligne
+              d'historique figeait une valeur qui, elle, ne cesse d'evoluer, et les
+              lignes anciennes gardaient a jamais l'ancienne definition.
+              On lit donc la valeur VIVANTE, la meme que celle du modal video, et le
+              tableau affiche le meme chiffre quelle que soit la periode consultee. */}
+          {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.yt?.snapshotError} abonnesAujourdHui={yt?.subscribers ?? null} allTimeStart={allTimeStart} retentionVivante={retentionVivanteYt} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} callsAllTime={callsAllTimeEff} deals={deals} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} allTimeStart={allTimeStart} profileId={profileId} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} premierClicLienProspect={premierClicLienProspect} />}
           {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} hookRepliedEvents={hookRepliedEvents} lmReclameParLeadId={lmReclameParLeadId} premierLmReclame={premierLmReclame} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={callsAllTimeEff} deals={deals} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} shortioChartHistoryStory={shortioChartHistoryStory} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} />}
           {tab === 5 && <TabRevenues encaissementsParJour={encaissementsParJour} cashParVente={cashParVente} deals={dealsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} allTimeStart={allTimeStart} stripeConnected={integStatus?.stripeConnected} />}
