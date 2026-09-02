@@ -592,6 +592,17 @@ const AIDE_CASH_CONTRACTE =
   + "sortie. Un upsell vendu six mois plus tard à ce même client ne vient donc pas "
   + "gonfler la performance de la publication.";
 
+const AIDE_ECART_DEDUP = (abo: number, non: number, total: number) =>
+  `Les deux parts (${abo} + ${non} = ${abo + non}) dépassent de ${abo + non - total} le reach `
+  + `total de ${total}. Ce n'est pas une erreur.\n\n`
+  + "Une personne qui vous découvre SANS vous suivre, puis s'abonne et revoit un "
+  + "contenu ensuite, est comptée une fois dans chaque part — mais une seule fois "
+  + "dans le total, qui ne compte que des personnes distinctes.\n\n"
+  + "L'écart grandit donc avec la durée de la période, et il est nul sur une semaine. "
+  + "C'est le signe que vous convertissez des visiteurs en abonnés.\n\n"
+  + "Les pourcentages se rapportent aux parts, pour qu'ils fassent exactement 100 %. "
+  + "Le reach total, lui, reste le nombre réel de personnes touchées.";
+
 const AIDE_REACH_STORY =
   "Le nombre de PERSONNES qui ont vu cette story, chacune comptée une seule fois "
   + "même si elle l'a rouverte.\n\n"
@@ -2817,8 +2828,30 @@ function HistoriquePortee({ profileId, granularite, debut }: { profileId?: strin
             const non = p.reachNonAbonnes ?? 0;
             // Part DANS la portee, donc les deux font 100 % — a ne pas confondre
             // avec la carte « Abonnes touches », qui divise par le nombre d'abonnes.
-            const pctAbo = total ? (abo / total) * 100 : 0;
-            const pctNon = total ? (non / total) * 100 : 0;
+            // ⚠️ La base de la COMPOSITION est la somme des deux parts, PAS le reach
+            // total — et les deux different pour de vrai.
+            //
+            // Mesure du 2026-09-02 : all-time 137 + 72 = 209 pour un total de 207 ;
+            // juillet 144 pour 143 ; juin 121 pour 120. L'ecart est systematique et
+            // croit avec la duree de la fenetre, nul sur les periodes courtes.
+            //
+            // C'est la signature d'une personne qui CHANGE DE STATUT pendant la
+            // periode : vue une premiere fois alors qu'elle ne suivait pas le compte,
+            // puis une seconde apres s'etre abonnee. Meta la compte dans les DEUX
+            // parts, mais une seule fois dans le total dedupliqué. Rien a corriger
+            // cote collecte : les trois nombres sont exacts, ils ne repondent
+            // simplement pas a la meme question.
+            //
+            // Diviser les parts par le total faisait donc afficher 66 % + 35 % = 101 %,
+            // juste sous une phrase promettant que « les deux parts font 100 % ».
+            const base = abo + non;
+            // Le second pourcentage est le COMPLEMENT du premier, jamais un second
+            // arrondi : deux arrondis independants donnent 101 % des que les deux
+            // parts tombent pres de x,5 — c'est une seconde source de 101 %,
+            // independante de celle ci-dessus, et elle serait revenue plus tard.
+            const pctAbo = base ? Math.round((abo / base) * 100) : 0;
+            const pctNon = base ? 100 - pctAbo : 0;
+            const ecartDedup = base - total;
             // Un segment trop etroit ne peut pas porter son texte sans deborder sur
             // le voisin. Pratique des outils pro : la valeur reste a l'exterieur, et
             // l'etiquette interieure disparait plutot que de se chevaucher. Le cas
@@ -2866,6 +2899,9 @@ function HistoriquePortee({ profileId, granularite, debut }: { profileId?: strin
                     alors qu'il est leur somme (demande de Chris, 2026-08-26). */}
                 <div style={{ textAlign: 'center', marginTop: 5, fontSize: 11, color: 'var(--muted)' }}>
                   Reach total = <strong style={{ color: 'var(--ink)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{p.reachTotal == null ? '—' : fmt(total)}</strong>
+                  {ecartDedup > 0 && (
+                    <AideColonne texte={AIDE_ECART_DEDUP(abo, non, total)} />
+                  )}
                 </div>
               </div>
             );
@@ -2879,7 +2915,7 @@ function HistoriquePortee({ profileId, granularite, debut }: { profileId?: strin
               <span style={{ width: 9, height: 9, borderRadius: 2, background: COUL_NON }} />non-abonnés
             </span>
             <span style={{ marginLeft: 'auto' }}>
-              les deux parts font 100 % du reach total
+              les deux parts font 100 % des personnes touchées
             </span>
           </div>
         </div>
