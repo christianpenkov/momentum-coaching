@@ -102,6 +102,24 @@ export async function PATCH(
     && !(deal as { stripe_payment_link_id?: string | null }).stripe_payment_link_id
     && echeances.every(e => !e.stripe_payment_link_id);
 
+  // ── Le moyen d'encaisser le complément est un CHOIX, pas une déduction ─────
+  // L'écran demande « comment veux-tu recevoir ces 200 € ? » depuis le premier
+  // jour, et la réponse n'arrivait pas jusqu'ici : la route décidait seule, sur
+  // l'état actuel de la vente. Choisir « hors Stripe » sur un comptant qui porte
+  // un lien créait donc un lien de complément quand même, et l'écran de résultat
+  // l'annonçait à envoyer — l'inverse exact de ce qui venait d'être demandé.
+  //
+  // Le cas n'est pas théorique : c'est le client au compte entreprise, sans
+  // carte, pour qui cette question a été ajoutée.
+  //
+  // Absent du corps = ancien comportement (on déduit de l'état de la vente), ce
+  // qui garde les appels qui ne posent pas la question inchangés.
+  const choixMoyen: 'lien' | 'offline' | null =
+    body?.encaissement === 'offline' ? 'offline'
+    : body?.encaissement === 'lien' ? 'lien'
+    : null;
+  const enOffline = choixMoyen ? choixMoyen === 'offline' : horsStripe;
+
   const trop = aRembourser(cash, montant);
   const reste = resteAEncaisser(cash, montant);
   const liens: Array<{ rank: number | null; url: string; amount: number }> = [];
@@ -148,10 +166,38 @@ export async function PATCH(
         }, { status: 502 });
       }
 
-    } else if (horsStripe) {
+    } else if (enOffline) {
       // Hors Stripe : aucun lien, aucun prélèvement. Seul l'échéancier de
       // Momentum est recalculé — l'élève prévient son client lui-même.
+      //
+      // Si la vente portait un lien et qu'on bascule hors Stripe, il faut le
+      // désactiver ET oublier ses références : un lien resté payable
+      // encaisserait un argent que l'élève attend par virement, et la fiche
+      // continuerait d'afficher « par lien » alors qu'aucun lien ne vit plus.
+      if (!horsStripe && access) {
+        await desactiverLiensDuDeal(supa, dealId, deal.profile_id);
+        await supa.from('deals').update({
+          stripe_payment_link_id: null, short_url: null,
+          stripe_url: null, shortio_link_id: null,
+        }).eq('id', dealId);
+      }
+
       await repartir(aVenir, reste);
+
+      // Un comptant n'a aucune échéance : sans ligne, le virement à venir
+      // n'aurait nulle part où être déclaré, et les 200 € resteraient invisibles
+      // jusqu'à ce qu'ils arrivent — c'est-à-dire jamais, puisque Momentum ne
+      // voit pas les virements. Échéance due aujourd'hui, comme la route des
+      // modalités qui fait partir sa première échéance du jour même.
+      if (aVenir.length === 0) {
+        await supa.from('deal_installments').insert({
+          deal_id: dealId,
+          rank: echeances.length + 1,
+          amount: reste,
+          due_on: new Date().toISOString().slice(0, 10),
+          status: 'pending',
+        });
+      }
 
     } else if (aVenir.length > 0 && access) {
       // Un lien par échéance : ceux des échéances déjà payées ne sont jamais

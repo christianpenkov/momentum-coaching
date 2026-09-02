@@ -5,7 +5,7 @@ import ModaleAction, {
   CaseResponsabilite, Encart, Section, LienACopier, Chip,
   ChampMontant, ApercuEcheances,
 } from './ModaleAction';
-import { modeDe, libelleRythme } from './etats';
+import { modeDe, moyenDe, libelleRythme } from './etats';
 import { useEcheancesAVenir } from './useEcheances';
 import { fmtEurExact, fmtDateLong, type DealRow, type DealDetail } from './types';
 
@@ -46,7 +46,12 @@ export default function ModifierMontant({ deal, detail, onClose, onDone, onRembo
 }) {
   const [saisie, setSaisie] = useState(String(deal.amountTotal));
   const [coche, setCoche] = useState(false);
-  const [encaissement, setEncaissement] = useState<'lien' | 'offline'>('lien');
+  // Présélectionné sur le moyen actuel de la vente : la question porte sur un
+  // complément, pas sur une refonte. Proposer « par lien » d'office à quelqu'un
+  // qui encaisse par virement depuis le début lui ferait changer de moyen sans
+  // l'avoir demandé.
+  const [encaissement, setEncaissement] = useState<'lien' | 'offline'>(
+    () => (moyenDe(deal) === 'offline' ? 'offline' : 'lien'));
   const [nbEcheances, setNbEcheances] = useState(deal.installmentsCount ?? 1);
   const [envoi, setEnvoi] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
@@ -128,7 +133,16 @@ export default function ModifierMontant({ deal, detail, onClose, onDone, onRembo
     }));
   }, [reste, nbApres, apresParEcheance, echeancierAvant, dejaPayees, deal.installmentInterval]);
 
-  const complement = reste > 0.005 && encaisse > 0.005 && mode === 'one_shot';
+  // ── Quand la question du moyen se pose ────────────────────────────────────
+  // Dès qu'il reste une somme UNIQUE à encaisser sur une vente déjà entamée. La
+  // condition excluait `offline`, ce qui rendait la question invisible sur les
+  // ventes hors Stripe — précisément celles où l'élève pourrait vouloir basculer
+  // sur un lien parce que son client a maintenant une carte.
+  //
+  // En plusieurs fois, le reste se répartit sur les échéances : ce n'est plus un
+  // complément, et la question n'aurait pas de sens.
+  const complement = reste > 0.005 && encaisse > 0.005
+    && (mode === 'one_shot' || (mode === 'offline' && aVenir.length <= 1));
   const enBaisse = trop > 0.005;
 
   async function valider() {
@@ -139,7 +153,9 @@ export default function ModifierMontant({ deal, detail, onClose, onDone, onRembo
       const r = await fetch(`/api/payments/deals/${deal.id}/amount`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ amount: nouveau }),
+        // Le moyen n'est transmis QUE lorsque la question a été posée : ailleurs,
+        // la route doit garder sa déduction sur l'état de la vente.
+        body: JSON.stringify(complement ? { amount: nouveau, encaissement } : { amount: nouveau }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'La modification a échoué.');
@@ -270,7 +286,10 @@ export default function ModifierMontant({ deal, detail, onClose, onDone, onRembo
           </Encart>
         )}
 
-        {mode === 'offline' && resultat.resteAEncaisser > 0.005 && (
+        {/* L'avertissement ne vaut que si le complément reste hors Stripe : avec
+            un lien, Momentum constate seul et il n'y a rien à annoncer. */}
+        {mode === 'offline' && !(complement && encaissement === 'lien')
+          && resultat.resteAEncaisser > 0.005 && (
           <Encart ton="attention" titre="Préviens ton client toi-même">
             Cette vente s’encaisse hors Stripe : Momentum a mis l’échéancier à
             jour, mais ne peut prévenir personne. C’est à toi de dire à
@@ -329,7 +348,7 @@ export default function ModifierMontant({ deal, detail, onClose, onDone, onRembo
               deal={deal} mode={mode} reste={reste} encaisse={encaisse}
               aVenir={aVenir} payees={payees.length} nbRestantes={nbApres}
               apresParEcheance={apresParEcheance} avantParEcheance={avantParEcheance}
-              complement={complement} />
+              complement={complement} encaissement={encaissement} />
           )}
 
           {/* ── L'échéancier, ligne par ligne ────────────────────────────────
@@ -440,7 +459,7 @@ export default function ModifierMontant({ deal, detail, onClose, onDone, onRembo
  */
 function PreviewHausse({
   deal, mode, reste, encaisse, aVenir, payees, nbRestantes,
-  apresParEcheance, avantParEcheance, complement,
+  apresParEcheance, avantParEcheance, complement, encaissement,
 }: {
   deal: DealRow;
   mode: ReturnType<typeof modeDe>;
@@ -452,6 +471,8 @@ function PreviewHausse({
   apresParEcheance: number;
   avantParEcheance: number;
   complement: boolean;
+  /** Le moyen choisi pour le complément — il prime sur le mode actuel. */
+  encaissement: 'lien' | 'offline';
 }) {
   const prenom = deal.buyerName.split(' ')[0];
   const rythme = libelleRythme(deal.installmentInterval);
@@ -485,10 +506,20 @@ function PreviewHausse({
         {aVenir.length > 1
           ? <>Réparti sur les {aVenir.length} échéances à venir, soit {fmtEurExact(apresParEcheance)} chacune.</>
           : <>En une fois.</>}
+        {/* La phrase suit le CHOIX, pas le mode actuel : la question du moyen
+            est désormais posée aussi sur une vente hors Stripe, et promettre
+            qu'aucun lien ne sera créé serait faux si l'élève vient d'en demander
+            un. */}
         <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
-          Cette vente s’encaisse hors Stripe : aucun lien ne sera créé, et
-          Momentum ne préviendra personne. C’est à toi de dire à {prenom} ce
-          qu’il doit virer.
+          {complement && encaissement === 'lien' ? (
+            <>Un lien de paiement sera créé pour ce complément. Cette vente
+              s’encaissait jusqu’ici hors Stripe : à partir de maintenant,
+              Momentum constatera ce paiement tout seul.</>
+          ) : (
+            <>Cette vente s’encaisse hors Stripe : aucun lien ne sera créé, et
+              Momentum ne préviendra personne. C’est à toi de dire à {prenom} ce
+              qu’il doit virer.</>
+          )}
         </div>
       </Encart>
     );
