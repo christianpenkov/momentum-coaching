@@ -24,7 +24,7 @@ import PeriodPill, { periodLabel, type Period } from '@/components/ui/PeriodPill
 // conteste. Cet ecran la recopiait implicitement en ne gardant que `succeeded`,
 // donc sans jamais deduire un remboursement.
 import { calculerCash, encaisseRetenu, aRembourser, type LignePaiement } from '@/lib/dealCash';
-import { granulariteFenetre, regrouperComptage, regrouperTaux, libelleBucket, type Granularite } from '@/lib/chart-buckets';
+import { granulariteFenetre, regrouperComptage, regrouperTaux, regrouperNiveau, regrouperMoyenne, libelleBucket, type Granularite } from '@/lib/chart-buckets';
 // Listes de catégories : UNE seule définition (lib/shortio-link-category.ts). Elles
 // étaient recopiées trois fois dans ce fichier (TOTAL_CLICS_CATS, SNAP_BUSINESS_CATS,
 // CHART_BUSINESS_CATS) plus trois fois pour bio/contenu — six occasions de diverger à
@@ -364,43 +364,64 @@ function dealsDeLaPeriode(
   });
 }
 
-const libelleJourCourbe = (iso: string) =>
-  new Date(iso + 'T12:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+/**
+ * Regroupe une serie jour-par-jour avant affichage, selon la NATURE de la mesure.
+ *
+ * Existe pour l'All-Time. Un point par jour convient a une semaine ou a un mois ;
+ * sur toute l'histoire d'un eleve, c'est 400 points la premiere annee — une nuee de
+ * points illisible, et Recharts en souffre. Au-dela des seuils de
+ * lib/chart-buckets.ts, on regroupe par semaine puis par mois.
+ *
+ * ⚠️ LA NATURE N'EST PAS UN DETAIL — c'est ce qui rend le regroupement juste ou
+ * absurde. Trois cas, qu'aucun nom de serie ne permet de deviner :
+ *
+ *   - COMPTAGE (reach, vues, clics, abonnes GAGNES) → on SOMME.
+ *   - NIVEAU (nombre d'abonnes, un stock) → on prend la DERNIERE valeur. Le sommer
+ *     afficherait trente fois l'audience reelle sur un bucket mensuel.
+ *   - MOYENNE (duree moyenne par vue) → on fait la moyenne des jours mesures. La
+ *     sommer donnerait trente fois la duree.
+ *
+ * C'est la meme distinction que le tableau des trois natures
+ * d'`analytics_daily_snapshots` dans AGENTS.md. Toute nouvelle serie doit declarer
+ * la sienne : le defaut est « comptage », donc une serie de niveau oubliee ici
+ * s'affiche multipliee par la taille du bucket, sans erreur ni avertissement.
+ *
+ * Renvoie aussi la granularite retenue, dont l'axe a besoin pour ses libelles :
+ * « 24 aout » n'a plus de sens quand le point couvre une semaine entiere.
+ */
+function regrouperSerieAffichee(
+  data: { date: string; v: number | null }[],
+  nature: NatureSerie = 'comptage',
+): { data: { date: string; v: number | null; libelle: string }[]; granularite: Granularite } {
+  const jours = data.map(d => d.date);
+  const granularite = granulariteFenetre(jours.length);
+  const etiqueter = (p: { date: string; v: number | null }) =>
+    ({ ...p, libelle: libelleBucket(p.date, granularite) });
+  if (granularite === 'jour') return { data: data.map(etiqueter), granularite };
+  const parJour = new Map(data.map(d => [d.date, d.v]));
+  const lire = (j: string) => parJour.get(j) ?? null;
+  const regrouper = nature === 'niveau' ? regrouperNiveau
+    : nature === 'moyenne' ? regrouperMoyenne
+    : regrouperComptage;
+  return { data: regrouper(jours, granularite, lire).map(etiqueter), granularite };
+}
+
+/** Comment une serie se regroupe quand plusieurs jours tiennent dans un point. */
+type NatureSerie = 'comptage' | 'niveau' | 'moyenne';
 
 /**
- * Regroupe une serie journaliere pour qu'une courbe reste lisible quelle que soit la
- * longueur de la fenetre. En « Depuis la connexion » la serie fait 84 jours sur le profil
- * de test et grandit tous les jours : point par point, elle devient un trait.
- *
- * Deux proprietes sont tenues, et ce sont elles qui rendent le regroupement sans risque :
- *
- * - **La somme est conservee.** Un groupe additionne ses jours, donc l'invariant « la somme
- *   des points egale le total de la carte » reste vrai apres regroupement. C'est cet
- *   invariant qui a revele que les courbes d'All-Time ne tracaient qu'un mois.
- * - **Un groupe n'est « pas encore de donnees » que si AUCUN de ses jours ne l'est.**
- *   Sinon un seul jour non collecte effacerait tout le groupe, et un trou de collecte
- *   d'un jour se lirait comme trois jours sans activite.
+ * Meme chose pour une modale qui superpose DEUX series (Shorts / videos longues).
+ * Les deux sont regroupees avec la meme nature et la meme granularite : les
+ * decouper differemment ferait comparer des points qui ne couvrent pas la meme
+ * duree, ce qui ne se voit pas a l'ecran.
  */
-function regrouperPourCourbe(
-  points: { date: string; v: number | null }[],
-  maxPoints = 31,
-): { date: string; v: number | null; libelle: string }[] {
-  const pas = Math.max(1, Math.ceil(points.length / maxPoints));
-  if (pas === 1) return points.map(p => ({ ...p, libelle: libelleJourCourbe(p.date) }));
-  const out: { date: string; v: number | null; libelle: string }[] = [];
-  for (let i = 0; i < points.length; i += pas) {
-    const groupe = points.slice(i, i + pas);
-    const connus = groupe.filter(p => p.v !== null) as { date: string; v: number }[];
-    const fin = groupe[groupe.length - 1];
-    out.push({
-      date: groupe[0].date,
-      v: connus.length > 0 ? connus.reduce((s, p) => s + p.v, 0) : null,
-      libelle: groupe.length > 1
-        ? `${libelleJourCourbe(groupe[0].date)} – ${libelleJourCourbe(fin.date)}`
-        : libelleJourCourbe(groupe[0].date),
-    });
-  }
-  return out;
+function regrouperDeuxSeries(
+  a: { date: string; v: number | null }[],
+  b: { date: string; v: number | null }[],
+  nature: NatureSerie,
+): { data: { date: string; v: number | null }[]; data2: { date: string; v: number | null }[]; granularite: Granularite } {
+  const p = regrouperSerieAffichee(a, nature);
+  return { data: p.data, data2: regrouperSerieAffichee(b, nature).data, granularite: p.granularite };
 }
 
 // « Ce lien Calendly a-t-il été envoyé au prospect ? » — source unique pour toutes les
@@ -1588,8 +1609,8 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
       {/* ── BLOC 2 : Santé contenu — 2 sparklines côte à côte ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         {[
-          { label: 'Reach Instagram', value: fmt(igReach), unit: 'personnes', color: IG_COLOR, data: regrouperPourCourbe(igChartSlice.map(d => ({ date: d.date, v: d.pending ? null : d.reach }))) },
-          { label: 'Vues YouTube', value: fmt(ytViews), unit: 'vues', color: YT_COLOR, data: regrouperPourCourbe(ytChartSlice.map(d => ({ date: d.date, v: d.pending ? null : d.views }))) },
+          { label: 'Reach Instagram', value: fmt(igReach), unit: 'personnes', color: IG_COLOR, ...regrouperSerieAffichee(igChartSlice.map(d => ({ date: d.date, v: d.pending ? null : d.reach })), 'comptage') },
+          { label: 'Vues YouTube', value: fmt(ytViews), unit: 'vues', color: YT_COLOR, ...regrouperSerieAffichee(ytChartSlice.map(d => ({ date: d.date, v: d.pending ? null : d.views })), 'comptage') },
         ].map((item, i) => {
           // Quand AUCUN jour n'est mesure, le grand chiffre valait « 0 » — il affirmait
           // « zero personne touchee » la ou la courbe disait deja « pas encore de donnees ».
@@ -1630,7 +1651,7 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={!sinceConnection && period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(item.data.length, sinceConnection ? 30 : period)} />
+                  <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={item.granularite !== 'jour' ? (v: string) => libelleBucket(v, item.granularite) : (!sinceConnection && period === 7 ? fmtAxisDateWithDay : fmtAxisDate)} interval={graduationsDates(item.data.length, sinceConnection ? 30 : period)} />
                   <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} allowDecimals={false} width={30} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.15 : Math.max(1, Math.abs(dataMax) * 0.1 || 1); return [Math.max(0, dataMin - margin), dataMax + margin]; }} />
                   <Tooltip content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
@@ -1783,7 +1804,7 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
 
 function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, connexionCassee, abonnesAujourdHui, allTimeStart }: { ig: IGStats | null; period: Period; periodIndex?: number; profileId?: string; sinceConnection?: boolean; connexionCassee?: boolean; abonnesAujourdHui?: number | null; allTimeStart?: string | null }) {
   const [selectedPost, setSelectedPost] = useState<IGPost | null>(null);
-  const [statModal, setStatModal] = useState<{ label: string; value: string; color: string; data: { date: string; v: number }[]; unit?: string } | null>(null);
+  const [statModal, setStatModal] = useState<{ label: string; value: string; color: string; data: { date: string; v: number | null }[]; unit?: string; granularite?: Granularite } | null>(null);
   const [contentSubTab, setContentSubTab] = useState<'posts' | 'stories'>('posts');
   const [storiesInnerTab, setStoriesInnerTab] = useState<'story' | 'sequences'>('story');
   const [selectedSequence, setSelectedSequence] = useState<any | null>(null);
@@ -2016,7 +2037,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
     v: igDaysNoDataSet.has(d.date) ? (null as any) : (d.totalInteractions ?? 0),
   }));
 
-  const igStatSeries: Record<string, { data: { date: string; v: number }[]; color: string; unit?: string }> = {
+  const igStatSeries: Record<string, { data: { date: string; v: number }[]; color: string; unit?: string; nature?: NatureSerie }> = {
     'Publications': { data: pubsByDay, color: IG_COLOR },
     'Reach': { data: igDays.map(d => ({ date: d.date, v: igDaysNoDataSet.has(d.date) ? (null as any) : d.reach })), color: 'var(--accent-brand)' },
     // `?? null` et non `?? 0` : `igDaysNoDataSet` ne contient que les jours SANS LIGNE.
@@ -2024,7 +2045,9 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
     // seul rattrapage, qui n'écrit plus l'état du compte depuis le 2026-08-30) passait
     // donc par ce `??` et dessinait une chute à zéro au milieu de la courbe. Un trou dit
     // « on ne sait pas », un zéro affirme que le compte n'a plus aucun abonné.
-    'Abonnés': { data: igDays.map(d => ({ date: d.date, v: igDaysNoDataSet.has(d.date) ? (null as any) : (d.followerCount ?? (null as any)) })), color: IG_COLOR },
+    // NIVEAU, pas comptage : c'est l'effectif du compte, pas un gain quotidien.
+    // Regroupe par somme, un point mensuel afficherait trente fois l'audience.
+    'Abonnés': { data: igDays.map(d => ({ date: d.date, v: igDaysNoDataSet.has(d.date) ? (null as any) : (d.followerCount ?? (null as any)) })), color: IG_COLOR, nature: 'niveau' },
     'Interactions posts': { data: interactionsByDay, color: GREEN },
     // Detail jour par jour des deux cartes de portee.
     //
@@ -2088,10 +2111,18 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
     // Viralité et Clics lien bio : pas de série jour par jour disponible via Meta
   };
 
+  // NIVEAU et non comptage : c'est l'effectif du compte. Le sommer afficherait
+  // trente fois l'audience sur un point mensuel.
+  const abonnesCourbe = regrouperSerieAffichee(
+    igDays.map(d => ({ date: d.date, v: igDaysNoDataSet.has(d.date) ? null : ((d.followerCount ?? null) as number | null) })),
+    'niveau',
+  );
+
   const openStatModal = (label: string, value: string) => {
     const s = igStatSeries[label];
     if (!s) return;
-    setStatModal({ label, value, color: s.color, data: s.data, unit: s.unit });
+    const { data, granularite } = regrouperSerieAffichee(s.data, s.nature);
+    setStatModal({ label, value, color: s.color, data, unit: s.unit, granularite });
   };
 
   // Online followers heatmap — matrix[dayIndex][hourIndex], dayIndex 0=Dim (format API)
@@ -2215,11 +2246,28 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
         <Card title="Reach par jour" sub={`${sinceConnection ? 'Depuis la connexion' : period + ' jours'}`}>
-          <AreaChart data={igDaysForChart} areas={[{ key: 'reach', label: 'Reach', color: 'var(--accent-brand)' }]} xKey="date" height={220} showWeekday={period === 7} pendingKey="pending" />
+          {(() => {
+            // Regroupe par semaine puis par mois au-dela des seuils : en All-Time, un
+            // point par jour donnait 400 points sur une carte de 220 px. Le `pending`
+            // devient un trou (null) avant regroupement, donc un point n'est vide que
+            // si aucun de ses jours n'a ete collecte.
+            const c = regrouperSerieAffichee(
+              igDaysForChart.map(d => ({ date: d.date, v: (d as any).pending ? null : ((d.reach ?? null) as number | null) })),
+              'comptage',
+            );
+            return (
+              <AreaChart
+                data={c.data.map(p => ({ date: p.date, reach: p.v }))}
+                tickFormatter={c.granularite !== 'jour' ? (v: string) => libelleBucket(v, c.granularite) : undefined}
+                areas={[{ key: 'reach', label: 'Reach', color: 'var(--accent-brand)' }]}
+                xKey="date" height={220} showWeekday={c.granularite === 'jour' && period === 7}
+              />
+            );
+          })()}
         </Card>
         <Card title="Abonnés / jour" sub={`${sinceConnection ? 'Depuis la connexion' : period + ' jours'}`}>
           <ResponsiveContainer width="100%" height={220} initialDimension={{ width: 600, height: 220 }}>
-            <ReAreaChart data={igDays} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
+            <ReAreaChart data={abonnesCourbe.data.map(p => ({ date: p.date, followerCount: p.v }))} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
               <defs>
                 <linearGradient id="grad-ig-subs" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="var(--accent-brand)" stopOpacity={0.2} />
@@ -2228,7 +2276,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
               </defs>
               {/* Intervalle calculé explicitement (pas 'preserveStartEnd') pour un espacement
                   régulier des labels de dates — même logique que le wrapper AreaChart. */}
-              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(igDays.length, period)} />
+              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={abonnesCourbe.granularite !== 'jour' ? (v: string) => libelleBucket(v, abonnesCourbe.granularite) : (period === 7 ? fmtAxisDateWithDay : fmtAxisDate)} interval={graduationsDates(abonnesCourbe.data.length, period)} />
               <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} allowDecimals={false} domain={['auto', 'auto']} tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : String(Math.round(v))} width={40} />
               <Tooltip content={({ active, payload, label }) => {
                 if (!active || !payload?.length) return null;
@@ -2239,7 +2287,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
                   </div>
                 );
               }} />
-              <Area type="monotone" dataKey="followerCount" name="Abonnés" stroke="var(--accent-brand)" strokeWidth={2} fill="url(#grad-ig-subs)" dot={todayDotFactory('var(--accent-brand)', 'date', lastRealPointKey(igDays, 'date', 'followerCount'))} activeDot={{ r: 4, strokeWidth: 0, fill: 'var(--accent-brand)' }} isAnimationActive={false} />
+              <Area type="monotone" dataKey="followerCount" name="Abonnés" stroke="var(--accent-brand)" strokeWidth={2} fill="url(#grad-ig-subs)" dot={todayDotFactory('var(--accent-brand)', 'date', lastRealPointKey(abonnesCourbe.data.map(p => ({ date: p.date, followerCount: p.v })), 'date', 'followerCount'))} activeDot={{ r: 4, strokeWidth: 0, fill: 'var(--accent-brand)' }} isAnimationActive={false} />
             </ReAreaChart>
           </ResponsiveContainer>
         </Card>
@@ -2430,7 +2478,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
                       en travers). Les deux montrent la meme metrique, ils doivent se
                       ressembler. */}
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={statModalTickInterval} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={statModal.granularite && statModal.granularite !== 'jour' ? (v: string) => libelleBucket(v, statModal.granularite!) : (period === 7 ? fmtAxisDateWithDay : fmtAxisDate)} interval={statModalTickInterval} />
                   {(() => {
                     const borne = borneAbonnesNets(statModal.data.map(d => d.v));
                     return (
@@ -2463,7 +2511,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
                       <stop offset="95%" stopColor={statModal.color} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={statModalTickInterval} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={statModal.granularite && statModal.granularite !== 'jour' ? (v: string) => libelleBucket(v, statModal.granularite!) : (period === 7 ? fmtAxisDateWithDay : fmtAxisDate)} interval={statModalTickInterval} />
                   {/* Marge relative (pas domain auto strict) : sur "Abonnés", qui varie de
                       seulement 1-2 sur un petit compte, coller pile min/max fait remplir
                       toute la hauteur du graphique pour une variation de quelques unités —
@@ -3035,7 +3083,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   const [videoCtr, setVideoCtr] = useState<number | null>(null);
   const [jobCreatedAt, setJobCreatedAt] = useState<string | null>(null);
   const [ctrPending, setCtrPending] = useState(false);
-  const [statModal, setStatModal] = useState<{ label: string; value: string; color: string; data: { date: string; v: number }[]; unit?: string; data2?: { date: string; v: number }[]; label2?: string; color2?: string } | null>(null);
+  const [statModal, setStatModal] = useState<{ label: string; value: string; color: string; data: { date: string; v: number | null }[]; unit?: string; data2?: { date: string; v: number | null }[]; label2?: string; color2?: string; granularite?: Granularite } | null>(null);
   // Largeur reelle des deux grands graphiques (Vues / jour et Abonnes nets / jour) :
   // ils partagent la meme colonne de la grille, une seule mesure suffit. Elle sert a
   // decider combien de dates tiennent sur l'axe — sur un ecran large il y a la place
@@ -3361,7 +3409,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   const avgWatchShorts = moyennePonderee('avgDurationShorts', 'viewsShorts');
   const avgWatchLong = moyennePonderee('avgDurationLong', 'viewsLong');
 
-  const ytStatSeries: Record<string, { data: { date: string; v: number }[]; color: string; unit?: string }> = {
+  const ytStatSeries: Record<string, { data: { date: string; v: number }[]; color: string; unit?: string; nature?: NatureSerie }> = {
     'Vidéos publiées':    { data: ytPubsByDay.map(d => ({ date: d.date, v: isFutureDayYT(d.date) ? (null as any) : d.shorts + d.longues })), color: YT_COLOR },
     'Vues 30j':           { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : d.views })), color: RED },
     // En MINUTES, pas en heures : le watch time quotidien de cette chaine va de 1 a
@@ -3406,7 +3454,8 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
     // Elle traçait subsGained (les abonnés GAGNÉS par jour, à 0 sur cette chaîne) : on
     // cliquait sur « 49 abonnés » et on voyait une courbe plate à zéro. Deux métriques
     // différentes sous le même nom. Corrigé le 2026-08-21.
-    'Abonnés YT':         { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).subscribers ?? null) })), color: RED },
+    // NIVEAU, pour la meme raison que « Abonnés » cote Instagram.
+    'Abonnés YT':         { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).subscribers ?? null) })), color: RED, nature: 'niveau' },
   };
 
   const openStatModal = (label: string, value: string) => {
@@ -3433,17 +3482,15 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
         label: 'Watch time — Shorts',
         value: watchTimeLabel,
         color: AMBER,
-        data: ytDays.map(d => ({
-          date: d.date,
-          v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).watchTimeShorts ?? 0),
-        })),
         label2: 'Vidéos longues',
-        data2: ytDays.map(d => ({
-          date: d.date,
-          v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).watchTimeLong ?? 0),
-        })),
         color2: '#64748b',
         unit: 'min',
+        ...regrouperDeuxSeries(
+          ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).watchTimeShorts ?? 0) })),
+          ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).watchTimeLong ?? 0) })),
+          // Des MINUTES cumulees : une somme est exacte.
+          'comptage',
+        ),
       });
       return;
     }
@@ -3471,27 +3518,31 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
         label: 'Watch time moyen / vue — Shorts',
         value: avgWatchShorts !== null ? fmtSec(avgWatchShorts) : '—',
         color: '#e8a838',
-        data: ytDays.map(d => ({
-          date: d.date,
-          v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).avgDurationShorts ?? 0),
-        })),
         label2: 'Vidéos longues',
-        data2: ytDays.map(d => ({
-          date: d.date,
-          v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).avgDurationLong ?? 0),
-        })),
         color2: '#64748b',
         unit: 's',
+        ...regrouperDeuxSeries(
+          ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).avgDurationShorts ?? 0) })),
+          ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).avgDurationLong ?? 0) })),
+          // Une DUREE MOYENNE par vue : la sommer donnerait trente fois la duree.
+          'moyenne',
+        ),
       });
       return;
     }
     if (label === 'Vidéos publiées') {
       setStatModal({
-        label, value, color: '#e8a838', data: ytPubsByDay.map(d => ({ date: d.date, v: isFutureDayYT(d.date) ? (null as any) : d.shorts })),
-        label2: 'Vidéos longues', data2: ytPubsByDay.map(d => ({ date: d.date, v: isFutureDayYT(d.date) ? (null as any) : d.longues })), color2: '#64748b',
+        label, value, color: '#e8a838',
+        label2: 'Vidéos longues', color2: '#64748b',
+        ...regrouperDeuxSeries(
+          ytPubsByDay.map(d => ({ date: d.date, v: isFutureDayYT(d.date) ? (null as any) : d.shorts })),
+          ytPubsByDay.map(d => ({ date: d.date, v: isFutureDayYT(d.date) ? (null as any) : d.longues })),
+          'comptage',
+        ),
       });
     } else {
-      setStatModal({ label, value, color: s.color, data: s.data, unit: s.unit });
+      const { data, granularite } = regrouperSerieAffichee(s.data, s.nature);
+      setStatModal({ label, value, color: s.color, data, unit: s.unit, granularite });
     }
   };
 
@@ -3748,10 +3799,11 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             // null (pas 0) sur les jours sans vraie donnée — même traitement que
             // "Abonnés nets / jour" juste en dessous : sinon une barre à 0 est
             // indiscernable d'un vrai jour sans vue.
-            const viewsForChart = ytDays.map(d => ({
-              date: d.date,
-              views: ytDaysNoDataSet.has(d.date) ? (null as any) : d.views,
-            }));
+            const vuesCourbe = regrouperSerieAffichee(
+              ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? null : ((d.views ?? null) as number | null) })),
+              'comptage',
+            );
+            const viewsForChart = vuesCourbe.data.map(p => ({ date: p.date, views: p.v }));
             const allPending = viewsForChart.every(d => d.views === null);
             // Meme hauteur que le graphique : la carte gardait 220 px avec la courbe et
             // retombait a ~77 px avec le message, ce qui faisait remonter tout le bas de
@@ -3763,7 +3815,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
               <ResponsiveContainer width="100%" height={220} initialDimension={{ width: 600, height: 220 }}>
                 <ComposedChart data={viewsForChart} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} ticks={datesAxe(viewsForChart.map(d => d.date), period, largeurGraphiques * 0.62)} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={vuesCourbe.granularite !== 'jour' ? (v: string) => libelleBucket(v, vuesCourbe.granularite) : (period === 7 ? fmtAxisDateWithDay : fmtAxisDate)} ticks={vuesCourbe.granularite !== 'jour' ? undefined : datesAxe(viewsForChart.map(d => d.date), period, largeurGraphiques * 0.62)} />
                   <YAxis tick={{ fontSize: 11, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
                   <Tooltip content={<ChartTooltip />} />
                   <Bar dataKey="views" name="Vues" fill="var(--accent-brand)" radius={[2, 2, 0, 0]} opacity={0.8} />

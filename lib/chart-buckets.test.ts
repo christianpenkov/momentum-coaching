@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   granulariteFenetre, cleBucket, bucketsDe,
-  regrouperComptage, regrouperTaux, libelleBucket,
+  regrouperComptage, regrouperTaux, regrouperNiveau, regrouperMoyenne, libelleBucket,
 } from './chart-buckets.ts';
 
 function jours(debut: string, n: number): string[] {
@@ -106,4 +106,65 @@ test('libellés d’axe', () => {
   assert.equal(libelleBucket('2026-08-24', 'jour'), '24 août');
   assert.equal(libelleBucket('2026-08-24', 'semaine'), 'sem. 24 août');
   assert.equal(libelleBucket('2026-08-01', 'mois'), 'août 26');
+});
+
+test('niveau : un bucket vaut la DERNIERE valeur, jamais la somme', () => {
+  // Le defaut que ce regroupement existe pour empecher : sommer 30 jours de
+  // « nombre d'abonnes » afficherait trente fois l'audience reelle.
+  const js = jours('2026-06-01', 30);
+  const abonnes = new Map(js.map((j, i) => [j, 1000 + i]));
+  const r = regrouperNiveau(js, 'mois', j => abonnes.get(j) ?? null);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].v, 1029, 'photo de fin de mois, pas la somme (qui vaudrait 30 435)');
+});
+
+test('niveau : la moyenne serait fausse aussi, plus discretement', () => {
+  // Une marche d'escalier — 100 abonnes pendant six jours, 400 le septieme — doit
+  // rester visible. La moyenne (143) l'effacerait sans produire d'absurdite.
+  const js = jours('2026-06-08', 7);
+  const r = regrouperNiveau(js, 'semaine', j => (j === '2026-06-14' ? 400 : 100));
+  assert.equal(r[0].v, 400);
+});
+
+test('niveau : un bucket sans aucune mesure reste un trou', () => {
+  const js = jours('2026-06-08', 14);
+  const r = regrouperNiveau(js, 'semaine', j => (j < '2026-06-15' ? null : 250));
+  assert.equal(r[0].v, null, 'aucune mesure : on ne sait pas, on n affirme pas 0');
+  assert.equal(r[1].v, 250);
+});
+
+test('niveau : une mesure isolee dans un bucket incomplet compte quand meme', () => {
+  // Symetrique de la regle du comptage : des qu'UN jour est mesure, le bucket a une
+  // valeur. Un mois a cheval sur l'arrivee de l'eleve ne doit pas afficher un trou.
+  const js = jours('2026-06-01', 30);
+  const r = regrouperNiveau(js, 'mois', j => (j === '2026-06-28' ? 777 : null));
+  assert.equal(r[0].v, 777);
+});
+
+test('moyenne : ni somme, ni derniere valeur', () => {
+  // Une duree moyenne par vue. La somme de 30 jours a 40 s donnerait 1 200 s,
+  // absurde a l'oeil ; la derniere valeur jetterait 29 jours de mesure.
+  const js = jours('2026-06-01', 30);
+  const r = regrouperMoyenne(js, 'mois', () => 40);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].v, 40);
+});
+
+test('moyenne : les jours non mesures sont ignores, pas comptes comme des zeros', () => {
+  // Les compter ferait plonger la moyenne d'un bucket a trous.
+  const js = jours('2026-06-08', 7);
+  const r = regrouperMoyenne(js, 'semaine', j => (j === '2026-06-08' ? 60 : (j === '2026-06-09' ? 40 : null)));
+  assert.equal(r[0].v, 50, 'moyenne des deux jours mesures, pas des sept');
+});
+
+test('moyenne : un vrai zero mesure compte, lui', () => {
+  const js = jours('2026-06-08', 7);
+  const r = regrouperMoyenne(js, 'semaine', j => (j === '2026-06-08' ? 60 : (j === '2026-06-09' ? 0 : null)));
+  assert.equal(r[0].v, 30);
+});
+
+test('moyenne : aucun jour mesure = trou', () => {
+  const js = jours('2026-06-08', 7);
+  const r = regrouperMoyenne(js, 'semaine', () => null);
+  assert.equal(r[0].v, null);
 });
