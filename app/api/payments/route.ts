@@ -76,6 +76,14 @@ export interface DealRow {
   unexpectedPaymentAt: string | null;
   /** Somme rendue au client. Séparée du net pour pouvoir l'afficher. */
   refunded: number;
+  /**
+   * La part de `refunded` qui n'a pas encore reçu d'explication.
+   *
+   * ⚠️ Distincte de `refunded` : un remboursement de trop-perçu ramène l'encaissé
+   * au montant de la vente sans créer le moindre écart, et n'appelle donc aucune
+   * question. C'est l'écart, et lui seul, qui en appelle une.
+   */
+  refundInexplique: number;
   /** Somme reprise par Stripe le temps d'un litige. */
   disputed: number;
   /**
@@ -137,7 +145,7 @@ export async function GET(request: NextRequest) {
   const { data: deals, error: dealsErr } = await supa
     .from('deals')
     .select(`
-      id, buyer_name, buyer_email, buyer_kind, amount_total, currency, status,
+      id, buyer_name, buyer_email, buyer_kind, amount_total, currency, status, refund_explique,
       payment_plan, installments_count, installment_interval, signed_at,
       short_url, ig_lead_id, call_id, client_id, prospect_id,
       stripe_subscription_id, stripe_customer_id, stripe_payment_link_id,
@@ -298,6 +306,7 @@ export async function GET(request: NextRequest) {
       disputeDueBy: d.dispute_due_by ?? null,
       unexpectedPaymentAt: d.unexpected_payment_at ?? null,
       refunded: cash.rembourse,
+      refundInexplique: Math.max(0, Math.round((cash.rembourse - Number(d.refund_explique ?? 0)) * 100) / 100),
       disputed: cash.conteste,
       // Versé AU-DELÀ du montant de la vente. Le ruban plafonne (`collectedRetenu`),
       // donc sans ce chiffre affiché sur la vente, l'argent en trop disparaîtrait de

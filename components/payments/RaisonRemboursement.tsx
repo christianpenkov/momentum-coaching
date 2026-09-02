@@ -59,13 +59,16 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
 }) {
   const prenom = deal.buyerName.split(' ')[0];
 
-  // Le premier remboursement sans raison. Il y en a rarement plusieurs, et les
-  // traiter un par un vaut mieux qu'un écran qui en mélange deux.
-  const ligne = (detail?.payments ?? [])
-    .filter(p => p.status === 'refunded' && !p.refund_reason)
-    .sort((a, b) => (a.paid_at ?? '').localeCompare(b.paid_at ?? ''))[0];
-
-  const montant = ligne ? Math.abs(Number(ligne.amount)) : 0;
+  // ⚠️ On explique l'ÉCART, pas une transaction. Un remboursement de trop-perçu
+  // porte une ligne `refunded` sans rien laisser d'inexpliqué ; et après un
+  // trop-perçu PUIS un geste commercial, deux lignes sont muettes — désigner
+  // « la première » tombait sur la mauvaise. Le montant à justifier est donc ce
+  // qui a été rendu moins ce qui a déjà été justifié, calculé côté serveur.
+  const montant = deal.refundInexplique;
+  // Sert seulement à dater la question à l'écran.
+  const dernier = (detail?.payments ?? [])
+    .filter(p => p.status === 'refunded')
+    .sort((a, b) => (b.paid_at ?? '').localeCompare(a.paid_at ?? ''))[0];
 
   const [etape, setEtape] = useState<Etape>('raison');
   const [raison, setRaison] = useState<RaisonRemboursement | null>(null);
@@ -82,6 +85,12 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
   // « Autre » est la seule qui ne porte pas son sort : on le demande.
   const duFinal = raison === 'autre' ? encoreDu : raison === 'erreur';
   const nouveauMontant = Math.max(0, Math.round((deal.amountTotal - montant) * 100) / 100);
+  // ⚠️ Baisser le montant ne solde PAS toujours la vente. Sur une vente encore
+  // en cours (1 000 € vendus, 300 € encaissés, 100 € rendus), elle vaut 900 € et
+  // il reste 700 € à encaisser. Promettre « soldée à 100 % » y serait faux — et
+  // c'est le genre de phrase qu'on croit sur parole au moment de valider.
+  const seraSoldee = deal.collected >= nouveauMontant - 0.005;
+  const resteApres = Math.max(0, Math.round((nouveauMontant - deal.collected) * 100) / 100);
 
   async function valider() {
     if (!raison || !coche || envoi || duFinal === null) return;
@@ -91,10 +100,7 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
       const r = await fetch(`/api/payments/deals/${deal.id}/refund-reason`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          paymentId: ligne!.stripe_payment_id,
-          raison, note, encoreDu: duFinal, encaissement,
-        }),
+        body: JSON.stringify({ raison, note, encoreDu: duFinal, encaissement }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'L’enregistrement a échoué.');
@@ -107,7 +113,7 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
   }
 
   // ── Aucun remboursement en attente ────────────────────────────────────────
-  if (!ligne) {
+  if (montant <= 0.005) {
     return (
       <ModaleAction titre="Rien à expliquer" onClose={onClose}
         pied={<button className="btn-primary-brand" style={{ fontSize: 12.5 }} onClick={onClose}>Fermer</button>}>
@@ -151,10 +157,12 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
         ) : (
           <Encart ton="bien" titre="C’est fait">
             Cette vente vaut désormais{' '}
-            <strong>{fmtEurExact(resultat.apres ?? nouveauMontant)}</strong>, et elle
-            est <strong>soldée à 100 %</strong>. Le montant d’origine
-            ({fmtEurExact(resultat.avant ?? deal.amountTotal)}) reste inscrit au
-            journal de la vente.
+            <strong>{fmtEurExact(resultat.apres ?? nouveauMontant)}</strong>
+            {seraSoldee
+              ? <>, et elle est <strong>soldée à 100 %</strong>.</>
+              : <>, et il reste <strong>{fmtEurExact(resteApres)}</strong> à encaisser.</>}
+            {' '}Le montant d’origine ({fmtEurExact(resultat.avant ?? deal.amountTotal)})
+            reste inscrit au journal de la vente.
           </Encart>
         )}
       </ModaleAction>
@@ -169,7 +177,7 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
     return (
       <ModaleAction
         titre={`Pourquoi ces ${fmtEurExact(montant)} sont-ils repartis ?`}
-        sousTitre={`Vente du ${fmtDateLong(deal.signedAt)} · remboursement du ${fmtDateLong(ligne.paid_at)}`}
+        sousTitre={`Vente du ${fmtDateLong(deal.signedAt)} · remboursement du ${fmtDateLong(dernier?.paid_at ?? null)}`}
         onClose={onClose}
         pied={
           <>
@@ -282,15 +290,20 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
           <Encart ton="bien" titre="Ce que ça veut dire">
             Tu as vendu {fmtEurExact(deal.amountTotal)} et rendu {fmtEurExact(montant)} :
             cette vente valait en réalité <strong>{fmtEurExact(nouveauMontant)}</strong>.
-            Son montant est ramené à cette somme, et elle redevient{' '}
-            <strong>soldée à 100 %</strong> — parce qu’il n’y a effectivement plus
-            rien à encaisser.
+            Son montant est ramené à cette somme.
+            {seraSoldee
+              ? <> Elle redevient <strong>soldée à 100 %</strong> — il n’y a
+                effectivement plus rien à encaisser.</>
+              : <> Elle reste <strong>en cours</strong> : il manque encore{' '}
+                {fmtEurExact(resteApres)} sur ce nouveau montant.</>}
           </Encart>
           <div style={{ marginTop: 12 }}>
             <Ligne label="Cash contracté" barre={fmtEurExact(deal.amountTotal)}
               valeur={fmtEurExact(nouveauMontant)} ton="fort" />
             <Ligne label="Cash encaissé" valeur={`${fmtEurExact(deal.collected)} — inchangé`} />
-            <Ligne label="Encaissé sur contracté" barre={`${Math.round((deal.collected / (deal.amountTotal || 1)) * 100)} %`} valeur="100 %" ton="fort" />
+            <Ligne label="Encaissé sur contracté"
+              barre={`${Math.round((deal.collected / (deal.amountTotal || 1)) * 100)} %`}
+              valeur={`${Math.round((deal.collected / (nouveauMontant || 1)) * 100)} %`} ton="fort" />
             <Ligne label={`${prenom} sera relancé`} valeur="Non" />
           </div>
           <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10, lineHeight: 1.6 }}>

@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { getStripeAccess, resolveTargetProfile } from '@/lib/stripe-account';
 import { createDealPaymentLink } from '@/lib/stripe-payment-links';
+import { calculerCash, statutDeal, type LignePaiement } from '@/lib/dealCash';
 
 /**
  * Pourquoi un remboursement a eu lieu — et ce que ça change.
@@ -57,8 +58,6 @@ export async function POST(
   if (!['geste_commercial', 'retractation', 'erreur', 'autre'].includes(raison)) {
     return NextResponse.json({ error: 'Raison inconnue' }, { status: 400 });
   }
-  const paymentId = String(body?.paymentId ?? '');
-  if (!paymentId) return NextResponse.json({ error: 'paymentId requis' }, { status: 400 });
 
   // « Autre » ne dit rien du sort de l'argent : c'est l'écran qui a posé la
   // question, et la réponse arrive ici. Les autres raisons portent le sort
@@ -68,7 +67,7 @@ export async function POST(
 
   const { data: deal } = await supa
     .from('deals')
-    .select(`id, profile_id, status, amount_total, buyer_name, currency,
+    .select(`id, profile_id, status, amount_total, buyer_name, currency, refund_explique,
              ig_lead_id, first_touch_content_id,
              deal_payments(id, stripe_payment_id, amount, status, refund_reason),
              deal_installments(rank)`)
@@ -81,37 +80,57 @@ export async function POST(
   if (!allowed) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
 
   type Ligne = { id: string; stripe_payment_id: string; amount: number | string; status: string; refund_reason: string | null };
-  const ligne = ((deal.deal_payments ?? []) as Ligne[])
-    .find(p => p.stripe_payment_id === paymentId && p.status === 'refunded');
+  const lignes = (deal.deal_payments ?? []) as Ligne[];
+  const cash = calculerCash(lignes as unknown as LignePaiement[]);
 
-  if (!ligne) {
-    return NextResponse.json({ error: 'Remboursement introuvable sur cette vente.' }, { status: 404 });
-  }
+  // ── Ce qu'on explique, c'est l'ÉCART, pas une transaction ────────────────
+  // Une première version demandait la raison d'UNE ligne de remboursement. Deux
+  // situations la mettaient en défaut :
+  //
+  //  · un remboursement de trop-perçu porte bien une ligne `refunded`, mais
+  //    n'appelle aucune explication — il ramène l'encaissé au montant de la
+  //    vente, sans créer le moindre écart. On demandait donc une raison pour un
+  //    fait déjà expliqué, et répondre « geste commercial » aurait baissé le
+  //    montant une SECONDE fois ;
+  //  · après un trop-perçu remboursé PUIS un geste commercial, deux lignes sont
+  //    sans raison. Prendre « la première » désignait la mauvaise.
+  //
+  // Le cumul déjà expliqué règle les deux : l'écart vaut « tout ce qui a été
+  // remboursé » moins « ce qui a déjà été justifié ».
+  const dejaExplique = Number(deal.refund_explique ?? 0);
+  const montantRembourse = Math.round((cash.rembourse - dejaExplique) * 100) / 100;
 
-  // ⚠️ L'invariant anti-doublon. Répondre ne fait entrer aucun argent : sans ce
-  // refus, deux onglets ouverts baisseraient le montant DEUX fois, ou créeraient
-  // deux échéances pour la même dette. La raison déjà posée est la seule marque
-  // fiable — le montant, lui, ne dit pas si la question a été traitée.
-  if (ligne.refund_reason) {
+  if (montantRembourse <= CENTIME) {
     return NextResponse.json({
-      error: 'Ce remboursement a déjà été expliqué.',
+      error: 'Tous les remboursements de cette vente sont déjà expliqués.',
       code: 'deja_explique',
     }, { status: 409 });
   }
 
-  const montantRembourse = Math.abs(Number(ligne.amount));
-
-  await supa.from('deal_payments').update({
-    refund_reason: raison,
-    refund_reason_note: raison === 'autre' ? String(body?.note ?? '').slice(0, 300) || null : null,
-  }).eq('id', ligne.id);
+  // La raison va sur TOUTES les lignes encore muettes : c'est ce bloc-là qu'on
+  // vient de justifier, et le badge de la fiche les lit toutes.
+  const note = raison === 'autre' ? String(body?.note ?? '').slice(0, 300) || null : null;
+  for (const l of lignes.filter(p => p.status === 'refunded' && !p.refund_reason)) {
+    await supa.from('deal_payments')
+      .update({ refund_reason: raison, refund_reason_note: note })
+      .eq('id', l.id);
+  }
 
   // ── L'argent n'est plus dû : la vente vaut moins ──────────────────────────
   if (!encoreDu) {
     const avant = Number(deal.amount_total);
     const apres = Math.max(0, Math.round((avant - montantRembourse) * 100) / 100);
 
-    await supa.from('deals').update({ amount_total: apres, status: 'paid' }).eq('id', dealId);
+    // ⚠️ Le statut se RECALCULE, il ne se décrète pas. Le forcer à `paid` était
+    // juste sur une vente déjà soldée et faux partout ailleurs : sur une vente
+    // en cours remboursée en partie (1 000 € vendus, 300 € encaissés, 100 €
+    // rendus), baisser le montant à 900 € ne la solde évidemment pas — elle
+    // aurait été affichée « Soldée » avec 200 € encaissés sur 900.
+    const statut = statutDeal(cash, apres, deal.status) ?? deal.status;
+
+    await supa.from('deals').update({
+      amount_total: apres, status: statut, refund_explique: cash.rembourse,
+    }).eq('id', dealId);
 
     await supa.from('deal_events').insert({
       deal_id: dealId,
@@ -170,7 +189,9 @@ export async function POST(
   // `open` posé à la main, et non recalculé : `statutDeal` renverrait `paid` à
   // cause de la règle qu'on contredit ici volontairement (« déjà soldé + net > 0
   // → reste soldé »). Une fois `open` posé, elle ne s'applique plus.
-  await supa.from('deals').update({ status: 'open' }).eq('id', dealId);
+  await supa.from('deals').update({
+    status: 'open', refund_explique: cash.rembourse,
+  }).eq('id', dealId);
 
   await supa.from('deal_events').insert({
     deal_id: dealId,

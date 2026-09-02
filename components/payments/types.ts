@@ -41,6 +41,15 @@ export interface DealRow {
   aRendre: number;
   /** Argent attendu à ce jour et non rentré — échéance dépassée ou prélèvement refusé. */
   overdue: number;
+  /**
+   * La part des remboursements qui n'a pas encore reçu d'explication.
+   *
+   * ⚠️ Ce n'est PAS `refunded` : un remboursement de trop-perçu ramène l'encaissé
+   * au montant de la vente sans créer le moindre écart, et n'appelle donc aucune
+   * question — alors qu'il porte bien une ligne remboursée. C'est l'écart, et lui
+   * seul, qu'il faut expliquer.
+   */
+  refundInexplique: number;
 }
 
 /** Un client et toutes ses ventes — l'unité de la liste et de la fiche. */

@@ -277,7 +277,13 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
   // raison : tant qu'on ignore pourquoi l'argent est reparti, on ne sait pas s'il
   // est encore dû, et le pourcentage de la vente ne s'explique pas.
   const remboursements = (detail?.payments ?? []).filter(p => p.status === 'refunded');
-  const sansRaison = remboursements.filter(p => !p.refund_reason);
+  // ⚠️ La question porte sur l'ÉCART, pas sur une ligne remboursée. Un
+  // remboursement de trop-perçu porte bien une ligne, mais n'appelle aucune
+  // explication : il ramène l'encaissé au montant de la vente, et le
+  // pourcentage reste cohérent. Se fier aux lignes faisait poser une question
+  // pour un fait déjà expliqué — et y répondre « geste commercial » aurait
+  // baissé le montant une SECONDE fois.
+  const aExpliquer = deal.refundInexplique > 0.005;
   const raisonsRemboursement = [...new Set(
     remboursements.filter(p => p.refund_reason)
       .map(p => LIBELLE_RAISON[p.refund_reason!]),
@@ -366,14 +372,14 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
             action qu'on va chercher, c'est une question que la plateforme pose.
             Tant qu'on n'y répond pas, le pourcentage de cette vente reste
             inexplicable — et c'est ce qui fait prendre la règle pour un bug. */}
-        {sansRaison.length > 0 && (
+        {aExpliquer && (
           <button onClick={() => onAction('raisonRemboursement')} style={{
             display: 'block', width: '100%', textAlign: 'left', marginTop: 10,
             background: 'var(--amber-soft)', border: '1px solid rgba(181,128,37,.28)',
             borderRadius: 10, padding: '11px 13px', cursor: 'pointer', fontFamily: 'inherit',
           }}>
             <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--amber-ink)', marginBottom: 2 }}>
-              Pourquoi {fmtEurExact(Math.abs(Number(sansRaison[0].amount)))} sont-ils repartis ?
+              Pourquoi {fmtEurExact(deal.refundInexplique)} sont-ils repartis ?
             </div>
             <div style={{ fontSize: 11.5, color: 'var(--ink-2)', lineHeight: 1.55 }}>
               Sans la raison, on ne sait pas si {deal.buyerName.split(' ')[0]} te doit
