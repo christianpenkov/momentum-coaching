@@ -182,6 +182,14 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
 
   if (!shareUrl && !summary && !items.length && !transcriptAvailable) return null;
 
+  // Quel lecteur est affiché — calculé une fois, pour que le lien « Voir sur
+  // Fathom » plus bas sache s'il ferait doublon.
+  const brancheLecteur =
+    videoState === 'ready' && videoUrl ? 'video'
+      : tenteLectureIntegree && videoState !== 'failed' ? 'squelette'
+        : onMobile ? 'lien'
+          : 'iframe';
+
   return (
     <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid var(--border)' }}>
       {shareUrl && (
@@ -224,6 +232,29 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
                 style={{ width: '100%', height: '100%', border: 'none' }}
               />
             </div>
+          )}
+
+          {/* Accès à la page Fathom de l'appel — résumé, transcription, recherche.
+              Le lien de partage est PUBLIC (vérifié : aucune connexion demandée,
+              lecteur et transcription visibles depuis un navigateur anonyme), donc
+              il vaut aussi pour le participant qui n'a pas enregistré la réunion,
+              et reste transmissible tel quel à un tiers.
+
+              Masqué dans deux cas : pendant le squelette, où il sauterait sous le
+              doigt à l'arrivée de la vidéo ; et sur le repli mobile, dont le bouton
+              ouvre déjà exactement cette page. */}
+          {(brancheLecteur === 'video' || brancheLecteur === 'iframe') && (
+            <a
+              href={shareUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 10,
+                fontSize: 12, fontWeight: 600, color: 'var(--muted)', textDecoration: 'none',
+              }}
+            >
+              <Icon name="external" size={13} /> Voir sur Fathom
+            </a>
           )}
         </div>
       )}
