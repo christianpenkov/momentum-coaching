@@ -1925,8 +1925,27 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
   // gagné, ou tout le compte perdu, en une journée). Même garde que le calcul
   // équivalent dans app/api/instagram/stats/route.ts.
   const igAbonnesConnusP = igDaysSlice.filter(d => d.followerCount != null);
-  const igFollowerDeltaP = igAbonnesConnusP.length >= 2
-    ? (igAbonnesConnusP[igAbonnesConnusP.length - 1]!.followerCount! - igAbonnesConnusP[0]!.followerCount!)
+  // ⚠️ La carte et son badge lisaient DEUX SOURCES qui ne s'arretent pas au meme jour.
+  //
+  // Le grand chiffre affiche `abonnesAujourdHui`, le compteur live de l'API. Le badge,
+  // lui, prenait la derniere valeur de la SERIE STOCKEE, qui s'arrete a la derniere
+  // journee ecrite par le cron — hier, tant que la journee du jour n'est pas close.
+  //
+  // Constate le 2026-09-02 : serie 253 (9 juin) -> 255 (1er sept), badge « +2 », a cote
+  // d'un compte affiche a 254. Les deux nombres etaient exacts SUR LEUR PROPRE SOURCE,
+  // et se contredisaient a trois centimetres l'un de l'autre. La courbe qui culmine a
+  // 255 est juste, elle aussi : le compte y est reellement passe avant de redescendre.
+  //
+  // Le delta se termine donc sur la valeur AFFICHEE des que la periode inclut
+  // aujourd'hui. Sur une periode PASSEE, le compteur live n'a rien a y faire : on
+  // garde la derniere valeur de la serie, qui est la bonne fin de cette periode-la.
+  const periodeInclutAujourdHui = sinceConnection || (periodIndex ?? 0) === 0;
+  const igDebutAbonnesP = igAbonnesConnusP[0]?.followerCount ?? null;
+  const igFinAbonnesP = periodeInclutAujourdHui && abonnesAujourdHui != null
+    ? abonnesAujourdHui
+    : (igAbonnesConnusP.length >= 2 ? igAbonnesConnusP[igAbonnesConnusP.length - 1]!.followerCount! : null);
+  const igFollowerDeltaP = igDebutAbonnesP != null && igFinAbonnesP != null
+    ? igFinAbonnesP - igDebutAbonnesP
     : 0;
   // Vraie somme des interactions (likes+comments+saves+shares) — distincte des comptes
   // ENGAGÉS (accountsEngaged, un nombre de personnes), qui était utilisée par erreur
