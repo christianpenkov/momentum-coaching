@@ -1,7 +1,7 @@
 'use client';
 
 import { type RapportExistant } from '@/lib/rapportPatch';
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 import PipelineFunnelMobile from './PipelineFunnelMobile';
@@ -2380,7 +2380,22 @@ export default function PagePipeline() {
   // Board ou Liste. Le board répond à « où en est chaque lead », la liste à
   // « lequel dois-je traiter maintenant ». Le choix est conservé d'une visite à
   // l'autre : y revenir à chaque fois serait un pas de plus à refaire sans cesse.
-  const [vue, setVue] = useState<'board' | 'liste'>('board');
+  // ── `null` = ON NE SAIT PAS ENCORE QUELLE VUE AFFICHER ─────────────────────
+  //
+  // La préférence vit dans `localStorage`, que le SERVEUR n'a pas. En partant de
+  // « board », il rendait donc un board dans le HTML, et quelqu'un qui travaille
+  // en vue liste le voyait à chaque arrivée sur la page, jusqu'à l'hydratation.
+  //
+  // Lire la préférence dans l'initialiseur de `useState` ne suffit pas : le
+  // serveur rendrait toujours « board » pendant que le client rendrait
+  // « liste », et cette divergence d'hydratation se corrige par un repaint —
+  // donc le clignotement revient.
+  //
+  // Le serveur ne SAIT pas : il affiche donc le chargeur, comme il le fait déjà
+  // pendant le chargement des données. Client et serveur rendent la même chose,
+  // et la bonne vue est peinte dès l'hydratation. La mauvaise n'est jamais
+  // montrée.
+  const [vue, setVue] = useState<'board' | 'liste' | null>(null);
 
   // Les colonnes repliées du board. Conservées d'une visite à l'autre : replier
   // « Commentaire LM » et ses 412 fiches pour dégager la vue n'aurait aucun
@@ -2405,13 +2420,32 @@ export default function PagePipeline() {
   const [tri, setTri] = useState<TriKey>('immobile');
   const [filtreRapport, setFiltreRapport] = useState(false);
 
-  useEffect(() => {
+  // ── LA VUE PRÉFÉRÉE SE LIT AVANT LA PREMIÈRE PEINTURE ──────────────────────
+  //
+  // `useLayoutEffect` et non `useEffect` : React exécute les effets de mise en
+  // page AVANT que le navigateur ne peigne, les autres APRÈS. Avec `useEffect`,
+  // le board était donc peint puis remplacé par la liste — mesuré au navigateur :
+  // 51 images de board visible, colonnes rendues, avant la bascule. Quelqu'un
+  // qui travaille en vue liste voyait le board à chaque arrivée sur la page.
+  //
+  // Pas de lecture dans l'initialiseur de `useState` non plus : le serveur, qui
+  // n'a pas de `localStorage`, rendrait « board » pendant que le client rendrait
+  // « liste » — c'est une divergence d'hydratation, et React la corrige en
+  // repeignant, ce qui ramène le clignotement qu'on essaie de supprimer.
+  //
+  // `useLayoutEffect` avertit côté serveur, où il ne sert à rien : on retombe sur
+  // `useEffect` quand `window` n'existe pas.
+  const effetAvantPeinture = typeof window === 'undefined' ? useEffect : useLayoutEffect;
+  effetAvantPeinture(() => {
     try {
       const v = window.localStorage.getItem('pipeline-vue');
-      if (v === 'liste' || v === 'board') setVue(v);
+      setVue(v === 'liste' ? 'liste' : 'board');
       const r = window.localStorage.getItem('pipeline-colonnes-repliees');
       if (r) setColonnesRepliees(new Set(JSON.parse(r) as string[]));
-    } catch { /* navigation privée, cookies bloqués : le board par défaut suffit */ }
+    } catch {
+      // Navigation privée, cookies bloqués : on ne restera pas sur le chargeur.
+      setVue('board');
+    }
   }, []);
   const changerVue = (v: 'board' | 'liste') => {
     setVue(v);
@@ -4057,8 +4091,10 @@ export default function PagePipeline() {
         <style>{`[data-pipeline-card] { pointer-events: none !important; }`}</style>
       )}
 
-      {/* Kanban board */}
-      {loading ? (
+      {/* Kanban board — le chargeur couvre AUSSI le moment où la vue préférée
+          n'est pas encore connue, c'est-à-dire jusqu'à l'hydratation. Sans ça, le
+          serveur devrait deviner, et il devinait faux une fois sur deux. */}
+      {loading || vue === null ? (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <InlineLoader />
         </div>
