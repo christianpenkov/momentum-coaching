@@ -1434,6 +1434,11 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   for (const v of (yt?.videos ?? [])) ytVideosById.set(v.id, v);
   for (const v of (ytLive?.videos ?? [])) ytVideosById.set(v.id, { ...ytVideosById.get(v.id), ...v });
   const ytVideos = [...ytVideosById.values()];
+  // Quelles videos ont recu les valeurs VIVANTES par la fusion ci-dessus. Determinant
+  // pour « Watch time moyen » : cote live, `watchTime30d` contient de l'ALL-TIME (la
+  // requete par video part de 2020-01-01) ; cote snapshot, il contient 30 jours
+  // (`watch_time_min`, ecrit par le cron). Le meme champ, deux fenetres.
+  const ytVideosVivantes = new Set((ytLive?.videos ?? []).map((v: any) => v.id));
   // Vues lifetime pour Cash/Vue — UNIQUEMENT igLive/ytLive (jamais l'historique, qui varie avec
   // periodIndex). Si le post n'est plus dans la fenêtre live (30j), vue lifetime inconnue : null.
   const igLiveViewsByIdOv = new Map<string, number>((igLive?.posts ?? []).map((p: any) => [p.id, p.views || p.reach || 0]));
@@ -1534,8 +1539,20 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
       // v.watchTime30d est déjà en minutes (row.watch_time_min) — pas de /60 ici, contrairement
       // à la branche IG ci-dessus (avgWatchTimeMs en ms) : diviser aussi par 60 donnait un résultat
       // 60x trop petit (ex: 0.0 min affiché au lieu de 2.5 min).
-      // Denominateur all-time : watchTime30d est lui aussi all-time cote API live.
-      const vViews = v.viewsAllTime ?? v.views30d;
+      // ⚠️ Numerateur et denominateur doivent venir de la MEME fenetre.
+      //
+      // `watchTime30d` porte un nom qui ment differemment selon le chemin : all-time
+      // cote API live (requete depuis 2020-01-01), 30 jours cote snapshot (le cron
+      // ecrit `watch_time_min` sur 30 jours). Diviser le second par des vues lifetime
+      // donne une moyenne tres inferieure a la verite, sans rien de visiblement absurde
+      // a l'ecran.
+      //
+      // Le defaut est LATENT aujourd'hui : la route live renvoie 50 videos et les
+      // chaines en ont 29, donc la fusion ci-dessus les couvre toutes. Il apparaitrait
+      // au-dela de 50 videos, sur les plus anciennes seulement — le genre de bascule
+      // qu'on ne relie jamais a sa cause des mois plus tard.
+      const vientDuLive = ytVideosVivantes.has(v.id);
+      const vViews = vientDuLive ? (v.viewsAllTime ?? v.views30d) : v.views30d;
       const avgWatchTimeMin = v.watchTime30d && vViews > 0 ? Math.round(v.watchTime30d / vViews * 10) / 10 : null;
       const viewsLifetimeYT = ytLiveViewsByIdOv.get(v.id) ?? null;
       return { id: v.id, title: v.title, thumbnail: v.thumbnail || null, platform: 'YT' as const, type: v.isShort ? 'Short' : 'Vidéo', views: v.views30d, totalViews: v.views, watchTime: v.watchTime30d, avgWatchTimeMin, rendezVous, noShowCount, noShowPct, closedCount, closedPct, callsBooked, callsHonores: honored, revenueTotal: revTotal, revenuePerCall: callsBooked > 0 ? Math.round(revTotal / callsBooked) : 0, cashPerView: viewsLifetimeYT && viewsLifetimeYT > 0 ? revTotal / viewsLifetimeYT : null };
