@@ -288,38 +288,82 @@ export async function GET(request: Request) {
     views: r[1] || 0,
   }));
 
-  // Étape 2 : playlist "uploads" pour récupérer TOUTES les vidéos (jusqu'à 50)
+  // Étape 2 : playlist "uploads" — TOUTES les vidéos, en paginant.
+  //
+  // ⚠️ `playlistItems` rend 50 éléments par page au maximum. Sans `pageToken`, la
+  // chaîne était vue à ses 50 dernières vidéos, définitivement — et les plus
+  // anciennes disparaissaient de Mes stats sans aucun signal.
+  //
+  // Même plafond que le cron (supabase/functions/poll-leads), pour que les deux
+  // chemins voient la même chaîne. Deux plafonds différents feraient diverger le
+  // tableau selon la période consultée, ce qui est exactement le genre d'écart qu'on
+  // passe des heures à ne pas comprendre.
+  const PLAFOND_VIDEOS = 200;
   const uploadsPlaylistId = channel.contentDetails?.relatedPlaylists?.uploads;
   const videoIds: string[] = [];
 
   if (uploadsPlaylistId) {
-    const playlistRes = await fetch(
-      `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&playlistId=${uploadsPlaylistId}&maxResults=50`,
-      { headers: authHeader }
-    );
-    const playlistData = await playlistRes.json();
-    for (const item of playlistData?.items || []) {
-      const id = item.contentDetails?.videoId;
-      if (id) videoIds.push(id);
-    }
+    let pageToken: string | undefined;
+    do {
+      const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails`
+        + `&playlistId=${uploadsPlaylistId}&maxResults=50`
+        + (pageToken ? `&pageToken=${pageToken}` : '');
+      const playlistRes = await fetch(url, { headers: authHeader });
+      if (!playlistRes.ok) break;
+      const playlistData: any = await playlistRes.json();
+      for (const item of playlistData?.items || []) {
+        const id = item.contentDetails?.videoId;
+        if (id) videoIds.push(id);
+      }
+      pageToken = playlistData?.nextPageToken;
+    } while (pageToken && videoIds.length < PLAFOND_VIDEOS);
   }
 
   let videos: any[] = [];
 
   if (videoIds.length > 0) {
-    const videoIdsStr = videoIds.join(',');
-    const [detailsRes, analyticsVideosRes, views30dRes, subsAllTimeRes, ctrByVideo] = await Promise.all([
-      fetch(
-        `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${videoIdsStr}`,
-        { headers: authHeader }
-      ),
+    // Groupage. `videos.list` accepte 50 ids par appel — c'est un maximum DUR, le
+    // depasser renvoie une erreur. Les requetes Analytics sont groupees par 40, la
+    // meme valeur que le cron : la doc annonce 500 ids, mais la checklist du projet
+    // exige de verifier une capacite de groupage avec le vrai jeton avant de s'y fier,
+    // ce qui n'a pas ete fait. 40 reste sous toutes les lectures possibles.
+    const lots = <T,>(t: T[], n: number): T[][] => {
+      const out: T[][] = [];
+      for (let i = 0; i < t.length; i += n) out.push(t.slice(i, i + n));
+      return out;
+    };
+    // Un lot qui echoue ne doit pas vider les autres : on concatene les lignes
+    // obtenues plutot que d'abandonner le tout.
+    const rowsGroupees = async (construireUrl: (ids: string) => string, taille: number) => {
+      const rows: any[] = [];
+      for (const lot of lots(videoIds, taille)) {
+        const r = await fetch(construireUrl(lot.join(',')), { headers: authHeader });
+        if (!r.ok) continue;
+        const d = await r.json();
+        rows.push(...(d?.rows || []));
+      }
+      return { rows };
+    };
+
+    const [detailsData, analyticsVideosData, views30dData, subsAllTimeRes, ctrByVideo] = await Promise.all([
+      (async () => {
+        const items: any[] = [];
+        for (const lot of lots(videoIds, 50)) {
+          const r = await fetch(
+            `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${lot.join(',')}`,
+            { headers: authHeader },
+          );
+          if (!r.ok) continue;
+          const d = await r.json();
+          items.push(...(d?.items || []));
+        }
+        return { items };
+      })(),
       // Metriques contenu ALL-TIME par video (perf contenu, pas business) — sert aux
       // ratios watch time / vues, ou numerateur et denominateur viennent de la meme
       // fenetre, donc justes quelle que soit sa largeur.
-      fetch(
-        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=2020-01-01&endDate=${getToday()}&metrics=views,estimatedMinutesWatched,averageViewPercentage,likes,comments,shares,subscribersGained&dimensions=video&filters=video==${videoIdsStr}&maxResults=50`,
-        { headers: authHeader }
-      ),
+      rowsGroupees(ids =>
+        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=2020-01-01&endDate=${getToday()}&metrics=views,estimatedMinutesWatched,averageViewPercentage,likes,comments,shares,subscribersGained&dimensions=video&filters=video==${ids}&maxResults=500`, 40),
       // Vues des 30 DERNIERS JOURS par video — requete distincte, pour la colonne
       // « Vues 30j » du tableau.
       //
@@ -328,10 +372,8 @@ export async function GET(request: Request) {
       // sur 30j », soit 99,9 % de ses vues en un mois. La vraie valeur est 12.
       // Le chemin snapshot, lui, lisait bien views_period — deux chemins, deux valeurs
       // differentes dans le meme champ (constate le 2026-08-21).
-      fetch(
-        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=views&dimensions=video&filters=video==${videoIdsStr}&maxResults=50`,
-        { headers: authHeader }
-      ),
+      rowsGroupees(ids =>
+        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=views&dimensions=video&filters=video==${ids}&maxResults=500`, 40),
       // Abonnés gagnés all-time par vidéo (sans filtre pour avoir toutes les vidéos)
       fetch(
         `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=2020-01-01&endDate=${getToday()}&metrics=views,subscribersGained,subscribersLost&dimensions=video&maxResults=50`,
@@ -341,9 +383,9 @@ export async function GET(request: Request) {
       fetchCtrByVideo(accessToken),
     ]);
 
-    const detailsData = await detailsRes.json();
-    const analyticsVideosData = await analyticsVideosRes.json();
-    const views30dData = await views30dRes.json();
+    // `maxResults` passe de 50 a 500 sur les deux requetes Analytics ci-dessus : il
+    // bornait le nombre de LIGNES rendues, donc au-dela de 50 videos les dernieres
+    // n'avaient aucune metrique — un plafond de plus, invisible.
     // videoId -> vues des 30 derniers jours (0 si la video n'a eu aucune vue : l'API
     // n'emet pas de ligne dans ce cas, et 0 est ici la bonne valeur — la video existe,
     // elle n'a simplement pas ete vue).

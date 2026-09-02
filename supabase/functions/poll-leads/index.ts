@@ -1662,14 +1662,37 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
     const uploadsPlaylistId = channelData?.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
     if (!uploadsPlaylistId) return ['yt_videos_no_uploads_playlist'];
 
-    // Récupère les 30 dernières vidéos
-    const playlistRes = await fetch(
-      `https://www.googleapis.com/youtube/v3/playlistItems?playlistId=${uploadsPlaylistId}&maxResults=30&part=snippet&fields=items(snippet(resourceId,title,publishedAt,thumbnails))`,
-      { headers: auth }
-    );
-    if (!playlistRes.ok) return [`yt_videos_playlist: HTTP ${playlistRes.status}`];
-    const playlistData = await safeJson(playlistRes);
-    const items: any[] = playlistData.items || [];
+    // ⚠️ `playlistItems` PAGINE : 50 elements par page au maximum, et un
+    // `nextPageToken` tant qu'il en reste. Sans la boucle ci-dessous, la chaine etait
+    // vue a ses 30 dernieres videos, definitivement.
+    //
+    // Ce n'etait pas theorique : les trois chaines en base ont 29 videos. A la 31e, la
+    // plus ancienne serait sortie de Mes stats sans aucun signal — ses lignes
+    // d'historique auraient cesse d'etre mises a jour, et le tableau l'aurait
+    // simplement oubliee.
+    //
+    // PLAFOND assume. Il ne protege pas d'un quota (le cout d'un appel ne depend pas du
+    // nombre d'ids) mais du STOCKAGE : cette table ecrit une ligne par video et par
+    // jour. A 200 videos et 40 eleves, cela fait 8 000 lignes par jour avant que
+    // `degrossir_historiques_analytics` ne les ramene a une par semaine puis par mois.
+    // `base_sante_taille` surveille la croissance et alerte avant le plafond du plan.
+    const PLAFOND_VIDEOS = 200;
+    const items: any[] = [];
+    let pageToken: string | undefined = undefined;
+    do {
+      const url = `https://www.googleapis.com/youtube/v3/playlistItems?playlistId=${uploadsPlaylistId}`
+        + `&maxResults=50&part=snippet`
+        + `&fields=nextPageToken,items(snippet(resourceId,title,publishedAt,thumbnails))`
+        + (pageToken ? `&pageToken=${pageToken}` : '');
+      const playlistRes = await fetch(url, { headers: auth });
+      // On interrompt plutot que de continuer avec une liste tronquee : une liste
+      // incomplete ferait ecrire un snapshot qui oublie des videos, et le garde-fou
+      // d'entree (« le snapshot d'hier existe deja ») empecherait tout rattrapage.
+      if (!playlistRes.ok) return [`yt_videos_playlist: HTTP ${playlistRes.status}`];
+      const playlistData = await safeJson(playlistRes);
+      items.push(...(playlistData.items || []));
+      pageToken = playlistData.nextPageToken;
+    } while (pageToken && items.length < PLAFOND_VIDEOS);
     if (!items.length) return [];
 
     const videoIds = items.map((i: any) => i.snippet?.resourceId?.videoId).filter(Boolean);
