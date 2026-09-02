@@ -172,7 +172,7 @@ dans cron-job.org, nulle part ailleurs.**
 | `fathom-cron-sync` (15 min) | Edge | `supabase.co/functions/v1/fathom-cron-sync` |
 | `installment-reminders` (1×/j) | Edge | `supabase.co/functions/v1/installment-reminders` |
 | `cron-health` (1×/j) | **Vercel** | `momentum-plateforme.vercel.app/api/stripe/cron-health` |
-| `cron-refresh-tokens` | **Vercel** | `momentum-plateforme.vercel.app/api/instagram/cron-refresh-tokens` — ⚠️ **cadence non confirmée** |
+| `cron-refresh-tokens` (**lundi 07h00**) | **Vercel** | `momentum-plateforme.vercel.app/api/instagram/cron-refresh-tokens` |
 
 **Neuf jobs, confirmés un par un le 2026-09-01 dans cron-job.org.** Sept en Edge, deux
 en Vercel.
@@ -228,20 +228,20 @@ pas le même. Un cron s'inscrit en un appel : `rpc('marquer_passage_cron', { p_n
 encore mentir) : sept des huit portent un passage réel du 2 septembre, `etat = 'ok'`.
 `installment-reminders` a bien tourné à 07h00 UTC. La surveillance fonctionne.
 
-⚠️ **`cron-refresh-tokens` n'a PAS tourné, et on ne sait pas si c'est normal.** Sa
-cadence n'a jamais été confirmée dans cron-job.org : elle est présumée hebdomadaire
-(lundi 07h00) d'après une note de mémoire qui avertit elle-même que sa colonne
-« fréquence » a déjà été fausse une fois. Un silence de 11 h est donc **soit normal**
-(hebdomadaire, on est mercredi), **soit une panne** (s'il était quotidien).
+**`cron-refresh-tokens` n'avait pas tourné, et c'est NORMAL** : il est **hebdomadaire,
+le lundi 07h00** (confirmé par Chris le 2026-09-02 ; le relevé tombait un mercredi).
 
-**Ce qui ne permet PAS de trancher, et pourquoi** — voir le paragraphe sur les logs
-Vercel ci-dessous. La seule source qui répond est cron-job.org.
+Son `silence_max` valait 2 jours, ce qui l'aurait fait passer `SILENCIEUX` chaque jeudi
+soir pour le rester jusqu'au lundi — **une fausse alerte hebdomadaire garantie**,
+c'est-à-dire le début d'une alerte qu'on n'ouvre plus. Porté à **28 jours**, soit les
+quatre cadences de la règle ci-dessus.
 
-**Ce qui a été fait en attendant** : `silence_max` passé de 2 jours à **10 jours**.
-À 2 jours, la ligne serait passée `SILENCIEUX` le jeudi 3 septembre à 23h02 et le
-serait restée jusqu'au lundi — une fausse alerte hebdomadaire garantie, c'est-à-dire
-le début d'une alerte qu'on n'ouvre plus. À 10 jours, un passage hebdomadaire ne
-déclenche jamais rien, et une vraie mort se voit au bout d'une semaine et demie.
+⚠️ **Un `silence_max` par défaut est un piège quand la cadence est inconnue.** Celui-ci
+a été inscrit avec le défaut de 2 jours sans que personne ne sache qu'il tournait une
+fois par semaine — et la fausse alerte n'était pas visible à l'inscription, seulement
+trois jours plus tard. **Ne jamais inscrire un cron sans avoir lu sa fréquence dans
+cron-job.org d'abord** : c'est la seule source, elle n'est pas dans le dépôt, et la
+poser au jugé produit une alerte qui crie ou une alerte qui dort.
 
 **La vraie question n'est pas sa cadence, c'est son existence.** Son rafraîchissement
 de jetons ne sert à rien depuis le 2026-08-27 : `poll-leads` le fait toutes les heures
