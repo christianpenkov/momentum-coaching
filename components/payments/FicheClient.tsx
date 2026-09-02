@@ -269,7 +269,7 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
   // les cherche, jamais au premier coup d'œil, et ils repoussent les boutons
   // hors de l'écran.
   const [ouvertes, setOuvertes] = useState({
-    echeances: true, origine: !isMobile, journal: !isMobile,
+    echeances: true, historique: !isMobile,
   });
 
   // ── Les remboursements et leur raison ────────────────────────────────────
@@ -422,12 +422,15 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
           `lienAEnvoyer` fait partie de la condition : une vente toute neuve n'a
           ni échéance, ni paiement, ni prélèvement — la section disparaissait
           donc entièrement, et avec elle le seul lien qu'il y avait à envoyer. */}
-      {(echeances.length > 0 || paiements.length > 0 || prelevements.length > 0 || lienAEnvoyer) && (
+      {/* ⚠️ Les paiements déjà encaissés ne sont PLUS ici : ils ont rejoint
+          l'Historique, avec l'origine et le journal. Cette section ne garde que
+          ce qui regarde vers l'AVANT — les échéances à venir, le lien à envoyer,
+          leurs actions. Trois blocs qui listaient chacun des faits datés se
+          lisaient comme trois histoires parallèles de la même vente. */}
+      {(echeances.length > 0 || prelevements.length > 0 || lienAEnvoyer) && (
         <Repliable titre={echeances.length > 0
           ? `Les ${echeances.length} échéances`
           : prelevements.length > 0 ? `Les ${deal.installmentsCount ?? 1} échéances`
-          : paiements.length > 1 ? `Les ${paiements.length} paiements`
-          : paiements.length === 1 ? 'Le paiement'
           : 'Le lien à envoyer'}
           ouvert={ouvertes.echeances}
           onToggle={() => setOuvertes(o => ({ ...o, echeances: !o.echeances }))}>
@@ -472,22 +475,7 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
                 ))}
               </>
             )
-            : paiements.map(p => (
-                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '6px 0' }}>
-                  <span style={{
-                    width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
-                    background: p.status === 'succeeded' ? 'var(--green)'
-                      : p.status === 'refunded' ? 'var(--taupe)' : 'var(--red)',
-                  }} />
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 12.5 }}>
-                    {p.status === 'refunded' ? 'Remboursé' : p.status === 'succeeded' ? 'Encaissé' : (p.failure_reason ?? 'Échec')}
-                    {' '}<span style={{ color: 'var(--muted)' }}>{p.paid_at ? `le ${fmtDateLong(p.paid_at)}` : ''}</span>
-                  </span>
-                  <span className="tabular" style={{ fontSize: 12.5, fontWeight: 600, color: p.status === 'succeeded' ? 'var(--ink)' : 'var(--muted)' }}>
-                    {p.status === 'refunded' ? '− ' : ''}{fmtEurExact(Number(p.amount))}
-                  </span>
-                </div>
-              ))}
+            : null}
 
           {/* ── Le lien porté par la vente, faute d'échéance qui le porte ───
               En prélèvement automatique, TOUT dépend de l'existence des
@@ -522,16 +510,47 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
         </Repliable>
       )}
 
-      {/* ── Origine ────────────────────────────────────────────────────── */}
-      <Repliable titre="Origine" ouvert={ouvertes.origine}
-        onToggle={() => setOuvertes(o => ({ ...o, origine: !o.origine }))}>
-        <Origine dealId={deal.id} deal={deal} />
-      </Repliable>
+      {/* ── Historique ─────────────────────────────────────────────────────
+          D'où vient la vente, ce qui est rentré, ce qui a été corrigé : trois
+          natures de faits, une seule chronologie. Les séparer donnait trois
+          sections datées à replier une par une, et obligeait à sauter de l'une à
+          l'autre pour reconstituer ce qui s'était passé.
 
-      {/* ── Journal ────────────────────────────────────────────────────── */}
-      {journal.length > 0 && (
-        <Repliable titre="Journal de cette vente" ouvert={ouvertes.journal}
-          onToggle={() => setOuvertes(o => ({ ...o, journal: !o.journal }))}>
+          Les paiements n'y figurent QUE s'ils ne sont pas déjà racontés par
+          l'échéancier — sur un plan, chaque ligne dit déjà « payée le 20 août »,
+          et les répéter ici ferait douter qu'il s'agit du même argent. */}
+      <Repliable titre="Historique" ouvert={ouvertes.historique}
+        onToggle={() => setOuvertes(o => ({ ...o, historique: !o.historique }))}>
+        <Origine dealId={deal.id} deal={deal} />
+
+        {echeances.length === 0 && prelevements.length === 0 && paiements.length > 0 && (
+          <div style={{ marginTop: 8 }}>
+            {paiements.map(p => (
+              <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '6px 0' }}>
+                <span style={{
+                  width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+                  background: p.status === 'succeeded' ? 'var(--green)'
+                    : p.status === 'refunded' ? 'var(--taupe)' : 'var(--red)',
+                }} />
+                <span style={{ flex: 1, minWidth: 0, fontSize: 12.5 }}>
+                  {p.status === 'refunded' ? 'Remboursé' : p.status === 'succeeded' ? 'Encaissé' : (p.failure_reason ?? 'Échec')}
+                  {' '}<span style={{ color: 'var(--muted)' }}>{p.paid_at ? `le ${fmtDateLong(p.paid_at)}` : ''}</span>
+                  {/* La raison là où le montant est : c'est ici qu'on se demande
+                      pourquoi cet argent est reparti. */}
+                  {p.refund_reason && (
+                    <span style={{ color: 'var(--muted)' }}> · {LIBELLE_RAISON[p.refund_reason]}</span>
+                  )}
+                </span>
+                <span className="tabular" style={{ fontSize: 12.5, fontWeight: 600, color: p.status === 'succeeded' ? 'var(--ink)' : 'var(--muted)' }}>
+                  {p.status === 'refunded' ? '− ' : ''}{fmtEurExact(Number(p.amount))}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {journal.length > 0 && (
+          <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border-soft)' }}>
           {journal.map(ev => (
             <div key={ev.id} style={{ display: 'flex', gap: 12, padding: '5px 0', alignItems: 'baseline' }}>
               <span style={{ fontSize: 11, color: 'var(--faint)', flexShrink: 0, width: 62 }}>
@@ -540,8 +559,9 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
               <span style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.5 }}>{ev.label}</span>
             </div>
           ))}
-        </Repliable>
-      )}
+          </div>
+        )}
+      </Repliable>
 
       {/* ── La barre d'actions ─────────────────────────────────────────── */}
       <BarreActions deal={deal} etat={etat} mode={mode} onAction={onAction} />
