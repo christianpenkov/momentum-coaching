@@ -11,6 +11,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - **Filtrer `calls` par « propriétaire »** → `docs/calls-coach-id-piege.md`.
   `calls.coach_id` n'est pas le coach humain.
 - **Afficher une heure** → `docs/fuseaux-horaires.md`.
+- **Enregistrements Fathom** (qui voit quoi, avec quel compte) → `lib/replayAccess.ts`.
+  Chacun connecte son propre Fathom, mais un call de coaching n'est enregistré que
+  par l'un des deux participants.
 - **Toucher aux paiements, aux ventes ou au webhook Stripe** →
   `docs/stripe-paiements.md`. La configuration vit dans le dashboard, hors du
   dépôt : une case cochée par erreur fait passer un chiffre en négatif sans

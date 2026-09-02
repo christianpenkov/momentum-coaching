@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { serviceSupabase } from '@/lib/callAccess';
 import { getFathomToken } from '@/lib/fathom-auth';
+import { resoudreAccesReplay } from '@/lib/replayAccess';
 
 /**
  * Lien de lecture directe d'un enregistrement Fathom (fichier MP4).
@@ -22,6 +23,11 @@ import { getFathomToken } from '@/lib/fathom-auth';
  *
  * Le lien expire ~24 h après génération : il ne doit JAMAIS être stocké en base,
  * seulement demandé à l'ouverture.
+ *
+ * QUI PEUT REGARDER QUOI : voir lib/replayAccess.ts. En résumé, les participants
+ * d'un call peuvent voir son enregistrement, et on le demande au premier de leurs
+ * comptes Fathom qui l'a — sur un call de coaching, un seul des deux a enregistré
+ * la réunion.
  */
 
 const FATHOM_API_BASE = 'https://api.fathom.ai/external/v1';
@@ -44,26 +50,24 @@ export async function POST(
 
   if (!call) return NextResponse.json({ error: 'Call introuvable' }, { status: 404 });
 
-  // ⚠️ Contrôle d'accès volontairement DIFFÉRENT de requireCallAccess.
-  //
-  // Celui-ci compare `calls.client_id` à l'id de l'utilisateur, or les deux ne
-  // désignent pas la même chose : `client_id` référence `clients.id`, pas un
-  // profil (incohérence connue, documentée dans callAccess.ts). Côté rapport ça
-  // reste sans effet — seul le coach le remplit. Ici ça ne l'est pas : l'élève
-  // consulte cette modale, et c'est souvent LUI qui a connecté Fathom. Sans la
-  // jointure ci-dessous, la vidéo lui serait refusée sur ses propres appels.
-  const estLeCoach = call.coach_id === user.id;
-  let estLEleve = false;
-  if (!estLeCoach && call.client_id) {
+  // ⚠️ `calls.client_id` référence `clients.id`, pas un profil — il faut la
+  // jointure pour obtenir quelque chose de comparable à un id d'utilisateur
+  // (cf. docs/calls-coach-id-piege.md). C'est aussi pour ça que cette route
+  // n'utilise pas `requireCallAccess`, qui compare les deux directement : sans
+  // effet côté rapport (seul le coach le remplit), mais bloquant ici où l'élève
+  // consulte la modale.
+  let profilEleve: string | null = null;
+  if (call.client_id) {
     const { data: client } = await serviceSupabase
       .from('clients')
       .select('profile_id')
       .eq('id', call.client_id)
       .maybeSingle();
-    estLEleve = client?.profile_id === user.id;
+    profilEleve = client?.profile_id ?? null;
   }
 
-  if (!estLeCoach && !estLEleve) {
+  const acces = resoudreAccesReplay(user.id, call.coach_id, profilEleve);
+  if (!acces.autorise) {
     return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
   }
 
@@ -71,33 +75,43 @@ export async function POST(
     return NextResponse.json({ error: 'Aucun enregistrement pour ce call' }, { status: 404 });
   }
 
-  // Le jeton du LECTEUR, jamais celui d'un autre : chacun connecte son propre
-  // compte Fathom, coach comme élève. Fathom applique ensuite ses propres règles
-  // d'accès à l'enregistrement — on ne contourne rien.
+  // On essaie les comptes Fathom des participants, le lecteur d'abord.
   //
-  // Sans compte Fathom connecté, pas de lecture intégrée : l'appelant retombe sur
-  // le lien de partage, qui reste affiché comme avant.
-  const accessToken = await getFathomToken(user.id);
-  if (!accessToken) {
-    return NextResponse.json({ error: 'Fathom non connecté' }, { status: 404 });
+  // Sur un call de coaching, un seul des deux a enregistré la réunion : sans ce
+  // repli, l'autre n'aurait jamais la vidéo dans la page alors qu'il a participé
+  // au même appel. La règle et sa justification sont dans lib/replayAccess.ts.
+  //
+  // On s'arrête au premier compte qui rend un fichier. Un 403/404 de Fathom veut
+  // dire « ce compte-là n'a pas cet enregistrement » : on passe au suivant plutôt
+  // que d'abandonner.
+  let data: any = null;
+  let dernierStatut = 0;
+
+  for (const profileId of acces.ordreDEssai) {
+    const accessToken = await getFathomToken(profileId);
+    if (!accessToken) continue;
+
+    const res = await fetch(`${FATHOM_API_BASE}/recordings/${call.fathom_recording_id}/download`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+
+    if (res.ok) { data = await res.json().catch(() => null); break; }
+
+    dernierStatut = res.status;
+    // 429 = quota atteint : réessayer avec un autre compte ne ferait qu'aggraver.
+    if (res.status === 429) break;
   }
 
-  const res = await fetch(`${FATHOM_API_BASE}/recordings/${call.fathom_recording_id}/download`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
-  });
-
-  if (!res.ok) {
-    // 403 = partage à accès restreint, 422 = pas de média téléchargeable.
-    // L'appelant retombe sur le lien Fathom, il n'y a rien à réparer côté client.
+  if (!data) {
+    // Aucun compte n'a le fichier — ou aucun n'a Fathom connecté. L'appelant
+    // retombe sur le lien de partage, qui reste affiché comme avant.
     return NextResponse.json(
-      { error: 'Enregistrement indisponible', status: res.status },
-      { status: res.status === 429 ? 429 : 502 }
+      { error: dernierStatut ? 'Enregistrement indisponible' : 'Fathom non connecté' },
+      { status: dernierStatut === 429 ? 429 : 404 }
     );
   }
-
-  const data = await res.json().catch(() => null);
 
   // On ne renvoie que ce dont le lecteur a besoin — jamais le jeton, jamais le
   // payload brut de Fathom.
