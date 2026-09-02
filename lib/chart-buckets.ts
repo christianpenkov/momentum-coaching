@@ -190,6 +190,72 @@ export function regrouperMoyenne(
   });
 }
 
+/** Comment une série se regroupe quand plusieurs jours tiennent dans un point. */
+export type NatureSerie = 'comptage' | 'niveau' | 'moyenne';
+
+/**
+ * Regroupe une série par PAS FIXE — N jours consécutifs par point, N déduit du
+ * nombre total de jours à afficher.
+ *
+ * ⚠️ Ce n'est PAS `cleBucket` / `regrouperComptage`, qui découpent en semaines et
+ * mois CALENDAIRES. Les deux répondent à des besoins différents et coexistent
+ * volontairement :
+ *
+ * - Le découpage calendaire sert quand les points doivent s'aligner sur des bornes
+ *   réelles — c'est le cas de l'onglet Short.io, dont les fenêtres viennent de
+ *   `lib/period.ts`.
+ * - Le pas fixe sert aux courbes d'aperçu : il garantit un nombre de points à peu
+ *   près constant quelle que soit l'ancienneté du compte, donc une densité lisible
+ *   et stable. Un découpage mensuel donne 2 points à un élève de deux mois et 24 à
+ *   un élève de deux ans.
+ *
+ * Quand le pas tombe pile sur 7 jours, le libellé dit « semaine du … » : le point
+ * couvre alors bel et bien une semaine, autant le nommer. Sinon il annonce sa
+ * plage réelle (« 9 juin – 11 juin »), parce qu'un point qui vaut trois jours ne
+ * doit pas s'annoncer avec la date du premier.
+ *
+ * La NATURE décide de l'agrégation, et se trompe de façon spectaculaire si on
+ * l'oublie : voir `regrouperNiveau` et `regrouperMoyenne`.
+ */
+export function regrouperParPas(
+  points: { date: string; v: number | null }[],
+  nature: NatureSerie = 'comptage',
+  maxPoints = 31,
+): { points: { date: string; v: number | null; libelle: string }[]; pas: number } {
+  const pas = Math.max(1, Math.ceil(points.length / maxPoints));
+  if (pas === 1) {
+    return { points: points.map(p => ({ ...p, libelle: libelleJour(p.date) })), pas };
+  }
+  const out: { date: string; v: number | null; libelle: string }[] = [];
+  for (let i = 0; i < points.length; i += pas) {
+    const groupe = points.slice(i, i + pas);
+    const connus = groupe.filter(p => p.v !== null).map(p => p.v as number);
+    // Un groupe n'est « pas encore de données » que si AUCUN de ses jours ne l'est.
+    // Sinon un seul jour non collecté effacerait tout le groupe, et un trou d'un
+    // jour se lirait comme trois jours sans activité.
+    const v = connus.length === 0 ? null
+      : nature === 'niveau' ? connus[connus.length - 1]
+      : nature === 'moyenne' ? Math.round((connus.reduce((s, n) => s + n, 0) / connus.length) * 10) / 10
+      : connus.reduce((s, n) => s + n, 0);
+    const fin = groupe[groupe.length - 1];
+    out.push({
+      date: groupe[0].date,
+      v,
+      libelle: groupe.length === 1 ? libelleJour(groupe[0].date)
+        : pas === 7 ? `semaine du ${libelleJour(groupe[0].date)}`
+        : `${libelleJour(groupe[0].date)} – ${libelleJour(fin.date)}`,
+    });
+  }
+  return { points: out, pas };
+}
+
+/** « 9 juin » — sans année, la courbe porte déjà son contexte. */
+export function libelleJour(dateStr: string): string {
+  const noms = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+  const [, m, d] = dateStr.split('-');
+  return `${Number(d)} ${noms[Number(m) - 1]}`;
+}
+
 /** Libellé de l'axe pour une clé de bucket. */
 export function libelleBucket(cle: string, g: Granularite): string {
   const [y, m, d] = cle.split('-');

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   granulariteFenetre, cleBucket, bucketsDe,
-  regrouperComptage, regrouperTaux, regrouperNiveau, regrouperMoyenne, libelleBucket,
+  regrouperComptage, regrouperTaux, regrouperNiveau, regrouperMoyenne, regrouperParPas, libelleBucket,
 } from './chart-buckets.ts';
 
 function jours(debut: string, n: number): string[] {
@@ -167,4 +167,68 @@ test('moyenne : aucun jour mesure = trou', () => {
   const js = jours('2026-06-08', 7);
   const r = regrouperMoyenne(js, 'semaine', () => null);
   assert.equal(r[0].v, null);
+});
+
+test('pas fixe : le nombre de points reste stable quelle que soit l anciennete', () => {
+  // C'est la raison d'etre du pas fixe. Un decoupage mensuel donnerait 2 points a un
+  // compte de deux mois et 24 a un compte de deux ans ; ici la densite ne bouge pas.
+  for (const n of [60, 200, 400, 730]) {
+    const pts = jours('2026-01-01', n).map(d => ({ date: d, v: 1 }));
+    const r = regrouperParPas(pts);
+    assert.ok(r.points.length <= 31, `${n} jours -> ${r.points.length} points`);
+    assert.ok(r.points.length >= 15, `${n} jours -> ${r.points.length} points, trop peu`);
+  }
+});
+
+test('pas fixe : sous le seuil, un point par jour et aucun regroupement', () => {
+  const pts = jours('2026-06-01', 20).map(d => ({ date: d, v: 2 }));
+  const r = regrouperParPas(pts);
+  assert.equal(r.pas, 1);
+  assert.equal(r.points.length, 20);
+  assert.equal(r.points[0].libelle, '1 juin');
+});
+
+test('pas fixe : la somme est conservee', () => {
+  // L'invariant qui a revele que les courbes d'All-Time ne tracaient qu'un mois :
+  // la somme des points doit egaler le total de la carte.
+  const pts = jours('2026-01-01', 365).map(d => ({ date: d, v: 3 }));
+  const r = regrouperParPas(pts, 'comptage');
+  assert.equal(r.points.reduce((s, p) => s + (p.v ?? 0), 0), 365 * 3);
+});
+
+test('pas fixe : un pas de 7 jours s annonce « semaine du »', () => {
+  // Demande de Chris : quand le point couvre bel et bien une semaine, autant le dire.
+  const pts = jours('2026-01-01', 31 * 7).map(d => ({ date: d, v: 1 }));
+  const r = regrouperParPas(pts);
+  assert.equal(r.pas, 7);
+  assert.ok(r.points[0].libelle.startsWith('semaine du '), r.points[0].libelle);
+});
+
+test('pas fixe : sinon le point annonce sa PLAGE, pas son premier jour', () => {
+  const pts = jours('2026-06-01', 93).map(d => ({ date: d, v: 1 }));
+  const r = regrouperParPas(pts);
+  assert.equal(r.pas, 3);
+  assert.equal(r.points[0].libelle, '1 juin – 3 juin');
+});
+
+test('pas fixe : la nature NIVEAU prend la derniere valeur du groupe', () => {
+  const pts = jours('2026-06-01', 62).map((d, i) => ({ date: d, v: 1000 + i }));
+  const r = regrouperParPas(pts, 'niveau');
+  assert.equal(r.pas, 2);
+  assert.equal(r.points[0].v, 1001, 'derniere du groupe, pas la somme 2001');
+});
+
+test('pas fixe : la nature MOYENNE ne somme pas', () => {
+  const pts = jours('2026-06-01', 62).map(d => ({ date: d, v: 40 }));
+  const r = regrouperParPas(pts, 'moyenne');
+  assert.equal(r.points[0].v, 40, 'la somme aurait donne 80');
+});
+
+test('pas fixe : un groupe n est vide que si AUCUN de ses jours n est mesure', () => {
+  // Sinon un seul jour non collecte effacerait tout le groupe.
+  const pts = jours('2026-06-01', 62).map((d, i) => ({ date: d, v: i === 0 ? null : 5 }));
+  const r = regrouperParPas(pts, 'comptage');
+  assert.equal(r.points[0].v, 5, 'un jour connu suffit');
+  const vides = jours('2026-06-01', 62).map(d => ({ date: d, v: null as number | null }));
+  assert.equal(regrouperParPas(vides).points[0].v, null);
 });

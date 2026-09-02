@@ -24,7 +24,7 @@ import PeriodPill, { periodLabel, type Period } from '@/components/ui/PeriodPill
 // conteste. Cet ecran la recopiait implicitement en ne gardant que `succeeded`,
 // donc sans jamais deduire un remboursement.
 import { calculerCash, encaisseRetenu, aRembourser, type LignePaiement } from '@/lib/dealCash';
-import { granulariteFenetre, regrouperComptage, regrouperTaux, regrouperNiveau, regrouperMoyenne, libelleBucket, type Granularite } from '@/lib/chart-buckets';
+import { granulariteFenetre, regrouperComptage, regrouperTaux, regrouperParPas, libelleBucket, type Granularite, type NatureSerie } from '@/lib/chart-buckets';
 // Listes de catégories : UNE seule définition (lib/shortio-link-category.ts). Elles
 // étaient recopiées trois fois dans ce fichier (TOTAL_CLICS_CATS, SNAP_BUSINESS_CATS,
 // CHART_BUSINESS_CATS) plus trois fois pour bio/contenu — six occasions de diverger à
@@ -389,26 +389,42 @@ function dealsDeLaPeriode(
  * Renvoie aussi la granularite retenue, dont l'axe a besoin pour ses libelles :
  * « 24 aout » n'a plus de sens quand le point couvre une semaine entiere.
  */
+/**
+ * Le libelle de la fenetre reellement affichee.
+ *
+ * ⚠️ En All-Time, `period` vaut toujours 7 ou 30 — c'est la valeur du selecteur, pas
+ * la fenetre. Ecrire « {period} derniers jours » y affiche donc « 30 derniers jours »
+ * sous un graphique qui montre tout l'historique. Le libelle n'est pas approximatif,
+ * il est FAUX, et il l'est d'autant plus silencieusement que le chiffre 30 a l'air
+ * plausible.
+ *
+ * Cette regle existait deja en deux exemplaires (TabFunnel et TabRevenus), avec deux
+ * formulations differentes. Elle est ici pour qu'il n'y en ait qu'une.
+ */
+function libelleFenetre(
+  period: Period,
+  periodIndex: number,
+  sinceConnection?: boolean,
+  allTimeStart?: string | null,
+): string {
+  if (!sinceConnection) return periodLabel(period, periodIndex);
+  // « depuis la connexion » est le repli quand la date de mise en route est inconnue :
+  // il reste vrai, il est juste moins precis.
+  return allTimeStart
+    ? `depuis le ${new Date(allTimeStart).toLocaleDateString('fr-FR')}`
+    : 'depuis la connexion';
+}
+
 function regrouperSerieAffichee(
   data: { date: string; v: number | null }[],
   nature: NatureSerie = 'comptage',
-): { data: { date: string; v: number | null; libelle: string }[]; granularite: Granularite } {
-  const jours = data.map(d => d.date);
-  const granularite = granulariteFenetre(jours.length);
-  const etiqueter = (p: { date: string; v: number | null }) =>
-    ({ ...p, libelle: libelleBucket(p.date, granularite) });
-  if (granularite === 'jour') return { data: data.map(etiqueter), granularite };
-  const parJour = new Map(data.map(d => [d.date, d.v]));
-  const lire = (j: string) => parJour.get(j) ?? null;
-  const regrouper = nature === 'niveau' ? regrouperNiveau
-    : nature === 'moyenne' ? regrouperMoyenne
-    : regrouperComptage;
-  return { data: regrouper(jours, granularite, lire).map(etiqueter), granularite };
+): { data: { date: string; v: number | null; libelle: string }[]; pas: number; formatAxe: (d: string) => string } {
+  const { points, pas } = regrouperParPas(data, nature);
+  const parDate = new Map(points.map(p => [p.date, p.libelle]));
+  // L'axe lit le libelle DU POINT, pas la date brute : un point qui vaut trois jours
+  // s'annoncerait sinon avec la date du premier, ce qui est faux et invisible.
+  return { data: points, pas, formatAxe: (d: string) => parDate.get(d) ?? d };
 }
-
-/** Comment une serie se regroupe quand plusieurs jours tiennent dans un point. */
-type NatureSerie = 'comptage' | 'niveau' | 'moyenne';
-
 /**
  * Meme chose pour une modale qui superpose DEUX series (Shorts / videos longues).
  * Les deux sont regroupees avec la meme nature et la meme granularite : les
@@ -419,9 +435,9 @@ function regrouperDeuxSeries(
   a: { date: string; v: number | null }[],
   b: { date: string; v: number | null }[],
   nature: NatureSerie,
-): { data: { date: string; v: number | null }[]; data2: { date: string; v: number | null }[]; granularite: Granularite } {
+): { data: { date: string; v: number | null; libelle: string }[]; data2: { date: string; v: number | null }[]; pas: number } {
   const p = regrouperSerieAffichee(a, nature);
-  return { data: p.data, data2: regrouperSerieAffichee(b, nature).data, granularite: p.granularite };
+  return { data: p.data, data2: regrouperSerieAffichee(b, nature).data, pas: p.pas };
 }
 
 // « Ce lien Calendly a-t-il été envoyé au prospect ? » — source unique pour toutes les
@@ -1354,7 +1370,7 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   // (regle de cohorte, celle de la carte « Closing ») et un montant decoupe autrement.
   // « ventes signées » plutot que « deals closés » pour que le lecteur ne confonde pas ce
   // compte avec celui, different et voisin, du sous-titre de la carte Closing.
-  if (ventesDeLaPeriode.length > 0) signalData.push({ type: 'green', text: `${ventesDeLaPeriode.length} vente${ventesDeLaPeriode.length > 1 ? 's' : ''} signée${ventesDeLaPeriode.length > 1 ? 's' : ''} sur ${sinceConnection ? 'toute la période' : period + ' jours'} — ${fmtEur(totalRev)} contractés` });
+  if (ventesDeLaPeriode.length > 0) signalData.push({ type: 'green', text: `${ventesDeLaPeriode.length} vente${ventesDeLaPeriode.length > 1 ? 's' : ''} signée${ventesDeLaPeriode.length > 1 ? 's' : ''} sur ${libelleFenetre(period, periodIndex ?? 0, sinceConnection, allTimeStart)} — ${fmtEur(totalRev)} contractés` });
   // « des calls bookés » etait faux : le no-show est le seul compteur de Mes stats qui
   // parle en RENDEZ-VOUS, et son aide insiste precisement sur cette distinction. Le
   // signal disait donc l'inverse de la carte qu'il commente. On nomme le denominateur.
@@ -1659,7 +1675,7 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={item.granularite !== 'jour' ? (v: string) => libelleBucket(v, item.granularite) : (!sinceConnection && period === 7 ? fmtAxisDateWithDay : fmtAxisDate)} interval={graduationsDates(item.data.length, sinceConnection ? 30 : period)} />
+                  <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={item.pas > 1 ? item.formatAxe : (!sinceConnection && period === 7 ? fmtAxisDateWithDay : fmtAxisDate)} interval={graduationsDates(item.data.length, sinceConnection ? 30 : period)} />
                   <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} allowDecimals={false} width={30} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.15 : Math.max(1, Math.abs(dataMax) * 0.1 || 1); return [Math.max(0, dataMin - margin), dataMax + margin]; }} />
                   <Tooltip content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
@@ -1812,7 +1828,7 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
 
 function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, connexionCassee, abonnesAujourdHui, allTimeStart }: { ig: IGStats | null; period: Period; periodIndex?: number; profileId?: string; sinceConnection?: boolean; connexionCassee?: boolean; abonnesAujourdHui?: number | null; allTimeStart?: string | null }) {
   const [selectedPost, setSelectedPost] = useState<IGPost | null>(null);
-  const [statModal, setStatModal] = useState<{ label: string; value: string; color: string; data: { date: string; v: number | null }[]; unit?: string; granularite?: Granularite } | null>(null);
+  const [statModal, setStatModal] = useState<{ label: string; value: string; color: string; data: { date: string; v: number | null; libelle?: string }[]; unit?: string; pas?: number } | null>(null);
   const [contentSubTab, setContentSubTab] = useState<'posts' | 'stories'>('posts');
   const [storiesInnerTab, setStoriesInnerTab] = useState<'story' | 'sequences'>('story');
   const [selectedSequence, setSelectedSequence] = useState<any | null>(null);
@@ -2129,8 +2145,8 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
   const openStatModal = (label: string, value: string) => {
     const s = igStatSeries[label];
     if (!s) return;
-    const { data, granularite } = regrouperSerieAffichee(s.data, s.nature);
-    setStatModal({ label, value, color: s.color, data, unit: s.unit, granularite });
+    const { data, pas } = regrouperSerieAffichee(s.data, s.nature);
+    setStatModal({ label, value, color: s.color, data, unit: s.unit, pas });
   };
 
   // Online followers heatmap — matrix[dayIndex][hourIndex], dayIndex 0=Dim (format API)
@@ -2253,7 +2269,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
       />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
-        <Card title="Reach par jour" sub={`${sinceConnection ? 'Depuis la connexion' : period + ' jours'}`}>
+        <Card title="Reach par jour" sub={libelleFenetre(period, periodIndex ?? 0, sinceConnection, allTimeStart)}>
           {(() => {
             // Regroupe par semaine puis par mois au-dela des seuils : en All-Time, un
             // point par jour donnait 400 points sur une carte de 220 px. Le `pending`
@@ -2266,14 +2282,14 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
             return (
               <AreaChart
                 data={c.data.map(p => ({ date: p.date, reach: p.v }))}
-                tickFormatter={c.granularite !== 'jour' ? (v: string) => libelleBucket(v, c.granularite) : undefined}
+                tickFormatter={c.pas > 1 ? c.formatAxe : undefined}
                 areas={[{ key: 'reach', label: 'Reach', color: 'var(--accent-brand)' }]}
-                xKey="date" height={220} showWeekday={c.granularite === 'jour' && period === 7}
+                xKey="date" height={220} showWeekday={c.pas === 1 && period === 7}
               />
             );
           })()}
         </Card>
-        <Card title="Abonnés / jour" sub={`${sinceConnection ? 'Depuis la connexion' : period + ' jours'}`}>
+        <Card title="Abonnés / jour" sub={libelleFenetre(period, periodIndex ?? 0, sinceConnection, allTimeStart)}>
           <ResponsiveContainer width="100%" height={220} initialDimension={{ width: 600, height: 220 }}>
             <ReAreaChart data={abonnesCourbe.data.map(p => ({ date: p.date, followerCount: p.v }))} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
               <defs>
@@ -2284,7 +2300,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
               </defs>
               {/* Intervalle calculé explicitement (pas 'preserveStartEnd') pour un espacement
                   régulier des labels de dates — même logique que le wrapper AreaChart. */}
-              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={abonnesCourbe.granularite !== 'jour' ? (v: string) => libelleBucket(v, abonnesCourbe.granularite) : (period === 7 ? fmtAxisDateWithDay : fmtAxisDate)} interval={graduationsDates(abonnesCourbe.data.length, period)} />
+              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={abonnesCourbe.pas > 1 ? abonnesCourbe.formatAxe : (period === 7 ? fmtAxisDateWithDay : fmtAxisDate)} interval={graduationsDates(abonnesCourbe.data.length, period)} />
               <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} allowDecimals={false} domain={['auto', 'auto']} tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : String(Math.round(v))} width={40} />
               <Tooltip content={({ active, payload, label }) => {
                 if (!active || !payload?.length) return null;
@@ -2454,7 +2470,10 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>{statModal.label}</div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Jour par jour · {period} derniers jours</div>
+                {/* « {period} derniers jours » n'avait aucune garde All-Time : la
+                    modale annoncait « 30 derniers jours » au-dessus d'une courbe qui
+                    couvrait tout l'historique. Signale par Chris le 2026-09-02. */}
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Jour par jour · {libelleFenetre(period, periodIndex ?? 0, sinceConnection, allTimeStart)}</div>
               </div>
               <button onClick={() => setStatModal(null)} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--muted)', lineHeight: 1 }}>×</button>
             </div>
@@ -2486,7 +2505,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
                       en travers). Les deux montrent la meme metrique, ils doivent se
                       ressembler. */}
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={statModal.granularite && statModal.granularite !== 'jour' ? (v: string) => libelleBucket(v, statModal.granularite!) : (period === 7 ? fmtAxisDateWithDay : fmtAxisDate)} interval={statModalTickInterval} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={(statModal.pas ?? 1) > 1 ? (v: string) => statModal.data.find(p => p.date === v)?.libelle ?? v : (period === 7 ? fmtAxisDateWithDay : fmtAxisDate)} interval={statModalTickInterval} />
                   {(() => {
                     const borne = borneAbonnesNets(statModal.data.map(d => d.v));
                     return (
@@ -2519,7 +2538,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
                       <stop offset="95%" stopColor={statModal.color} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={statModal.granularite && statModal.granularite !== 'jour' ? (v: string) => libelleBucket(v, statModal.granularite!) : (period === 7 ? fmtAxisDateWithDay : fmtAxisDate)} interval={statModalTickInterval} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={(statModal.pas ?? 1) > 1 ? (v: string) => statModal.data.find(p => p.date === v)?.libelle ?? v : (period === 7 ? fmtAxisDateWithDay : fmtAxisDate)} interval={statModalTickInterval} />
                   {/* Marge relative (pas domain auto strict) : sur "Abonnés", qui varie de
                       seulement 1-2 sur un petit compte, coller pile min/max fait remplir
                       toute la hauteur du graphique pour une variation de quelques unités —
@@ -3103,7 +3122,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   const [videoCtr, setVideoCtr] = useState<number | null>(null);
   const [jobCreatedAt, setJobCreatedAt] = useState<string | null>(null);
   const [ctrPending, setCtrPending] = useState(false);
-  const [statModal, setStatModal] = useState<{ label: string; value: string; color: string; data: { date: string; v: number | null }[]; unit?: string; data2?: { date: string; v: number | null }[]; label2?: string; color2?: string; granularite?: Granularite } | null>(null);
+  const [statModal, setStatModal] = useState<{ label: string; value: string; color: string; data: { date: string; v: number | null }[]; unit?: string; data2?: { date: string; v: number | null }[]; label2?: string; color2?: string; pas?: number } | null>(null);
   // Largeur reelle des deux grands graphiques (Vues / jour et Abonnes nets / jour) :
   // ils partagent la meme colonne de la grille, une seule mesure suffit. Elle sert a
   // decider combien de dates tiennent sur l'axe — sur un ecran large il y a la place
@@ -3561,8 +3580,8 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
         ),
       });
     } else {
-      const { data, granularite } = regrouperSerieAffichee(s.data, s.nature);
-      setStatModal({ label, value, color: s.color, data, unit: s.unit, granularite });
+      const { data, pas } = regrouperSerieAffichee(s.data, s.nature);
+      setStatModal({ label, value, color: s.color, data, unit: s.unit, pas });
     }
   };
 
@@ -3814,7 +3833,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
       </div>
 
       <div ref={refGraphiques} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18 }}>
-        <Card title="Vues / jour" sub={`${sinceConnection ? 'Depuis la connexion' : period + ' jours'}${ytLagSuffix}`}>
+        <Card title="Vues / jour" sub={`${libelleFenetre(period, periodIndex ?? 0, sinceConnection, allTimeStart)}${ytLagSuffix}`}>
           {(() => {
             // null (pas 0) sur les jours sans vraie donnée — même traitement que
             // "Abonnés nets / jour" juste en dessous : sinon une barre à 0 est
@@ -3835,7 +3854,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
               <ResponsiveContainer width="100%" height={220} initialDimension={{ width: 600, height: 220 }}>
                 <ComposedChart data={viewsForChart} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={vuesCourbe.granularite !== 'jour' ? (v: string) => libelleBucket(v, vuesCourbe.granularite) : (period === 7 ? fmtAxisDateWithDay : fmtAxisDate)} ticks={vuesCourbe.granularite !== 'jour' ? undefined : datesAxe(viewsForChart.map(d => d.date), period, largeurGraphiques * 0.62)} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={vuesCourbe.pas > 1 ? vuesCourbe.formatAxe : (period === 7 ? fmtAxisDateWithDay : fmtAxisDate)} ticks={vuesCourbe.pas > 1 ? undefined : datesAxe(viewsForChart.map(d => d.date), period, largeurGraphiques * 0.62)} />
                   <YAxis tick={{ fontSize: 11, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
                   <Tooltip content={<ChartTooltip />} />
                   <Bar dataKey="views" name="Vues" fill="var(--accent-brand)" radius={[2, 2, 0, 0]} opacity={0.8} />
@@ -3863,7 +3882,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
         </Card>
       </div>
 
-      <Card title="Abonnés nets / jour" sub={`${sinceConnection ? 'Depuis la connexion' : period + ' jours'}${ytLagSuffix}`}>
+      <Card title="Abonnés nets / jour" sub={`${libelleFenetre(period, periodIndex ?? 0, sinceConnection, allTimeStart)}${ytLagSuffix}`}>
         {(() => {
           // null (pas 0) sur les jours sans vraie donnée — sinon la ligne continue à plat
           // jusqu'à la fin de la période au lieu de s'arrêter au dernier point réel, même
@@ -4100,7 +4119,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
               <div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>{statModal.label}</div>
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-                  Jour par jour · {period} derniers jours
+                  Jour par jour · {libelleFenetre(period, periodIndex ?? 0, sinceConnection, allTimeStart)}
                   {['Likes', 'Commentaires', 'Partages'].includes(statModal.label) && ytLastEngagementDateFmt && (
                     <> · délai Google 2-3j, dernière donnée : {ytLastEngagementDateFmt}</>
                   )}
@@ -4580,8 +4599,8 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
   const winStart = sinceConnection && allTimeStart ? new Date(allTimeStart) : periodStart;
   const winEnd = sinceConnection ? new Date() : periodEnd;
   const windowLabel = sinceConnection
-    ? `All-Time${allTimeStart ? ` · depuis le ${new Date(allTimeStart).toLocaleDateString('fr-FR')}` : ''}`
-    : periodLabel(period, periodIndex);
+    ? `All-Time · ${libelleFenetre(period, periodIndex, true, allTimeStart)}`
+    : libelleFenetre(period, periodIndex);
   const todayUTCStrFunnel = parisDateStr(new Date());
   const isFutureDayFunnel = (date: string) => date > todayUTCStrFunnel;
   // En mode "depuis connexion", calls est déjà borné [connectedAt, aujourd'hui] par le
@@ -6014,9 +6033,7 @@ function TabRevenues({ encaissementsParJour, cashParVente, deals, period, period
       statut: d.status ?? 'open',
     }));
 
-  const libellePeriode = sinceConnection
-    ? (allTimeStart ? `depuis le ${new Date(allTimeStart).toLocaleDateString('fr-FR')}` : 'depuis la connexion')
-    : periodLabel(period, periodIndex);
+  const libellePeriode = libelleFenetre(period, periodIndex, sinceConnection, allTimeStart);
 
   return (
     <div className="stack">
