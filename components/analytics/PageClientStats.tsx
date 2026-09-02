@@ -6466,6 +6466,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const [parcoursAngle, setParcoursAngle] = useState<'contenu' | 'lm'>('contenu');
   const [aideOuverte, setAideOuverte] = useState<string | null>(null);
   const [parcoursPlateforme, setParcoursPlateforme] = useState<'IG' | 'YT'>('IG');
+  // Recherche, filtres et tri du Parcours. Volontairement SEPARES de ceux de « Ce que
+  // fait chaque contenu » : les deux tableaux ne montrent pas les memes colonnes, donc
+  // ils ne peuvent pas partager des filtres — un filtre ne porte que sur un nombre
+  // affiche, et ce qui est affiche differe.
+  const [parcoursRecherche, setParcoursRecherche] = useState('');
+  const [parcoursFiltres, setParcoursFiltres] = useState<Set<string>>(new Set());
+  const [parcoursTri, setParcoursTri] = useState('callsBookes');
+  const [parcoursTriDir, setParcoursTriDir] = useState<'desc' | 'asc'>('desc');
   // Modale "Voir tout" (performance par contenu) : Echap la ferme. Les autres
   // couches de cette page (post, video, story selectionnes) vivent dans des
   // sous-composants distincts et sont a traiter separement.
@@ -8551,10 +8559,55 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           };
         };
 
-        const rowsParcours = [...lignesParcours.entries()]
+        // Les lignes qui EXISTENT, avant tout choix de l'utilisateur. Le sous-titre de la
+        // barre s'y refere pour dire « 3 sur 7 » : sans ce jeu de reference, une grille
+        // vide apres filtrage se lit comme une absence de donnees.
+        const rowsParcoursToutes = [...lignesParcours.entries()]
           .map(([cle, l]) => ({ cle, l, info: infoLigne(cle) }))
-          .filter(r => (estYT ? (r.l.callsBookes > 0 || r.info.clicsDesc > 0) : r.l.commentairesLm > 0))
-          .sort((a, b) => (b.l.callsBookes - a.l.callsBookes) || (b.l.commentairesLm - a.l.commentairesLm));
+          .filter(r => (estYT ? (r.l.callsBookes > 0 || r.info.clicsDesc > 0) : r.l.commentairesLm > 0));
+
+        // Un filtre et un tri ne portent QUE sur une colonne affichee, et sous le nom
+        // qu'elle porte a l'ecran. Les listes different donc entre Instagram et YouTube :
+        // sur YouTube il n'y a ni commentaire ni conversation, proposer de trier dessus
+        // offrirait de classer une colonne de zeros.
+        const valeurParcours = (r: typeof rowsParcoursToutes[number], cle: string): number =>
+          cle === 'clicsDesc' ? r.info.clicsDesc : Number((r.l as unknown as Record<string, unknown>)[cle] ?? 0);
+
+        const CLICS_DESC: [string, string, string] = ['clicsDesc', 'Clics desc.', 'min. 1 clic desc.'];
+        const FIN_DE_CHAINE: [string, string, string][] = [
+          ['callsBookes', 'Calls bookés', 'min. 1 call booké'],
+          ['callsHonores', 'Calls honorés', 'min. 1 call honoré'],
+          ['closes', 'Closés', 'min. 1 closé'],
+          ['revenue', 'Revenue', 'min. 1 € de revenue'],
+        ];
+        const COLONNES_PARCOURS: [string, string, string][] = estYT
+          ? [CLICS_DESC, ...FIN_DE_CHAINE]
+          : [['commentairesLm', 'Commentaires LM', 'min. 1 commentaire LM'],
+             ['ontRepondu', 'Conversations', 'min. 1 conversation'],
+             ['calendlyEnvoyes', 'Calendly envoyés', 'min. 1 Calendly envoyé'],
+             ...FIN_DE_CHAINE];
+
+        // Le tri par defaut peut ne pas exister sur l'angle courant : `callsBookes` existe
+        // partout, mais un tri choisi sur Instagram puis un passage sur YouTube pourrait
+        // pointer une colonne absente. On retombe alors sur la premiere colonne offerte,
+        // plutot que de trier sur une valeur toujours nulle sans que rien ne le dise.
+        const triParcoursValide = COLONNES_PARCOURS.some(([k]) => k === parcoursTri)
+          ? parcoursTri : COLONNES_PARCOURS[0][0];
+
+        const rowsParcours = rowsParcoursToutes
+          .filter(r => {
+            if (parcoursRecherche && !r.info.titre.toLowerCase().includes(parcoursRecherche.toLowerCase())) return false;
+            for (const k of parcoursFiltres) if (valeurParcours(r, k) <= 0) return false;
+            return true;
+          })
+          .sort((a, b) => {
+            const av = valeurParcours(a, triParcoursValide);
+            const bv = valeurParcours(b, triParcoursValide);
+            // Departage stable par les commentaires : sans lui, deux lignes a egalite
+            // changeaient d'ordre d'un rendu a l'autre.
+            return (parcoursTriDir === 'desc' ? bv - av : av - bv)
+              || (b.l.commentairesLm - a.l.commentairesLm);
+          });
 
         const thP: React.CSSProperties = { textAlign: 'right', fontSize: 9.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', padding: '6px 9px 9px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', verticalAlign: 'bottom' };
         const tdP: React.CSSProperties = { padding: '9px', textAlign: 'right', borderBottom: '1px solid var(--border-soft)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
@@ -8661,6 +8714,47 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
               }
             />
 
+            {/* La barre sert aussi de SEPARATION entre l'en-tete et le tableau : sa
+                bordure basse marque ou finit le titre et ou commencent les contenus. */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14, paddingBottom: 14, borderBottom: '1px solid var(--border)' }}>
+              <input
+                type="text" value={parcoursRecherche} onChange={e => setParcoursRecherche(e.target.value)}
+                placeholder={parContenu ? 'Recherche par titre…' : 'Recherche par lead magnet…'}
+                style={{ width: 260, maxWidth: '100%', padding: '6px 10px', fontSize: 12, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)' }}
+              />
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {COLONNES_PARCOURS.map(([key, , libelleFiltre]) => {
+                    const actif = parcoursFiltres.has(key);
+                    return (
+                      <button key={key} onClick={() => {
+                        const suivant = new Set(parcoursFiltres);
+                        actif ? suivant.delete(key) : suivant.add(key);
+                        setParcoursFiltres(suivant);
+                      }} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: `1px solid ${actif ? BLUE : 'var(--border)'}`, background: actif ? BLUE + '14' : 'transparent', color: actif ? BLUE : 'var(--muted)', transition: 'all .15s' }}>
+                        {libelleFiltre}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+                  <span style={{ fontSize: 10, color: 'var(--faint)' }}>Trier par</span>
+                  <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+                    <select value={triParcoursValide} onChange={e => { setParcoursTri(e.target.value); setParcoursTriDir('desc'); }}
+                      style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '5px 20px 5px 8px', cursor: 'pointer', appearance: 'none' }}>
+                      {COLONNES_PARCOURS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+                    </select>
+                    <span style={{ position: 'absolute', right: 6, fontSize: 9, color: 'var(--faint)', pointerEvents: 'none' }}>▾</span>
+                  </div>
+                  <button onClick={() => setParcoursTriDir(d => (d === 'desc' ? 'asc' : 'desc'))}
+                    title={parcoursTriDir === 'desc' ? 'Du plus grand au plus petit' : 'Du plus petit au plus grand'}
+                    style={{ fontSize: 11, fontWeight: 700, color: BLUE, background: BLUE + '12', border: 'none', borderRadius: 6, padding: '5px 9px', cursor: 'pointer', minWidth: 28 }}>
+                    {parcoursTriDir === 'desc' ? '↓' : '↑'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: estYT ? 700 : parContenu ? 1000 : 880 }}>
                 <thead>
@@ -8724,9 +8818,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                 <tbody>
                   {rowsParcours.length === 0 && (
                     <tr><td colSpan={estYT ? 9 : parContenu ? 14 : 12} style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--faint)' }}>
-                      {estYT
-                        ? 'Aucun clic ni rendez-vous depuis une description YouTube sur cette période.'
-                        : 'Personne n\'est encore entré par ce canal sur la période.'}
+                      {/* Une grille vide APRES filtrage n'est pas une absence de donnees.
+                          Les confondre ferait conclure « ce canal ne produit rien » alors
+                          qu'un bouton est simplement reste actif. */}
+                      {rowsParcoursToutes.length > 0
+                        ? 'Aucun contenu ne correspond à cette recherche ou à ces filtres.'
+                        : estYT
+                          ? 'Aucun clic ni rendez-vous depuis une description YouTube sur cette période.'
+                          : 'Personne n\'est encore entré par ce canal sur la période.'}
                     </td></tr>
                   )}
                   {rowsParcours.map(({ cle, l, info }) => (
@@ -8857,45 +8956,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           {/* Deux rangees, et l'ordre compte : on cherche ou l'on trie d'abord, on
               restreint ensuite. Sur une seule ligne, les six filtres poussaient la
               recherche en bout de barre, la ou personne ne la cherche. */}
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-          {/* Recherche par titre */}
+          {/* Recherche par titre. Largeur FIXE : etiree sur toute la barre, elle occupait
+              une place sans rapport avec ce qu'on y tape. */}
           <input
             type="text" value={filterSearch} onChange={e => setFilterSearch(e.target.value)}
             placeholder="Recherche par titre…"
-            style={{ flex: 1, minWidth: 160, padding: '6px 10px', fontSize: 12, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)' }}
+            style={{ width: 260, maxWidth: '100%', padding: '6px 10px', fontSize: 12, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)' }}
           />
-
-          {/* Tri. Il vivait dans les en-têtes de colonnes ; les cartes n'en ont
-              plus, et sans lui un élève à quarante contenus ne peut plus trouver ses
-              meilleurs. Même mécanique que le tri du Breakdown par source. */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 10, color: 'var(--faint)' }}>Trier par</span>
-            <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
-              <select
-                value={sortKey}
-                onChange={e => { setSortKey(e.target.value as SortKey); setSortDir('desc'); }}
-                style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '5px 20px 5px 8px', cursor: 'pointer', appearance: 'none' }}
-              >
-                <option value="callsBooked">Calls déclenchés</option>
-                <option value="lmDetectes">Leads entrés</option>
-                <option value="lmReponses">Conversations déclenchées</option>
-                <option value="revenue">Revenue</option>
-                <option value="closed">Closés</option>
-                <option value="callsHonored">Calls honorés</option>
-                <option value="views">Vues</option>
-                <option value="clicsDesc">Clics description</option>
-              </select>
-              <span style={{ position: 'absolute', right: 6, fontSize: 9, color: 'var(--faint)', pointerEvents: 'none' }}>▾</span>
-            </div>
-            <button
-              onClick={() => setSortDir(d => (d === 'desc' ? 'asc' : 'desc'))}
-              title={sortDir === 'desc' ? 'Du plus grand au plus petit' : 'Du plus petit au plus grand'}
-              style={{ fontSize: 11, fontWeight: 700, color: BLUE, background: BLUE + '12', border: 'none', borderRadius: 6, padding: '5px 9px', cursor: 'pointer', minWidth: 28 }}
-            >
-              {sortDir === 'desc' ? '↓' : '↑'}
-            </button>
-          </div>
-          </div>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
           {/* Un filtre ne porte que sur un nombre AFFICHE, et sous le nom que la carte
               lui donne.
 
@@ -8927,6 +8995,38 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                 </button>
               );
             })}
+          </div>
+
+          {/* Tri. Il vivait dans les en-têtes de colonnes ; les cartes n'en ont
+              plus, et sans lui un élève à quarante contenus ne peut plus trouver ses
+              meilleurs. Même mécanique que le tri du Breakdown par source. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+            <span style={{ fontSize: 10, color: 'var(--faint)' }}>Trier par</span>
+            <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+              <select
+                value={sortKey}
+                onChange={e => { setSortKey(e.target.value as SortKey); setSortDir('desc'); }}
+                style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '5px 20px 5px 8px', cursor: 'pointer', appearance: 'none' }}
+              >
+                <option value="callsBooked">Calls déclenchés</option>
+                <option value="lmDetectes">Leads entrés</option>
+                <option value="lmReponses">Conversations déclenchées</option>
+                <option value="revenue">Revenue</option>
+                <option value="closed">Closés</option>
+                <option value="callsHonored">Calls honorés</option>
+                <option value="views">Vues</option>
+                <option value="clicsDesc">Clics description</option>
+              </select>
+              <span style={{ position: 'absolute', right: 6, fontSize: 9, color: 'var(--faint)', pointerEvents: 'none' }}>▾</span>
+            </div>
+            <button
+              onClick={() => setSortDir(d => (d === 'desc' ? 'asc' : 'desc'))}
+              title={sortDir === 'desc' ? 'Du plus grand au plus petit' : 'Du plus petit au plus grand'}
+              style={{ fontSize: 11, fontWeight: 700, color: BLUE, background: BLUE + '12', border: 'none', borderRadius: 6, padding: '5px 9px', cursor: 'pointer', minWidth: 28 }}
+            >
+              {sortDir === 'desc' ? '↓' : '↑'}
+            </button>
+          </div>
           </div>
         </div>
 
