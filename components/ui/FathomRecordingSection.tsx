@@ -206,7 +206,28 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
         <div style={{ marginBottom: 16 }}>
           {videoState === 'ready' && videoUrl ? (
             <video
-              src={videoUrl}
+              // `#t=0.1` — fragment de média : « commence à 0,1 s ». C'est ce qui
+              // fait apparaître une image d'aperçu avant le premier appui.
+              //
+              // POURQUOI : `preload="metadata"` ne charge que la durée et les
+              // dimensions. Les navigateurs de bureau peignent quand même la
+              // première image ; iOS non, et laisse un rectangle noir. Le
+              // fragment force le navigateur à se placer sur cette image-là,
+              // donc à la décoder et à l'afficher.
+              //
+              // Le coût est d'une requête de plage (le serveur de Fathom les
+              // accepte, HTTP 206), pas du fichier entier — `preload="auto"`
+              // aurait aussi marché mais en téléchargeant ~3,9 Mo par minute de
+              // call sur le forfait mobile de l'élève.
+              //
+              // Le fragment se place APRÈS les paramètres de l'URL signée sans
+              // la casser : un `#…` n'est jamais envoyé au serveur. Ne pas le
+              // transformer en paramètre de requête, ça invaliderait la signature.
+              //
+              // Fathom ne fournit aucune miniature (vérifié sur /meetings et sur
+              // /recordings/{id}/download) : sans ce fragment il n'y a pas
+              // d'aperçu du tout.
+              src={`${videoUrl}#t=0.1`}
               controls
               playsInline
               preload="metadata"
