@@ -172,7 +172,7 @@ dans cron-job.org, nulle part ailleurs.**
 | `fathom-cron-sync` (15 min) | Edge | `supabase.co/functions/v1/fathom-cron-sync` |
 | `installment-reminders` (1×/j) | Edge | `supabase.co/functions/v1/installment-reminders` |
 | `cron-health` (1×/j) | **Vercel** | `momentum-plateforme.vercel.app/api/stripe/cron-health` |
-| `cron-refresh-tokens` | **Vercel** | `momentum-plateforme.vercel.app/api/instagram/cron-refresh-tokens` |
+| `cron-refresh-tokens` | **Vercel** | `momentum-plateforme.vercel.app/api/instagram/cron-refresh-tokens` — ⚠️ **cadence non confirmée** |
 
 **Neuf jobs, confirmés un par un le 2026-09-01 dans cron-job.org.** Sept en Edge, deux
 en Vercel.
@@ -223,6 +223,47 @@ pas le même. Un cron s'inscrit en un appel : `rpc('marquer_passage_cron', { p_n
 |---|---|
 | `cron-health` | ✅ par `integrations.last_synced_at` + `integrations_sante` (`ping_absent`) |
 | les huit autres | ✅ par `crons_passages` — **tous inscrits le 2026-09-01** |
+
+**Relevé du 2026-09-02** (lendemain de l'inscription, le seul jour où la table pouvait
+encore mentir) : sept des huit portent un passage réel du 2 septembre, `etat = 'ok'`.
+`installment-reminders` a bien tourné à 07h00 UTC. La surveillance fonctionne.
+
+⚠️ **`cron-refresh-tokens` n'a PAS tourné, et on ne sait pas si c'est normal.** Sa
+cadence n'a jamais été confirmée dans cron-job.org : elle est présumée hebdomadaire
+(lundi 07h00) d'après une note de mémoire qui avertit elle-même que sa colonne
+« fréquence » a déjà été fausse une fois. Un silence de 11 h est donc **soit normal**
+(hebdomadaire, on est mercredi), **soit une panne** (s'il était quotidien).
+
+**Ce qui ne permet PAS de trancher, et pourquoi** — voir le paragraphe sur les logs
+Vercel ci-dessous. La seule source qui répond est cron-job.org.
+
+**Ce qui a été fait en attendant** : `silence_max` passé de 2 jours à **10 jours**.
+À 2 jours, la ligne serait passée `SILENCIEUX` le jeudi 3 septembre à 23h02 et le
+serait restée jusqu'au lundi — une fausse alerte hebdomadaire garantie, c'est-à-dire
+le début d'une alerte qu'on n'ouvre plus. À 10 jours, un passage hebdomadaire ne
+déclenche jamais rien, et une vraie mort se voit au bout d'une semaine et demie.
+
+**La vraie question n'est pas sa cadence, c'est son existence.** Son rafraîchissement
+de jetons ne sert à rien depuis le 2026-08-27 : `poll-leads` le fait toutes les heures
+(prouvé en conditions réelles, jeton reculé à +3 jours et renouvelé en moins de
+5 minutes) et déclenche l'e-mail d'alerte en 2 secondes au lieu d'attendre la semaine.
+Le commentaire de `poll-leads` le dit lui-même : « déclenche l'alerte tout de suite, au
+lieu d'attendre le passage hebdomadaire ». **Sa mort est sans conséquence** — d'où le
+choix de ne pas le surveiller de près. À supprimer de cron-job.org quand Chris tranche ;
+la route, elle, reste (elle porte la rédaction du mail et le garde anti-répétition).
+
+### ⚠️ Les logs Vercel ne peuvent PAS répondre à « cette URL a-t-elle été appelée ? »
+
+Le projet est sur le plan **Hobby**, dont la rétention de logs d'exécution est d'**une
+heure**. Pro donne 1 jour, Enterprise 3. Toute enquête portant sur un appel d'hier, ou
+sur un cron quotidien, est donc impossible par ce chemin — et l'outil répond « No logs
+found », une phrase qu'on lit spontanément comme « ça n'a pas tourné » alors qu'elle
+veut dire « je ne sais pas ».
+
+C'est la forme la plus dangereuse d'un instrument : **il rend une absence indiscernable
+d'une ignorance.** Corollaire de la règle générale du projet — ne jamais investiguer
+par les logs, écrire en base. Une chose qui doit pouvoir être constatée le lendemain
+doit laisser une ligne (`crons_passages`, `cron_runs`), jamais un log.
 
 ⚠️ **Une ligne ABSENTE de `crons_passages` est invisible pour `crons_sante`** : la vue ne
 peut signaler que le silence d'un cron qu'elle connaît. `cron-refresh-tokens` était
