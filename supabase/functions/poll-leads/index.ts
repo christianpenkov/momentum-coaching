@@ -930,11 +930,40 @@ async function syncYtCtr(profileId: string, accessToken: string): Promise<{ sync
 
   const lastReportId = syncState?.last_report_id ?? null;
   const lastIdx = lastReportId ? allReports.findIndex(r => r.id === lastReportId) : -1;
-  const newReports = lastIdx >= 0 ? allReports.slice(lastIdx + 1) : allReports;
-  if (newReports.length === 0) return { synced: 0, errors: [] };
+  const enRetard = lastIdx >= 0 ? allReports.slice(lastIdx + 1) : allReports;
+  if (enRetard.length === 0) return { synced: 0, errors: [] };
+
+  // ── Le seul quota REELLEMENT tendu de toute la pile YouTube ────────────────
+  //
+  // Releve console Google Cloud du 2026-09-02, a 3 eleves :
+  //   Analytics      100 000/jour — 0,15 % utilise
+  //   Data API v3     10 000/jour — 0,54 % utilise
+  //   Reporting       20 000/jour — 2,3 %, MAIS 60 REQUETES/MINUTE, pic a 53 %,
+  //                                 et un depassement de 90 % dans les 7 jours.
+  //
+  // La cause tient dans la ligne au-dessus : quand `last_report_id` est absent ou
+  // introuvable (premier passage, filigrane perdu, job recree), `enRetard` vaut
+  // TOUS les rapports — YouTube les conserve 60 jours. Le `Promise.all` d'origine
+  // lancait donc jusqu'a 60 telechargements simultanes pour un seul profil. A cinq
+  // profils traites en parallele, cela fait 300 requetes en quelques secondes
+  // contre 60 par minute : la rafale se termine en 429 pour tout le monde, y
+  // compris les profils qui n'avaient rien a rattraper.
+  //
+  // Deux bornes, pas une : le NOMBRE par passage, et la CONCURRENCE des
+  // telechargements. La premiere seule laisserait encore partir six requetes d'un
+  // coup par profil ; la seconde seule laisserait la rafale s'etaler sans jamais
+  // se terminer.
+  //
+  // 6 par passage n'est pas un compromis : le job produit UN rapport par jour, et
+  // cette fonction tourne toutes les heures. La capacite de rattrapage est donc de
+  // 144 rapports/jour pour 1 produit — un retard de 60 jours se resorbe en dix
+  // heures, sans jamais depasser 8 requetes Reporting par profil et par passage.
+  const RAPPORTS_PAR_PASSAGE = 6;
+  const TELECHARGEMENTS_SIMULTANES = 2;
+  const newReports = enRetard.slice(0, RAPPORTS_PAR_PASSAGE);
 
   const perVideoMap: Record<string, { impressions: number; clicks: number }> = {};
-  await Promise.all(newReports.map(async (report: any) => {
+  await mapWithConcurrency(newReports, TELECHARGEMENTS_SIMULTANES, async (report: any) => {
     try {
       const dlRes = await fetch(report.downloadUrl, { headers: auth });
       if (!dlRes.ok) { errors.push(`dl_${report.id}: HTTP ${dlRes.status}`); return; }
@@ -947,8 +976,10 @@ async function syncYtCtr(profileId: string, accessToken: string): Promise<{ sync
         perVideoMap[r.video_id].clicks += r.clicks;
       }
     } catch (e: any) { errors.push(`parse_${report.id}: ${e?.message || 'unknown'}`); }
-  }));
+  });
 
+  // Le filigrane avance sur le dernier rapport REELLEMENT traite, pas sur le
+  // dernier disponible : le reliquat est repris au passage suivant.
   const latestReport = newReports[newReports.length - 1];
 
   if (Object.keys(perVideoMap).length > 0) {
