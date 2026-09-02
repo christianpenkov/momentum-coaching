@@ -8675,7 +8675,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           <div><b>À quoi sert ce tableau.</b> Sur les personnes entrées par ce contenu, combien sont allées jusqu&apos;au bout, et à quelle étape les autres se sont arrêtées. C&apos;est l&apos;écran des goulots d&apos;étranglement.</div>
           <div><b>Il compte des personnes, pas des rendez-vous.</b> Une personne qui réserve deux fois compte une seule fois. C&apos;est ce qui fait que les nombres ne remontent jamais de gauche à droite, et pourquoi ils diffèrent de ceux de « Ce que fait chaque contenu », juste en dessous, qui compte des événements.</div>
           <div><b>Seuls les gens entrés par le tunnel DM figurent ici.</b> Une réservation venue d&apos;un lien de bio, d&apos;une description ou d&apos;une story n&apos;a aucune personne identifiable en amont : elle est comptée dans Vue générale et dans le Breakdown par source, pas ici. Le total de la colonne Revenue est donc normalement inférieur à celui de Vue générale, et ce n&apos;est pas un écart à corriger.</div>
-          <div><b>Le groupe « Engagement du DM1 » est hors de la chaîne</b>, et <b>replié par défaut</b> : le petit chevron à droite de « Commentaires LM » l'ouvre, juste là où ses deux colonnes apparaissent. Replié, la chaîne se lit d'un trait ; ouvert, il s'isole entre filets, parce qu'il dérive des commentaires sans en être la suite. Appuyer sur le bouton du DM1 puis cliquer le lead magnet ne sont pas obligatoires pour répondre ensuite : les mettre dans la chaîne la ferait remonter le jour où quelqu&apos;un répond sans avoir cliqué. Ces deux colonnes mesurent l&apos;efficacité du message automatique, pas la progression du prospect.</div>
+          <div><b>Le groupe « Engagement du DM1 » est hors de la chaîne</b>, et <b>replié par défaut</b> : c'est la bande verticale marquée <b>DM1</b>, juste après « Commentaires LM ». Un clic dessus l'ouvre, un clic sur son titre la referme. Replié, la chaîne se lit d'un trait ; ouvert, le groupe s'isole entre filets, parce qu'il dérive des commentaires sans en être la suite. Appuyer sur le bouton du DM1 puis cliquer le lead magnet ne sont pas obligatoires pour répondre ensuite : les mettre dans la chaîne la ferait remonter le jour où quelqu&apos;un répond sans avoir cliqué. Ces deux colonnes mesurent l&apos;efficacité du message automatique, pas la progression du prospect.</div>
           <div><b>La période porte sur la date d&apos;entrée.</b> En regardant mars, vous voyez les personnes entrées en mars et tout ce qu&apos;elles ont fait ensuite, même en juin. Un rendez-vous se range dans la ligne par laquelle la personne était entrée juste avant lui. <b>Une relance manuelle n&apos;ouvre pas de nouvelle cohorte</b> : seule une nouvelle prise de lead magnet le fait.</div>
           <div><b>Les périodes récentes paraissent toujours faibles</b>, parce que les gens viennent d&apos;entrer et n&apos;ont pas encore eu le temps d&apos;aller au bout.</div>
           <div><b>Pas de ligne Total.</b> Une même personne peut être entrée par plusieurs contenus : additionner les lignes la compterait plusieurs fois.</div>
@@ -8763,28 +8763,64 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             </div>
 
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: estYT ? 700 : (parContenu ? 1000 : 880) - (dm1Ouvert ? 0 : 130) }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: estYT ? 700 : (parContenu ? 1000 : 880) - (dm1Ouvert ? 0 : 100) }}>
                 <thead>
                   {/* Intertitre du groupe hors chaîne : sans lui, deux colonnes de plus
                       dans la rangée se lisent comme deux marches de plus. */}
                   {/* La rangee reste tant qu'elle porte quelque chose : l'intertitre du
                       groupe s'il est deplie, celui de l'all-time sur l'angle Contenu. */}
-                  {!estYT && (dm1Ouvert || parContenu) && (
+                  {/* La rangee est TOUJOURS presente hors YouTube : repliee elle porte la
+                      bande verticale, depliee le titre du groupe, et sur l'angle Contenu
+                      l'intertitre all-time par-dessus. */}
+                  {!estYT && (
                     <tr>
                       <th style={{ ...thP, borderBottom: 'none' }} />
                       {/* Deux cellules de tete : « Contenu » et « Commentaires LM ». Le
                           groupe se replie ENTRE la base de la mesure et la suite de la
                           chaine, la ou il se lit. */}
                       <th style={{ ...thP, borderBottom: 'none' }} />
-                      {dm1Ouvert && (
-                      <th colSpan={2} style={{ ...thP, ...filet, textAlign: 'center', color: BLUE, borderBottom: 'none', paddingBottom: 2 }}>
-                        Engagement du DM1
-                        <span
-                          title={"Ces deux colonnes ne sont PAS des étapes du parcours, et c'est pour ça qu'elles sont entre deux filets.\n\nOn peut répondre au message d'accroche sans avoir appuyé sur le bouton du DM1, et sans avoir cliqué son lead magnet. Si elles étaient dans la chaîne, celle-ci remonterait le jour où quelqu'un fait ça — par exemple 1 clic puis 2 réponses.\n\nElles mesurent l'efficacité du message automatique, pas la progression du prospect."}
-                          style={{ display: 'inline-grid', placeItems: 'center', width: 13, height: 13, marginLeft: 5, borderRadius: '50%', border: `1px solid ${BLUE}`, color: BLUE, fontSize: 8.5, fontWeight: 700, cursor: 'help', verticalAlign: 'middle' }}>
-                          ?
-                        </span>
-                      </th>
+                      {dm1Ouvert ? (
+                        <th colSpan={2} style={{ ...thP, ...filet, textAlign: 'center', color: BLUE, borderBottom: 'none', paddingBottom: 2 }}>
+                          <button
+                            type="button"
+                            onClick={() => setDm1Ouvert(false)}
+                            aria-expanded
+                            aria-label="Replier l'engagement du DM1"
+                            title="Replier « LM réclamés » et « Clics LM »."
+                            style={{ border: 'none', background: 'transparent', padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <span style={{ fontSize: 8, lineHeight: 1 }}>▾</span>
+                            Engagement du DM1
+                          </button>
+                          <span
+                            title={"Ces deux colonnes ne sont PAS des étapes du parcours, et c'est pour ça qu'elles sont entre deux filets.\n\nOn peut répondre au message d'accroche sans avoir appuyé sur le bouton du DM1, et sans avoir cliqué son lead magnet. Si elles étaient dans la chaîne, celle-ci remonterait le jour où quelqu'un fait ça — par exemple 1 clic puis 2 réponses.\n\nElles mesurent l'efficacité du message automatique, pas la progression du prospect."}
+                            style={{ display: 'inline-grid', placeItems: 'center', width: 13, height: 13, marginLeft: 5, borderRadius: '50%', border: `1px solid ${BLUE}`, color: BLUE, fontSize: 8.5, fontWeight: 700, cursor: 'help', verticalAlign: 'middle' }}>
+                            ?
+                          </span>
+                        </th>
+                      ) : (
+                        // La bande repliee. `rowSpan` la fait descendre sur les deux rangees
+                        // d'en-tete : c'est ce qui lui donne assez de hauteur pour que le
+                        // libelle vertical se lise. Le fond la relie visuellement aux
+                        // cellules du corps, qui portent le meme, si bien que la colonne se
+                        // lit comme UNE bande continue et non comme des cases vides.
+                        <th
+                          rowSpan={2}
+                          style={{ ...thP, ...filet, width: 30, minWidth: 30, padding: 0, background: 'var(--surface-2)', borderRight: '1px solid var(--border)' }}>
+                          <button
+                            type="button"
+                            onClick={() => setDm1Ouvert(true)}
+                            aria-expanded={false}
+                            aria-label="Déplier l'engagement du DM1"
+                            title={"Déplier « LM réclamés » et « Clics LM ».\n\nCes deux colonnes ne sont pas des étapes du parcours : on peut répondre au message d'accroche sans avoir appuyé sur le bouton du DM1, et sans avoir cliqué son lead magnet. Elles mesurent l'efficacité du message automatique, pas la progression du prospect — d'où leur mise à l'écart."}
+                            style={{ width: '100%', height: '100%', minHeight: 54, border: 'none', background: 'transparent', padding: '6px 0', cursor: 'pointer', color: 'var(--muted)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                            <span style={{ fontSize: 8, lineHeight: 1 }}>▸</span>
+                            {/* `vertical-rl` + rotation : le texte se lit de bas en haut,
+                                sens attendu pour un libelle de colonne pivote. */}
+                            <span style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>
+                              DM1
+                            </span>
+                          </button>
+                        </th>
                       )}
                       {/* Remplissage de « Conversations » a « Revenue » : colonnes 5 a 12
                           depliees, 3 a 10 repliees — HUIT dans les deux cas, et dans les deux
@@ -8810,32 +8846,17 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     {estYT
                       ? <th style={{ ...thP, ...filet }}><EnteteColonne nom="clicLien">Clics desc.</EnteteColonne></th>
                       : <>
-                          {/* Le repli vit DANS la rangee d'en-tete, accroche a la colonne
-                              dont le groupe derive. « LM réclamés » et « Clics LM » sont
-                              deux sous-mesures des commentaires LM : les ouvrir juste a
-                              droite de leur base, la ou elles vont apparaitre, evite
-                              d'aller chercher une commande ailleurs dans l'ecran.
+                          {/* Le groupe se replie en BANDE VERTICALE, pas derriere un
+                              chevron : un glyphe de 16 px dans un en-tete dense ne se voit
+                              pas, et une commande qu'on ne voit pas n'existe pas. La bande
+                              occupe une colonne etroite sur toute la hauteur du tableau,
+                              libellee a la verticale — le motif des tableurs, ou replier un
+                              groupe de colonnes laisse toujours une trace cliquable.
 
-                              Etat porte par la FORME (▸ / ▾), pas par la couleur seule.
-                              Aucune animation : un etat se lit, et il ne reste rien a
-                              neutraliser en `prefers-reduced-motion`. L'anneau de focus du
-                              navigateur est conserve, jamais supprime. */}
-                          <th style={thP}>
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
-                              <EnteteColonne nom="leadsGeneres">Commentaires LM</EnteteColonne>
-                              <button
-                                type="button"
-                                onClick={() => setDm1Ouvert(o => !o)}
-                                aria-expanded={dm1Ouvert}
-                                aria-label={dm1Ouvert ? "Masquer l'engagement du DM1" : "Afficher l'engagement du DM1"}
-                                title={dm1Ouvert
-                                  ? "Masquer « LM réclamés » et « Clics LM »."
-                                  : "Afficher « LM réclamés » et « Clics LM ».\n\nCes deux colonnes ne sont pas des étapes du parcours : on peut répondre au message d'accroche sans avoir appuyé sur le bouton du DM1, et sans avoir cliqué son lead magnet. Elles mesurent l'efficacité du message automatique, pas la progression du prospect — d'où les filets qui les isolent, et d'où ce repliage."}
-                                style={{ display: 'inline-grid', placeItems: 'center', width: 16, height: 16, padding: 0, flex: 'none', borderRadius: 4, border: 'none', background: dm1Ouvert ? BLUE + '18' : 'transparent', color: dm1Ouvert ? BLUE : 'var(--muted)', fontSize: 9, lineHeight: 1, cursor: 'pointer', transition: 'background .15s, color .15s' }}>
-                                {dm1Ouvert ? '▾' : '▸'}
-                              </button>
-                            </span>
-                          </th>
+                              Elle est rendue plus haut, dans la rangee d'intertitre, avec
+                              `rowSpan` : c'est ce qui lui donne la hauteur necessaire pour
+                              que « DM1 » se lise. */}
+                          <th style={thP}><EnteteColonne nom="leadsGeneres">Commentaires LM</EnteteColonne></th>
                           {dm1Ouvert && <th style={{ ...thP, ...filet }}><EnteteColonne nom="clicLeadMagnet">LM réclamés</EnteteColonne></th>}
                           {dm1Ouvert && <th style={thP}><EnteteColonne nom="clicLeadMagnet">Clics LM</EnteteColonne></th>}
                           {/* Le filet FERME le groupe. Replie, il ne doit pas rester : un
@@ -8855,7 +8876,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                 </thead>
                 <tbody>
                   {rowsParcours.length === 0 && (
-                    <tr><td colSpan={estYT ? 9 : (parContenu ? 14 : 12) - (dm1Ouvert ? 0 : 2)} style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--faint)' }}>
+                    <tr><td colSpan={estYT ? 9 : (parContenu ? 14 : 12) - (dm1Ouvert ? 0 : 1)} style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--faint)' }}>
                       {/* Une grille vide APRES filtrage n'est pas une absence de donnees.
                           Les confondre ferait conclure « ce canal ne produit rien » alors
                           qu'un bouton est simplement reste actif. */}
@@ -8883,6 +8904,13 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                         ? <td style={{ ...tdP, ...filet }}><CelluleP n={info.clicsDesc} /></td>
                         : <>
                            <td style={tdP}><CelluleP n={l.commentairesLm} /></td>
+                           {/* Le prolongement de la bande. Vide par nature — elle ne cache
+                               pas une valeur, elle marque une place — mais teintee et
+                               bordee comme sa tete, sinon la colonne se lirait comme une
+                               suite de cases oubliees. */}
+                           {!dm1Ouvert && (
+                             <td style={{ ...tdP, ...filet, padding: 0, background: 'var(--surface-2)', borderRight: '1px solid var(--border)' }} />
+                           )}
                            {dm1Ouvert && (
                              <td style={{ ...tdP, ...filet }}>
                                {lmReclameCouvre
