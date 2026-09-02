@@ -315,6 +315,42 @@ Function.
 2026-08-31). ⚠️ **Ne pas en recréer un** : c'est le filet du cash, un doublon ferait
 passer deux exécutions simultanées sur les mêmes fenêtres.
 
+## Webhook Calendly — écrit, correct, et jamais appelé (vérifié le 2026-09-02)
+
+`app/api/webhooks/calendly/route.ts` est complet et sain (signature HMAC, fail-closed,
+résolution du profil par `event_memberships[0].user`). Il ne reçoit **rien**, et ce
+n'est pas corrigeable par du code :
+
+```
+POST https://api.calendly.com/webhook_subscriptions
+→ 403 {"title":"Permission Denied",
+       "message":"Please upgrade your Calendly account to Standard"}
+```
+
+**Les webhooks Calendly sont payants.** Aucun abonnement n'existe, ni en scope `user`
+ni en scope `organization`.
+
+⚠️ **Donc `sync-calendly` (30 min) n'est pas une redondance : c'est le SEUL chemin
+d'écriture des rendez-vous.** Ne pas l'alléger en croyant qu'un webhook prend le relais.
+
+À la migration Quennel, si son plan est Standard ou plus : un abonnement **par élève**
+en scope `user`, avec `signing_key` = `CALENDLY_WEBHOOK_SIGNING_KEY` (déjà sur Vercel).
+Une clé qui ne correspond pas fait rejeter tout en 401 — panne silencieuse.
+
+Et deux branches de la route testent des noms d'événements **qui n'existent pas chez
+Calendly** (`invitee.rescheduled`, `invitee.no_show`) : détail et correctifs à faire
+dans l'en-tête du fichier.
+
+## Webhook `story_insights` Instagram — étudié, écarté (2026-09-02)
+
+Meta pousse les métriques d'une story à son expiration. Écarté après comparaison :
+le webhook livre `impressions, reach, taps_forward, taps_back, exits, replies`, soit
+l'ancien jeu de métriques. `poll-stories` collecte `reach, shares, views, follows,
+profile_visits, total_interactions, replies` — **2 sur 7 seulement seraient couvertes**.
+Il faudrait continuer à poller pour les cinq autres, tout en ajoutant un endpoint, une
+signature, un abonnement et une déduplication. Ne pas y revenir sans vérifier d'abord
+que Meta a modernisé la charge utile.
+
 Il relit les paiements chez Stripe pour rattraper ce qu'un webhook non délivré a
 manqué. Sans lui, le webhook est l'unique chemin d'écriture et un événement perdu
 l'est pour toujours, sans aucun signal — trois encaissements du compte de test étaient

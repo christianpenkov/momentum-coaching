@@ -584,7 +584,7 @@ const PIE_COLORS = [ACCENT, GREEN, AMBER, RED, BLUE, '#a78bfa', '#f59e0b', '#10b
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function Card({ title, sub, children, style }: { title?: string; sub?: string; children: React.ReactNode; style?: React.CSSProperties }) {
+function Card({ title, sub, children, style }: { title?: React.ReactNode; sub?: string; children: React.ReactNode; style?: React.CSSProperties }) {
   return (
     <div className="card" style={style}>
       {title && (
@@ -2702,7 +2702,25 @@ function HistoriquePortee({ profileId, granularite, debut }: { profileId?: strin
 
   return (
     <Card
-      title="Composition de ton reach"
+      title={
+        // La periode monte dans le titre parce qu'il n'y en a qu'UNE : `periodes`
+        // vaut [laPeriode] ou [] (voir plus haut). Elle occupait jusqu'ici une
+        // colonne de 168 px sur la ligne, qui repetait la meme information a
+        // chaque rendu tout en amputant la barre d'un tiers de sa largeur.
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          Composition de ton reach
+          {laPeriode && (
+            <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+              {libelle(laPeriode)}
+            </span>
+          )}
+          {laPeriode && !laPeriode.figee && (
+            <span style={{ fontSize: 9, fontWeight: 600, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap' }}>
+              en cours
+            </span>
+          )}
+        </span>
+      }
       sub="Qui a vu tes contenus sur la période — des personnes, comptées une seule fois même vues plusieurs jours"
     >
       {isLoading ? (
@@ -2732,27 +2750,22 @@ function HistoriquePortee({ profileId, granularite, debut }: { profileId?: strin
             // « 99 % / 1 % » se lit donc toujours, le 1 % restant lisible dehors.
             const SEUIL_TEXTE = 14;
             return (
-              <div key={p.debut} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--border-soft)' }}>
-                <div style={{ width: 168, flexShrink: 0, fontSize: 12.5, color: 'var(--ink-2)', whiteSpace: 'nowrap' }}>
-                  {libelle(p)}
-                  {!p.figee && (
-                    <span style={{ fontSize: 9, fontWeight: 600, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 5px', marginLeft: 6, whiteSpace: 'nowrap' }}>
-                      en cours
-                    </span>
-                  )}
-                </div>
-
+              <div key={p.debut} style={{ padding: '10px 0', borderBottom: '1px solid var(--border-soft)' }}>
+                {/* Les deux effectifs et la barre sur UNE ligne, centres entre eux.
+                    Le total est SORTI de ce flex et passe dessous — c'est ce qui
+                    corrige l'alignement : tant qu'il vivait dans la colonne du
+                    milieu, cette colonne etait plus haute que la barre (22 px de
+                    barre + 5 px + une ligne de texte), et `alignItems: center`
+                    centrait les deux chiffres sur le BLOC entier. Ils tombaient donc
+                    quelques pixels sous la barre, sans qu'aucune de leurs proprietes
+                    ne soit en cause (signale par Chris le 2026-09-02). */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ width: 46, flexShrink: 0, textAlign: 'right', fontSize: 12.5, fontWeight: 600, color: COUL_ABO, fontVariantNumeric: 'tabular-nums' }}
                   title="Abonnés touchés">
                   {p.reachAbonnes == null ? '—' : fmt(abo)}
                 </div>
 
-                {/* Le total passe SOUS la barre, centre : a droite il se lisait comme
-                    une quatrieme colonne de meme rang que les deux effectifs, alors
-                    qu'il est leur somme. Dessous, il se lit comme le total qu'il est
-                    (demande de Chris, 2026-08-26). */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', height: 22, borderRadius: 5, overflow: 'hidden', background: 'var(--surface-2)' }}>
+                <div style={{ flex: 1, minWidth: 0, display: 'flex', height: 22, borderRadius: 5, overflow: 'hidden', background: 'var(--surface-2)' }}>
                   <div style={{ width: `${pctAbo}%`, background: COUL_ABO, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
                     title={`${fmt(abo)} abonnés — ${Math.round(pctAbo)} % de la portée`}>
                     {pctAbo >= SEUIL_TEXTE && (
@@ -2766,14 +2779,18 @@ function HistoriquePortee({ profileId, granularite, debut }: { profileId?: strin
                     )}
                   </div>
                 </div>
-                <div style={{ textAlign: 'center', marginTop: 5, fontSize: 11, color: 'var(--muted)' }}>
-                  Reach total = <strong style={{ color: 'var(--ink)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{p.reachTotal == null ? '—' : fmt(total)}</strong>
-                </div>
-                </div>
 
                 <div style={{ width: 46, flexShrink: 0, fontSize: 12.5, fontWeight: 600, color: COUL_NON, fontVariantNumeric: 'tabular-nums' }}
                   title="Non-abonnés touchés">
                   {p.reachNonAbonnes == null ? '—' : fmt(non)}
+                </div>
+                </div>
+
+                {/* Le total reste SOUS la barre et centre : a droite il se lisait
+                    comme une quatrieme colonne de meme rang que les deux effectifs,
+                    alors qu'il est leur somme (demande de Chris, 2026-08-26). */}
+                <div style={{ textAlign: 'center', marginTop: 5, fontSize: 11, color: 'var(--muted)' }}>
+                  Reach total = <strong style={{ color: 'var(--ink)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{p.reachTotal == null ? '—' : fmt(total)}</strong>
                 </div>
               </div>
             );

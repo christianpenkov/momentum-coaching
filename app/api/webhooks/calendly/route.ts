@@ -4,6 +4,52 @@ import { upsertProspect } from '@/lib/prospects';
 import { resolveUtmContent, resolveCallSource, resolveUtmMedium } from '@/lib/contentId';
 import { resolveClickId } from '@/lib/click-redirect';
 
+/**
+ * ⚠️ CETTE ROUTE NE REÇOIT RIEN AUJOURD'HUI — et ce n'est pas un bug de code.
+ *
+ * Vérifié le 2026-09-02 : aucun abonnement webhook n'existe côté Calendly, ni en
+ * scope `user` ni en scope `organization`, et il est IMPOSSIBLE d'en créer un :
+ *
+ *     POST https://api.calendly.com/webhook_subscriptions
+ *     → 403 {"title":"Permission Denied",
+ *            "message":"Please upgrade your Calendly account to Standard"}
+ *
+ * Les webhooks Calendly sont une fonctionnalité PAYANTE. Le compte de test est sur
+ * le plan gratuit. La route est complète et correcte — signature HMAC vérifiée,
+ * fail-closed sans clé, résolution du profil par `event_memberships[0].user` — elle
+ * attend simplement qu'un compte payant l'abonne.
+ *
+ * ── CONSÉQUENCE À NE PAS OUBLIER ─────────────────────────────────────────────
+ * `sync-calendly` (cron toutes les 30 min) n'est PAS une redondance de confort :
+ * c'est le SEUL chemin d'écriture des rendez-vous. Ne pas l'alléger en croyant que
+ * le webhook prend le relais.
+ *
+ * ── POUR L'ACTIVER (migration Quennel, si son plan est Standard ou plus) ──────
+ * Un abonnement PAR ÉLÈVE, en scope `user` — la route sait déjà router vers le bon
+ * profil, donc rien à changer côté code :
+ *
+ *     POST /webhook_subscriptions  { url, events, organization, user,
+ *                                    scope: "user", signing_key }
+ *
+ * `signing_key` DOIT valoir exactement CALENDLY_WEBHOOK_SIGNING_KEY (déjà posée sur
+ * Vercel), sinon la vérification ci-dessous rejette tout en 401 — panne silencieuse
+ * du côté qui a l'air le plus sain.
+ *
+ * ⚠️ DEUX BRANCHES DE CE FICHIER SONT INATTEIGNABLES. Les seuls noms d'événements
+ * que Calendly émet sont `invitee.created`, `invitee.canceled`,
+ * `invitee_no_show.created`, `invitee_no_show.deleted`, `routing_form_submission.created`,
+ * `event_type.*`, `meeting_recap.*` et `contact.*`. Or ce fichier teste :
+ *
+ *     event === 'invitee.rescheduled'   ← n'existe pas. Un report produit un
+ *                                          `invitee.canceled` puis un `invitee.created`.
+ *     event === 'invitee.no_show'       ← n'existe pas. C'est `invitee_no_show.created`,
+ *                                          et sa charge utile a une autre forme
+ *                                          (ressource no-show, pas invitee).
+ *
+ * Laissées telles quelles VOLONTAIREMENT : les corriger sans pouvoir observer une
+ * vraie charge utile reviendrait à remplacer une hypothèse fausse par une autre non
+ * vérifiée. À reprendre le jour où un compte payant permet de les recevoir.
+ */
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
