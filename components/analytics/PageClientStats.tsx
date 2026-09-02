@@ -8853,11 +8853,49 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         />
 
         {/* Barre de filtres */}
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14, paddingBottom: 14, borderBottom: '1px solid var(--border)' }}>
-          {/* La plateforme est remontee en tete de section : c'est le filtre le plus
-              LARGE, il ne se choisit pas au meme moment que les autres. Il regagne au
-              passage la place d'ecrire « Instagram » et « YouTube » en toutes lettres,
-              plutot que deux sigles, et rend sa largeur aux filtres qui restent. */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14, paddingBottom: 14, borderBottom: '1px solid var(--border)' }}>
+          {/* Deux rangees, et l'ordre compte : on cherche ou l'on trie d'abord, on
+              restreint ensuite. Sur une seule ligne, les six filtres poussaient la
+              recherche en bout de barre, la ou personne ne la cherche. */}
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+          {/* Recherche par titre */}
+          <input
+            type="text" value={filterSearch} onChange={e => setFilterSearch(e.target.value)}
+            placeholder="Recherche par titre…"
+            style={{ flex: 1, minWidth: 160, padding: '6px 10px', fontSize: 12, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)' }}
+          />
+
+          {/* Tri. Il vivait dans les en-têtes de colonnes ; les cartes n'en ont
+              plus, et sans lui un élève à quarante contenus ne peut plus trouver ses
+              meilleurs. Même mécanique que le tri du Breakdown par source. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 10, color: 'var(--faint)' }}>Trier par</span>
+            <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+              <select
+                value={sortKey}
+                onChange={e => { setSortKey(e.target.value as SortKey); setSortDir('desc'); }}
+                style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '5px 20px 5px 8px', cursor: 'pointer', appearance: 'none' }}
+              >
+                <option value="callsBooked">Calls déclenchés</option>
+                <option value="lmDetectes">Leads entrés</option>
+                <option value="lmReponses">Conversations déclenchées</option>
+                <option value="revenue">Revenue</option>
+                <option value="closed">Closés</option>
+                <option value="callsHonored">Calls honorés</option>
+                <option value="views">Vues</option>
+                <option value="clicsDesc">Clics description</option>
+              </select>
+              <span style={{ position: 'absolute', right: 6, fontSize: 9, color: 'var(--faint)', pointerEvents: 'none' }}>▾</span>
+            </div>
+            <button
+              onClick={() => setSortDir(d => (d === 'desc' ? 'asc' : 'desc'))}
+              title={sortDir === 'desc' ? 'Du plus grand au plus petit' : 'Du plus petit au plus grand'}
+              style={{ fontSize: 11, fontWeight: 700, color: BLUE, background: BLUE + '12', border: 'none', borderRadius: 6, padding: '5px 9px', cursor: 'pointer', minWidth: 28 }}
+            >
+              {sortDir === 'desc' ? '↓' : '↑'}
+            </button>
+          </div>
+          </div>
           {/* Un filtre ne porte que sur un nombre AFFICHE, et sous le nom que la carte
               lui donne.
 
@@ -8889,43 +8927,6 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                 </button>
               );
             })}
-          </div>
-          {/* Zone 3 : recherche */}
-          <input
-            type="text" value={filterSearch} onChange={e => setFilterSearch(e.target.value)}
-            placeholder="Recherche par titre…"
-            style={{ flex: 1, minWidth: 160, padding: '6px 10px', fontSize: 12, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)' }}
-          />
-
-          {/* Zone 4 : tri. Il vivait dans les en-têtes de colonnes ; les cartes n'en ont
-              plus, et sans lui un élève à quarante contenus ne peut plus trouver ses
-              meilleurs. Même mécanique que le tri du Breakdown par source. */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 10, color: 'var(--faint)' }}>Trier par</span>
-            <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
-              <select
-                value={sortKey}
-                onChange={e => { setSortKey(e.target.value as SortKey); setSortDir('desc'); }}
-                style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '5px 20px 5px 8px', cursor: 'pointer', appearance: 'none' }}
-              >
-                <option value="callsBooked">Calls déclenchés</option>
-                <option value="lmDetectes">Leads entrés</option>
-                <option value="lmReponses">Conversations déclenchées</option>
-                <option value="revenue">Revenue</option>
-                <option value="closed">Closés</option>
-                <option value="callsHonored">Calls honorés</option>
-                <option value="views">Vues</option>
-                <option value="clicsDesc">Clics description</option>
-              </select>
-              <span style={{ position: 'absolute', right: 6, fontSize: 9, color: 'var(--faint)', pointerEvents: 'none' }}>▾</span>
-            </div>
-            <button
-              onClick={() => setSortDir(d => (d === 'desc' ? 'asc' : 'desc'))}
-              title={sortDir === 'desc' ? 'Du plus grand au plus petit' : 'Du plus petit au plus grand'}
-              style={{ fontSize: 11, fontWeight: 700, color: BLUE, background: BLUE + '12', border: 'none', borderRadius: 6, padding: '5px 9px', cursor: 'pointer', minWidth: 28 }}
-            >
-              {sortDir === 'desc' ? '↓' : '↑'}
-            </button>
           </div>
         </div>
 
