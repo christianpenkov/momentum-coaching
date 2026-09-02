@@ -1743,7 +1743,29 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
     // jour. A 200 videos et 40 eleves, cela fait 8 000 lignes par jour avant que
     // `degrossir_historiques_analytics` ne les ramene a une par semaine puis par mois.
     // `base_sante_taille` surveille la croissance et alerte avant le plafond du plan.
-    const PLAFOND_VIDEOS = 200;
+    // 500 et non 200 : des eleves avec des chaines de 200+ videos arrivent (Chris,
+    // 2026-09-02). A 200, leurs plus anciennes videos disparaissaient de Mes Stats —
+    // signale dans cron_runs depuis le meme jour, mais signale ne veut pas dire
+    // acceptable pour quelqu'un qui paie.
+    //
+    // Cout mesure sur la Data API v3 (10 000 unites/jour, PARTAGEE entre tous les
+    // eleves), a 40 eleves, les deux caches de 5 min pris en compte :
+    //   29 videos  ~1 800/jour  18 %
+    //   200        ~3 500/jour  35 %
+    //   500        ~6 840/jour  68 %
+    //
+    // 68 % est tenable, pas confortable. Le filet est l'alerte Data API a 80 % posee
+    // dans la console Google Cloud le meme jour.
+    //
+    // ⚠️ LE TERME DOMINANT EST LA ROUTE LIVE (~5 040 des 6 840), parce qu'elle pagine
+    // a chaque appel alors que le cron ne le fait qu'une fois par jour. Si ce quota
+    // devenait tendu, le levier n'est PAS de rabaisser ce plafond : c'est de servir la
+    // liste des videos depuis `analytics_yt_videos_history`, que le cron alimente deja
+    // chaque jour. Cela ramenerait le total a 18 %.
+    //
+    // Les deux chemins doivent garder LA MEME valeur : deux plafonds differents
+    // feraient diverger le tableau selon la periode consultee.
+    const PLAFOND_VIDEOS = 500;
     const items: any[] = [];
     let pageToken: string | undefined = undefined;
     do {

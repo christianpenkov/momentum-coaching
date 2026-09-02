@@ -349,7 +349,29 @@ export async function GET(request: Request) {
   // chemins voient la même chaîne. Deux plafonds différents feraient diverger le
   // tableau selon la période consultée, ce qui est exactement le genre d'écart qu'on
   // passe des heures à ne pas comprendre.
-  const PLAFOND_VIDEOS = 200;
+  // 500 et non 200 : des eleves avec des chaines de 200+ videos arrivent (Chris,
+  // 2026-09-02). A 200, leurs plus anciennes videos disparaissaient de Mes Stats —
+  // signale dans cron_runs depuis le meme jour, mais signale ne veut pas dire
+  // acceptable pour quelqu'un qui paie.
+  //
+  // Cout mesure sur la Data API v3 (10 000 unites/jour, PARTAGEE entre tous les
+  // eleves), a 40 eleves, les deux caches de 5 min pris en compte :
+  //   29 videos  ~1 800/jour  18 %
+  //   200        ~3 500/jour  35 %
+  //   500        ~6 840/jour  68 %
+  //
+  // 68 % est tenable, pas confortable. Le filet est l'alerte Data API a 80 % posee
+  // dans la console Google Cloud le meme jour.
+  //
+  // ⚠️ LE TERME DOMINANT EST LA ROUTE LIVE (~5 040 des 6 840), parce qu'elle pagine
+  // a chaque appel alors que le cron ne le fait qu'une fois par jour. Si ce quota
+  // devenait tendu, le levier n'est PAS de rabaisser ce plafond : c'est de servir la
+  // liste des videos depuis `analytics_yt_videos_history`, que le cron alimente deja
+  // chaque jour. Cela ramenerait le total a 18 %.
+  //
+  // Les deux chemins doivent garder LA MEME valeur : deux plafonds differents
+  // feraient diverger le tableau selon la periode consultee.
+  const PLAFOND_VIDEOS = 500;
   const uploadsPlaylistId = channel.contentDetails?.relatedPlaylists?.uploads;
   const videoIds: string[] = [];
 
@@ -427,16 +449,22 @@ export async function GET(request: Request) {
         `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=views&dimensions=video&filters=video==${ids}&maxResults=500`, 40),
       // Abonnés gagnés all-time par vidéo (sans filtre pour avoir toutes les vidéos)
       fetch(
-        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=2020-01-01&endDate=${getToday()}&metrics=views,subscribersGained,subscribersLost&dimensions=video&maxResults=50`,
+        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=2020-01-01&endDate=${getToday()}&metrics=views,subscribersGained,subscribersLost&dimensions=video&maxResults=500`,
         { headers: authHeader }
       ),
       // CTR par vidéo depuis la Reporting API (channel_reach_basic_a1)
       fetchCtrByVideo(accessToken),
     ]);
 
-    // `maxResults` passe de 50 a 500 sur les deux requetes Analytics ci-dessus : il
+    // `maxResults` passe de 50 a 500 sur les TROIS requetes Analytics ci-dessus : il
     // bornait le nombre de LIGNES rendues, donc au-dela de 50 videos les dernieres
     // n'avaient aucune metrique — un plafond de plus, invisible.
+    //
+    // La troisieme (abonnes gagnes all-time) avait ete oubliee, et le commentaire
+    // disait « les deux ». Elle est la plus exposee des trois : sans `filters=video==`,
+    // elle porte sur TOUTES les videos de la chaine, donc c'est elle qui tronque en
+    // premier. Trouvee le 2026-09-02 en relevant PLAFOND_VIDEOS a 500 — un plafond
+    // qu'on releve met au jour ceux qu'il masquait.
     // videoId -> vues des 30 derniers jours (0 si la video n'a eu aucune vue : l'API
     // n'emet pas de ligne dans ce cas, et 0 est ici la bonne valeur — la video existe,
     // elle n'a simplement pas ete vue).
