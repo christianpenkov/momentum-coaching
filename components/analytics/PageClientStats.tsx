@@ -423,12 +423,18 @@ function libelleFenetre(
 function regrouperSerieAffichee(
   data: { date: string; v: number | null }[],
   nature: NatureSerie = 'comptage',
-): { data: { date: string; v: number | null; libelle: string }[]; pas: number; formatAxe: (d: string) => string } {
+): { data: { date: string; v: number | null; libelle: string }[]; pas: number } {
   const { points, pas } = regrouperParPas(data, nature);
-  const parDate = new Map(points.map(p => [p.date, p.libelle]));
-  // L'axe lit le libelle DU POINT, pas la date brute : un point qui vaut trois jours
-  // s'annoncerait sinon avec la date du premier, ce qui est faux et invisible.
-  return { data: points, pas, formatAxe: (d: string) => parDate.get(d) ?? d };
+  // ⚠️ Repartition volontaire entre l'axe et l'infobulle.
+  //
+  // L'AXE ne porte qu'UNE date — celle du debut du point. Y mettre la plage
+  // (« 9 juin – 11 juin ») triplait la largeur de chaque graduation : les etiquettes
+  // se chevauchaient et plus aucune date n'etait lisible.
+  //
+  // L'INFOBULLE porte la plage complete, la ou il y a la place de la lire. C'est elle
+  // qui evite le seul vrai malentendu : un point qui vaut trois jours ne doit pas
+  // laisser croire qu'il ne vaut que son premier jour.
+  return { data: points, pas };
 }
 /**
  * Meme chose pour une modale qui superpose DEUX series (Shorts / videos longues).
@@ -1016,7 +1022,9 @@ function ChartTooltip({ active, payload, label, fmtFn, pendingKey }: any) {
   if (!active || !payload?.length) return null;
   return (
     <div className="chart-tooltip">
-      <div className="chart-tooltip-label">{label}</div>
+      {/* Voir CustomTooltip dans components/charts/AreaChart.tsx : la plage du point
+          quand il regroupe plusieurs jours, la date d'axe sinon. */}
+      <div className="chart-tooltip-label">{payload[0]?.payload?.libelle ?? label}</div>
       {payload.map((p: any, i: number) => {
         const isPending = pendingKey && p.payload?.[pendingKey];
         return (
@@ -1691,7 +1699,7 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={item.pas > 1 ? item.formatAxe : (!sinceConnection && period === 7 ? fmtAxisDateWithDay : fmtAxisDate)} interval={graduationsDates(item.data.length, sinceConnection ? 30 : period)} />
+                  <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={item.pas === 1 && !sinceConnection && period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(item.data.length, sinceConnection ? 30 : period)} />
                   <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} allowDecimals={false} width={30} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.15 : Math.max(1, Math.abs(dataMax) * 0.1 || 1); return [Math.max(0, dataMin - margin), dataMax + margin]; }} />
                   <Tooltip content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
@@ -2329,8 +2337,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
             );
             return (
               <AreaChart
-                data={c.data.map(p => ({ date: p.date, reach: p.v }))}
-                tickFormatter={c.pas > 1 ? c.formatAxe : undefined}
+                data={c.data.map(p => ({ date: p.date, reach: p.v, libelle: p.libelle }))}
                 areas={[{ key: 'reach', label: 'Reach', color: 'var(--accent-brand)' }]}
                 xKey="date" height={220} showWeekday={c.pas === 1 && period === 7}
               />
@@ -2339,7 +2346,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
         </Card>
         <Card title="Abonnés / jour" sub={libelleFenetre(period, periodIndex ?? 0, sinceConnection, allTimeStart)}>
           <ResponsiveContainer width="100%" height={220} initialDimension={{ width: 600, height: 220 }}>
-            <ReAreaChart data={abonnesCourbe.data.map(p => ({ date: p.date, followerCount: p.v }))} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
+            <ReAreaChart data={abonnesCourbe.data.map(p => ({ date: p.date, followerCount: p.v, libelle: p.libelle }))} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
               <defs>
                 <linearGradient id="grad-ig-subs" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="var(--accent-brand)" stopOpacity={0.2} />
@@ -2348,13 +2355,16 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
               </defs>
               {/* Intervalle calculé explicitement (pas 'preserveStartEnd') pour un espacement
                   régulier des labels de dates — même logique que le wrapper AreaChart. */}
-              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={abonnesCourbe.pas > 1 ? abonnesCourbe.formatAxe : (period === 7 ? fmtAxisDateWithDay : fmtAxisDate)} interval={graduationsDates(abonnesCourbe.data.length, period)} />
+              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={abonnesCourbe.pas === 1 && period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(abonnesCourbe.data.length, period)} />
               <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} allowDecimals={false} domain={['auto', 'auto']} tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : String(Math.round(v))} width={40} />
               <Tooltip content={({ active, payload, label }) => {
                 if (!active || !payload?.length) return null;
                 return (
                   <div className="chart-tooltip">
-                    <div className="chart-tooltip-label">{label}</div>
+                    {/* La PLAGE du point, pas sa seule date de debut : l'axe ne
+                        porte qu'une date pour rester lisible, l'infobulle dit donc
+                        ce que le point couvre vraiment. */}
+                    <div className="chart-tooltip-label">{(payload[0].payload as any)?.libelle ?? label}</div>
                     <div className="chart-tooltip-row"><strong>{fmt(payload[0].value as number)}</strong><span style={{ color: 'var(--muted)', marginLeft: 4 }}>abonnés</span></div>
                   </div>
                 );
@@ -2553,7 +2563,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
                       en travers). Les deux montrent la meme metrique, ils doivent se
                       ressembler. */}
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={(statModal.pas ?? 1) > 1 ? (v: string) => statModal.data.find(p => p.date === v)?.libelle ?? v : (period === 7 ? fmtAxisDateWithDay : fmtAxisDate)} interval={statModalTickInterval} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={(statModal.pas ?? 1) === 1 && period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={statModalTickInterval} />
                   {(() => {
                     const borne = borneAbonnesNets(statModal.data.map(d => d.v));
                     return (
@@ -2586,7 +2596,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
                       <stop offset="95%" stopColor={statModal.color} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={(statModal.pas ?? 1) > 1 ? (v: string) => statModal.data.find(p => p.date === v)?.libelle ?? v : (period === 7 ? fmtAxisDateWithDay : fmtAxisDate)} interval={statModalTickInterval} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={(statModal.pas ?? 1) === 1 && period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={statModalTickInterval} />
                   {/* Marge relative (pas domain auto strict) : sur "Abonnés", qui varie de
                       seulement 1-2 sur un petit compte, coller pile min/max fait remplir
                       toute la hauteur du graphique pour une variation de quelques unités —
@@ -2603,7 +2613,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
                   <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={44} allowDecimals={statModal.unit != null} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.15 : Math.max(1, Math.abs(dataMax) * 0.05); const lo = Math.floor(dataMin - margin); return [dataMin >= 0 ? Math.max(0, lo) : lo, Math.ceil(dataMax + margin)] as [number, number]; }} tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : (statModal.unit == null ? String(Math.round(v)) : String(v))} />
                   <Tooltip content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
-                    return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{fmt(payload[0].value as number)}{statModal.unit ?? ''}</strong></div></div>;
+                    return <div className="chart-tooltip"><div className="chart-tooltip-label">{(payload[0].payload as any)?.libelle ?? label}</div><div className="chart-tooltip-row"><strong>{fmt(payload[0].value as number)}{statModal.unit ?? ''}</strong></div></div>;
                   }} />
                   <Area type="monotone" dataKey="v" stroke={statModal.color} strokeWidth={2} fill="url(#grad-ig-stat-modal)" dot={todayDotFactory(statModal.color, 'date', lastRealPointKey(statModal.data, 'date', 'v'))} activeDot={{ r: 4, strokeWidth: 0, fill: statModal.color }} isAnimationActive={false} />
                 </ReAreaChart>
@@ -3915,7 +3925,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
               ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? null : ((d.views ?? null) as number | null) })),
               'comptage',
             );
-            const viewsForChart = vuesCourbe.data.map(p => ({ date: p.date, views: p.v }));
+            const viewsForChart = vuesCourbe.data.map(p => ({ date: p.date, views: p.v, libelle: p.libelle }));
             const allPending = viewsForChart.every(d => d.views === null);
             // Meme hauteur que le graphique : la carte gardait 220 px avec la courbe et
             // retombait a ~77 px avec le message, ce qui faisait remonter tout le bas de
@@ -3927,7 +3937,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
               <ResponsiveContainer width="100%" height={220} initialDimension={{ width: 600, height: 220 }}>
                 <ComposedChart data={viewsForChart} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={vuesCourbe.pas > 1 ? vuesCourbe.formatAxe : (period === 7 ? fmtAxisDateWithDay : fmtAxisDate)} ticks={vuesCourbe.pas > 1 ? undefined : datesAxe(viewsForChart.map(d => d.date), period, largeurGraphiques * 0.62)} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={vuesCourbe.pas === 1 && period === 7 ? fmtAxisDateWithDay : fmtAxisDate} ticks={vuesCourbe.pas > 1 ? undefined : datesAxe(viewsForChart.map(d => d.date), period, largeurGraphiques * 0.62)} />
                   <YAxis tick={{ fontSize: 11, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
                   <Tooltip content={<ChartTooltip />} />
                   <Bar dataKey="views" name="Vues" fill="var(--accent-brand)" radius={[2, 2, 0, 0]} opacity={0.8} />
@@ -4353,7 +4363,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                   <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={44} allowDecimals={!isCounter} domain={yDomain} ticks={yTicks} tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : (isCounter ? String(Math.round(v)) : String(v))} />
                   <Tooltip content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
-                    return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{fmt(payload[0].value as number)}{statModal.unit ?? ''}</strong></div></div>;
+                    return <div className="chart-tooltip"><div className="chart-tooltip-label">{(payload[0].payload as any)?.libelle ?? label}</div><div className="chart-tooltip-row"><strong>{fmt(payload[0].value as number)}{statModal.unit ?? ''}</strong></div></div>;
                   }} />
                   <Area type="monotone" dataKey="v" stroke={statModal.color} strokeWidth={2} fill="url(#grad-yt-stat-modal)" dot={todayDotFactory(statModal.color, 'date', lastRealPointKey(statModal.data, 'date', 'v'))} activeDot={{ r: 4, strokeWidth: 0, fill: statModal.color }} isAnimationActive={false} />
                 </ReAreaChart>
@@ -4950,9 +4960,11 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
   })();
   const debutFenetreStr = parisDateStr(winStart);
 
-  // ── Un total ne s'affiche que si TOUTES ses sources couvrent la periode ─────
+  // ── Le chiffre s'affiche, la note dit ce qu'il ne compte pas ────────────────
   //
-  // Un total PARTIEL est pire qu'un 0 : il a l'air complet. « Clics liens Calendly »
+  // Le nombre montre ce qui A ETE MESURE — c'est une vraie information, et la cacher
+  // derriere un tiret en perdait plus qu'elle n'en protegeait. Ce qui le rendait
+  // trompeur, ce n'etait pas sa valeur mais son AIR de total. « Clics liens Calendly »
   // d'Instagram additionne deux journaux — Short.io pour la bio et les descriptions,
   // les evenements `link_clicked` pour les liens envoyes en DM — qui n'ont pas la
   // meme date de depart. Sur juin il affichait « 2 », c'est-a-dire les seuls clics de
@@ -4986,10 +4998,12 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
     const autres = manquantes.length > 1 ? ` (et ${manquantes.length - 1} autre source)` : '';
     return {
       couvert: false as const,
-      note: jour ? `${bloquante.nom} : mesurés depuis le ${jour}` : `${bloquante.nom} : jamais mesurés`,
+      note: jour
+        ? `chiffre partiel — ${bloquante.nom} ne sont mesurés que depuis le ${jour}`
+        : `chiffre partiel — ${bloquante.nom} n'ont jamais été mesurés`,
       aide: jour
-        ? `Le total n'est pas affiché parce qu'une de ses sources ne couvre pas toute la période${autres} : ${bloquante.nom} ne sont mesurés que depuis le ${jour}. Un total partiel aurait l'air complet, alors qu'il ne compterait qu'une partie des canaux.`
-        : `Le total n'est pas affiché parce qu'une de ses sources n'a jamais rien mesuré${autres} : ${bloquante.nom}.`,
+        ? `Ce chiffre ne compte pas tous les canaux sur toute la période${autres} : ${bloquante.nom} ne sont mesurés que depuis le ${jour}. Ce qui a été mesuré avant cette date est bien compté ; ce qui l'a précédé n'existe nulle part. Le taux n'est pas affiché, parce qu'il diviserait une partie des clics par la totalité de la portée.`
+        : `Ce chiffre ne compte pas tous les canaux${autres} : ${bloquante.nom} n'ont jamais été mesurés. Le taux n'est pas affiché, parce qu'il diviserait une partie des clics par la totalité de la portée.`,
     };
   };
   const couvClicsIg = couvertureClics([
@@ -5041,7 +5055,12 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
   // l'en-tête juste au-dessus (« Funnels & Efficacité — … »), une seule fois.
   const igFunnelSteps = [
     { label: 'Reach', value: igReachD == null ? dash : (igReachD >= 1000 ? `${fmt(igReachD / 1000, 1)}k` : fmt(igReachD)), rawValue: igReachD ?? 0 },
-    { label: 'Clics liens Calendly', value: noData || !couvClicsIg.couvert ? dash : fmt(igTotalClicsD), sub: 'bio + descr. + DM', rawValue: igTotalClicsD,
+    // Le chiffre reste affiche meme quand une source ne couvre pas la periode : il
+    // dit ce qui a ete mesure. Seul le TAUX disparait — il diviserait une partie des
+    // clics par la totalite de la portee, ce qui ne serait pas un chiffre partiel
+    // mais un chiffre FAUX. Meme regle que partout ailleurs sur cette page : le
+    // grand chiffre ne bouge pas, seul le taux se calcule sur la partie comparable.
+    { label: 'Clics liens Calendly', value: noData ? dash : fmt(igTotalClicsD), sub: 'bio + descr. + DM', rawValue: igTotalClicsD,
       // Pas de total, pas de taux : le numerateur serait partiel.
       rate: !couvClicsIg.couvert ? undefined : (igReachD && igReachD > 0 ? (igTotalClicsD / igReachD) * 100 : undefined),
       noteTaux: couvClicsIg.note, aide: couvClicsIg.aide },
@@ -5069,7 +5088,7 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
 
   const ytFunnelSteps = [
     { label: 'Vues', value: noData ? dash : (ytViewsD >= 1000 ? `${fmt(ytViewsD / 1000, 1)}k` : fmt(ytViewsD)), rawValue: ytViewsD },
-    { label: 'Clics Calendly', value: noData || !couvClicsYt.couvert ? dash : fmt(ytClicsD), sub: 'Bio + Descr.', rawValue: ytClicsD,
+    { label: 'Clics Calendly', value: noData ? dash : fmt(ytClicsD), sub: 'Bio + Descr.', rawValue: ytClicsD,
       rate: !couvClicsYt.couvert ? undefined : (noData ? 0 : (ytViewsD > 0 ? (ytClicsD / ytViewsD) * 100 : 0)),
       noteTaux: couvClicsYt.note, aide: couvClicsYt.aide },
     // Le GRAND CHIFFRE reste le nombre VRAI de rendez-vous — c'est ce que « Calls

@@ -79,11 +79,15 @@ export function todayDotFactory(color: string, xKey: string, lastKey?: string | 
   };
 }
 
-const CustomTooltip = ({ active, payload, label, formatter }: { active?: boolean; payload?: { name: string; value: number; color: string }[]; label?: string; formatter?: (v: number) => string }) => {
+const CustomTooltip = ({ active, payload, label, formatter }: { active?: boolean; payload?: { name: string; value: number; color: string; payload?: any }[]; label?: string; formatter?: (v: number) => string }) => {
   if (!active || !payload?.length) return null;
   return (
     <div className="chart-tooltip">
-      <div className="chart-tooltip-label">{label}</div>
+      {/* `libelle` porte la PLAGE du point quand plusieurs jours y sont regroupes
+          (« 9 juin – 11 juin »). L'axe ne montre qu'une date pour rester lisible ;
+          c'est donc ici qu'on dit ce que le point couvre vraiment. Absent sur les
+          series non regroupees, ou l'on retombe sur le libelle d'axe. */}
+      <div className="chart-tooltip-label">{payload[0]?.payload?.libelle ?? label}</div>
       {payload.map((p, i) => (
         <div key={i} className="chart-tooltip-row">
           <span style={{ width: 8, height: 8, borderRadius: 2, background: p.color, display: 'inline-block', marginRight: 6 }} />
