@@ -196,7 +196,12 @@ body {
   text-rendering: optimizeLegibility;
 }
 button { font-family: inherit; cursor: pointer; }
-input, textarea { font-family: inherit; }
+/* `select` manquait ici, et lui seul : les navigateurs lui appliquent la police du
+   SYSTÈME, jamais celle de la page, tant qu'on ne l'hérite pas explicitement. Chaque
+   menu déroulant de la plateforme s'affichait donc dans une police étrangère au reste —
+   constaté sur le sélecteur « Trier par » de « Ce que fait chaque contenu ». Une seule
+   ligne, et tous les `select` du produit rentrent dans le rang. */
+input, textarea, select, optgroup, option { font-family: inherit; }
 
 /* ── Comportement natif app — pas de sélection, pas de callout iOS ── */
 *:not(input):not(textarea):not([contenteditable]) {

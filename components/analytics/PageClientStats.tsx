@@ -7569,11 +7569,30 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 22px' }}>
         <SectionHead title="Vue d'ensemble" sub="Tracking complet — tous liens confondus" />
         {(() => {
-          // Clics LM réels : même logique que le pipeline — prospect_events.lm_clicked postérieur à detected_at
-          // `&& l.leadMagnetSent` : le dénominateur est lmEnvoyes, donc le numérateur ne
-          // doit contenir que des leads ayant effectivement reçu un LM (un clic sur un
-          // lien LM sans envoi enregistré sortirait le ratio au-dessus de 100 %).
-          const lmClics = leadsInPeriod.filter((l: MockLead) => l.id && l.leadMagnetSent && lmClickedByLeadId?.has(l.id)).length;
+          // MEME population que le denominateur : `personnesAvecLm`, issue du JOURNAL.
+          //
+          // Ce numerateur partait de `leadsInPeriod` et du drapeau `l.leadMagnetSent`,
+          // c'est-a-dire de la FICHE, pendant que son denominateur lisait le journal.
+          // Deux sources pour un meme ratio, et la fiche perd des deux cotes :
+          //
+          //  • sa date `detected_at` ne suit pas les interactions suivantes — `rdjdkzjd`
+          //    porte le 06/07 sur sa fiche alors que le journal l'a vu reprendre un lead
+          //    magnet le 01/09. En septembre, le denominateur le comptait (1) et le
+          //    numerateur ne le voyait meme pas : la carte affichait 0 %, c'est-a-dire
+          //    « personne n'a clique », alors qu'il avait clique.
+          //  • son drapeau `lead_magnet_sent` est ecrase — `incogniton.734` le porte a
+          //    `false` alors que le journal montre ses envois. Il sortait du numerateur
+          //    tout en restant au denominateur, ce qui sous-evaluait le taux.
+          //
+          // C'est exactement la correction deja faite sur `hookReplies` quelques lignes
+          // plus haut (« MEME population que le denominateur »), qui n'avait pas ete
+          // reportee ici. Le numerateur reste strictement inclus dans le denominateur,
+          // donc le ratio ne peut pas depasser 100 % — la garde d'origine est preservee,
+          // par construction cette fois plutot que par un filtre.
+          const lmClics = [...personnesAvecLm].filter(personne => {
+            const fiche = idFicheParPersonne.get(personne);
+            return !!fiche && !!lmClickedByLeadId?.has(fiche);
+          }).length;
           const tauxLmClic = lmEnvoyes > 0 ? Math.round((lmClics / lmEnvoyes) * 100) : null;
           // calendlyActivatedDb (et non un recomptage par lead) : compte les first_click_at
           // PARMI calendlyLinksSent, donc exactement la population du dénominateur
@@ -8532,8 +8551,16 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           <>
             <span style={{ fontWeight: 700, fontSize: 14, color: n > 0 ? 'var(--ink)' : 'var(--faint)' }}>{n}</span>
             {sur !== undefined && sur > 0 && n > 0 && (
-              <span style={{ display: 'block', fontSize: 9.5, fontWeight: 600, marginTop: 1, color: n >= sur ? GREEN : n * 2 >= sur ? AMBER : RED }}>
-                {Math.round((n / sur) * 100)} %
+              // Au-dela de 100 %, le taux n'est pas une performance : c'est le signe que
+              // le DENOMINATEUR est sous-compte. Sur YouTube, un clic classe robot par
+              // Short.io disparait du compte alors que le rendez-vous qu'il a produit
+              // reste. Le vert felicitait alors une mesure cassee — et c'est ce
+              // « 5 clics / 7 calls » qui a ouvert tout ce chantier. On l'affiche quand
+              // meme, mais en ambre et en le disant : le masquer le rendrait invisible.
+              <span
+                title={n > sur ? `${n} pour ${sur} : il y a plus de rendez-vous que de clics comptés. Ce ne sont pas les rendez-vous qui sont en trop, ce sont les clics qui manquent — un clic classé robot par Short.io disparaît du compte alors que le rendez-vous qu'il a produit reste.` : undefined}
+                style={{ display: 'block', fontSize: 9.5, fontWeight: 600, marginTop: 1, cursor: n > sur ? 'help' : 'default', color: n > sur ? AMBER : n >= sur ? GREEN : n * 2 >= sur ? AMBER : RED }}>
+                {Math.round((n / sur) * 100)} %{n > sur ? ' ⚠' : ''}
               </span>
             )}
           </>
@@ -8546,16 +8573,39 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           ? `Mesuré depuis le ${new Date(premierLmReclame).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} — avant cette date, l'appui sur le bouton du DM1 n'était pas enregistré.`
           : "L'appui sur le bouton du DM1 n'a encore jamais été enregistré sur ce compte. Un zéro affirmerait que personne n'appuie ; la vérité est qu'on ne le mesure pas encore.";
 
+        // Les colonnes de fin reprennent MOT POUR MOT les textes de Vue générale et de
+        // Funnel & Calls quand le grain est le même — c'est la règle posée au-dessus de
+        // `AIDE_CALLS_BOOKES` : « le même texte doit apparaître partout où le même nombre
+        // est compté de la même façon, sinon les libellés se remettent à diverger ».
+        //
+        // Deux exceptions, vérifiées une par une : « Closés » et « Revenue » portent ici
+        // une règle de PÉRIODE différente. Ailleurs, une vente appartient à la période de
+        // son rendez-vous ; ici elle appartient à la ligne de la porte d'entrée, quelle
+        // que soit la date de la vente. Reprendre le texte d'ailleurs tel quel aurait
+        // affirmé le contraire de ce que ce tableau fait.
+        const SUITE_COHORTE =
+          "\n\nATTENTION, la période ne se lit pas comme ailleurs. Cette ligne suit les "
+          + "personnes entrées par cette porte, et tout ce qu'elles ont fait ENSUITE y "
+          + "reste rattaché. Une personne entrée en mars qui signe en juin apparaît sur la "
+          + "ligne de mars, pas sur celle de juin.";
+        const AIDE_CLOSES_PARCOURS = AIDE_CLOSING + SUITE_COHORTE;
+        const AIDE_REVENUE_PARCOURS =
+          "Le montant CONTRACTÉ des ventes de cette ligne — ce qui a été vendu, pas ce qui "
+          + "est déjà encaissé. La source est la page Paiements, jamais le montant saisi "
+          + "dans le rapport de call : corriger une vente depuis Paiements ne réécrit pas "
+          + "le rapport, et les deux ont divergé."
+          + SUITE_COHORTE;
+
         const AIDE_PARCOURS = <>
           <div><b>À quoi sert ce tableau.</b> Sur les personnes entrées par ce contenu, combien sont allées jusqu&apos;au bout, et à quelle étape les autres se sont arrêtées. C&apos;est l&apos;écran des goulots d&apos;étranglement.</div>
           <div><b>Il compte des personnes, pas des rendez-vous.</b> Une personne qui réserve deux fois compte une seule fois. C&apos;est ce qui fait que les nombres ne remontent jamais de gauche à droite, et pourquoi ils diffèrent de ceux de « Ce que fait chaque contenu », juste en dessous, qui compte des événements.</div>
           <div><b>Seuls les gens entrés par le tunnel DM figurent ici.</b> Une réservation venue d&apos;un lien de bio, d&apos;une description ou d&apos;une story n&apos;a aucune personne identifiable en amont : elle est comptée dans Vue générale et dans le Breakdown par source, pas ici. Le total de la colonne Revenue est donc normalement inférieur à celui de Vue générale, et ce n&apos;est pas un écart à corriger.</div>
-          <div><b>Le groupe « Engagement du DM1 » est hors de la chaîne</b>, entre filets. Appuyer sur le bouton du DM1 puis cliquer le lead magnet ne sont pas obligatoires pour répondre ensuite : les mettre dans la chaîne la ferait remonter le jour où quelqu&apos;un répond sans avoir cliqué. Ces deux colonnes mesurent l&apos;efficacité du message automatique, pas la progression du prospect.</div>
+          <div><b>Le groupe « Engagement du DM1 » est hors de la chaîne</b>, isolé entre filets juste après le nom du contenu — volontairement AVANT elle, pour que la chaîne se lise ensuite d'un trait sans coupure. Appuyer sur le bouton du DM1 puis cliquer le lead magnet ne sont pas obligatoires pour répondre ensuite : les mettre dans la chaîne la ferait remonter le jour où quelqu&apos;un répond sans avoir cliqué. Ces deux colonnes mesurent l&apos;efficacité du message automatique, pas la progression du prospect.</div>
           <div><b>La période porte sur la date d&apos;entrée.</b> En regardant mars, vous voyez les personnes entrées en mars et tout ce qu&apos;elles ont fait ensuite, même en juin. Un rendez-vous se range dans la ligne par laquelle la personne était entrée juste avant lui. <b>Une relance manuelle n&apos;ouvre pas de nouvelle cohorte</b> : seule une nouvelle prise de lead magnet le fait.</div>
           <div><b>Les périodes récentes paraissent toujours faibles</b>, parce que les gens viennent d&apos;entrer et n&apos;ont pas encore eu le temps d&apos;aller au bout.</div>
           <div><b>Pas de ligne Total.</b> Une même personne peut être entrée par plusieurs contenus : additionner les lignes la compterait plusieurs fois.</div>
           {!lmReclameCouvre && !estYT && <div><b>« LM réclamés » affiche un tiret, pas un zéro.</b> {lmReclameNote}</div>}
-          {estYT && <div><b>Sur YouTube la chaîne est plus courte, parce qu&apos;elle l&apos;est réellement.</b> Pas de commentaire mot-clé, pas de lead magnet, pas de conversation : le lien est en description et on réserve directement. <b>Les clics restent hors chaîne</b> — Short.io compte des clics, il ne sait pas qui clique. L&apos;identité n&apos;apparaît qu&apos;à la réservation, par l&apos;e-mail de l&apos;invité Calendly, et c&apos;est donc là que la chaîne commence. Aucun taux ne traverse ce filet : comparer des clics anonymes à des personnes ne voudrait rien dire.</div>}
+          {estYT && <div><b>Sur YouTube la chaîne est plus courte, parce qu&apos;elle l&apos;est réellement.</b> Pas de commentaire mot-clé, pas de lead magnet, pas de conversation : le lien est en description et on réserve directement. <b>Les clics comptent des clics, pas des personnes</b> — Short.io ne sait pas qui clique. L&apos;identité n&apos;apparaît qu&apos;à la réservation, par l&apos;e-mail de l&apos;invité Calendly. Le taux entre les deux est quand même affiché : les sept intégrations doivent être connectées avant que vous entriez, donc les clics et les rendez-vous couvrent la même fenêtre. <b>S&apos;il dépasse 100 %</b>, ce ne sont pas les rendez-vous qui sont en trop, ce sont les clics qui manquent — un clic classé robot par Short.io disparaît du compte alors que le rendez-vous qu&apos;il a produit reste.</div>}
           {parContenu && <div><b>Les deux dernières colonnes sont à part, sur deux points.</b> D&apos;abord elles portent sur <b>tous</b> les rendez-vous du contenu, y compris ceux venus d&apos;un lien en description — pas seulement sur la chaîne à leur gauche. Ensuite elles sont en <b>all-time, depuis la publication du contenu</b>, et ne changent donc pas quand vous changez de période. C&apos;est volontaire : les vues d&apos;un contenu sont cumulatives, un post de juin en gagne encore aujourd&apos;hui. Les diviser par les rendez-vous d&apos;une seule semaine comparerait un total à un extrait, et le chiffre bougerait sans que le contenu ait rien fait de différent.</div>}
         </>;
 
@@ -8568,16 +8618,12 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
               aide={AIDE_PARCOURS}
               action={
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ display: 'inline-flex', gap: 3, background: 'var(--surface-2)', borderRadius: 7, padding: 3 }}>
-                    {([['contenu', 'Contenu'], ['lm', 'Lead magnet']] as const).map(([v, label]) => (
-                      <button key={v} onClick={() => setParcoursAngle(v)}
-                        style={{ fontSize: 11.5, fontWeight: 600, border: 'none', cursor: 'pointer', borderRadius: 5, padding: '5px 13px', background: parcoursAngle === v ? 'var(--surface)' : 'transparent', color: parcoursAngle === v ? 'var(--ink)' : 'var(--faint)' }}>
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                  {/* Pas de plateforme sur l'angle Lead magnet : un même lead magnet peut
-                      servir sur les deux à la fois. */}
+                  {/* La plateforme d'abord : c'est le filtre le plus large. L'angle
+                      (Contenu / Lead magnet) precise ensuite ce qu'on regarde DEDANS, donc
+                      il se lit apres — du general au particulier, dans le sens de lecture.
+
+                      Pas de plateforme sur l'angle Lead magnet : un meme lead magnet peut
+                      servir sur les deux a la fois. */}
                   {parContenu && (
                     <div style={{ display: 'inline-flex', gap: 3, background: 'var(--surface-2)', borderRadius: 7, padding: 3 }}>
                       {([['IG', 'Instagram'], ['YT', 'YouTube']] as const).map(([v, label]) => (
@@ -8588,6 +8634,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                       ))}
                     </div>
                   )}
+                  <div style={{ display: 'inline-flex', gap: 3, background: 'var(--surface-2)', borderRadius: 7, padding: 3 }}>
+                    {([['contenu', 'Contenu'], ['lm', 'Lead magnet']] as const).map(([v, label]) => (
+                      <button key={v} onClick={() => setParcoursAngle(v)}
+                        style={{ fontSize: 11.5, fontWeight: 600, border: 'none', cursor: 'pointer', borderRadius: 5, padding: '5px 13px', background: parcoursAngle === v ? 'var(--surface)' : 'transparent', color: parcoursAngle === v ? 'var(--ink)' : 'var(--faint)' }}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               }
             />
@@ -8600,9 +8654,30 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                   {!estYT && (
                     <tr>
                       <th style={{ ...thP, borderBottom: 'none' }} />
-                      <th style={{ ...thP, borderBottom: 'none' }} />
-                      <th colSpan={2} style={{ ...thP, ...filet, textAlign: 'center', color: BLUE, borderBottom: 'none', paddingBottom: 2 }}>Engagement du DM1</th>
-                      <th colSpan={parContenu ? 9 : 7} style={{ ...thP, ...filet, borderBottom: 'none' }} />
+                      <th colSpan={2} style={{ ...thP, ...filet, textAlign: 'center', color: BLUE, borderBottom: 'none', paddingBottom: 2 }}>
+                        Engagement du DM1
+                        <span
+                          title={"Ces deux colonnes ne sont PAS des étapes du parcours, et c'est pour ça qu'elles sont entre deux filets.\n\nOn peut répondre au message d'accroche sans avoir appuyé sur le bouton du DM1, et sans avoir cliqué son lead magnet. Si elles étaient dans la chaîne, celle-ci remonterait le jour où quelqu'un fait ça — par exemple 1 clic puis 2 réponses.\n\nElles mesurent l'efficacité du message automatique, pas la progression du prospect."}
+                          style={{ display: 'inline-grid', placeItems: 'center', width: 13, height: 13, marginLeft: 5, borderRadius: '50%', border: `1px solid ${BLUE}`, color: BLUE, fontSize: 8.5, fontWeight: 700, cursor: 'help', verticalAlign: 'middle' }}>
+                          ?
+                        </span>
+                      </th>
+                      {/* Remplissage de « Commentaires LM » a « Revenue » : colonnes 4 a 12
+                          dans les DEUX angles. Il valait 9 (ou 7) et laissait la rangee UNE cellule plus
+                          courte que le corps du tableau — sans effet visible, le navigateur
+                          completant en silence, mais toute colonne ajoutee decalait
+                          l'intertitre sans que rien ne le signale. */}
+                      <th colSpan={9} style={{ ...thP, ...filet, borderBottom: 'none' }} />
+                      {/* L'all-time chapeaute les DEUX colonnes d'un coup, plutot qu'une
+                          mention repetee sous chaque en-tete : c'est la meme information
+                          pour les deux, et le motif existe deja au-dessus. */}
+                      {parContenu && (
+                        <th colSpan={2} style={{ ...thP, ...filet, textAlign: 'center', color: 'var(--muted)', borderBottom: 'none', paddingBottom: 2 }}>
+                          <span title={"Ces deux colonnes sont en ALL-TIME : elles portent sur toute la vie du contenu depuis sa publication, et ne changent donc pas quand vous changez de période.\n\nC'est voulu : les vues d'un contenu sont cumulatives, un post de juin en gagne encore aujourd'hui. Les diviser par les rendez-vous d'une seule semaine comparerait un total à un extrait, et le chiffre bougerait sans que le contenu ait rien fait de différent."} style={{ cursor: 'help' }}>
+                            All-time &mdash; toute la vie du contenu
+                          </span>
+                        </th>
+                      )}
                     </tr>
                   )}
                   <tr>
@@ -8610,20 +8685,25 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     {estYT
                       ? <th style={{ ...thP, ...filet }}><EnteteColonne nom="clicLien">Clics desc.</EnteteColonne></th>
                       : <>
-                          <th style={thP}><EnteteColonne nom="leadsGeneres">Commentaires LM</EnteteColonne></th>
+                          {/* Le groupe hors chaine passe AVANT la chaine, pour que celle-ci
+                              se lise d'un trait : Commentaires LM -> Conversations ->
+                              Calendly envoyes -> Clics Calendly -> Calls bookes. Place au
+                              milieu, il coupait la lecture a l'endroit meme ou l'oeil
+                              cherche la marche suivante. */}
                           <th style={{ ...thP, ...filet }}><EnteteColonne nom="clicLeadMagnet">LM réclamés</EnteteColonne></th>
                           <th style={thP}><EnteteColonne nom="clicLeadMagnet">Clics LM</EnteteColonne></th>
-                          <th style={{ ...thP, ...filet }}><EnteteColonne nom="conversationDm">Conversations</EnteteColonne></th>
+                          <th style={{ ...thP, ...filet }}><EnteteColonne nom="leadsGeneres">Commentaires LM</EnteteColonne></th>
+                          <th style={thP}><EnteteColonne nom="conversationDm">Conversations</EnteteColonne></th>
                           <th style={thP}><EnteteColonne nom="calendlyEnvoye">Calendly envoyés</EnteteColonne></th>
                           <th style={thP}><EnteteColonne nom="clicLien">Clics Calendly</EnteteColonne></th>
                         </>}
-                    <th style={estYT ? { ...thP, ...filet } : thP}><EnteteColonne nom="callBooke">Calls bookés</EnteteColonne></th>
-                    <th style={thP}><EnteteColonne nom="callHonore">Calls honorés</EnteteColonne></th>
+                    <th style={thP}><EnteteColonne nom="callBooke">Calls bookés</EnteteColonne><AideColonne texte={AIDE_CALLS_BOOKES} /></th>
+                    <th style={thP}><EnteteColonne nom="callHonore">Calls honorés</EnteteColonne><AideColonne texte={AIDE_CALLS_HONORES} /></th>
                     <th style={thP}><EnteteColonne nom="callQualifie">% qualifiés</EnteteColonne></th>
-                    <th style={thP}><EnteteColonne nom="close">Closés</EnteteColonne></th>
-                    <th style={thP}><EnteteColonne nom="revenue">Revenue</EnteteColonne></th>
-                    {parContenu && <th style={{ ...thP, ...filet }}>Vues / call<span style={{ display: 'block', fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--faint)', fontSize: 9 }}>depuis publication</span></th>}
-                    {parContenu && <th style={thP}>Cash / vue<span style={{ display: 'block', fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--faint)', fontSize: 9 }}>depuis publication</span></th>}
+                    <th style={thP}><EnteteColonne nom="close">Closés</EnteteColonne><AideColonne texte={AIDE_CLOSES_PARCOURS} /></th>
+                    <th style={thP}><EnteteColonne nom="revenue">Revenue</EnteteColonne><AideColonne texte={AIDE_REVENUE_PARCOURS} /></th>
+                    {parContenu && <th style={{ ...thP, ...filet }}>Vues / call</th>}
+                    {parContenu && <th style={thP}>Cash / vue</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -8650,24 +8730,35 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                       {estYT
                         ? <td style={{ ...tdP, ...filet }}><CelluleP n={info.clicsDesc} /></td>
                         : <>
-                            <td style={tdP}><CelluleP n={l.commentairesLm} /></td>
-                            <td style={{ ...tdP, ...filet }}>
-                        {lmReclameCouvre
-                          ? <CelluleP n={l.lmReclames} sur={l.commentairesLm} />
-                          : <>
-                              <span style={{ color: 'var(--faint)' }} title={lmReclameNote}>&mdash;</span>
-                              <span style={{ display: 'block', fontSize: 9, color: 'var(--faint)', marginTop: 1 }}>non mesuré</span>
-                            </>}
-                      </td>
-                            <td style={tdP}><CelluleP n={l.clicsLm} sur={l.commentairesLm} /></td>
-                            <td style={{ ...tdP, ...filet }}><CelluleP n={l.ontRepondu} sur={l.commentairesLm} /></td>
+                           <td style={{ ...tdP, ...filet }}>
+                             {lmReclameCouvre
+                               ? <CelluleP n={l.lmReclames} sur={l.commentairesLm} />
+                               : <>
+                                   <span style={{ color: 'var(--faint)' }} title={lmReclameNote}>&mdash;</span>
+                                   <span style={{ display: 'block', fontSize: 9, color: 'var(--faint)', marginTop: 1 }}>non mesuré</span>
+                                 </>}
+                           </td>
+                           <td style={tdP}><CelluleP n={l.clicsLm} sur={l.commentairesLm} /></td>
+                           <td style={{ ...tdP, ...filet }}><CelluleP n={l.commentairesLm} /></td>
+                           <td style={tdP}><CelluleP n={l.ontRepondu} sur={l.commentairesLm} /></td>
                             <td style={tdP}><CelluleP n={l.calendlyEnvoyes} sur={l.ontRepondu} /></td>
                             <td style={tdP}><CelluleP n={l.clicsCalendly} sur={l.calendlyEnvoyes} /></td>
                           </>}
-                      {/* Sur YouTube, aucun taux entre le clic et la réservation : Short.io
-                          compte des clics anonymes, la chaîne compte des personnes. Les
-                          comparer produirait un pourcentage qui ne veut rien dire. */}
-                      <td style={estYT ? { ...tdP, ...filet } : tdP}><CelluleP n={l.callsBookes} sur={estYT ? undefined : l.clicsCalendly} /></td>
+                      {/* Sur YouTube le taux clics -> réservations EST affiché, et la barre
+                          qui séparait les deux colonnes a disparu.
+
+                          L'objection d'origine — Short.io compte des clics anonymes, la
+                          chaîne compte des personnes — reste vraie mais ne justifie pas de
+                          cacher le rapport : le verrou d'accès impose que les sept
+                          intégrations soient connectées avant que l'élève entre, donc les
+                          clics et les rendez-vous couvrent la MÊME fenêtre par
+                          construction (`integrations_ready_at`).
+
+                          Ce qui peut encore faire dépasser 100 % n'est pas un décalage de
+                          fenêtre mais le filtre à robots de Short.io, qui retire un clic
+                          sans retirer le rendez-vous qu'il a produit. `CelluleP` le signale
+                          au lieu de le féliciter en vert. */}
+                      <td style={tdP}><CelluleP n={l.callsBookes} sur={estYT ? info.clicsDesc : l.clicsCalendly} /></td>
                       <td style={tdP}><CelluleP n={l.callsHonores} sur={l.callsBookes} /></td>
                       <td style={{ ...tdP, fontSize: 11 }}>
                         {l.qualifies.renseignes > 0 ? (
@@ -8715,6 +8806,16 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         <SectionHead
           title="Ce que fait chaque contenu"
           sub={`${consolidatedRows.filter(aDeLActivite).length} contenus avec activité sur ${consolidatedRows.length}`}
+          action={
+            <div style={{ display: 'inline-flex', gap: 3, background: 'var(--surface-2)', borderRadius: 7, padding: 3 }}>
+              {([['all', 'Tous'], ['IG', 'Instagram'], ['YT', 'YouTube']] as const).map(([v, label]) => (
+                <button key={v} onClick={() => setFilterPlatform(v)}
+                  style={{ fontSize: 11.5, fontWeight: 600, border: 'none', cursor: 'pointer', borderRadius: 5, padding: '5px 13px', background: filterPlatform === v ? 'var(--surface)' : 'transparent', color: filterPlatform === v ? 'var(--ink)' : 'var(--faint)' }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          }
           cleAide="roles"
           aide={<>
             <div><b>À quoi sert ce tableau.</b> Il répond à la question : qu&apos;est-ce que ce contenu a produit ? Pas pour les gens qu&apos;il a fait entrer, mais au total — y compris pour des personnes arrivées par ailleurs.</div>
@@ -8728,15 +8829,11 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 
         {/* Barre de filtres */}
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14, paddingBottom: 14, borderBottom: '1px solid var(--border)' }}>
-          {/* Zone 1 : plateforme */}
-          <div style={{ display: 'flex', gap: 3, background: 'var(--surface-2)', borderRadius: 7, padding: 3 }}>
-            {(['all', 'IG', 'YT'] as const).map(p => (
-              <button key={p} onClick={() => setFilterPlatform(p)} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 5, cursor: 'pointer', border: 'none', background: filterPlatform === p ? 'var(--surface)' : 'transparent', color: filterPlatform === p ? 'var(--ink)' : 'var(--faint)', transition: 'all .15s' }}>
-                {p === 'all' ? 'Tous' : p}
-              </button>
-            ))}
-          </div>
-          {/* Zone 2 : "au moins 1" — 2 lignes */}
+          {/* La plateforme est remontee en tete de section : c'est le filtre le plus
+              LARGE, il ne se choisit pas au meme moment que les autres. Il regagne au
+              passage la place d'ecrire « Instagram » et « YouTube » en toutes lettres,
+              plutot que deux sigles, et rend sa largeur aux filtres qui restent. */}
+          {/* Zone 1 : "au moins 1" — 2 lignes */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
             {([

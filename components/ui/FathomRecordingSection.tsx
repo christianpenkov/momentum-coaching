@@ -112,7 +112,29 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
   // l'IA sur son propre compte. Null tant qu'on ne sait pas : on garde celui du
   // call, qui reste valable pour tout le monde.
   const [shareUrlPropre, setShareUrlPropre] = useState<string | null>(null);
+  // La première image est-elle décodée et prête à l'écran ?
+  //
+  // Le lecteur met encore 2 à 3 s après l'arrivée de l'URL : il doit ouvrir une
+  // connexion vers le stockage, lire les métadonnées, se placer sur l'image du
+  // fragment `#t=0.1`, puis la décoder. Sans ce drapeau, l'utilisateur voit le
+  // squelette laisser place à un rectangle NOIR pendant ce temps-là, et l'image
+  // n'apparaître qu'après — ce qui se lit comme un deuxième chargement.
+  //
+  // On garde donc le squelette PAR-DESSUS le lecteur jusqu'à cette image. Le
+  // lecteur et son image apparaissent alors ensemble, sans étape noire.
+  const [imagePrete, setImagePrete] = useState(false);
   const tenteLectureIntegree = !!inlineVideo && !!callId && !!shareUrl;
+
+  // Filet de sécurité : si l'image n'arrive jamais (codec exotique, réseau qui
+  // s'écroule, événement avalé), on découvre le lecteur au bout de 4 s. Mieux
+  // vaut un rectangle noir avec des commandes utilisables qu'un squelette
+  // éternel sur une vidéo qui, elle, est peut-être parfaitement lisible.
+  useEffect(() => {
+    if (!videoUrl) return;
+    setImagePrete(false);
+    const t = setTimeout(() => setImagePrete(true), 4000);
+    return () => clearTimeout(t);
+  }, [videoUrl]);
 
   useEffect(() => {
     if (!tenteLectureIntegree) return;
@@ -205,34 +227,54 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
       {shareUrl && (
         <div style={{ marginBottom: 16 }}>
           {videoState === 'ready' && videoUrl ? (
-            <video
-              // `#t=0.1` — fragment de média : « commence à 0,1 s ». C'est ce qui
-              // fait apparaître une image d'aperçu avant le premier appui.
-              //
-              // POURQUOI : `preload="metadata"` ne charge que la durée et les
-              // dimensions. Les navigateurs de bureau peignent quand même la
-              // première image ; iOS non, et laisse un rectangle noir. Le
-              // fragment force le navigateur à se placer sur cette image-là,
-              // donc à la décoder et à l'afficher.
-              //
-              // Le coût est d'une requête de plage (le serveur de Fathom les
-              // accepte, HTTP 206), pas du fichier entier — `preload="auto"`
-              // aurait aussi marché mais en téléchargeant ~3,9 Mo par minute de
-              // call sur le forfait mobile de l'élève.
-              //
-              // Le fragment se place APRÈS les paramètres de l'URL signée sans
-              // la casser : un `#…` n'est jamais envoyé au serveur. Ne pas le
-              // transformer en paramètre de requête, ça invaliderait la signature.
-              //
-              // Fathom ne fournit aucune miniature (vérifié sur /meetings et sur
-              // /recordings/{id}/download) : sans ce fragment il n'y a pas
-              // d'aperçu du tout.
-              src={`${videoUrl}#t=0.1`}
-              controls
-              playsInline
-              preload="metadata"
-              style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 10, background: '#000', display: 'block' }}
-            />
+            // Le squelette est POSÉ SUR le lecteur, pas mis à sa place : le
+            // lecteur doit charger et décoder pendant qu'il est encore couvert.
+            // Le masquer avec `visibility` ou `display` risquerait au contraire
+            // de faire dépriorriser son chargement par le navigateur.
+            <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9' }}>
+              <video
+                // `#t=0.1` — fragment de média : « commence à 0,1 s ». C'est ce qui
+                // fait apparaître une image d'aperçu avant le premier appui.
+                //
+                // POURQUOI : `preload="metadata"` ne charge que la durée et les
+                // dimensions. Les navigateurs de bureau peignent quand même la
+                // première image ; iOS non, et laisse un rectangle noir. Le
+                // fragment force le navigateur à se placer sur cette image-là,
+                // donc à la décoder et à l'afficher.
+                //
+                // Le coût est d'une requête de plage (le serveur de Fathom les
+                // accepte, HTTP 206), pas du fichier entier — `preload="auto"`
+                // aurait aussi marché mais en téléchargeant ~3,9 Mo par minute de
+                // call sur le forfait mobile de l'élève.
+                //
+                // Le fragment se place APRÈS les paramètres de l'URL signée sans
+                // la casser : un `#…` n'est jamais envoyé au serveur. Ne pas le
+                // transformer en paramètre de requête, ça invaliderait la signature.
+                //
+                // Fathom ne fournit aucune miniature (vérifié sur /meetings et sur
+                // /recordings/{id}/download) : sans ce fragment il n'y a pas
+                // d'aperçu du tout.
+                src={`${videoUrl}#t=0.1`}
+                controls
+                playsInline
+                preload="metadata"
+                // `loadeddata` = l'image de la position courante est décodée, donc
+                // exactement celle du fragment. `seeked` sert de doublure au cas où
+                // l'ordre des deux varie selon le navigateur : le premier arrivé
+                // découvre le lecteur, le second ne fait rien.
+                onLoadedData={() => setImagePrete(true)}
+                onSeeked={() => setImagePrete(true)}
+                // En cas d'échec on découvre aussi : la balise affichera son propre
+                // état, ce que le squelette masquerait indéfiniment.
+                onError={() => setImagePrete(true)}
+                style={{ width: '100%', height: '100%', borderRadius: 10, background: '#000', display: 'block' }}
+              />
+              {!imagePrete && (
+                <div style={{ position: 'absolute', inset: 0 }}>
+                  <Skeleton width="100%" height="100%" radius={10} />
+                </div>
+              )}
+            </div>
           ) : tenteLectureIntegree && videoState !== 'failed' ? (
             // Squelette aux dimensions du lecteur, jamais le bouton « Voir
             // l'enregistrement » : pendant la génération il n'ouvrirait pas ce
