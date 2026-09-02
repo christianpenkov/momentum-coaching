@@ -56,11 +56,12 @@ interface Props {
   onEditRapport?: () => void;
   fathomData: FathomData;
   /**
-   * Lecture de l'enregistrement dans la page sur mobile, au lieu d'un lien vers
-   * Fathom. En opt-in : première mise en service limitée aux pages Calls, la
-   * fiche client garde le lien tant que ce n'est pas éprouvé.
+   * Lecture de l'enregistrement dans la page (lecteur natif) au lieu de l'iframe
+   * Fathom sur desktop et du lien sortant sur mobile. En opt-in : mise en service
+   * limitée aux pages Calls, la fiche client garde le comportement d'origine tant
+   * que ce n'est pas éprouvé.
    */
-  inlineVideoOnMobile?: boolean;
+  inlineVideo?: boolean;
   onClose: () => void;
 }
 
@@ -104,7 +105,7 @@ function formatDate(dateStr: string, tz: string) {
 // ce qui existe déjà (rapport rempli + infos Fathom) sans jamais réutiliser
 // SessionRapportModal/RapportModal, qui sont des flux de saisie, pas de lecture.
 export default function CallInfosModal({
-  counterpartName, scheduledAt, attended, topic, topicCustom, notes, studentNotes, leadComment, outcome, objection, objectionAutre, relanceAt, editableNotes, onEditRapport, fathomData, inlineVideoOnMobile, onClose,
+  counterpartName, scheduledAt, attended, topic, topicCustom, notes, studentNotes, leadComment, outcome, objection, objectionAutre, relanceAt, editableNotes, onEditRapport, fathomData, inlineVideo, onClose,
 }: Props) {
   const { user } = useUser();
   const viewerTz = useViewerTimeZone();
@@ -140,7 +141,7 @@ export default function CallInfosModal({
           callId={fathomData.callId ?? null}
           hasTranscript={fathomData.hasTranscript}
           currentUserEmail={user?.email ?? null}
-          inlineVideoOnMobile={inlineVideoOnMobile}
+          inlineVideo={inlineVideo}
         />
 
         {hasReport && (

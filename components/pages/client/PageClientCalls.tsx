@@ -883,7 +883,7 @@ export default function PageClientCalls() {
       {infosModalCall && (
         <CallInfosModal
           // Voir PageCalls (coach) : opt-in limité aux pages Calls.
-          inlineVideoOnMobile
+          inlineVideo
           counterpartName={infosModalCall.invitee_name}
           scheduledAt={infosModalCall.scheduled_at}
           // Présence et thème sont partagés avec l'élève (la modale du coach le lui

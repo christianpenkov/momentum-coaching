@@ -657,10 +657,10 @@ export default function PageCalls() {
           : null;
         return (
           <CallInfosModal
-            // Mise en service limitée aux pages Calls : sur mobile la vidéo se lit
-            // dans la page au lieu d'ouvrir Fathom. La fiche client garde le lien
-            // tant que ce n'est pas éprouvé en usage réel.
-            inlineVideoOnMobile
+            // Mise en service limitée aux pages Calls : la vidéo se lit dans la
+            // page, lecteur natif, sur mobile comme sur desktop. La fiche client
+            // garde le comportement d'origine tant que ce n'est pas éprouvé.
+            inlineVideo
             counterpartName={infosModalCall.clientName}
             scheduledAt={call.scheduled_at}
             attended={report ? report.attended : (call.outcome != null ? call.outcome !== 'no_show' : undefined)}

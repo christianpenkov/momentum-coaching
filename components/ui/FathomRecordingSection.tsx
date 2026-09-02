@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Icon from '@/components/ui/Icon';
+import { Skeleton } from '@/components/ui/Skeleton';
 
 interface Props {
   shareUrl: string | null;
@@ -20,14 +21,14 @@ interface Props {
   callId?: string | null;
   hasTranscript?: boolean;
   /**
-   * Autorise la lecture intégrée sur mobile, via le MP4 servi par l'API Fathom
-   * plutôt que par l'iframe du lecteur (qui fait planter WebKit, voir plus bas).
+   * Lit l'enregistrement dans la page via le MP4 servi par l'API Fathom, plutôt
+   * que par l'iframe du lecteur — sur mobile ET sur desktop.
    *
-   * Volontairement en OPT-IN et non activé partout : première mise en service
-   * limitée à la modale Infos des pages Calls. Sans ce drapeau, le comportement
-   * reste strictement celui d'avant — un lien vers Fathom.
+   * Volontairement en OPT-IN : mise en service limitée à la modale Infos des
+   * pages Calls. Sans ce drapeau, le comportement reste celui d'avant (iframe
+   * sur desktop, lien sur mobile).
    */
-  inlineVideoOnMobile?: boolean;
+  inlineVideo?: boolean;
 }
 
 function parseActionItems(raw: unknown): string[] {
@@ -89,19 +90,23 @@ function isMobile(): boolean {
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
 
-export default function FathomRecordingSection({ shareUrl, summary, actionItems, transcript, currentUserEmail, callId, hasTranscript, inlineVideoOnMobile }: Props) {
+export default function FathomRecordingSection({ shareUrl, summary, actionItems, transcript, currentUserEmail, callId, hasTranscript, inlineVideo }: Props) {
   const [showTranscript, setShowTranscript] = useState(false);
   const [onMobile] = useState(isMobile);
 
-  // Lecture intégrée sur mobile : on demande à Fathom un MP4 et on le joue dans
-  // une balise <video> native. Le lecteur Fathom n'est jamais chargé, donc le
-  // crash WebKit ne peut pas se produire.
+  // On demande à Fathom un MP4 et on le joue dans une balise <video> native, au
+  // lieu de charger son lecteur en iframe.
   //
-  // Mesuré sur une captation de 30 min : 10 s la première fois, 0,4 s ensuite
-  // (Fathom garde le fichier ~24 h), 16,3 Mo, lecture en flux dès le début.
+  // Sur mobile c'est ce qui règle le crash WebKit (le lecteur n'est jamais
+  // chargé). Sur desktop l'iframe fonctionnait, mais le lecteur natif donne la
+  // même vidéo sans dépendre d'un tiers dans la page.
+  //
+  // Mesuré sur deux captations réelles : 10 s à la première demande, 0,4 s
+  // ensuite (Fathom garde le fichier ~24 h), ~3,9 Mo par minute en 720p, lecture
+  // en flux dès le début.
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoState, setVideoState] = useState<'idle' | 'loading' | 'ready' | 'failed'>('idle');
-  const tenteLectureIntegree = onMobile && !!inlineVideoOnMobile && !!callId && !!shareUrl;
+  const tenteLectureIntegree = !!inlineVideo && !!callId && !!shareUrl;
 
   useEffect(() => {
     if (!tenteLectureIntegree) return;
@@ -181,37 +186,35 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
     <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid var(--border)' }}>
       {shareUrl && (
         <div style={{ marginBottom: 16 }}>
-          {onMobile ? (
-            // Le MP4 quand il est prêt, le lien Fathom sinon — pendant la
-            // génération comme en cas d'échec. Le repli n'est jamais un cul-de-sac.
-            videoState === 'ready' && videoUrl ? (
-              <video
-                src={videoUrl}
-                controls
-                playsInline
-                preload="metadata"
-                poster={undefined}
-                style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 10, background: '#000', display: 'block' }}
-              />
-            ) : (
-              <div>
-                <a
-                  href={shareUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-primary-brand"
-                  style={{ fontSize: 13, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}
-                >
-                  <Icon name="video" size={15} /> Voir l'enregistrement
-                </a>
-                {videoState === 'loading' && (
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
-                    Préparation de la vidéo…
-                  </div>
-                )}
-              </div>
-            )
+          {videoState === 'ready' && videoUrl ? (
+            <video
+              src={videoUrl}
+              controls
+              playsInline
+              preload="metadata"
+              style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 10, background: '#000', display: 'block' }}
+            />
+          ) : tenteLectureIntegree && videoState !== 'failed' ? (
+            // Squelette aux dimensions du lecteur, jamais le bouton « Voir
+            // l'enregistrement » : pendant la génération il n'ouvrirait pas ce
+            // qu'on est en train de préparer, et il disparaîtrait sous le doigt
+            // dès la vidéo prête. La forme annonce ce qui arrive, à la place
+            // exacte où ça arrivera.
+            <Skeleton width="100%" height="auto" radius={10} style={{ aspectRatio: '16 / 9' }} />
+          ) : onMobile ? (
+            // Repli mobile : le lecteur Fathom en iframe fait planter WebKit
+            // (voir plus haut), donc un lien vers le navigateur système.
+            <a
+              href={shareUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-primary-brand"
+              style={{ fontSize: 13, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}
+            >
+              <Icon name="video" size={15} /> Voir l'enregistrement
+            </a>
           ) : (
+            // Repli desktop : l'iframe Fathom, qui n'y a jamais posé problème.
             <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 10, overflow: 'hidden', background: 'var(--surface-2)' }}>
               <iframe
                 src={toEmbedUrl(shareUrl)}
