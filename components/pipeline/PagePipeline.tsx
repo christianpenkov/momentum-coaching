@@ -1080,6 +1080,47 @@ function contexteCarte(card: CardData): string {
   return 'aucun signal';
 }
 
+// ── L'ÉTAT D'ÉCRAN, ENTRE DEUX NAVIGATIONS ────────────────────────────────────
+//
+// Ce qu'on veut : aller voir Paiements puis revenir, et retrouver le pipeline
+// exactement comme on l'avait laissé — même vue, même plateforme, mêmes filtres.
+// Mais RECHARGER la page doit tout remettre à zéro et rouvrir sur le board.
+//
+// Ni `localStorage` ni `sessionStorage` ne font ça : les deux survivent au
+// rechargement. Ce qui a exactement la bonne durée de vie, c'est une variable de
+// MODULE — elle vit tant que le bundle JavaScript est chargé, donc le temps d'une
+// session de navigation, et repart à zéro dès qu'on recharge.
+//
+// Pourquoi c'est sûr malgré le rendu côté serveur : rien n'écrit ici pendant un
+// rendu, l'écriture se fait dans un effet, et les effets ne s'exécutent pas sur
+// le serveur. L'objet y reste donc à ses valeurs par défaut, identiques pour
+// tout le monde. Et au moment où le serveur rend la page — c'est-à-dire à un
+// chargement complet — le client vient justement de repartir de ces mêmes
+// valeurs : les deux rendus concordent, aucune divergence d'hydratation.
+// Une navigation interne, elle, ne passe pas par le serveur du tout.
+
+type EtatEcran = {
+  vue: 'board' | 'liste';
+  tab: 'ig' | 'yt' | 'other';
+  caseIsolee: string | null;
+  filtreRapport: boolean;
+  filterCanceled: boolean;
+  filterRescheduled: boolean;
+  filtresReglables: EtatsFiltres;
+};
+
+const ETAT_ECRAN_NEUF: EtatEcran = {
+  vue: 'board',
+  tab: 'ig',
+  caseIsolee: null,
+  filtreRapport: false,
+  filterCanceled: false,
+  filterRescheduled: false,
+  filtresReglables: FILTRES_VIDES,
+};
+
+const etatEcran: EtatEcran = { ...ETAT_ECRAN_NEUF };
+
 // ── BandeauDoublon ────────────────────────────────────────────────────────────
 //
 // Une même personne peut occuper deux fiches : une Instagram (elle a commenté)
@@ -2362,7 +2403,7 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export default function PagePipeline() {
-  const [tab, setTab] = useState<'ig' | 'yt' | 'other'>('ig');
+  const [tab, setTab] = useState<'ig' | 'yt' | 'other'>(etatEcran.tab);
   const [overrides, setOverrides] = useState<Override[]>([]);
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -2389,7 +2430,7 @@ export default function PagePipeline() {
   // La préférence n'est donc ni écrite ni relue. Une vieille valeur
   // `pipeline-vue` peut traîner dans le stockage de quelqu'un ; elle est
   // simplement ignorée, la nettoyer ne vaut pas une ligne de code.
-  const [vue, setVue] = useState<'board' | 'liste'>('board');
+  const [vue, setVue] = useState<'board' | 'liste'>(etatEcran.vue);
 
   // Les colonnes repliées du board. Conservées d'une visite à l'autre : replier
   // « Commentaire LM » et ses 412 fiches pour dégager la vue n'aurait aucun
@@ -2402,7 +2443,7 @@ export default function PagePipeline() {
   const [colonnesRepliees, setColonnesRepliees] = useState<Set<string>>(new Set(REPLI_PAR_DEFAUT));
 
   // La case isolée par les boutons d'étapes, en vue liste. `null` = tout.
-  const [caseIsolee, setCaseIsolee] = useState<string | null>(null);
+  const [caseIsolee, setCaseIsolee] = useState<string | null>(etatEcran.caseIsolee);
 
   // La tuile d'issue dépliée dans le board. Une seule à la fois : les issues
   // accumulent tout l'historique, les ouvrir toutes noierait l'entonnoir.
@@ -2412,7 +2453,7 @@ export default function PagePipeline() {
   const [panneauIssue, setPanneauIssue] = useState<string | null>(null);
 
   const [tri, setTri] = useState<TriKey>('immobile');
-  const [filtreRapport, setFiltreRapport] = useState(false);
+  const [filtreRapport, setFiltreRapport] = useState(etatEcran.filtreRapport);
 
   // ── LA VUE PRÉFÉRÉE SE LIT AVANT LA PREMIÈRE PEINTURE ──────────────────────
   //
@@ -2436,16 +2477,28 @@ export default function PagePipeline() {
       if (r) setColonnesRepliees(new Set(JSON.parse(r) as string[]));
     } catch { /* navigation privée, cookies bloqués : le repli par défaut suffit */ }
   }, []);
-  // Pas d'écriture en stockage : la vue ne se retient pas d'une visite à l'autre,
-  // elle vaut pour celle-ci seulement.
   const changerVue = (v: 'board' | 'liste') => setVue(v);
-  const [filterCanceled, setFilterCanceled] = useState(false);
-  const [filterRescheduled, setFilterRescheduled] = useState(false);
+
+  const [filterCanceled, setFilterCanceled] = useState(etatEcran.filterCanceled);
+  const [filterRescheduled, setFilterRescheduled] = useState(etatEcran.filterRescheduled);
 
   // Les quatre filtres réglables. Leur réglage vit dans le bouton lui-même —
   // voir components/pipeline/PipelineFilters.tsx pour le geste, qui diffère
   // entre l'ordinateur et le téléphone.
-  const [filtresReglables, setFiltresReglables] = useState<EtatsFiltres>(FILTRES_VIDES);
+  const [filtresReglables, setFiltresReglables] = useState<EtatsFiltres>(etatEcran.filtresReglables);
+  // ── ON RECOPIE L'ÉTAT D'ÉCRAN À CHAQUE CHANGEMENT ──────────────────────────
+  // Un seul effet plutôt que sept setters enveloppés : impossible d'en oublier
+  // un, et impossible qu'un chemin d'écriture diverge d'un autre. Ce n'est pas de
+  // la persistance, c'est une mémoire de session — voir `etatEcran`.
+  useEffect(() => {
+    etatEcran.vue = vue;
+    etatEcran.tab = tab;
+    etatEcran.caseIsolee = caseIsolee;
+    etatEcran.filtreRapport = filtreRapport;
+    etatEcran.filterCanceled = filterCanceled;
+    etatEcran.filterRescheduled = filterRescheduled;
+    etatEcran.filtresReglables = filtresReglables;
+  }, [vue, tab, caseIsolee, filtreRapport, filterCanceled, filterRescheduled, filtresReglables]);
   const changerFiltre = useCallback((key: FiltreKey, e: EtatFiltre) => {
     setFiltresReglables(prev => ({ ...prev, [key]: e }));
   }, []);
