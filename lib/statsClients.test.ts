@@ -19,6 +19,8 @@ import {
   versCsv,
   cellule,
   nomFichierCsv,
+  ecartEnJours,
+  libelleFraicheur,
   type LigneEleve,
 } from './statsClients.ts';
 
@@ -432,4 +434,44 @@ test('un tableau vide produit quand même son en-tête', () => {
 test('le nom du fichier porte la période, pour ne pas confondre deux exports', () => {
   const n = nomFichierCsv(new Date('2026-08-01T00:00:00Z'), new Date('2026-08-31T00:00:00Z'));
   assert.equal(n, 'momentum-eleves_2026-08-01_2026-08-31.csv');
+});
+
+/* ═══ Dater la page ═══════════════════════════════════════════════════════ */
+
+test("l'écart se compte en jours CALENDAIRES, pas en heures divisées par 24", () => {
+  assert.equal(ecartEnJours('2026-08-31', '2026-09-02'), 2);
+  assert.equal(ecartEnJours('2026-09-02', '2026-09-02'), 0);
+  assert.equal(ecartEnJours('2026-09-01', '2026-09-02'), 1);
+  // Le cas qui a produit le bug : le 31 août lu le 2 septembre, c'est 2 jours.
+  // L'ancienne version rendait 1 l'après-midi et 2 le soir, pour la même donnée.
+  assert.equal(ecartEnJours('2026-12-31', '2027-01-01'), 1, 'un changement d’année reste un jour');
+});
+
+test("le passage à l'heure d'hiver ne fabrique pas un jour de plus", () => {
+  // Le 25 octobre 2026 fait 25 heures à Paris. Un calcul en millisecondes divisé par
+  // 86 400 000 rendrait 0,96 jour, donc 0 après troncature.
+  assert.equal(ecartEnJours('2026-10-25', '2026-10-26'), 1);
+  assert.equal(ecartEnJours('2026-03-29', '2026-03-30'), 1, 'et l’heure d’été non plus');
+});
+
+test('une date illisible rend null plutôt qu’un nombre faux', () => {
+  assert.equal(ecartEnJours('pas une date', '2026-09-02'), null);
+  assert.equal(ecartEnJours('2026-09-02', ''), null);
+  assert.equal(libelleFraicheur('n’importe quoi', '2026-09-02'), null);
+});
+
+test('le libellé de fraîcheur dit ce que le coach lit', () => {
+  assert.equal(libelleFraicheur('2026-09-02', '2026-09-02'), "aujourd'hui");
+  assert.equal(libelleFraicheur('2026-09-01', '2026-09-02'), 'hier');
+  assert.equal(libelleFraicheur('2026-08-31', '2026-09-02'), 'il y a 2 j');
+  assert.equal(libelleFraicheur('2026-08-20', '2026-09-02'), 'il y a 13 j');
+});
+
+test('sans dernier jour connu, aucun libellé — on n’invente pas une date', () => {
+  assert.equal(libelleFraicheur(null, '2026-09-02'), null);
+  assert.equal(libelleFraicheur(undefined, '2026-09-02'), null);
+});
+
+test('une date future rend « aujourd’hui » plutôt qu’un écart négatif', () => {
+  assert.equal(libelleFraicheur('2026-09-05', '2026-09-02'), "aujourd'hui");
 });

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { createClient as createSupabase } from '@/lib/supabase/client';
 import { resolveUser } from '@/lib/waitForSession';
-import { getPeriodWindow } from '@/lib/period';
+import { getPeriodWindow, parisDateStr } from '@/lib/period';
 import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import { calculerCash, type LignePaiement } from '@/lib/dealCash';
 import { fetchLignesLeadsBatch, compterLeads, type LignesLeads, type LigneCallLead } from '@/lib/salesCallStats';
@@ -24,7 +24,7 @@ import {
   trierLignes, filtrerLignes, formaterValeur, formaterVariation, tauxCollecte,
   JOURS_MINIMUM_TRAJECTOIRE, repartirParFenetre,
   type Metrique, type CritereTri, type LigneEleve, type EtatEleve,
-  versCsv, nomFichierCsv,
+  versCsv, nomFichierCsv, libelleFraicheur,
 } from '@/lib/statsClients';
 
 /* Stats Clients — la vue portefeuille du coach.
@@ -709,11 +709,26 @@ export default function PageStatsClients() {
       if (pire === null || d < pire) pire = d;
     }
     if (!pire) return null;
-    const jours = Math.floor((Date.now() - new Date(pire + 'T12:00:00Z').getTime()) / 86_400_000);
-    if (jours <= 0) return "aujourd'hui";
-    if (jours === 1) return 'hier';
-    return `il y a ${jours} j`;
+    /* ⚠️ La date du jour est la date PARISIENNE, et l'écart se compte en jours
+     * calendaires. La version précédente divisait un écart en millisecondes par
+     * 86 400 000 depuis midi UTC : le résultat dépendait donc de l'HEURE à laquelle on
+     * ouvrait la page, et la même donnée s'affichait « aujourd'hui » le matin puis
+     * « hier » l'après-midi. Constaté le 2026-09-02 — la page annonçait « hier » pour
+     * une donnée du 31 août, soit deux jours. */
+    return libelleFraicheur(pire, parisDateStr(new Date()));
   }, [data]);
+
+  /* Le bandeau propose d'aller voir un élève dans le tableau. Sans cette ancre, le clic
+   * remplissait bien la recherche mais ne déplaçait rien : le tableau est tout en bas de
+   * la page, donc à l'écran il ne se passait rien du tout. Un bouton qui ne fait rien de
+   * visible est pire qu'une absence de bouton. */
+  const ancreTableau = useRef<HTMLDivElement>(null);
+  function montrerDansLeTableau(nom: string) {
+    setRecherche(nom);
+    const reduit = typeof window !== 'undefined'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    ancreTableau.current?.scrollIntoView({ behavior: reduit ? 'auto' : 'smooth', block: 'start' });
+  }
 
   const enInstallation = lignes.filter(l => l.etat === 'installation').length;
   const actifs = lignes.length - enInstallation;
@@ -787,7 +802,7 @@ export default function PageStatsClients() {
             <BandeauIntegrations
               casses={data.integrationsCassees}
               jamais={data.jamaisCollectes}
-              onVoir={nom => setRecherche(nom)}
+              onVoir={montrerDansLeTableau}
             />
           )}
 
@@ -873,6 +888,7 @@ export default function PageStatsClients() {
             <Legende lignes={lignes} epingle={epingle} setEpingle={setEpingle} />
           </div>
 
+          <div ref={ancreTableau} style={{ scrollMarginTop: 16 }} />
           <CarteTableau
             lignes={lignesAffichees}
             total={lignes.length}
@@ -927,25 +943,40 @@ function BandeauIntegrations({ casses, jamais, onVoir }: {
   jamais: { profileId: string; nom: string }[];
   onVoir: (nom: string) => void;
 }) {
+  /* ⚠️ Le bandeau NOMME les élèves. La première version disait « 1 élève est déclaré
+   * prêt mais n'a jamais rien remonté » : du vocabulaire interne (« déclaré prêt » ne
+   * veut rien dire pour un coach), aucun nom, et donc rien à faire de l'information.
+   * Un avertissement qu'on ne peut pas relier à quelqu'un est un avertissement qu'on
+   * apprend à ignorer. */
+  const nommer = (l: { nom: string }[]) => {
+    const noms = l.map(x => x.nom);
+    if (noms.length <= 3) return noms.join(', ');
+    return `${noms.slice(0, 3).join(', ')} et ${noms.length - 3} autre${noms.length - 3 > 1 ? 's' : ''}`;
+  };
+
   const lignes: { cle: string; texte: React.ReactNode; premier: string }[] = [];
+  /* Les phrases sont écrites EN ENTIER dans chaque nombre, plutôt qu'assemblées mot à
+   * mot avec des ternaires. Une phrase française cousue de `{n > 1 ? 'sont' : 'est'}`
+   * finit toujours par produire un accord bancal que personne ne relit. */
   if (casses.length > 0) {
-    const n = casses.length;
     lignes.push({
       cle: 'casses', premier: casses[0].nom,
       texte: <>
-        <b>{n} élève{n > 1 ? 's ont' : ' a'} une intégration déconnectée</b>
-        {' — '}{n > 1 ? 'leurs chiffres sont figés' : 'ses chiffres sont figés'} et faussent
-        les totaux ci-dessous.
+        <b>{nommer(casses)}</b>{' : '}
+        {casses.length > 1
+          ? 'leurs comptes se sont déconnectés. Leurs chiffres n’ont plus bougé depuis, et sont comptés tels quels dans les totaux ci-dessous.'
+          : 'son compte s’est déconnecté. Ses chiffres n’ont plus bougé depuis, et sont comptés tels quels dans les totaux ci-dessous.'}
       </>,
     });
   }
   if (jamais.length > 0) {
-    const n = jamais.length;
     lignes.push({
       cle: 'jamais', premier: jamais[0].nom,
       texte: <>
-        <b>{n} élève{n > 1 ? 's sont déclarés prêts' : ' est déclaré prêt'} mais {n > 1 ? "n'ont" : "n'a"} jamais rien remonté</b>
-        {' — '}il ne s'agit pas de chiffres en retard : il n'y en a jamais eu. À reconnecter.
+        <b>{nommer(jamais)}</b>{' : '}
+        {jamais.length > 1
+          ? 'aucune donnée n’a jamais été collectée pour eux. Leurs comptes Instagram et YouTube n’ont jamais été connectés, alors qu’ils comptent déjà parmi les élèves actifs : ils n’apportent donc rien aux chiffres de cette page.'
+          : 'aucune donnée n’a jamais été collectée. Son compte Instagram ou YouTube n’a jamais été connecté, alors qu’il compte déjà parmi les élèves actifs : il n’apporte donc rien aux chiffres de cette page.'}
       </>,
     });
   }
@@ -964,7 +995,7 @@ function BandeauIntegrations({ casses, jamais, onVoir }: {
             textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer',
             fontFamily: 'inherit', whiteSpace: 'nowrap',
           }}>
-            Voir
+            Voir dans le tableau
           </button>
         </div>
       ))}

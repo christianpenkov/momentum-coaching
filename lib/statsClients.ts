@@ -400,3 +400,42 @@ export function nomFichierCsv(debut: Date, fin: Date): string {
   const j = (d: Date) => d.toISOString().slice(0, 10);
   return `momentum-eleves_${j(debut)}_${j(fin)}.csv`;
 }
+
+/* ═══ Dater la page ═══════════════════════════════════════════════════════ */
+
+/** Écart en JOURS CALENDAIRES entre deux dates `AAAA-MM-JJ`.
+ *
+ *  ⚠️ Calendaires, pas « en heures divisées par 24 ». La première version calculait
+ *  `(maintenant − minuit UTC du jour) / 86 400 000`, et le résultat dépendait donc de
+ *  l'HEURE à laquelle on ouvrait la page : la même donnée s'affichait « aujourd'hui »
+ *  le matin, « hier » l'après-midi et « il y a 2 j » le soir. Constaté le 2026-09-02 —
+ *  la page annonçait « hier » pour une donnée du 31 août.
+ *
+ *  Les deux bornes sont des dates nues, donc `Date.UTC` est exact et l'heure d'été
+ *  n'entre jamais en jeu. */
+export function ecartEnJours(depuis: string, jusqua: string): number | null {
+  const lire = (iso: string): number | null => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+    if (!m) return null;
+    const t = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    return Number.isNaN(t) ? null : t;
+  };
+  const a = lire(depuis);
+  const b = lire(jusqua);
+  if (a === null || b === null) return null;
+  return Math.round((b - a) / 86_400_000);
+}
+
+/** « aujourd'hui », « hier », « il y a 4 j ». `aujourdhui` doit être la date PARISIENNE
+ *  du jour (`parisDateStr`), pas une date UTC : passé minuit à Paris et avant minuit
+ *  UTC, les deux diffèrent, et l'écran afficherait un jour de trop. */
+export function libelleFraicheur(dernierJour: string | null | undefined, aujourdhui: string): string | null {
+  if (!dernierJour) return null;
+  const n = ecartEnJours(dernierJour, aujourdhui);
+  if (n === null) return null;
+  // Une date dans le futur ne devrait pas exister, mais si elle arrive on préfère
+  // « aujourd'hui » à « il y a -3 j ».
+  if (n <= 0) return "aujourd'hui";
+  if (n === 1) return 'hier';
+  return `il y a ${n} j`;
+}
