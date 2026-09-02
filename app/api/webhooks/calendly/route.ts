@@ -66,15 +66,56 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Erreur de configuration serveur' }, { status: 500 });
   }
   const crypto = await import('crypto');
-  const [, receivedSig] = (signature || '').split('=');
-  if (!receivedSig) {
-    return NextResponse.json({ error: 'Signature manquante' }, { status: 401 });
+
+  // ── Deux formes d'en-tête acceptées, une seule clé ────────────────────────
+  // Les sources publiques se contredisent sur le format exact de
+  // `Calendly-Webhook-Signature` : les unes décrivent un simple `v1=<hex>`, les
+  // autres la forme horodatée `t=<epoch>,v1=<hex>` où l'empreinte porte sur
+  // `<t>.<corps>`. Impossible de trancher sans une vraie charge utile — et il n'y
+  // en a aucune tant qu'aucun compte payant n'est abonné (voir l'en-tête).
+  //
+  // Plutôt que de parier, on accepte les DEUX. Ce n'est pas un affaiblissement :
+  // chaque candidat reste un HMAC-SHA256 avec le même secret, et un attaquant qui
+  // ne l'a pas n'en produit aucun. La version précédente, elle, prenait
+  // `signature.split('=')[1]` — sur `t=123,v1=abc` cela vaut « 123,v1 », donc
+  // l'horodatage : elle n'aurait jamais rien validé.
+  const parts = new Map<string, string>();
+  for (const seg of signature.split(',')) {
+    const i = seg.indexOf('=');
+    if (i > 0) parts.set(seg.slice(0, i).trim(), seg.slice(i + 1).trim());
   }
-  const expected = crypto
-    .createHmac('sha256', signingKey)
-    .update(body)
-    .digest('hex');
-  if (receivedSig !== expected) {
+  const recu = parts.get('v1') ?? (parts.size === 1 ? [...parts.values()][0] : '');
+  const horodatage = parts.get('t');
+
+  const empreinte = (donnee: string) =>
+    crypto.createHmac('sha256', signingKey).update(donnee).digest('hex');
+  const candidats = [empreinte(body), ...(horodatage ? [empreinte(`${horodatage}.${body}`)] : [])];
+
+  const egal = (a: string, b: string) => {
+    if (a.length !== b.length) return false;            // timingSafeEqual exige la même longueur
+    return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+  };
+  const valide = !!recu && candidats.some(c => egal(recu, c));
+
+  if (!valide) {
+    // ── Un refus doit APPRENDRE quelque chose ────────────────────────────────
+    // Un 401 nu ne dit pas si l'en-tête manquait, si le format diffère, ou si la
+    // clé n'est pas la bonne — et comme les rendez-vous continuent d'arriver par
+    // le cron, personne ne remarquerait jamais que le webhook ne passe pas.
+    // On consigne la FORME, jamais le secret : clés présentes et longueurs
+    // suffisent à identifier le format au premier vrai événement.
+    try {
+      await serviceSupabase.from('webhook_debug_log').insert({
+        message: 'calendly: signature refusee',
+        data: {
+          entete_present: !!signature,
+          cles: [...parts.keys()],
+          longueur_recue: recu.length,
+          longueurs_attendues: candidats.map(c => c.length),
+          horodatage_present: !!horodatage,
+        },
+      });
+    } catch { /* ne jamais faire echouer un refus a cause de sa propre trace */ }
     return NextResponse.json({ error: 'Signature invalide' }, { status: 401 });
   }
 
