@@ -128,8 +128,29 @@ export async function POST(
     // aurait été affichée « Soldée » avec 200 € encaissés sur 900.
     const statut = statutDeal(cash, apres, deal.status) ?? deal.status;
 
+    // ── Baisser le montant ne dit RIEN du reste ──────────────────────────
+    // Sur une vente encore en cours, rendre 100 € ne répond pas à « est-ce que
+    // j'attends encore les 700 qui restent ? ». Une rétractation partielle en
+    // pleine série d'échéances peut vouloir dire deux choses opposées : le
+    // plan continue à un montant plus bas, ou l'accompagnement s'arrête là.
+    //
+    // Sans la question, le second cas laissait la vente en cours et relançait le
+    // client pour un accompagnement auquel il venait de renoncer.
+    //
+    // La question ne se pose PAS sur une vente soldée : il n'y a plus rien à ne
+    // plus attendre — c'est déjà pourquoi « Clôturer » y est masqué.
+    const resteApres = Math.round((apres - cash.net) * 100) / 100;
+    const cloture = body?.cloturer === true && resteApres > CENTIME;
+
     await supa.from('deals').update({
-      amount_total: apres, status: statut, refund_explique: cash.rembourse,
+      amount_total: apres,
+      status: cloture ? 'ended' : statut,
+      refund_explique: cash.rembourse,
+      ...(cloture ? {
+        ended_by: 'user',
+        ended_at: new Date().toISOString(),
+        ended_reason: libelle(raison),
+      } : {}),
     }).eq('id', dealId);
 
     await supa.from('deal_events').insert({
@@ -140,7 +161,7 @@ export async function POST(
       meta: { avant, apres, rembourse: montantRembourse, raison },
     });
 
-    return NextResponse.json({ ok: true, encoreDu: false, avant, apres, lien: null });
+    return NextResponse.json({ ok: true, encoreDu: false, avant, apres, cloture, lien: null });
   }
 
   // ── L'argent est toujours dû : la vente repart ────────────────────────────

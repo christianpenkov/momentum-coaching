@@ -76,11 +76,14 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
   const [encoreDu, setEncoreDu] = useState<boolean | null>(null);
   const [encaissement, setEncaissement] = useState<'lien' | 'offline'>(
     () => (moyenDe(deal) === 'offline' ? 'offline' : 'lien'));
+  // Présélectionné sur « ça continue » : c'est l'option qui ne ferme rien. Un
+  // défaut qui clôturerait la vente à l'insu de l'élève serait le pire des deux.
+  const [continue_, setContinue] = useState(true);
   const [coche, setCoche] = useState(false);
   const [envoi, setEnvoi] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const [resultat, setResultat] = useState<
-    { encoreDu: boolean; avant?: number; apres?: number; lien: { url: string } | null } | null>(null);
+    { encoreDu: boolean; avant?: number; apres?: number; cloture?: boolean; lien: { url: string } | null } | null>(null);
 
   // « Autre » est la seule qui ne porte pas son sort : on le demande.
   const duFinal = raison === 'autre' ? encoreDu : raison === 'erreur';
@@ -100,7 +103,10 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
       const r = await fetch(`/api/payments/deals/${deal.id}/refund-reason`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ raison, note, encoreDu: duFinal, encaissement }),
+        body: JSON.stringify({
+          raison, note, encoreDu: duFinal, encaissement,
+          cloturer: !duFinal && !seraSoldee && !continue_,
+        }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'L’enregistrement a échoué.');
@@ -160,7 +166,10 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
             <strong>{fmtEurExact(resultat.apres ?? nouveauMontant)}</strong>
             {seraSoldee
               ? <>, et elle est <strong>soldée à 100 %</strong>.</>
-              : <>, et il reste <strong>{fmtEurExact(resteApres)}</strong> à encaisser.</>}
+              : resultat.cloture
+                ? <>, et elle est <strong>clôturée</strong> : tu n’attends plus
+                  les {fmtEurExact(resteApres)} restants.</>
+                : <>, et il reste <strong>{fmtEurExact(resteApres)}</strong> à encaisser.</>}
             {' '}Le montant d’origine ({fmtEurExact(resultat.avant ?? deal.amountTotal)})
             reste inscrit au journal de la vente.
           </Encart>
@@ -294,8 +303,12 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
             {seraSoldee
               ? <> Elle redevient <strong>soldée à 100 %</strong> — il n’y a
                 effectivement plus rien à encaisser.</>
-              : <> Elle reste <strong>en cours</strong> : il manque encore{' '}
-                {fmtEurExact(resteApres)} sur ce nouveau montant.</>}
+              : continue_
+                ? <> Il restera <strong>{fmtEurExact(resteApres)}</strong> à
+                  encaisser sur ce nouveau montant.</>
+                : <> Et comme tu n’attends plus le reste, elle sera{' '}
+                  <strong>clôturée</strong> : les {fmtEurExact(resteApres)} restants
+                  ne seront jamais réclamés.</>}
           </Encart>
           <div style={{ marginTop: 12 }}>
             <Ligne label="Cash contracté" barre={fmtEurExact(deal.amountTotal)}
@@ -304,8 +317,40 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
             <Ligne label="Encaissé sur contracté"
               barre={`${Math.round((deal.collected / (deal.amountTotal || 1)) * 100)} %`}
               valeur={`${Math.round((deal.collected / (nouveauMontant || 1)) * 100)} %`} ton="fort" />
-            <Ligne label={`${prenom} sera relancé`} valeur="Non" />
+            {/* « Non » n'est vrai que si plus rien n'est attendu. Sur une vente
+                qui continue, le client SERA relancé pour le reste — l'annoncer
+                autrement serait la promesse la plus facile à démentir. */}
+            <Ligne label={`${prenom} sera relancé`}
+              valeur={seraSoldee || !continue_ ? 'Non' : `Oui, pour les ${fmtEurExact(resteApres)} restants`} />
           </div>
+          {/* ── La question que baisser le montant ne pose pas ──────────────
+              Rendre 100 € ne dit rien du reste. Une rétractation partielle en
+              pleine série d'échéances peut vouloir dire deux choses opposées :
+              le plan continue à un montant plus bas, ou l'accompagnement
+              s'arrête là. Sans la question, le second cas laissait la vente en
+              cours et relançait le client pour ce à quoi il venait de renoncer.
+
+              Elle ne se pose pas sur une vente soldée : il n'y a plus rien à ne
+              plus attendre — c'est déjà pourquoi « Clôturer » y est masqué. */}
+          {!seraSoldee && (
+            <div style={{ marginTop: 14 }}>
+              <Section marge={0}>Attends-tu encore les {fmtEurExact(resteApres)} restants ?</Section>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <Chip on={continue_} onClick={() => setContinue(true)}>
+                  Oui, l’accompagnement continue
+                </Chip>
+                <Chip on={!continue_} onClick={() => setContinue(false)}>
+                  Non, ça s’arrête là
+                </Chip>
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7, lineHeight: 1.6 }}>
+                {continue_
+                  ? `${prenom} reste dans tes relances pour ce qui reste dû.`
+                  : `La vente passe en clôturée : elle sort des relances, et ces ${fmtEurExact(resteApres)} ne seront jamais réclamés. Le cash déjà encaissé, lui, reste compté.`}
+              </div>
+            </div>
+          )}
+
           <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10, lineHeight: 1.6 }}>
             Le montant d’origine ({fmtEurExact(deal.amountTotal)}) reste inscrit au
             journal de la vente : rien n’est effacé, la vente est simplement
