@@ -86,10 +86,17 @@ interface DonneesStats {
   /** Séries HEBDOMADAIRES sur toute l'ancienneté, pour l'axe des semaines
    *  d'accompagnement. Hors période : ce graphe ne suit pas le sélecteur, par nature. */
   accompagnement: LigneSerie[];
-  /** Dernier jour collecté par élève. Sert à dater la page sur l'élève le PLUS EN
-   *  RETARD : un seul élève à jour ne doit pas afficher « il y a 5 min » quand la
-   *  moitié du portefeuille date d'hier. */
+  /** Dernier jour collecté par élève. Un élève ABSENT de cette table n'a jamais rien
+   *  eu de collecté — ce n'est pas la même chose qu'un retard.
+   *
+   *  Sert à dater la page sur l'élève le PLUS EN RETARD : un seul élève à jour ne doit
+   *  pas afficher « il y a 5 min » quand la moitié du portefeuille date d'hier. */
   dernierJourParProfil: Map<string, string>;
+  /** Élèves dont le démarrage est déclaré (`integrations_ready_at` posé) mais dont
+   *  RIEN n'a jamais été collecté. Ils tombaient entre les deux filets : trop « prêts »
+   *  pour le bandeau d'installation, sans aucune intégration en erreur pour le bandeau
+   *  d'intégration — et ils faisaient afficher « màj plus de 10 j » à toute la page. */
+  jamaisCollectes: { profileId: string; nom: string }[];
   /** Élèves dont une intégration est tombée APRÈS le gate. Leur `integrations_ready_at`
    *  reste posé, donc ils comptent dans les totaux — avec des chiffres figés au jour de
    *  la panne, et rien à l'écran ne le dirait sans ce bandeau. */
@@ -215,14 +222,16 @@ async function charger(period: Period, periodIndex: number, allTime: boolean): P
           p_granularite: 'semaine',
         })
       : rien,
-    // Fraîcheur : les dix derniers jours suffisent. Un élève absent de ces lignes est
-    // en retard d'au moins dix jours, ce que l'indicateur dira sans avoir à remonter
-    // plus loin.
+    /* Fraîcheur : une ligne par élève, agrégée en base.
+     *
+     * ⚠️ Surtout PAS une fenêtre de dix jours, comme c'était le cas avant. Un élève
+     * collecté il y a quinze jours en était absent, donc indiscernable d'un élève dont
+     * rien n'a JAMAIS été collecté — et les deux recevaient le même message. Ce sont
+     * deux situations très différentes : l'une dit « les chiffres sont vieux », l'autre
+     * dit « il n'y a jamais rien eu ». */
     profileIds.length
-      ? supabase.from('analytics_daily_snapshots').select('profile_id, date')
-          .in('profile_id', profileIds).is('archived_at', null)
-          .gte('date', jour(new Date(Date.now() - 10 * 86_400_000)))
-          .order('date', { ascending: false })
+      ? supabase.from('dernier_snapshot_par_profil').select('profile_id, dernier_jour')
+          .in('profile_id', profileIds)
       : rien,
     profileIds.length
       ? supabase.from('integrations').select('profile_id, provider, status').in('profile_id', profileIds)
@@ -234,11 +243,10 @@ async function charger(period: Period, periodIndex: number, allTime: boolean): P
   if (dealsRes.error) throw dealsRes.error;
   if (paiementsRes.error) throw paiementsRes.error;
 
-  // Les lignes sont déjà triées par date décroissante : la première vue pour un profil
-  // est donc la plus récente.
+  // La vue rend déjà une ligne par élève : plus de dédoublonnage à faire ici.
   const dernierJourParProfil = new Map<string, string>();
-  for (const r of (fraicheurRes.data || []) as { profile_id: string; date: string }[]) {
-    if (!dernierJourParProfil.has(r.profile_id)) dernierJourParProfil.set(r.profile_id, r.date);
+  for (const r of (fraicheurRes.data || []) as { profile_id: string; dernier_jour: string }[]) {
+    if (r.dernier_jour) dernierJourParProfil.set(r.profile_id, r.dernier_jour);
   }
 
   // ⚠️ `status <> 'ok'` n'est PAS un filtre d'anomalie : `non_connectee` dit seulement
@@ -250,9 +258,20 @@ async function charger(period: Period, periodIndex: number, allTime: boolean): P
     if (r.status === 'error' || r.status === 'expired' || r.status === 'revoked') cassesParProfil.add(r.profile_id);
   }
 
+  /* Le démarrage est déclaré, mais rien n'est jamais arrivé.
+   *
+   * Constaté en base le 2026-09-02 sur un élève réel : `integrations_ready_at` posé le
+   * 16 août, AUCUNE ligne dans `integrations`, zéro donnée collectée en dix-sept jours.
+   * Le drapeau est censé dire « le pipeline est opérationnel » ; il peut mentir. */
+  const jamaisCollectes = clients
+    .filter(c => c.profile_id && c.integrations_ready_at && !c.archived_at)
+    .filter(c => !dernierJourParProfil.has(c.profile_id!))
+    .map(c => ({ profileId: c.profile_id!, nom: c.name }));
+
   return {
     clients,
     dernierJourParProfil,
+    jamaisCollectes,
     integrationsCassees: [...cassesParProfil].map(pid => ({ profileId: pid, nom: nomParProfil.get(pid) ?? 'Élève' })),
     series: (seriesRes.data || []) as LigneSerie[],
     seriesPrecedentes: (precRes.data || []) as LigneSerie[],
@@ -670,13 +689,23 @@ export default function PageStatsClients() {
    * moins dire honnêtement de quand datent ses chiffres. */
   const fraicheur = useMemo(() => {
     if (!data || data.dernierJourParProfil.size === 0) return null;
-    const actifs = data.clients.filter(c => c.profile_id && c.integrations_ready_at && !c.archived_at);
-    if (actifs.length === 0) return null;
+    /* ⚠️ On date la page sur les élèves QUI SONT MESURÉS — c'est-à-dire ceux qui ont au
+     * moins une donnée — et non sur ceux dont `integrations_ready_at` est posé.
+     *
+     * Les deux ne coïncident pas, et l'écart allait dans les deux sens en base le
+     * 2026-09-02 : un élève avec le drapeau posé mais aucune intégration ni aucune
+     * donnée était compté (et faisait afficher « plus de 10 j » à toute la page), tandis
+     * qu'un élève sans drapeau mais avec deux intégrations en marche et 36 jours
+     * collectés était ignoré. Le drapeau décrit une intention ; la donnée décrit ce qui
+     * se passe vraiment. C'est la donnée qui date la page.
+     *
+     * Un élève dont rien n'a jamais été collecté n'est pas « en retard » : il n'a pas
+     * commencé. Cette alerte-là est portée par le bandeau, avec ses propres mots. */
     let pire: string | null = null;
-    for (const c of actifs) {
-      const d = data.dernierJourParProfil.get(c.profile_id!);
-      // Un élève absent de la fenêtre de dix jours est le plus en retard de tous.
-      if (!d) return 'plus de 10 j';
+    for (const c of data.clients) {
+      if (!c.profile_id || c.archived_at) continue;
+      const d = data.dernierJourParProfil.get(c.profile_id);
+      if (!d) continue;
       if (pire === null || d < pire) pire = d;
     }
     if (!pire) return null;
@@ -754,10 +783,11 @@ export default function PageStatsClients() {
         <EcranVide lignes={lignes} />
       ) : (
         <>
-          {data && data.integrationsCassees.length > 0 && (
+          {data && (data.integrationsCassees.length > 0 || data.jamaisCollectes.length > 0) && (
             <BandeauIntegrations
               casses={data.integrationsCassees}
-              onVoir={() => setRecherche(data.integrationsCassees[0].nom)}
+              jamais={data.jamaisCollectes}
+              onVoir={nom => setRecherche(nom)}
             />
           )}
 
@@ -890,27 +920,54 @@ function Delta({ valeur, comparaison, unite }: { valeur: number | null; comparai
  *
  * « Voir lesquels » filtre le tableau du bas : le mécanisme de la recherche, déclenché
  * par le lien. Aucune modale, aucune écriture — on n'agit jamais depuis cette page. */
-function BandeauIntegrations({ casses, onVoir }: { casses: { profileId: string; nom: string }[]; onVoir: () => void }) {
-  const n = casses.length;
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 10, padding: '10px 15px',
-      borderRadius: 'var(--r-lg)', background: 'var(--amber-soft)',
-      border: '1px solid var(--amber)', color: 'var(--amber)', fontSize: 12.5, marginBottom: 16,
-    }}>
-      <span aria-hidden="true">⚠</span>
-      <span>
+function BandeauIntegrations({ casses, jamais, onVoir }: {
+  casses: { profileId: string; nom: string }[];
+  /** Démarrage déclaré, zéro donnée collectée. Alerte DISTINCTE d'une intégration
+   *  tombée : là, il n'y a jamais rien eu, donc rien n'est « figé ». */
+  jamais: { profileId: string; nom: string }[];
+  onVoir: (nom: string) => void;
+}) {
+  const lignes: { cle: string; texte: React.ReactNode; premier: string }[] = [];
+  if (casses.length > 0) {
+    const n = casses.length;
+    lignes.push({
+      cle: 'casses', premier: casses[0].nom,
+      texte: <>
         <b>{n} élève{n > 1 ? 's ont' : ' a'} une intégration déconnectée</b>
-        {' — '}{n > 1 ? 'leurs chiffres sont figés' : 'ses chiffres sont figés'} et
-        {n > 1 ? ' faussent' : ' faussent'} les totaux ci-dessous.
-      </span>
-      <button onClick={onVoir} style={{
-        marginLeft: 'auto', fontSize: 12, fontWeight: 600, color: 'inherit',
-        textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer',
-        fontFamily: 'inherit', whiteSpace: 'nowrap',
-      }}>
-        Voir {n > 1 ? 'lesquels' : 'lequel'}
-      </button>
+        {' — '}{n > 1 ? 'leurs chiffres sont figés' : 'ses chiffres sont figés'} et faussent
+        les totaux ci-dessous.
+      </>,
+    });
+  }
+  if (jamais.length > 0) {
+    const n = jamais.length;
+    lignes.push({
+      cle: 'jamais', premier: jamais[0].nom,
+      texte: <>
+        <b>{n} élève{n > 1 ? 's sont déclarés prêts' : ' est déclaré prêt'} mais {n > 1 ? "n'ont" : "n'a"} jamais rien remonté</b>
+        {' — '}il ne s'agit pas de chiffres en retard : il n'y en a jamais eu. À reconnecter.
+      </>,
+    });
+  }
+  return (
+    <div style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {lignes.map(l => (
+        <div key={l.cle} style={{
+          display: 'flex', alignItems: 'center', gap: 10, padding: '10px 15px',
+          borderRadius: 'var(--r-lg)', background: 'var(--amber-soft)',
+          border: '1px solid var(--amber)', color: 'var(--amber)', fontSize: 12.5,
+        }}>
+          <span aria-hidden="true">⚠</span>
+          <span>{l.texte}</span>
+          <button onClick={() => onVoir(l.premier)} style={{
+            marginLeft: 'auto', fontSize: 12, fontWeight: 600, color: 'inherit',
+            textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer',
+            fontFamily: 'inherit', whiteSpace: 'nowrap',
+          }}>
+            Voir
+          </button>
+        </div>
+      ))}
     </div>
   );
 }
@@ -930,8 +987,10 @@ function BandeauAgrege({ a, precedent, comparaison }: { a: Agregats; precedent: 
       border: '1px solid var(--border)', borderRadius: 'var(--r-card)', overflow: 'hidden', marginBottom: 20,
     }}>
       {[
-        { l: 'Cash', v: formaterValeur(a.cashCollecte, '€'),
-          sec: taux !== null ? <><b style={{ color: 'var(--ink-2)' }}>{taux} %</b> de {formaterValeur(a.cashContracte, '€')} contractés</> : null,
+        // Le titre nomme ce que porte le grand chiffre : « Cash collecté », pas « Cash ».
+        // Le contracté passe dessous, avec le taux — c'est le repère, pas le résultat.
+        { l: 'Cash collecté', v: formaterValeur(a.cashCollecte, '€'),
+          sec: <>Contracté <b style={{ color: 'var(--ink-2)' }}>{formaterValeur(a.cashContracte, '€')}</b>{taux !== null && <> · {taux} %</>}</>,
           delta: d('cashCollecte'), unite: '€' as const },
         { l: 'Abonnés', v: formaterVariation(a.abonnesGagnes),
           sec: <>IG <b style={{ color: 'var(--ink-2)' }}>{formaterVariation(a.abonnesGagnesIg)}</b> · YT <b style={{ color: 'var(--ink-2)' }}>{formaterVariation(a.abonnesGagnesYt)}</b></>,
@@ -941,9 +1000,13 @@ function BandeauAgrege({ a, precedent, comparaison }: { a: Agregats; precedent: 
         { l: 'Ventes', v: formaterValeur(a.ventes, ''), sec: null, delta: d('ventes'), unite: '' as const },
       ].map((c, i, t) => (
         <div key={c.l} style={{ padding: '16px 18px', borderRight: i < t.length - 1 ? '1px solid var(--border)' : undefined, minWidth: 0 }}>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, whiteSpace: 'nowrap' }}>{c.l}</div>
-          <div style={{ fontSize: 25, fontWeight: 800, letterSpacing: '-.6px', lineHeight: 1.05, fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{c.v}</div>
-          {c.sec && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 5, fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>{c.sec}</div>}
+          {/* Mêmes classes que les KPI de l'accueil (`.kpi-label` / `.kpi-value`), pour
+              que les deux écrans se lisent comme le même produit. `tabular-nums` reste
+              posé : sans lui, la largeur des chiffres bouge d'une période à l'autre et
+              les cartes tressautent à chaque clic sur la flèche. */}
+          <div className="kpi-label" style={{ marginBottom: 8, whiteSpace: 'nowrap' }}>{c.l}</div>
+          <div className="kpi-value" style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{c.v}</div>
+          {c.sec && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6, whiteSpace: 'nowrap' }}>{c.sec}</div>}
           <Delta valeur={c.delta} comparaison={comparaison} unite={c.unite} />
         </div>
       ))}
