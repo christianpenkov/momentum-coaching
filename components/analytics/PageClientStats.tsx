@@ -91,6 +91,11 @@ interface IGStats {
   abonnesPeriode?: number | null; accountsEngaged30d: number; totalInteractions30d: number;
   /** Fenetre reellement interrogee pour les deux cartes de portee, en jours (30 ou 365). */
   fenetreJours?: number;
+  /** Bornes de la ligne `analytics_ig_periodes` d'ou viennent REELLEMENT les deux
+   *  cartes de portee. Le libelle doit venir d'ici et non de `fenetreJours`, qui est
+   *  calcule par une autre requete : deux sources pour une meme fenetre finissent par
+   *  decrire deux fenetres differentes. */
+  porteeDebut?: string | null; porteeFin?: string | null;
   followsUnfollows30d: number; profileLinksTaps30d: number; websiteClicks30d: number;
   views30d: number;
   viewsFollowerBreakdown: { follower: number; nonFollower: number } | null;
@@ -1910,9 +1915,22 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
   // cote ecran, pour que le badge affiche ce qui a ete mesure et non ce qui a ete
   // demande (la route plafonne a 366 jours).
   const fenetrePorteeJours = ig.fenetreJours ?? 30;
-  const libelleFenetrePortee = fenetrePorteeJours >= 360
-    ? 'les 12 derniers mois'
-    : `les ${fenetrePorteeJours} derniers jours`;
+  // ⚠️ Le libelle decrit la ligne `analytics_ig_periodes` d'ou viennent REELLEMENT les
+  // deux chiffres, pas `fenetreJours`, qui est calcule par une autre requete. En
+  // All-Time les deux divergent, et l'infobulle annoncait « les 30 derniers jours »
+  // au-dessus d'un taux mesure sur toute la periode depuis la connexion (signale par
+  // Chris le 2026-09-02). Un libelle qui decrit une autre fenetre que le chiffre
+  // qu'il accompagne est faux, pas imprecis.
+  const libelleFenetrePortee = (() => {
+    if (ig.porteeDebut && ig.porteeFin) {
+      const f = (iso: string) => new Date(iso + 'T12:00:00Z')
+        .toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', timeZone: 'UTC' });
+      return `la période du ${f(ig.porteeDebut)} au ${f(ig.porteeFin)}`;
+    }
+    // Repli quand la ligne de periode manque : on decrit alors ce que la route a
+    // interroge, ce qui reste vrai.
+    return fenetrePorteeJours >= 360 ? 'les 12 derniers mois' : `les ${fenetrePorteeJours} derniers jours`;
+  })();
   const igDaysSlice = sinceConnection ? ig.chartData : ig.chartData.filter(d => {
     const t = new Date(d.date + 'T12:00:00Z').getTime();
     return t >= igPeriodStart.getTime() && t <= igPeriodEnd.getTime();
@@ -2260,7 +2278,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
           // (9 % sur 7j, 43 % sur 28j, 65 % sur 365j sur le compte de test), car on
           // accumule des personnes distinctes. Une fenetre fixe est donc le choix le
           // plus lisible ici.
-          { label: 'Abonnés touchés', key: 'Abonnés touchés', value: reachRate !== null ? fmtPct(reachRate) : 'N/D', sub: reachRate !== null ? `sur tes ${fmt(ig.followers)} abonnés` : 'seuil Meta non atteint', color: reachRate !== null ? 'var(--ink)' : 'var(--faint)', tooltip: `Sur ${libelleFenetrePortee}, ${reachRate !== null ? fmtPct(reachRate) : '—'} de tes abonnés ont vu au moins un de tes contenus.\n\nChaque abonné est compté UNE SEULE FOIS, même s'il a vu dix posts : c'est un nombre de personnes, pas de vues. Le total ne peut donc jamais dépasser 100 %.\n\nÀ retenir en changeant de période : ce taux monte mécaniquement avec la durée (9 % sur 7 jours, 43 % sur 30, 65 % sur un an), parce qu'on accumule des personnes différentes. Une semaine et un mois ne se comparent donc pas directement.${sinceConnection ? '\n\nEn « Depuis la connexion », la fenêtre est plafonnée à 12 mois : Instagram ne fournit pas cette répartition au-delà.' : ''}` },
+          { label: 'Abonnés touchés', key: 'Abonnés touchés', value: reachRate !== null ? fmtPct(reachRate) : 'N/D', sub: reachRate !== null ? `sur tes ${fmt(ig.abonnesPeriode ?? ig.followers)} abonnés` : 'seuil Meta non atteint', color: reachRate !== null ? 'var(--ink)' : 'var(--faint)', tooltip: `Sur ${libelleFenetrePortee}, ${reachRate !== null ? fmtPct(reachRate) : '—'} de tes abonnés ont vu au moins un de tes contenus.\n\nChaque abonné est compté UNE SEULE FOIS, même s'il a vu dix posts : c'est un nombre de personnes, pas de vues. Le total ne peut donc jamais dépasser 100 %.\n\nÀ retenir en changeant de période : ce taux monte mécaniquement avec la durée (9 % sur 7 jours, 43 % sur 30, 65 % sur un an), parce qu'on accumule des personnes différentes. Une semaine et un mois ne se comparent donc pas directement.${sinceConnection ? '\n\nEn « Depuis la connexion », la fenêtre est plafonnée à 12 mois : Instagram ne fournit pas cette répartition au-delà.' : ''}` },
           // Libelle et tooltip disaient « vues » alors que le calcul porte sur le
           // REACH (comptes uniques), choix delibere documente ligne ~1315. L'ecart
           // n'est pas cosmetique : mesure le 2026-08-26 sur le compte de test,
@@ -9301,7 +9319,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     // sur cette periode exacte.
     supabase
       .from('analytics_ig_periodes')
-      .select('reach_total, reach_abonnes, reach_non_abonnes, abonnes')
+      .select('reach_total, reach_abonnes, reach_non_abonnes, abonnes, debut, fin')
       .eq('profile_id', targetId)
       .is('archived_at', null)
       .eq('type', customWindow ? 'all_time' : (period === 7 ? 'semaine' : 'mois'))
@@ -9570,6 +9588,8 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     // affichaient N/D des qu'on quittait la periode courante — y compris en All-Time,
     // alors que la donnee etait bien en base (constate par Chris le 2026-08-31).
     reachTotalPeriode:         igPeriode?.reach_total ?? null,
+    porteeDebut:               igPeriode?.debut ?? null,
+    porteeFin:                 igPeriode?.fin ?? null,
     reach28dDedupFollowers:    igPeriode?.reach_abonnes ?? null,
     reach28dDedupNonFollowers: igPeriode?.reach_non_abonnes ?? null,
     // Denominateur de « Abonnes touches », fige avec la periode par le cron : c'est
