@@ -2337,7 +2337,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
         {contentSubTab === 'posts' ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
           {ig.posts.map(post => {
-            const er = post.totalInteractions && post.reach ? fmtPct(pct(post.totalInteractions, post.reach)) : '—';
+            const er = post.totalInteractions != null && post.reach ? fmtPct(pct(post.totalInteractions, post.reach)) : '—';
             const isReel = post.type === 'VIDEO' || post.type === 'REEL' || post.type === 'REELS';
             return (
               <div key={post.id} onClick={() => setSelectedPost(post)} style={{ cursor: 'pointer', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', transition: 'box-shadow .15s' }}
@@ -2618,8 +2618,8 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
             <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border-soft)' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 {[
-                  ['ER', selectedPost.totalInteractions && selectedPost.reach ? fmtPct(pct(selectedPost.totalInteractions, selectedPost.reach)) : '—', 'Engagement rate'],
-                  ['Save rate', selectedPost.saved && selectedPost.reach ? fmtPct(pct(selectedPost.saved, selectedPost.reach)) : '—', 'Saves / Reach'],
+                  ['ER', selectedPost.totalInteractions != null && selectedPost.reach ? fmtPct(pct(selectedPost.totalInteractions, selectedPost.reach)) : '—', 'Engagement rate'],
+                  ['Save rate', selectedPost.saved != null && selectedPost.reach ? fmtPct(pct(selectedPost.saved, selectedPost.reach)) : '—', 'Saves / Reach'],
                 ].map(([label, value, desc], i) => (
                   <div key={i} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 12px', textAlign: 'center' }}>
                     <div style={{ fontSize: 10, color: 'var(--muted)' }}>{label}</div>
