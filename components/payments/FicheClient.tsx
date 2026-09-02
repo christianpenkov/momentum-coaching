@@ -9,6 +9,7 @@ import { ETATS, etatDe, precisionEtat, modeDe, moyenDefini, libelleModalites, co
 import { useEcheancesAVenir } from './useEcheances';
 import { fmtEur, fmtEurExact, fmtDateLong, type DealRow, type DealDetail, type PersonRow } from './types';
 import ModifierMontant from './ModifierMontant';
+import Reclamer from './Reclamer';
 import ModifierModalites from './ModifierModalites';
 import Rembourser, { type MotifRemboursement } from './Rembourser';
 import { Cloturer, Annuler, ArreterPrelevements, PaiementInattendu } from './FinDeVie';
@@ -35,7 +36,7 @@ import { Cloturer, Annuler, ArreterPrelevements, PaiementInattendu } from './Fin
  */
 
 type Action =
-  | { quoi: 'montant' | 'modalites' | 'cloturer' | 'annuler' | 'arreter' | 'inattendu'; dealId: string }
+  | { quoi: 'montant' | 'modalites' | 'cloturer' | 'annuler' | 'arreter' | 'inattendu' | 'reclamer'; dealId: string }
   | { quoi: 'rembourser'; dealId: string; motif: MotifRemboursement; montant: number; arret: boolean };
 
 export default function FicheClient({
@@ -227,6 +228,10 @@ export default function FicheClient({
               onRembourser={(montant, arret) => setAction({
                 quoi: 'rembourser', dealId: action.dealId, motif: 'annulation', montant, arret,
               })} />
+          )}
+          {action.quoi === 'reclamer' && (
+            <Reclamer deal={dealDeLaction}
+              onClose={() => setAction(null)} onDone={apresAction} />
           )}
           {action.quoi === 'arreter' && (
             <ArreterPrelevements deal={dealDeLaction} detail={details[action.dealId]}
@@ -519,6 +524,16 @@ function BarreActions({ deal, etat, mode, onAction }: {
   } else if (etat === 'ended') {
     boutons.push(['Annuler', 'annuler', true]);
   } else {
+    // ── Le seul chemin pour contredire un remboursement ────────────────────
+    // Une vente soldée puis remboursée en partie reste soldée, faute de savoir
+    // POURQUOI l'argent est reparti. Quand c'était une erreur, aucun geste ne
+    // permettait de le dire : retaper le même montant laisse le bouton inactif,
+    // le monter gonfle le cash contracté, et un lien à part fabrique une seconde
+    // vente. Le bouton n'apparaît que dans ce cas, et disparaît une fois réclamé
+    // (la vente n'est alors plus soldée).
+    if (etat === 'paid' && deal.refunded > 0.005) {
+      boutons.push(['Réclamer le remboursement', 'reclamer']);
+    }
     boutons.push(['Montant', 'montant']);
     // ── Le même écran, deux situations, deux noms ──────────────────────────
     // « Modalités » suppose qu'il y en a : c'est le nom d'un réglage à ajuster.
