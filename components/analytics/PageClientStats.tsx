@@ -535,6 +535,26 @@ const AIDE_CLOSING =
   + "La vente est comptée dans la période du PREMIER rendez-vous, celui qui a créé "
   + "l'opportunité — pas dans celle où vous avez signé.";
 
+const AIDE_CASH_COLLECTE =
+  "Ce qui est réellement rentré en caisse sur les ventes signées pendant cette "
+  + "période — encaissé moins remboursé, moins les litiges en cours.\n\n"
+  + "Le pourcentage rapporte ces deux nombres : « 84 % de 10 200 € contractés » veut "
+  + "dire que sur les 10 200 € vendus, 8 600 € sont arrivés. Un paiement en 3 fois "
+  + "n'affiche donc pas 100 % dès la signature.\n\n"
+  + "Le collecté et le contracté portent sur les MÊMES ventes, celles signées dans "
+  + "la période — et on compte leurs versements même s'ils tombent plus tard. C'est "
+  + "ce qui garantit que le taux ne dépasse jamais 100 %.\n\n"
+  + "Conséquence normale : une période passée peut voir son taux MONTER avec le "
+  + "temps, à mesure que les échéances de ses ventes sont prélevées. La question "
+  + "posée est « sur ce que j'ai vendu ce mois-là, combien est rentré à ce jour ».";
+
+const AIDE_CASH_CONTRACTE =
+  "Le montant des ventes signées grâce à ce contenu — ce qui a été VENDU, pas ce "
+  + "qui est déjà rentré en caisse.\n\n"
+  + "Une vente est créditée au contenu qui a amené le rendez-vous d'où elle est "
+  + "sortie. Un upsell vendu six mois plus tard à ce même client ne vient donc pas "
+  + "gonfler la performance de la publication.";
+
 const AIDE_REV_PAR_CALL =
   "Le revenu de la période divisé par les calls bookés. Un deuxième rendez-vous qui "
   + "prolonge la même vente n'entre pas au dénominateur, comme dans la colonne « Calls "
@@ -958,7 +978,7 @@ type ContentSortKey = 'views' | 'watchTime' | 'calls' | 'revenue';
 
 // ─── TAB "Vue générale (B)" — version épurée ─────────────────────────────────
 
-function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, calendlyStaticClicsFromDb, igLive, ytLive, sinceConnection, leads, lmHistory, integrationsReadyAt, allTimeStart, deals }: { ig: IGStats | null; yt: YTStats | null; msgs: IGMessages | null; calls: CallRecord[]; callsAllTime?: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; calendlyStaticClicsFromDb?: number; igLive?: IGStats | null; ytLive?: YTStats | null; sinceConnection?: boolean; leads?: MockLead[]; lmHistory?: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[]; integrationsReadyAt?: string | null; allTimeStart?: string | null; deals?: DealRecord[] }) {
+function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, calendlyStaticClicsFromDb, igLive, ytLive, sinceConnection, leads, lmHistory, integrationsReadyAt, allTimeStart, deals, cashParVente }: { ig: IGStats | null; yt: YTStats | null; msgs: IGMessages | null; calls: CallRecord[]; callsAllTime?: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; calendlyStaticClicsFromDb?: number; igLive?: IGStats | null; ytLive?: YTStats | null; sinceConnection?: boolean; leads?: MockLead[]; lmHistory?: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[]; integrationsReadyAt?: string | null; allTimeStart?: string | null; deals?: DealRecord[]; cashParVente?: VenteCash[] }) {
   // Etiquette de fenetre. En All-Time les cartes affichaient « 30j » alors que le
   // bandeau annonce « All-Time » — meme defaut que celui corrige dans les onglets
   // Instagram et YouTube (2026-08-22).
@@ -1178,7 +1198,41 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   // vendu six mois plus tard ne doit pas gonfler la performance du post qui a amene le
   // client. Voir docs/perimetre-stats-referentiel.md.
   const ventesDeLaPeriode = dealsDeLaPeriode(deals, ovPeriodStart, ovPeriodEnd, sinceConnection);
+  // Cash CONTRACTE : ce qui a ete vendu sur la periode, `deals.amount_total` decoupe sur
+  // `signed_at`. Regle 7 du referentiel.
   const totalRev = ventesDeLaPeriode.reduce((s, d) => s + Number(d.amount_total || 0), 0);
+
+  // ── Cash COLLECTE, et pourquoi il est calcule par COHORTE ───────────────────
+  //
+  // La carte affiche trois nombres qu'un lecteur doit pouvoir recomposer de tete : le
+  // collecte, le contracte, et leur pourcentage. Ils portent donc TOUS sur les memes
+  // ventes — celles signees dans la periode — et on somme TOUS leurs paiements, sans
+  // les borner sur la fenetre.
+  //
+  // L'autre formule possible — « l'argent rentre pendant la periode » rapporte a
+  // « l'argent vendu pendant la periode » — divise deux ensembles de ventes DIFFERENTS.
+  // Une echeance encaissee ce mois-ci sur une vente signee le mois dernier compte au
+  // numerateur sans compter au denominateur : le taux peut alors depasser 100 %, et le
+  // lecteur qui refait la division a partir des deux nombres affiches ne retombe pas
+  // dessus. Meme raisonnement et meme decision que l'onglet Revenus (2026-08-30).
+  //
+  // Contrepartie assumee, identique a celle de l'onglet Revenus : une periode passee
+  // peut voir son taux MONTER plus tard, a mesure que les echeances de ses ventes
+  // tombent. C'est le sens de la question posee — « sur ce que j'ai vendu ce mois-la,
+  // combien est rentre a ce jour ».
+  const paiementsParDealOv = new Map<string, LignePaiement[]>();
+  for (const v of cashParVente ?? []) {
+    if (v.deal_id) paiementsParDealOv.set(v.deal_id, lignesDepuisSommes(v));
+  }
+  // `encaisseRetenu` et non `calculerCash().net` : un client peut verser PLUS que sa
+  // vente (double prelevement, montant baisse apres paiement). Sans ecretage vente par
+  // vente, le taux depasse 100 % et le surplus d'une vente vient masquer l'impaye d'une
+  // autre dans le total. Voir lib/dealCash.ts, la regle unique du cash.
+  const cashCollecteOv = ventesDeLaPeriode.reduce(
+    (s, d) => s + (d.id ? encaisseRetenu(calculerCash(paiementsParDealOv.get(d.id) ?? []), d.amount_total) : 0),
+    0,
+  );
+  const tauxCollecteOv = totalRev > 0 ? Math.round((cashCollecteOv / totalRev) * 100) : null;
   const noShowRate   = rendezVous > 0 ? pct(noShows, rendezVous) : 0;
   // Meme phrase qu'au hero de Funnel & Calls, et pour la meme raison : sans elle,
   // « Calls bookés » et « No-show » se lisent comme deux vues du meme total alors
@@ -1313,6 +1367,28 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   // même personne — voir même correctif dans matchesContent/TabFunnel plus haut).
   // 1. utm_content === postId (calls depuis lien description/bio, ou séquence story)
   // 2. sans utm_content → ig_lead_id → media_id via leadIdToMediaId (fallback legacy)
+  // ⚠️ Le montant d'un contenu vient de `deals`, PAS de `calls.revenue`.
+  //
+  // `calls.revenue` est le montant SAISI dans le rapport de call ; `deals.amount_total`
+  // est la vente reellement contractee, que la page Paiements peut corriger ensuite.
+  // Les deux divergent : mesure du 2026-09-02 sur la base entiere, 12 000 EUR cote
+  // rapport contre 10 200 EUR cote ventes, 1 800 EUR d'ecart sur une ligne. Tous les
+  // ecrans lisent `deals` depuis le 2026-08-20 ; ce tableau etait le dernier a ne pas le
+  // faire, et il l'affichait sous le mot « Revenue », assez vague pour que l'ecart ne se
+  // voie pas.
+  //
+  // Le rattachement reste celui du RENDEZ-VOUS, conformement au commentaire de
+  // `ventesDeLaPeriode` ci-dessus : un upsell vendu six mois plus tard ne doit pas
+  // gonfler la performance du post qui a amene le client. On somme donc les deals PAR
+  // CALL, et non par date de signature.
+  const montantParCallOv = new Map<string, number>();
+  for (const d of deals ?? []) {
+    if (!d.call_id || d.status === 'canceled') continue;
+    montantParCallOv.set(d.call_id, (montantParCallOv.get(d.call_id) ?? 0) + Number(d.amount_total || 0));
+  }
+  const cashContracteDesCalls = (liste: CallRecord[]) =>
+    liste.reduce((s, c) => s + (montantParCallOv.get(c.id) ?? 0), 0);
+
   type ContentItem = { id: string; title: string; thumbnail: string | null; platform: 'IG' | 'YT'; type: string; views: number; totalViews: number; watchTime: number; avgWatchTimeMin: number | null; rendezVous: number; noShowCount: number; noShowPct: number | null; closedCount: number; closedPct: number | null; callsBooked: number; callsHonores: number; revenueTotal: number; revenuePerCall: number; cashPerView: number | null };
   const allContent: ContentItem[] = [
     ...igPosts.map(p => {
@@ -1329,7 +1405,7 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
       const callsBooked = postCalls.filter(c => c.status === 'active' && estOpportunite(c)).length;
       const noShowCount = postCalls.filter(c => c.no_show).length;
       const closedCount = postCalls.filter(c => c.deal_closed).length;
-      const revTotal = postCalls.reduce((s, c) => s + (c.revenue || 0), 0);
+      const revTotal = cashContracteDesCalls(postCalls);
       // « Calls honores » etait DEDUIT : bookes moins no-show. Les deux termes ne
       // comptaient pas la meme population — « bookes » retire les 2es rendez-vous et les
       // annules, « no-show » les gardait — si bien qu'un 2e rendez-vous manque etait
@@ -1358,7 +1434,7 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
       const callsBooked = postCalls.filter(c => c.status === 'active' && estOpportunite(c)).length;
       const noShowCount = postCalls.filter(c => c.no_show).length;
       const closedCount = postCalls.filter(c => c.deal_closed).length;
-      const revTotal = postCalls.reduce((s, c) => s + (c.revenue || 0), 0);
+      const revTotal = cashContracteDesCalls(postCalls);
       // « Calls honores » etait DEDUIT : bookes moins no-show. Les deux termes ne
       // comptaient pas la meme population — « bookes » retire les 2es rendez-vous et les
       // annules, « no-show » les gardait — si bien qu'un 2e rendez-vous manque etait
@@ -1490,7 +1566,16 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
           // Le chiffre se lit maintenant comme « Calls bookes » et « Calls honores ».
           { label: 'Closing', value: callsHonores > 0 ? `${fmt(closingRate, 0)} %` : '—', sub: callsHonores > 0 ? `${dealsCloses} deal${dealsCloses > 1 ? 's' : ''} closé${dealsCloses > 1 ? 's' : ''}` : dealsCloses > 0 ? `${dealsCloses} deal${dealsCloses > 1 ? 's' : ''} closé${dealsCloses > 1 ? 's' : ''}, aucun call honoré` : 'aucun call honoré', color: (callsHonores > 0 ? 'var(--ink)' : 'var(--faint)') as string, aide: AIDE_CLOSING },
           { label: 'Rev / call', value: callsBookes > 0 ? fmtEur(revPerCall) : '—', sub: callsBookes > 0 ? 'par call booké' : 'aucun call booké', color: (callsBookes > 0 ? GREEN : 'var(--faint)') as string, aide: AIDE_REV_PAR_CALL },
-          { label: 'Revenue', value: fmtEur(totalRev), sub: ovEtiquettePeriode, color: (totalRev > 0 ? GREEN : 'var(--faint)') as string },
+          // Le sous-titre porte le denominateur ET le taux, pour que la division reste
+          // refaisable de tete depuis les deux nombres affiches. Sans le mot
+          // « contractes », « 84 % » se lirait comme un taux de closing.
+          { label: 'Cash collecté',
+            value: fmtEur(cashCollecteOv),
+            sub: totalRev > 0
+              ? `${tauxCollecteOv} % de ${fmtEur(totalRev)} contractés`
+              : 'aucune vente signée',
+            color: (cashCollecteOv > 0 ? GREEN : 'var(--faint)') as string,
+            aide: AIDE_CASH_COLLECTE },
         ].map((item, i) => (
           <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
             <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8, display: 'flex', alignItems: 'center' }}>{item.label}{'aide' in item && item.aide ? <AideColonne texte={item.aide} /> : null}</div>
@@ -1599,7 +1684,7 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
                 if (contentSort === 'views') return [c(''), c('Contenu'), c('Plateforme'), c('Vues totales')];
                 if (contentSort === 'watchTime') return [c(''), c('Contenu'), c('Plateforme'), c('Watch time total'), c('Watch time moyen')];
                 if (contentSort === 'calls') return [c(''), c('Contenu'), c('Plateforme'), c('Calls bookés', AIDE_CALLS_BOOKES), c('Calls honorés', AIDE_CALLS_HONORES), c('No-show', AIDE_NO_SHOW), c('Closé', AIDE_CLOSING)];
-                return [c(''), c('Contenu'), c('Plateforme'), c('Calls bookés', AIDE_CALLS_BOOKES), c('Revenue / call', AIDE_REV_PAR_CALL), c('Cash / vue'), c('Revenue total')];
+                return [c(''), c('Contenu'), c('Plateforme'), c('Calls bookés', AIDE_CALLS_BOOKES), c('Revenue / call', AIDE_REV_PAR_CALL), c('Cash / vue'), c('Cash contracté total', AIDE_CASH_CONTRACTE)];
               })().map((h, i) => (
                 <th key={i} className="eyebrow-sm" style={{ textAlign: i <= 1 ? 'left' : 'right', color: 'var(--muted)', padding: '0 8px 8px', borderBottom: '1px solid var(--border)' }}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: i <= 1 ? 'flex-start' : 'flex-end' }}>
@@ -10874,7 +10959,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
 
       {loading ? <InlineLoader /> : (
         <>
-          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} msgs={msgsEff} calls={callsEff} callsAllTime={callsAllTimeEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} deals={dealsEff} />}
+          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} msgs={msgsEff} calls={callsEff} callsAllTime={callsAllTimeEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} deals={dealsEff} cashParVente={cashParVente} />}
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} abonnesAujourdHui={ig?.followers ?? null} allTimeStart={allTimeStart} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.yt?.snapshotError} abonnesAujourdHui={yt?.subscribers ?? null} allTimeStart={allTimeStart} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} callsAllTime={callsAllTimeEff} deals={deals} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} allTimeStart={allTimeStart} profileId={profileId} joursCollectesShortio={joursCollectesShortio} premierJourCollecteShortio={premierJourCollecteShortio} premierClicLienProspect={premierClicLienProspect} />}
