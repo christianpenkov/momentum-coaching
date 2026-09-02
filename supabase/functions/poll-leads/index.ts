@@ -2402,7 +2402,23 @@ async function rattraperTrousIg(profileId: string, token: string, igAccountId: s
         // de se distinguer d'un echec.
         if (metrics.ig_reach == null) { errors.push(`ig_rattrapage_vide_${t.date}`); continue; }
         const { error } = await supa.from('analytics_daily_snapshots').upsert(
-          { profile_id: profileId, date: t.date, ...metrics, backfill_source: 'rattrapage' },
+          // ── ig_account_id : POSE ICI, ET SEULEMENT SUR LES ECRITURES INSTAGRAM ──
+          //
+          // `analytics_daily_snapshots` n'appartient a AUCUNE plateforme : une meme
+          // ligne porte les colonnes ig_*, yt_* et shortio_* d'une journee. Cette
+          // colonne ne dit donc pas « cette ligne appartient au compte X », mais
+          // « les metriques Instagram de cette ligne viennent du compte X ».
+          //
+          // C'est ce qui permet a une bascule vers un AUTRE compte Instagram de
+          // distinguer ses lignes sans toucher aux metriques YouTube et Short.io du
+          // meme jour. Le rattrapage YouTube, lui, ne la pose PAS : il n'ecrit aucune
+          // metrique Instagram, et la renseigner mentirait sur la provenance.
+          //
+          // Avant le 2026-09-02 elle n'etait posee nulle part : toutes les lignes
+          // valaient NULL, et le callback OAuth Instagram archivait `is.null OR neq`,
+          // donc TOUT — YouTube et Short.io compris. Le predicat a ete corrige le
+          // meme jour ; ceci en est le pendant cote ecriture.
+          { profile_id: profileId, date: t.date, ...metrics, ig_account_id: igAccountId, backfill_source: 'rattrapage' },
           { onConflict: 'profile_id,date', ignoreDuplicates: false },
         );
         if (error) errors.push(`ig_rattrapage_${t.date}: ${error.message}`);
@@ -2570,7 +2586,7 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
           // `jour` seulement : `compte` n'a pas de date et ne doit jamais atterrir sur
           // une ligne autre que celle d'aujourd'hui.
           const { jour } = await fetchIgDayMetrics(igCreds.token, igCreds.igAccountId, yesterday);
-          const { error } = await supa.from('analytics_daily_snapshots').upsert({ profile_id: profileId, date: yesterday, ...jour, backfill_source: 'cron' }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
+          const { error } = await supa.from('analytics_daily_snapshots').upsert({ profile_id: profileId, date: yesterday, ...jour, ig_account_id: igCreds.igAccountId, backfill_source: 'cron' }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
           if (error) throw new Error(error.message);
         }
         // Toutes les métriques day=period (reach, views, accounts_engaged,
@@ -2595,6 +2611,7 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
           await supa.from('analytics_daily_snapshots').upsert({
             profile_id: profileId, date: todayStr,
             ...jour, ...compte,
+            ig_account_id: igCreds.igAccountId,
             backfill_source: 'cron',
           }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
         } catch (e) { console.error(`[poll-leads] todayMetrics IG (${profileId}):`, (e as Error).message); }
