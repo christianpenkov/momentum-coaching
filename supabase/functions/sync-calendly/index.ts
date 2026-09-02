@@ -674,7 +674,7 @@ Deno.serve(async (req: Request) => {
 
   const { data: integrations } = await supabase
     .from('integrations')
-    .select('profile_id, connected_at, last_synced_at, profiles!inner(role)')
+    .select('profile_id, connected_at, first_connected_at, last_synced_at, profiles!inner(role)')
     .eq('provider', 'calendly')
     .eq('profiles.role', 'client');
 
@@ -697,7 +697,17 @@ Deno.serve(async (req: Request) => {
   // Le quota Calendly, lui, n'est pas en cause : 60 requêtes par minute et par JETON,
   // donc par élève. Ce qui se partage ici, c'est le temps d'exécution, pas le quota.
   const settled = await mapWithConcurrency(integrations as any[], 5, (integ: any) => {
-    const connectedAt = integ.connected_at || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    // first_connected_at, PAS connected_at — ce dernier est reecrit a CHAQUE
+    // reconnexion OAuth, et il sert de PLANCHER a la fenetre d'ingestion
+    // (`connectedAt - 48 h`, voir plus haut). Un eleve qui reconnecte simplement le
+    // MEME compte Calendly rehausserait donc ce plancher a aujourd'hui : ses
+    // rendez-vous passes resteraient en base mais cesseraient d'etre rafraichis, et
+    // une annulation ulterieure ne serait jamais vue. Panne silencieuse, declenchee
+    // par un geste anodin.
+    //
+    // `first_connected_at` ne bouge jamais apres la premiere connexion : c'est la
+    // seule borne qui decrit « depuis quand ce compte nous appartient ».
+    const connectedAt = integ.first_connected_at || integ.connected_at || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
     return syncCalendlyEleve(integ.profile_id, connectedAt, integ.last_synced_at ?? null)
       .then(r => ({ profile_id: integ.profile_id, ...r }));
   });

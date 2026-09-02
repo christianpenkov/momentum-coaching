@@ -47,15 +47,19 @@ export async function POST(request: Request) {
 
     profileId = targetProfileId;
 
-    // Récupère connected_at depuis integrations pour respecter la date-limite
+    // first_connected_at, PAS connected_at : ce dernier est reecrit a chaque
+    // reconnexion OAuth et sert ici de PLANCHER a la fenetre d'ingestion. Reconnecter
+    // le meme compte rehausserait ce plancher a aujourd'hui, et les rendez-vous
+    // anterieurs cesseraient d'etre rafraichis. Meme correctif que dans
+    // supabase/functions/sync-calendly.
     const { data: integ } = await serviceSupabase
       .from('integrations')
-      .select('connected_at')
+      .select('connected_at, first_connected_at')
       .eq('profile_id', profileId)
       .eq('provider', 'calendly')
       .single();
 
-    connectedAt = integ?.connected_at || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    connectedAt = integ?.first_connected_at || integ?.connected_at || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
   }
 
   const { synced, errors } = await syncCalendlyEleve(profileId, connectedAt);

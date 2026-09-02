@@ -10565,7 +10565,7 @@ async function fetchIntegrationStatus(profileId?: string) {
 
   const { data } = await supabase
     .from('integrations')
-    .select('provider, backfill_done, backfill_started_at, last_snapshot_status, last_snapshot_error, connected_at')
+    .select('provider, backfill_done, backfill_started_at, last_snapshot_status, last_snapshot_error, connected_at, first_connected_at')
     .eq('profile_id', targetId)
     .in('provider', ['instagram', 'youtube', 'stripe']);
 
@@ -10594,14 +10594,21 @@ async function fetchIntegrationStatus(profileId?: string) {
       backfillStarted: ig.backfill_started_at,
       snapshotStatus: ig.last_snapshot_status,
       snapshotError: ig.last_snapshot_error,
-      connectedAt: ig.connected_at,
+      // first_connected_at, PAS connected_at : ce dernier est reecrit a CHAQUE
+      // reconnexion OAuth. Or il borne la navigation arriere (maxIndex dans
+      // PeriodPill) : s'y fier ferait qu'un eleve reconnectant LE MEME compte
+      // perdrait d'un coup tout son historique de periodes. La donnee resterait
+      // intacte en base, mais plus aucun bouton ne permettrait d'y revenir --
+      // une perte qui ressemble a une perte de donnees sans en etre une.
+      // Repli sur connected_at pour les lignes anterieures a la colonne.
+      connectedAt: ig.first_connected_at ?? ig.connected_at,
     } : null,
     yt: yt ? {
       backfillDone: yt.backfill_done,
       backfillStarted: yt.backfill_started_at,
       snapshotStatus: yt.last_snapshot_status,
       snapshotError: yt.last_snapshot_error,
-      connectedAt: yt.connected_at,
+      connectedAt: yt.first_connected_at ?? yt.connected_at,
     } : null,
     stripeConnected,
     latestSnapshotDate: latestSnap.data?.date ?? null,

@@ -108,16 +108,22 @@ export async function GET(request: NextRequest) {
     headers: { 'Content-Type': 'application/json', cookie: request.headers.get('cookie') || '' },
   }).catch(e => console.error('[Calendly callback] register-webhook failed:', e));
 
-  // Pour les élèves : sync immédiat des events depuis connected_at (fire-and-forget)
+  // Pour les élèves : sync immédiat des events (fire-and-forget)
+  //
+  // On ne passe PLUS `connected_at` : la route le resout elle-meme depuis
+  // `first_connected_at`. Envoyer l'instant present rehaussait le plancher
+  // d'ingestion a aujourd'hui des qu'un eleve reconnectait LE MEME compte, et ses
+  // rendez-vous anterieurs cessaient d'etre rafraichis. A la toute premiere
+  // connexion le resultat est identique (first_connected_at vaut maintenant) ; a la
+  // deuxieme, il est correct au lieu d'etre destructeur.
   if (profile?.role === 'client') {
-    const connectedAt = new Date().toISOString();
     fetch(`${base}/api/calendly/refresh`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'authorization': `Bearer ${process.env.CRON_SECRET}`,
       },
-      body: JSON.stringify({ profile_id: user.id, connected_at: connectedAt }),
+      body: JSON.stringify({ profile_id: user.id }),
     }).catch(e => console.error('[Calendly callback] sync trigger failed:', e));
   }
 
