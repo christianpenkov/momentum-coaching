@@ -6474,6 +6474,13 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const [parcoursFiltres, setParcoursFiltres] = useState<Set<string>>(new Set());
   const [parcoursTri, setParcoursTri] = useState('callsBookes');
   const [parcoursTriDir, setParcoursTriDir] = useState<'desc' | 'asc'>('desc');
+  // Le groupe « Engagement du DM1 » est REPLIE par defaut.
+  //
+  // Ce sont deux colonnes hors chaine, utiles quand on regle le message automatique,
+  // inutiles le reste du temps — et elles s'inseraient au milieu d'une lecture de gauche
+  // a droite. Les replier rend la chaine lisible d'un trait par defaut ; les deplier
+  // reste a un clic, au meme endroit que les filtres.
+  const [dm1Ouvert, setDm1Ouvert] = useState(false);
   // Modale "Voir tout" (performance par contenu) : Echap la ferme. Les autres
   // couches de cette page (post, video, story selectionnes) vivent dans des
   // sous-composants distincts et sont a traiter separement.
@@ -8668,7 +8675,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           <div><b>À quoi sert ce tableau.</b> Sur les personnes entrées par ce contenu, combien sont allées jusqu&apos;au bout, et à quelle étape les autres se sont arrêtées. C&apos;est l&apos;écran des goulots d&apos;étranglement.</div>
           <div><b>Il compte des personnes, pas des rendez-vous.</b> Une personne qui réserve deux fois compte une seule fois. C&apos;est ce qui fait que les nombres ne remontent jamais de gauche à droite, et pourquoi ils diffèrent de ceux de « Ce que fait chaque contenu », juste en dessous, qui compte des événements.</div>
           <div><b>Seuls les gens entrés par le tunnel DM figurent ici.</b> Une réservation venue d&apos;un lien de bio, d&apos;une description ou d&apos;une story n&apos;a aucune personne identifiable en amont : elle est comptée dans Vue générale et dans le Breakdown par source, pas ici. Le total de la colonne Revenue est donc normalement inférieur à celui de Vue générale, et ce n&apos;est pas un écart à corriger.</div>
-          <div><b>Le groupe « Engagement du DM1 » est hors de la chaîne</b>, isolé entre filets juste après le nom du contenu — volontairement AVANT elle, pour que la chaîne se lise ensuite d'un trait sans coupure. Appuyer sur le bouton du DM1 puis cliquer le lead magnet ne sont pas obligatoires pour répondre ensuite : les mettre dans la chaîne la ferait remonter le jour où quelqu&apos;un répond sans avoir cliqué. Ces deux colonnes mesurent l&apos;efficacité du message automatique, pas la progression du prospect.</div>
+          <div><b>Le groupe « Engagement du DM1 » est hors de la chaîne</b>, et <b>replié par défaut</b> : le bouton du même nom, à droite des filtres, l'ouvre. Une fois ouvert il s'isole entre filets juste après le nom du contenu, volontairement AVANT la chaîne, pour que celle-ci se lise ensuite d'un trait sans coupure. Appuyer sur le bouton du DM1 puis cliquer le lead magnet ne sont pas obligatoires pour répondre ensuite : les mettre dans la chaîne la ferait remonter le jour où quelqu&apos;un répond sans avoir cliqué. Ces deux colonnes mesurent l&apos;efficacité du message automatique, pas la progression du prospect.</div>
           <div><b>La période porte sur la date d&apos;entrée.</b> En regardant mars, vous voyez les personnes entrées en mars et tout ce qu&apos;elles ont fait ensuite, même en juin. Un rendez-vous se range dans la ligne par laquelle la personne était entrée juste avant lui. <b>Une relance manuelle n&apos;ouvre pas de nouvelle cohorte</b> : seule une nouvelle prise de lead magnet le fait.</div>
           <div><b>Les périodes récentes paraissent toujours faibles</b>, parce que les gens viennent d&apos;entrer et n&apos;ont pas encore eu le temps d&apos;aller au bout.</div>
           <div><b>Pas de ligne Total.</b> Une même personne peut être entrée par plusieurs contenus : additionner les lignes la compterait plusieurs fois.</div>
@@ -8737,7 +8744,31 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     );
                   })}
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
+                  {/* Meme forme que les filtres a sa gauche : meme hauteur, meme rayon,
+                      meme paire de couleurs actif/inactif. Un affordance de plus a
+                      apprendre serait un affordance de trop — c'est un reglage
+                      d'affichage, pas une fonction nouvelle.
+
+                      Le glyphe CHANGE au lieu de tourner : un etat se lit, il n'a pas
+                      besoin d'etre anime, et rien ne reste a desactiver en
+                      `prefers-reduced-motion`.
+
+                      L'explication du groupe voyage dans l'infobulle du bouton. Sans
+                      elle, replier le groupe reviendrait a cacher aussi la raison de son
+                      existence — le « ? » de l'intertitre disparait avec lui. */}
+                  {!estYT && (
+                    <button
+                      onClick={() => setDm1Ouvert(o => !o)}
+                      aria-expanded={dm1Ouvert}
+                      title={dm1Ouvert
+                        ? "Masquer les colonnes « LM réclamés » et « Clics LM »."
+                        : "Afficher les colonnes « LM réclamés » et « Clics LM ».\n\nCes deux colonnes ne sont pas des étapes du parcours : on peut répondre au message d'accroche sans avoir appuyé sur le bouton du DM1, et sans avoir cliqué son lead magnet. Elles mesurent l'efficacité du message automatique, pas la progression du prospect — d'où les filets qui les isolent, et d'où ce repliage."}
+                      style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: `1px solid ${dm1Ouvert ? BLUE : 'var(--border)'}`, background: dm1Ouvert ? BLUE + '14' : 'transparent', color: dm1Ouvert ? BLUE : 'var(--muted)', transition: 'all .15s', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{ fontSize: 8, lineHeight: 1 }}>{dm1Ouvert ? '▾' : '▸'}</span>
+                      Engagement du DM1
+                    </button>
+                  )}
                   <span style={{ fontSize: 10, color: 'var(--faint)' }}>Trier par</span>
                   <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
                     <select value={triParcoursValide} onChange={e => { setParcoursTri(e.target.value); setParcoursTriDir('desc'); }}
@@ -8756,13 +8787,16 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             </div>
 
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: estYT ? 700 : parContenu ? 1000 : 880 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: estYT ? 700 : (parContenu ? 1000 : 880) - (dm1Ouvert ? 0 : 130) }}>
                 <thead>
                   {/* Intertitre du groupe hors chaîne : sans lui, deux colonnes de plus
                       dans la rangée se lisent comme deux marches de plus. */}
-                  {!estYT && (
+                  {/* La rangee reste tant qu'elle porte quelque chose : l'intertitre du
+                      groupe s'il est deplie, celui de l'all-time sur l'angle Contenu. */}
+                  {!estYT && (dm1Ouvert || parContenu) && (
                     <tr>
                       <th style={{ ...thP, borderBottom: 'none' }} />
+                      {dm1Ouvert && (
                       <th colSpan={2} style={{ ...thP, ...filet, textAlign: 'center', color: BLUE, borderBottom: 'none', paddingBottom: 2 }}>
                         Engagement du DM1
                         <span
@@ -8771,6 +8805,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                           ?
                         </span>
                       </th>
+                      )}
                       {/* Remplissage de « Commentaires LM » a « Revenue » : colonnes 4 a 12
                           dans les DEUX angles. Il valait 9 (ou 7) et laissait la rangee UNE cellule plus
                           courte que le corps du tableau — sans effet visible, le navigateur
@@ -8799,9 +8834,11 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                               Calendly envoyes -> Clics Calendly -> Calls bookes. Place au
                               milieu, il coupait la lecture a l'endroit meme ou l'oeil
                               cherche la marche suivante. */}
-                          <th style={{ ...thP, ...filet }}><EnteteColonne nom="clicLeadMagnet">LM réclamés</EnteteColonne></th>
-                          <th style={thP}><EnteteColonne nom="clicLeadMagnet">Clics LM</EnteteColonne></th>
-                          <th style={{ ...thP, ...filet }}><EnteteColonne nom="leadsGeneres">Commentaires LM</EnteteColonne></th>
+                          {dm1Ouvert && <th style={{ ...thP, ...filet }}><EnteteColonne nom="clicLeadMagnet">LM réclamés</EnteteColonne></th>}
+                          {dm1Ouvert && <th style={thP}><EnteteColonne nom="clicLeadMagnet">Clics LM</EnteteColonne></th>}
+                          {/* Le filet FERME le groupe : sans lui a gauche, il ne doit pas
+                              rester a droite, sinon un trait flotte apres « Contenu ». */}
+                          <th style={dm1Ouvert ? { ...thP, ...filet } : thP}><EnteteColonne nom="leadsGeneres">Commentaires LM</EnteteColonne></th>
                           <th style={thP}><EnteteColonne nom="conversationDm">Conversations</EnteteColonne></th>
                           <th style={thP}><EnteteColonne nom="calendlyEnvoye">Calendly envoyés</EnteteColonne></th>
                           <th style={thP}><EnteteColonne nom="clicLien">Clics Calendly</EnteteColonne></th>
@@ -8817,7 +8854,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                 </thead>
                 <tbody>
                   {rowsParcours.length === 0 && (
-                    <tr><td colSpan={estYT ? 9 : parContenu ? 14 : 12} style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--faint)' }}>
+                    <tr><td colSpan={estYT ? 9 : (parContenu ? 14 : 12) - (dm1Ouvert ? 0 : 2)} style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--faint)' }}>
                       {/* Une grille vide APRES filtrage n'est pas une absence de donnees.
                           Les confondre ferait conclure « ce canal ne produit rien » alors
                           qu'un bouton est simplement reste actif. */}
@@ -8844,16 +8881,18 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                       {estYT
                         ? <td style={{ ...tdP, ...filet }}><CelluleP n={info.clicsDesc} /></td>
                         : <>
-                           <td style={{ ...tdP, ...filet }}>
-                             {lmReclameCouvre
-                               ? <CelluleP n={l.lmReclames} sur={l.commentairesLm} />
-                               : <>
-                                   <span style={{ color: 'var(--faint)' }} title={lmReclameNote}>&mdash;</span>
-                                   <span style={{ display: 'block', fontSize: 9, color: 'var(--faint)', marginTop: 1 }}>non mesuré</span>
-                                 </>}
-                           </td>
-                           <td style={tdP}><CelluleP n={l.clicsLm} sur={l.commentairesLm} /></td>
-                           <td style={{ ...tdP, ...filet }}><CelluleP n={l.commentairesLm} /></td>
+                           {dm1Ouvert && (
+                             <td style={{ ...tdP, ...filet }}>
+                               {lmReclameCouvre
+                                 ? <CelluleP n={l.lmReclames} sur={l.commentairesLm} />
+                                 : <>
+                                     <span style={{ color: 'var(--faint)' }} title={lmReclameNote}>&mdash;</span>
+                                     <span style={{ display: 'block', fontSize: 9, color: 'var(--faint)', marginTop: 1 }}>non mesuré</span>
+                                   </>}
+                             </td>
+                           )}
+                           {dm1Ouvert && <td style={tdP}><CelluleP n={l.clicsLm} sur={l.commentairesLm} /></td>}
+                           <td style={dm1Ouvert ? { ...tdP, ...filet } : tdP}><CelluleP n={l.commentairesLm} /></td>
                            <td style={tdP}><CelluleP n={l.ontRepondu} sur={l.commentairesLm} /></td>
                             <td style={tdP}><CelluleP n={l.calendlyEnvoyes} sur={l.ontRepondu} /></td>
                             <td style={tdP}><CelluleP n={l.clicsCalendly} sur={l.calendlyEnvoyes} /></td>
