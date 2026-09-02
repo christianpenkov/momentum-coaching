@@ -178,9 +178,28 @@ export async function GET(request: NextRequest) {
       // ligne integrations (voir /api/oauth/instagram/disconnect) : il ne faut jamais
       // dépendre de la mémoire de l'ancien compte pour savoir s'il faut archiver.
       const archiveResults = await Promise.all(igTables.map(async t => {
-        const { error, count } = await serviceSupabase.from(t).update({ archived_at: now }, { count: 'exact' })
-          .eq('profile_id', user.id).is('archived_at', null)
-          .or(`ig_account_id.is.null,ig_account_id.neq.${igAccountId}`);
+        const base = serviceSupabase.from(t).update({ archived_at: now }, { count: 'exact' })
+          .eq('profile_id', user.id).is('archived_at', null);
+
+        // ⚠️ `analytics_daily_snapshots` est la SEULE table de cette liste qui ne
+        // soit pas propre à Instagram : une même ligne y porte les colonnes `ig_*`,
+        // `yt_*` ET `shortio_*` d'une journée. L'archiver entière pour un motif
+        // Instagram emporte donc les métriques YouTube et Short.io du même jour.
+        //
+        // Or aucun chemin d'écriture ne renseignait `ig_account_id` sur cette table :
+        // toutes ses lignes récentes valent NULL. Avec le prédicat commun
+        // (`is.null OR neq`), une simple RECONNEXION DU MÊME COMPTE archivait donc
+        // 100 % de l'historique quotidien — et l'étape 2 ne le restaurait pas,
+        // puisqu'elle cherche `= igAccountId`. Mesuré le 2026-09-02 : 185 lignes,
+        // dont 120 portant des données YouTube et 46 des données Short.io.
+        //
+        // Ici, NULL veut dire « cette ligne ne revendique aucun compte Instagram »,
+        // jamais « elle appartient à un autre ». Seules les lignes rattachées
+        // explicitement à un AUTRE compte sont archivées — `neq` exclut les NULL par
+        // construction en SQL, ce qui est exactement le comportement voulu.
+        const { error, count } = t === 'analytics_daily_snapshots'
+          ? await base.neq('ig_account_id', igAccountId)
+          : await base.or(`ig_account_id.is.null,ig_account_id.neq.${igAccountId}`);
         return { t, count, error: error?.message };
       }));
       // Étape 2 : désarchiver les lignes qui appartenaient déjà à CE compte (reconnexion
