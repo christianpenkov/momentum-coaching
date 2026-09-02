@@ -5061,7 +5061,8 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
     // mais un chiffre FAUX. Meme regle que partout ailleurs sur cette page : le
     // grand chiffre ne bouge pas, seul le taux se calcule sur la partie comparable.
     { label: 'Clics liens Calendly', value: noData ? dash : fmt(igTotalClicsD), sub: 'bio + descr. + DM', rawValue: igTotalClicsD,
-      // Pas de total, pas de taux : le numerateur serait partiel.
+      // Le chiffre reste, le taux part : il diviserait une partie des clics par la
+      // totalite de la portee — pas un chiffre partiel, un chiffre faux.
       rate: !couvClicsIg.couvert ? undefined : (igReachD && igReachD > 0 ? (igTotalClicsD / igReachD) * 100 : undefined),
       noteTaux: couvClicsIg.note, aide: couvClicsIg.aide },
     // Le GRAND CHIFFRE reste le nombre VRAI de rendez-vous — c'est ce que « Calls
