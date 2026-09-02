@@ -576,6 +576,14 @@ const AIDE_CASH_CONTRACTE =
   + "sortie. Un upsell vendu six mois plus tard à ce même client ne vient donc pas "
   + "gonfler la performance de la publication.";
 
+const AIDE_REACH_STORY =
+  "Le nombre de PERSONNES qui ont vu cette story, chacune comptée une seule fois "
+  + "même si elle l'a rouverte.\n\n"
+  + "À ne pas confondre avec les « vues » du détail plus bas : une même personne qui "
+  + "regarde deux fois fait 1 de reach et 2 de vues. C'est le reach qui sert ici, "
+  + "parce que la question posée est « combien de personnes sont restées jusqu'au "
+  + "bout », et qu'une personne qui revient ne prolonge pas une audience.";
+
 const AIDE_REV_PAR_CALL =
   "Le revenu de la période divisé par les calls bookés. Un deuxième rendez-vous qui "
   + "prolonge la même vente n'entre pas au dénominateur, comme dans la colonne « Calls "
@@ -3022,6 +3030,18 @@ function StorySequenceDetailModal({ profileId, sequence, onClose }: { profileId?
         ) : (
           <>
             <div className="eyebrow-lg" style={{ color: 'var(--muted)', marginBottom: 10 }}>Rétention story par story</div>
+            {/* Les deux nombres de droite n'etaient nommes nulle part : on lisait « 254 »
+                puis « -12 % » sans savoir de quelle mesure il s'agissait, alors que le
+                bloc « Détail par story » juste en dessous parle de VUES, qui sont autre
+                chose. Signale par Chris le 2026-09-02. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6, fontSize: 9.5, color: 'var(--faint)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+              <div style={{ width: 32, flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>Portée de chaque story</div>
+              <div style={{ width: 50, textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                Reach<AideColonne texte={AIDE_REACH_STORY} />
+              </div>
+              <div style={{ width: 44, textAlign: 'right' }} title="Part du reach perdue par rapport à la story précédente">Perte</div>
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
               {storiesDetail.map((s, i) => {
                 const prevReach = i > 0 ? storiesDetail[i - 1].reach : null;
