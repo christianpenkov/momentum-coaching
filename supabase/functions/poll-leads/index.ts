@@ -1693,6 +1693,15 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
       items.push(...(playlistData.items || []));
       pageToken = playlistData.nextPageToken;
     } while (pageToken && items.length < PLAFOND_VIDEOS);
+    // Une troncature ne doit PAS disparaitre en silence. `pageToken` encore defini
+    // signifie que YouTube avait d'autres pages a rendre et qu'on s'est arrete au
+    // plafond : les videos au-dela n'existent pas dans Mes stats, exactement le defaut
+    // qu'on vient de corriger, juste repousse. La ligne part dans `cron_runs`, la table
+    // qu'on regarde deja, plutot que dans un log que personne ne relit.
+    if (pageToken) {
+      errors.push(`yt_videos_tronque: plafond ${PLAFOND_VIDEOS} atteint, la chaine a plus de videos`);
+      console.error(`[poll-leads] profile=${profileId} yt_videos_tronque a ${PLAFOND_VIDEOS}`);
+    }
     if (!items.length) return [];
 
     const videoIds = items.map((i: any) => i.snippet?.resourceId?.videoId).filter(Boolean);

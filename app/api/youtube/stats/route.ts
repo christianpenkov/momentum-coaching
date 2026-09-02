@@ -106,6 +106,50 @@ async function fetchCtrByVideo(accessToken: string): Promise<Record<string, numb
   } catch { return {}; }
 }
 
+/**
+ * Cache court, en memoire, par eleve.
+ *
+ * ⚠️ Le quota de la Data API v3 est de 10 000 unites/jour PAR PROJET Google Cloud,
+ * partage entre tous les eleves — pas par eleve comme Instagram ou Calendly. Le mode
+ * de panne est donc GLOBAL : une fois epuise, plus aucun eleve ne collecte jusqu'a
+ * minuit heure du Pacifique.
+ *
+ * Cette route n'avait aucun cache et part a chaque affichage de page. Elle consomme
+ * 1 unite pour `channels.list`, plus 1 par page de `playlistItems` et 1 par lot de
+ * `videos.list` — soit 3 unites a 29 videos et 9 au plafond de 200. Les appels
+ * Analytics ne comptent PAS ici : cette API a son propre quota (verifie dans la doc
+ * Google le 2026-09-02).
+ *
+ * 5 minutes ne coute aucune fraicheur : YouTube Analytics accuse deja 2 a 3 jours de
+ * retard, et les statistiques lifetime bougent lentement.
+ *
+ * ⚠️ Limite assumee : le cache est PAR INSTANCE serverless. Il ne garantit rien, il
+ * ecrete — plusieurs instances peuvent chacune payer un appel. C'est suffisant ici
+ * puisqu'on cherche a supprimer les rafales de rechargements, pas a garantir un
+ * nombre d'appels. Un cache partage supposerait une table ou un Redis, pour un gain
+ * marginal sur ce poste.
+ *
+ * Volontairement PAS un `Cache-Control` HTTP : la reponse est propre a un eleve, et
+ * un cache partage en ferait fuiter le contenu d'un compte a l'autre.
+ */
+const TTL_CACHE_MS = 5 * 60 * 1000;
+const cacheParProfil = new Map<string, { a: number; charge: any }>();
+
+/**
+ * Memorise la charge utile puis la renvoie. Les entrees perimees sont purgees au
+ * passage : sans ca la Map grossit d'un profil par eleve et n'est jamais videe, ce
+ * qui est sans gravite a 40 eleves mais devient une fuite si la route sert un jour
+ * un parc plus large.
+ */
+function repondreEtMemoriser(profilId: string, charge: any) {
+  const maintenant = Date.now();
+  for (const [cle, v] of cacheParProfil) {
+    if (maintenant - v.a >= TTL_CACHE_MS) cacheParProfil.delete(cle);
+  }
+  cacheParProfil.set(profilId, { a: maintenant, charge });
+  return NextResponse.json(charge);
+}
+
 export async function GET(request: Request) {
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -125,6 +169,13 @@ export async function GET(request: Request) {
       .single();
     if (!clientRow) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
     targetProfileId = profileId;
+  }
+
+  // Pose APRES le controle d'autorisation ci-dessus : un cache consulte avant
+  // l'authentification servirait les statistiques d'un eleve a n'importe qui.
+  const enCache = cacheParProfil.get(targetProfileId);
+  if (enCache && Date.now() - enCache.a < TTL_CACHE_MS) {
+    return NextResponse.json(enCache.charge);
   }
 
   const accessToken = await getYtToken(targetProfileId);
@@ -471,7 +522,7 @@ export async function GET(request: Request) {
       };
     });
 
-    return NextResponse.json({
+    return repondreEtMemoriser(targetProfileId, {
       channelName: channel.snippet?.title,
       channelThumbnail: channel.snippet?.thumbnails?.default?.url,
       subscribers: parseInt(stats?.subscriberCount || '0'),
@@ -485,7 +536,7 @@ export async function GET(request: Request) {
     });
   }
 
-  return NextResponse.json({
+  return repondreEtMemoriser(targetProfileId, {
     channelName: channel.snippet?.title,
     channelThumbnail: channel.snippet?.thumbnails?.default?.url,
     subscribers: parseInt(stats?.subscriberCount || '0'),
