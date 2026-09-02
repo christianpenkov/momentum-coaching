@@ -481,8 +481,16 @@ function AideColonne({ texte }: { texte: string }) {
             boxShadow: '0 6px 20px rgba(0,0,0,.18)',
             fontSize: 11, fontWeight: 400, lineHeight: 1.45, color: 'var(--ink)',
             textAlign: 'left', whiteSpace: 'normal',
+            maxHeight: '60vh', overflowY: 'auto',
           }}
-        >{texte}</span>
+        >
+          {/* Un texte d'aide s'ecrit en paragraphes separes par une ligne vide. Sans ce
+              decoupage, `whiteSpace: 'normal'` les collerait en un seul pave illisible —
+              or c'est justement ce pave qui rendait l'aide du closing incomprehensible. */}
+          {texte.split('\n\n').map((para, i) => (
+            <span key={i} style={{ display: 'block', marginTop: i === 0 ? 0 : 8 }}>{para}</span>
+          ))}
+        </span>
       )}
     </span>
   );
@@ -505,17 +513,27 @@ const AIDE_CALLS_HONORES =
   + "calls bookés.";
 
 const AIDE_NO_SHOW =
-  "Le seul compteur de Mes stats qui parle en rendez-vous et non en calls bookés — son "
-  + "dénominateur est écrit à côté de lui pour cette raison. Un créneau posé puis non "
-  + "honoré est un créneau perdu, même s'il prolongeait une vente déjà en cours. On mesure "
-  + "ici la fiabilité d'un créneau, pas ce que le contenu a produit.";
+  "Le seul compteur de Mes stats qui parle en RENDEZ-VOUS et non en opportunités. Son "
+  + "dénominateur n'est donc pas le même que celui de « Calls bookés » — c'est pourquoi "
+  + "il est écrit sur la carte elle-même, « 6 sur 11 rendez-vous », et pas seulement ici : "
+  + "vous n'avez jamais à le deviner.\n\n"
+  + "Un créneau posé puis non honoré est un créneau perdu, même s'il prolongeait une "
+  + "vente déjà en cours. On mesure ici la fiabilité d'un créneau, pas ce que le contenu "
+  + "a produit — d'où ce grain différent, assumé.";
 
 const AIDE_CLOSING =
-  "Les deals signés rapportés aux calls honorés. Un deal se compte là où il a été signé, y "
-  + "compris lors d'un deuxième rendez-vous : signer au second entretien vaut un deal pour "
-  + "une opportunité, donc 100 %, et non 50 %. C'est le seul endroit où un deuxième "
-  + "rendez-vous change quelque chose : il n'ajoute pas d'opportunité, mais il peut en "
-  + "faire aboutir une.";
+  "Vos ventes rapportées à vos calls honorés.\n\n"
+  + "Le dénominateur compte des PERSONNES, pas des rendez-vous. Quelqu'un que vous voyez "
+  + "deux fois pour la même vente compte pour UN seul call honoré, pas deux.\n\n"
+  + "Exemple : vous voyez Paul le 12, il veut réfléchir, vous le revoyez le 19 et il "
+  + "signe. Cela fait 1 call honoré et 1 vente, donc 100 %. Si les deux rendez-vous "
+  + "comptaient, vous liriez 50 % — et bien mener une vente en deux temps ferait BAISSER "
+  + "votre taux.\n\n"
+  + "Deux rendez-vous ne sont regroupés que si vous l'avez déclaré : c'est votre réponse "
+  + "« 2ème call » dans le rapport qui les relie. Un prospect qui revient de lui-même des "
+  + "mois plus tard compte bien pour une nouvelle opportunité.\n\n"
+  + "La vente est comptée dans la période du PREMIER rendez-vous, celui qui a créé "
+  + "l'opportunité — pas dans celle où vous avez signé.";
 
 const AIDE_REV_PAR_CALL =
   "Le revenu de la période divisé par les calls bookés. Un deuxième rendez-vous qui "
@@ -4868,7 +4886,7 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
       metrics: [
         { label: 'Reach pour 1 call', value: igReachD != null && igBookes > 0 ? fmt(Math.round(igReachD / igBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'Calls bookés', value: fmt(igBookes), prevValue: null, delta: null, lowerIsBetter: false, aide: AIDE_CALLS_BOOKES },
-        { label: 'No-show', value: igRendezVous > 0 ? `${fmtRate(igNoShows, igRendezVous)} · ${igNoShows}/${igRendezVous}` : '—', prevValue: null, delta: null, lowerIsBetter: true, aide: AIDE_NO_SHOW },
+        { label: 'No-show', value: igRendezVous > 0 ? `${fmtRate(igNoShows, igRendezVous)} · ${igNoShows}/${igRendezVous} rdv` : '—', prevValue: null, delta: null, lowerIsBetter: true, aide: AIDE_NO_SHOW },
         { label: 'Close rate', value: igOpportunites > 0 ? fmtRate(igCloses, igOpportunites) : '—', prevValue: null, delta: null, lowerIsBetter: false, aide: AIDE_CLOSING },
         { label: 'Rev / call booké', value: igBookes > 0 ? fmtEur(Math.round(igRev / igBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: false, aide: AIDE_REV_PAR_CALL },
         // « Cash / vue » : Instagram mesure une portée, pas des vues — la colonne
@@ -4882,7 +4900,7 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
       metrics: [
         { label: 'Vues pour 1 call', value: ytBookes > 0 ? fmt(Math.round(ytViewsD / ytBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'Calls bookés', value: fmt(ytBookes), prevValue: null, delta: null, lowerIsBetter: false, aide: AIDE_CALLS_BOOKES },
-        { label: 'No-show', value: ytRendezVous > 0 ? `${fmtRate(ytNoShows, ytRendezVous)} · ${ytNoShows}/${ytRendezVous}` : '—', prevValue: null, delta: null, lowerIsBetter: true, aide: AIDE_NO_SHOW },
+        { label: 'No-show', value: ytRendezVous > 0 ? `${fmtRate(ytNoShows, ytRendezVous)} · ${ytNoShows}/${ytRendezVous} rdv` : '—', prevValue: null, delta: null, lowerIsBetter: true, aide: AIDE_NO_SHOW },
         { label: 'Close rate', value: ytOpportunites > 0 ? fmtRate(ytCloses, ytOpportunites) : '—', prevValue: null, delta: null, lowerIsBetter: false, aide: AIDE_CLOSING },
         { label: 'Rev / call booké', value: ytBookes > 0 ? fmtEur(Math.round(ytRev / ytBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: false, aide: AIDE_REV_PAR_CALL },
         { label: 'Cash / vue', value: ytViewsD > 0 ? fmtEur(ytRev / ytViewsD) : '—', prevValue: null, delta: null, lowerIsBetter: false },
@@ -5279,14 +5297,22 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
           {[
             { label: 'Bookés', value: fmt(filteredOpportunites.length), color: 'var(--ink)', aide: AIDE_CALLS_BOOKES },
             { label: 'Honorés', value: fmt(filteredOpportunites.filter(c => isCallHonored(c, now)).length), color: GREEN, aide: AIDE_CALLS_HONORES },
-            // Grain « rendez-vous », comme partout : un creneau perdu reste perdu.
-            { label: 'No-show', value: `${fmt(filteredActifs.filter(c => c.no_show).length)} / ${fmt(filteredActifs.length)}`, color: RED, aide: AIDE_NO_SHOW },
+            // Grain « rendez-vous », comme partout : un creneau perdu reste perdu. Le
+            // denominateur est donc DIFFERENT de celui des deux cartes voisines, et il
+            // est ecrit en toutes lettres sous le chiffre : « 6 / 11 » seul laissait le
+            // lecteur deviner ce qu'etait ce 11.
+            { label: 'No-show', value: fmt(filteredActifs.filter(c => c.no_show).length), color: RED,
+              sub: filteredActifs.length > 0
+                ? `sur ${fmt(filteredActifs.length)} rendez-vous`
+                : 'aucun rendez-vous',
+              aide: AIDE_NO_SHOW },
             { label: 'Closés', value: fmt(filteredActifs.filter(c => c.deal_closed).length), color: 'var(--accent)' },
             { label: 'Revenue', value: fmtEur(filteredActifs.reduce((acc, c) => acc + (c.revenue || 0), 0)), color: GREEN },
           ].map((s, i) => (
             <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <div className="eyebrow-sm" style={{ color: 'var(--muted)', display: 'flex', alignItems: 'center' }}>{s.label}{'aide' in s && s.aide ? <AideColonne texte={s.aide} /> : null}</div>
               <div style={{ fontSize: 16, fontWeight: 800, color: s.color }}>{s.value}</div>
+              {'sub' in s && s.sub ? <div style={{ fontSize: 10, color: 'var(--muted)', lineHeight: 1.2 }}>{s.sub}</div> : null}
             </div>
           ))}
         </div>
