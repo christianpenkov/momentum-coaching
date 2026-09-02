@@ -34,10 +34,30 @@ export async function POST() {
 
   const now = new Date().toISOString();
   try {
-    await Promise.all(IG_TABLES.map(t =>
-      serviceSupabase.from(t).update({ archived_at: now })
-        .eq('profile_id', user.id).is('archived_at', null)
-    ));
+    await Promise.all(IG_TABLES.map(t => {
+      const base = serviceSupabase.from(t).update({ archived_at: now })
+        .eq('profile_id', user.id).is('archived_at', null);
+
+      // ⚠️ Même exception qu'au branchement (voir le callback OAuth) :
+      // `analytics_daily_snapshots` n'est PAS propre à Instagram. Une de ses
+      // lignes porte les colonnes `ig_*`, `yt_*` et `shortio_*` d'une même
+      // journée. L'archiver entière parce qu'on débranche Instagram effaçait de
+      // l'affichage tout l'historique YouTube et Short.io — 120 lignes YouTube et
+      // 46 Short.io au 2026-09-02.
+      //
+      // Pire, c'était IRRÉVERSIBLE : au rebranchement, l'étape de désarchivage ne
+      // restaure que les lignes portant `ig_account_id = <compte>`, or celles-ci
+      // valent NULL. Débrancher puis rebrancher le même compte perdait donc
+      // l'historique quotidien pour de bon.
+      //
+      // On n'archive donc que les lignes qui revendiquent explicitement un compte
+      // Instagram. Les autres gardent leurs métriques des autres plateformes ; les
+      // métriques Instagram qu'elles contiennent restent visibles pour les jours où
+      // le compte ÉTAIT branché — ce sont des faits passés, pas une invention.
+      return t === 'analytics_daily_snapshots'
+        ? base.not('ig_account_id', 'is', null)
+        : base;
+    }));
   } catch (e) {
     console.error('[IG disconnect] Erreur archivage:', e);
     return NextResponse.json({ error: 'Erreur archivage' }, { status: 500 });
