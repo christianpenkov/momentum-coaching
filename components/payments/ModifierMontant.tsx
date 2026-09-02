@@ -313,11 +313,19 @@ export default function ModifierMontant({ deal, detail, onClose, onDone, onRembo
                     avant={echeancierAvant}
                     apres={enBaisse ? [] : echeancierApres}
                     total={enBaisse ? (deal.installmentsCount ?? 1) : dejaPayees + nbApres} />
-                  {!enBaisse && mode === 'installments_auto' && (
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7, lineHeight: 1.6 }}>
-                      Les dates ne bougent pas, et rien n’est prélevé aujourd’hui.
-                    </div>
-                  )}
+                  {/* ── Pas de rappel ici ────────────────────────────────────
+                      « Les dates ne bougent pas, et rien n'est prélevé
+                      aujourd'hui » figurait sous l'échéancier, alors que
+                      l'encart juste au-dessus le dit déjà, en gras. Deux
+                      formulations de la même phrase à 200 px d'écart, sur un
+                      écran de stress : la répétition fait douter qu'on parle de
+                      la même chose, au lieu de rassurer.
+
+                      Le seul cas que cette ligne couvrait en plus — prélèvement
+                      automatique SANS abonnement — est justement celui où
+                      l'aperçu n'affiche aucune date, faute de pouvoir les
+                      connaître. Y promettre des dates immobiles n'aurait rien
+                      voulu dire. */}
                 </>
               )}
             </div>
