@@ -11,9 +11,13 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - **Filtrer `calls` par « propriétaire »** → `docs/calls-coach-id-piege.md`.
   `calls.coach_id` n'est pas le coach humain.
 - **Afficher une heure** → `docs/fuseaux-horaires.md`.
-- **Enregistrements Fathom** (qui voit quoi, avec quel compte) → `lib/replayAccess.ts`.
-  Chacun connecte son propre Fathom, mais un call de coaching n'est enregistré que
-  par l'un des deux participants.
+- **Enregistrements Fathom** (qui voit quoi, avec quel compte, où c'est stocké) →
+  `docs/replays-fathom.md`, et la règle d'accès seule dans `lib/replayAccess.ts`.
+  Chacun connecte son propre Fathom : un call de coaching peut donc avoir DEUX
+  enregistrements de la même conversation, et le second ne se rattache que par
+  l'URL de jonction exacte — ne pas lever le filtre `fathom_recording_id IS NULL`
+  ailleurs. Trois réglages hors dépôt conditionnent le replay et échouent en
+  silence (`components/ui/FathomSetupHint.tsx`).
 - **Toucher aux paiements, aux ventes ou au webhook Stripe** →
   `docs/stripe-paiements.md`. La configuration vit dans le dashboard, hors du
   dépôt : une case cochée par erreur fait passer un chiffre en négatif sans

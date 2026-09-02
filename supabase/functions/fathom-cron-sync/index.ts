@@ -87,12 +87,15 @@ async function matchAndStore(
 ): Promise<'matched' | 'unmatched' | 'skipped'> {
   const recordingId = String(meeting.recording_id);
 
-  const { data: alreadyMatched } = await supabase
-    .from('calls')
-    .select('id')
+  // Idempotence : call_recordings et non calls. Depuis qu'un call peut porter
+  // DEUX enregistrements (les deux bots présents), calls.fathom_recording_id ne
+  // connaît que le premier et laisserait repasser le second à chaque tour de cron.
+  const { data: dejaTraite } = await supabase
+    .from('call_recordings')
+    .select('call_id')
     .eq('fathom_recording_id', recordingId)
     .maybeSingle();
-  if (alreadyMatched) return 'skipped';
+  if (dejaTraite) return 'skipped';
 
   const { data: alreadyUnmatched } = await supabase
     .from('fathom_unmatched')
@@ -112,6 +115,38 @@ async function matchAndStore(
   };
 
   let matchedCallId: string | null = null;
+
+  // 0. Le SECOND bot sur une réunion déjà rattachée — voir le commentaire détaillé
+  // dans app/api/webhooks/fathom/route.ts, dont ceci est la contrepartie Deno.
+  // Ici profileId est déjà connu : on boucle sur les intégrations Fathom, donc
+  // l'enregistrement appartient forcément au compte en cours de synchronisation.
+  //
+  // Le filtre `fathom_recording_id IS NULL` n'est levé que sur l'URL exacte, pas
+  // sur le repli email+créneau : deux calls successifs avec la même personne
+  // tombent dans la même fenêtre de 30 min et ce filtre est ce qui les sépare.
+  if (meeting.meeting_url) {
+    const { data: memeReunion } = await supabase
+      .from('calls')
+      .select('id')
+      .neq('status', 'canceled')
+      .not('fathom_recording_id', 'is', null)
+      .or(`join_url.eq.${meeting.meeting_url},meet_link.eq.${meeting.meeting_url}`)
+      .order('scheduled_at', { ascending: false })
+      .limit(1);
+
+    if (memeReunion?.[0]?.id) {
+      // Le call garde son enregistrement d'origine : résumé et transcription
+      // affichés ne changent pas. On n'ajoute que de quoi retrouver cette copie.
+      await supabase.from('call_recordings').upsert({
+        call_id: memeReunion[0].id,
+        profile_id: profileId,
+        fathom_recording_id: recordingId,
+        fathom_share_url: meeting.share_url || null,
+        recorded_at: meeting.recording_start_time || null,
+      }, { onConflict: 'fathom_recording_id' });
+      return 'matched';
+    }
+  }
 
   // 1. Matching prioritaire : URL de jonction exacte
   if (meeting.meeting_url) {
@@ -173,6 +208,14 @@ async function matchAndStore(
 
   if (matchedCallId) {
     await supabase.from('calls').update(fathomFields).eq('id', matchedCallId);
+    // Et la ligne qui dit à quel compte demander la vidéo (cf. call_recordings).
+    await supabase.from('call_recordings').upsert({
+      call_id: matchedCallId,
+      profile_id: profileId,
+      fathom_recording_id: recordingId,
+      fathom_share_url: meeting.share_url || null,
+      recorded_at: meeting.recording_start_time || null,
+    }, { onConflict: 'fathom_recording_id' });
     return 'matched';
   }
 

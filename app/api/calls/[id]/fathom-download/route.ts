@@ -44,7 +44,7 @@ export async function POST(
 
   const { data: call } = await serviceSupabase
     .from('calls')
-    .select('fathom_recording_id, coach_id, client_id')
+    .select('fathom_recording_id, fathom_share_url, coach_id, client_id')
     .eq('id', id)
     .single();
 
@@ -66,8 +66,12 @@ export async function POST(
     profilEleve = client?.profile_id ?? null;
   }
 
-  const acces = resoudreAccesReplay(user.id, call.coach_id, profilEleve);
-  if (!acces.autorise) {
+  // Autorisation AVANT toute autre réponse, et notamment avant le 404 « aucun
+  // enregistrement » : sinon un inconnu distinguerait « ce call n'a pas de
+  // replay » de « ce call en a un que je ne peux pas voir ». La liste des
+  // enregistrements n'entre pas dans cette décision — d'où l'appel sans elle
+  // ici, et le second plus bas qui, lui, sert à ordonner les tentatives.
+  if (!resoudreAccesReplay(user.id, call.coach_id, profilEleve).autorise) {
     return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
   }
 
@@ -75,29 +79,71 @@ export async function POST(
     return NextResponse.json({ error: 'Aucun enregistrement pour ce call' }, { status: 404 });
   }
 
-  // On essaie les comptes Fathom des participants, le lecteur d'abord.
+  // On essaie les enregistrements du call, celui du lecteur d'abord.
   //
-  // Sur un call de coaching, un seul des deux a enregistré la réunion : sans ce
-  // repli, l'autre n'aurait jamais la vidéo dans la page alors qu'il a participé
-  // au même appel. La règle et sa justification sont dans lib/replayAccess.ts.
+  // Quand coach et élève ont tous les deux Fathom, les deux bots rejoignent et il
+  // y a DEUX enregistrements de la même réunion : chacun lit le sien, avec son
+  // propre jeton. Quand un seul a enregistré, l'autre passe par ce compte-là —
+  // sans quoi il n'aurait jamais la vidéo alors qu'il était au même appel.
+  // La règle et le choix des jetons sont dans lib/replayAccess.ts.
   //
-  // On s'arrête au premier compte qui rend un fichier. Un 403/404 de Fathom veut
-  // dire « ce compte-là n'a pas cet enregistrement » : on passe au suivant plutôt
-  // que d'abandonner.
+  // `calls.fathom_recording_id` est ajouté en dernier recours s'il ne figure pas
+  // déjà dans la table : une ligne manquante (reprise incomplète, écriture ratée)
+  // ne doit pas priver de replay un call qui en affiche pourtant un.
+  const { data: lignes } = await serviceSupabase
+    .from('call_recordings')
+    .select('fathom_recording_id, fathom_share_url, profile_id')
+    .eq('call_id', id);
+
+  const enregistrements = (lignes || []).map(l => ({
+    recordingId: l.fathom_recording_id,
+    profileId: l.profile_id,
+    shareUrl: l.fathom_share_url,
+  }));
+
+  if (!enregistrements.some(e => e.recordingId === call.fathom_recording_id)) {
+    enregistrements.push({
+      recordingId: call.fathom_recording_id,
+      profileId: null,
+      shareUrl: call.fathom_share_url ?? null,
+    });
+  }
+
+  const acces = resoudreAccesReplay(user.id, call.coach_id, profilEleve, enregistrements);
+  if (!acces.autorise) {
+    return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
+  }
+
+  // On s'arrête à la première tentative qui rend un fichier. Un 403/404 de Fathom
+  // veut dire « ce compte-là n'a pas cet enregistrement » : on passe à la suivante
+  // plutôt que d'abandonner.
+  //
+  // Les jetons sont mis en cache le temps de la requête : sur un call à deux
+  // enregistrements dont on ignore le propriétaire, le même compte revient
+  // plusieurs fois et chaque résolution peut déclencher un rafraîchissement OAuth.
   let data: any = null;
   let dernierStatut = 0;
+  let shareUrlServi: string | null = null;
+  const jetons = new Map<string, string | null>();
 
-  for (const profileId of acces.ordreDEssai) {
-    const accessToken = await getFathomToken(profileId);
+  for (const essai of acces.essais) {
+    if (!jetons.has(essai.profileId)) {
+      jetons.set(essai.profileId, await getFathomToken(essai.profileId));
+    }
+    const accessToken = jetons.get(essai.profileId);
     if (!accessToken) continue;
 
-    const res = await fetch(`${FATHOM_API_BASE}/recordings/${call.fathom_recording_id}/download`, {
+    const res = await fetch(`${FATHOM_API_BASE}/recordings/${essai.recordingId}/download`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
     });
 
-    if (res.ok) { data = await res.json().catch(() => null); break; }
+    if (res.ok) {
+      data = await res.json().catch(() => null);
+      shareUrlServi = essai.shareUrl ?? null;
+      break;
+    }
 
     dernierStatut = res.status;
     // 429 = quota atteint : réessayer avec un autre compte ne ferait qu'aggraver.
@@ -115,10 +161,17 @@ export async function POST(
 
   // On ne renvoie que ce dont le lecteur a besoin — jamais le jeton, jamais le
   // payload brut de Fathom.
+  //
+  // `shareUrl` est celui de l'enregistrement effectivement servi, donc le sien
+  // quand le lecteur en a un : « Voir sur Fathom » l'emmène alors sur SA page,
+  // où il peut chercher dans le transcript et interroger l'IA sur son compte.
+  // Null quand on ne connaît pas le lien de cette ligne précise : l'appelant
+  // garde celui du call, qui reste valable pour tout le monde.
   return NextResponse.json({
     status: data?.status ?? 'processing',
     url: data?.video?.url ?? null,
     expiresAt: data?.video?.expires_at ?? null,
     failureReason: data?.failure_reason ?? null,
+    shareUrl: shareUrlServi,
   });
 }

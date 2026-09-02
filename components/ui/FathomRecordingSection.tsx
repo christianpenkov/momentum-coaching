@@ -106,6 +106,12 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
   // en flux dès le début.
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoState, setVideoState] = useState<'idle' | 'loading' | 'ready' | 'failed'>('idle');
+  // Lien Fathom de l'enregistrement effectivement servi. Quand coach et élève ont
+  // tous les deux enregistré le call, chacun reçoit le sien : « Voir sur Fathom »
+  // l'emmène alors sur SA page, où il peut fouiller le transcript et interroger
+  // l'IA sur son propre compte. Null tant qu'on ne sait pas : on garde celui du
+  // call, qui reste valable pour tout le monde.
+  const [shareUrlPropre, setShareUrlPropre] = useState<string | null>(null);
   const tenteLectureIntegree = !!inlineVideo && !!callId && !!shareUrl;
 
   useEffect(() => {
@@ -124,7 +130,11 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
           const data = await res.json();
 
           if (data.status === 'completed' && data.url) {
-            if (vivant) { setVideoUrl(data.url); setVideoState('ready'); }
+            if (vivant) {
+              setVideoUrl(data.url);
+              if (data.shareUrl) setShareUrlPropre(data.shareUrl);
+              setVideoState('ready');
+            }
             return;
           }
           if (data.status === 'failed' || data.status === 'expired') {
@@ -235,17 +245,22 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
           )}
 
           {/* Accès à la page Fathom de l'appel — résumé, transcription, recherche.
-              Le lien de partage est PUBLIC (vérifié : aucune connexion demandée,
-              lecteur et transcription visibles depuis un navigateur anonyme), donc
-              il vaut aussi pour le participant qui n'a pas enregistré la réunion,
-              et reste transmissible tel quel à un tiers.
+              Sa page à lui quand il a enregistré (cf. shareUrlPropre), sinon celle
+              du call.
+
+              Le lien de partage est PUBLIC — vérifié : aucune connexion demandée,
+              lecteur et transcription visibles depuis un navigateur anonyme. C'est
+              ce qui permet au participant qui n'avait pas le bot d'y accéder, et
+              ce qui rend le lien transmissible tel quel. Cela dépend d'un réglage
+              Fathom côté compte enregistreur (« Anyone with the link can view ») :
+              la consigne est affichée dans les Réglages, cf. FathomSetupHint.tsx.
 
               Masqué dans deux cas : pendant le squelette, où il sauterait sous le
               doigt à l'arrivée de la vidéo ; et sur le repli mobile, dont le bouton
               ouvre déjà exactement cette page. */}
           {(brancheLecteur === 'video' || brancheLecteur === 'iframe') && (
             <a
-              href={shareUrl}
+              href={shareUrlPropre || shareUrl}
               target="_blank"
               rel="noopener noreferrer"
               style={{

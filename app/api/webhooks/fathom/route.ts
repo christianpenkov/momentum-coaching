@@ -20,6 +20,28 @@ interface FathomInvitee {
   email?: string;
 }
 
+// Profil de la personne dont le compte Fathom a enregistré, à partir de son email.
+//
+// RPC get_profile_id_by_email : lookup indexé direct sur auth.users, contrairement
+// à auth.admin.listUsers() qui ne retourne que les 50 premiers utilisateurs.
+//
+// Le passage par `integrations` ne change pas le résultat (il retombe sur le même
+// id) mais atteste que ce profil a bien Fathom relié — donc qu'on pourra demander
+// la vidéo avec son jeton. Null = personne extérieure à la plateforme : sans
+// conséquence, on retombe sur « essayer le jeton de chaque participant ».
+async function resoudreProfil(email: string | undefined): Promise<string | null> {
+  if (!email) return null;
+  const { data: profilId } = await serviceSupabase.rpc('get_profile_id_by_email', { p_email: email });
+  if (!profilId) return null;
+  const { data: integ } = await serviceSupabase
+    .from('integrations')
+    .select('profile_id')
+    .eq('profile_id', profilId)
+    .eq('provider', 'fathom')
+    .maybeSingle();
+  return integ?.profile_id ?? profilId;
+}
+
 interface FathomWebhookPayload {
   recording_id: string | number;
   share_url?: string;
@@ -120,17 +142,66 @@ export async function POST(request: NextRequest) {
     fathom_matched_at: new Date().toISOString(),
   };
 
-  // Déjà traité (retry Fathom) — idempotence via l'index unique fathom_recording_id
-  const { data: alreadyMatched } = await serviceSupabase
-    .from('calls')
-    .select('id')
+  // Déjà traité (retry Fathom) — idempotence via l'index unique de call_recordings.
+  //
+  // On interroge call_recordings et non calls : depuis qu'un call peut porter
+  // DEUX enregistrements (les deux bots présents), `calls.fathom_recording_id`
+  // ne connaît que le premier et laisserait repasser le second à chaque retry.
+  const { data: dejaTraite } = await serviceSupabase
+    .from('call_recordings')
+    .select('call_id')
     .eq('fathom_recording_id', recordingId)
     .maybeSingle();
-  if (alreadyMatched) {
+  if (dejaTraite) {
     return NextResponse.json({ ok: true, message: 'Déjà traité' });
   }
 
+  // Qui a enregistré. Sert à savoir, plus tard, à quel compte demander la vidéo —
+  // un enregistrement ne se télécharge qu'avec le jeton de son propriétaire.
+  // Null si la personne n'a pas de compte chez nous : ce n'est pas bloquant,
+  // on retombe alors sur « essayer le jeton de chaque participant ».
+  const profilEnregistreur = await resoudreProfil(payload.recorded_by?.email);
+
   let matchedCallId: string | null = null;
+
+  // 0. Le SECOND bot sur une réunion déjà rattachée.
+  //
+  // Quand coach et élève ont tous les deux Fathom, les deux rejoignent et Fathom
+  // produit deux enregistrements de la même conversation. Le premier rattache le
+  // call ; le second ne trouvait plus rien, parce que les requêtes ci-dessous
+  // exigent `fathom_recording_id IS NULL` — et finissait en « non rattaché », à
+  // traiter à la main, sur chaque call de coaching.
+  //
+  // On ne lève ce filtre QUE sur l'URL de jonction exacte, et volontairement pas
+  // sur le repli email+créneau : deux calls successifs avec la même personne
+  // tombent dans la même fenêtre de 30 min, et c'est justement ce filtre qui
+  // empêche le second enregistrement de se coller au premier call. L'URL, elle,
+  // ne désigne qu'une réunion.
+  if (payload.meeting_url) {
+    const { data: memeReunion } = await serviceSupabase
+      .from('calls')
+      .select('id')
+      .neq('status', 'canceled')
+      .not('fathom_recording_id', 'is', null)
+      .or(`join_url.eq.${payload.meeting_url},meet_link.eq.${payload.meeting_url}`)
+      .order('scheduled_at', { ascending: false })
+      .limit(1);
+
+    if (memeReunion?.[0]?.id) {
+      // Le call garde SON enregistrement d'origine : le résumé et la
+      // transcription affichés ne changent pas sous les yeux de celui qui les
+      // lisait. On n'ajoute que de quoi retrouver cette seconde copie.
+      await serviceSupabase.from('call_recordings').upsert({
+        call_id: memeReunion[0].id,
+        profile_id: profilEnregistreur,
+        fathom_recording_id: recordingId,
+        fathom_share_url: payload.share_url || null,
+        recorded_at: payload.recording_start_time || null,
+      }, { onConflict: 'fathom_recording_id' });
+
+      return NextResponse.json({ ok: true, matched: true, call_id: memeReunion[0].id, secondaire: true });
+    }
+  }
 
   // 1. Matching prioritaire : URL de jonction exacte (meeting_url Fathom == join_url/meet_link)
   if (payload.meeting_url) {
@@ -194,28 +265,20 @@ export async function POST(request: NextRequest) {
 
   if (matchedCallId) {
     await serviceSupabase.from('calls').update(fathomFields).eq('id', matchedCallId);
+    // Et la ligne qui dit à quel compte demander la vidéo (cf. call_recordings).
+    await serviceSupabase.from('call_recordings').upsert({
+      call_id: matchedCallId,
+      profile_id: profilEnregistreur,
+      fathom_recording_id: recordingId,
+      fathom_share_url: payload.share_url || null,
+      recorded_at: payload.recording_start_time || null,
+    }, { onConflict: 'fathom_recording_id' });
     return NextResponse.json({ ok: true, matched: true, call_id: matchedCallId });
   }
 
   // 3. Aucun match — on ne crée jamais de call automatiquement (décision produit),
   // l'enregistrement atterrit dans la liste "non rattachés" pour rattachement manuel.
-  // profile_id résolu via recorded_by.email → RPC get_profile_id_by_email (lookup
-  // indexé direct sur auth.users, pas de pagination contrairement à
-  // auth.admin.listUsers() qui ne retourne que les 50 premiers utilisateurs).
-  let profileId: string | null = null;
-  const recorderEmail = payload.recorded_by?.email;
-  if (recorderEmail) {
-    const { data: matchedId } = await serviceSupabase.rpc('get_profile_id_by_email', { p_email: recorderEmail });
-    if (matchedId) {
-      const { data: integ } = await serviceSupabase
-        .from('integrations')
-        .select('profile_id')
-        .eq('profile_id', matchedId)
-        .eq('provider', 'fathom')
-        .maybeSingle();
-      profileId = integ?.profile_id ?? matchedId;
-    }
-  }
+  const profileId = profilEnregistreur;
 
   if (!profileId) {
     await logDebug('[webhook/fathom] impossible de résoudre le profil', { recording_id: recordingId, recorded_by: payload.recorded_by });

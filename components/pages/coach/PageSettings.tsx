@@ -12,6 +12,7 @@ import type { Integration, Provider } from '@/lib/supabase/types';
 import { COACH_WIZARD_INTEGRATIONS } from '@/lib/onboarding/integrationConfig';
 import LegalFooter from '@/components/ui/LegalFooter';
 import ShortioDomainPicker from '@/components/settings/ShortioDomainPicker';
+import FathomSetupHint from '@/components/ui/FathomSetupHint';
 
 // Source unique des libellés, partagée avec le wizard d'onboarding et la page
 // Réglages élève (lib/onboarding/integrationConfig.ts). Le bloc 'anthropic'
@@ -331,14 +332,7 @@ export default function PageSettings() {
                     {integ?.account_label && (
                       <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 2 }}>{integ.account_label}</div>
                     )}
-                    {cfg.provider === 'fathom' && integ && (
-                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 }}>
-                        Pour que Fathom rejoigne tes calls tout seul :{' '}
-                        <a href="https://fathom.video/customize" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>fathom.video/customize</a>
-                        {' '}→ section « Auto-Record Settings » → choisis « All Meetings » dans le premier menu.
-                        Ton agenda Google ou Microsoft doit aussi être connecté à Fathom, sinon il ne voit pas tes calls planifiés.
-                      </div>
-                    )}
+                    {cfg.provider === 'fathom' && integ && <FathomSetupHint />}
                   </div>
 
                   {integrationsLoading ? (

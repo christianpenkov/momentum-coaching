@@ -170,11 +170,23 @@ const BASE_INTEGRATIONS: IntegrationDef[] = [
     mode: 'oauth',
     oauthPath: '/api/oauth/fathom',
     wizardCopy: 'Chaque appel enregistré par Fathom apparaît automatiquement dans ton historique, avec vidéo, résumé et points clés.',
+    // Les trois réglages ci-dessous vivent sur la MÊME page Fathom
+    // (fathom.video/customize) et sont listés dans l'ordre où on les croise en
+    // descendant : Auto-Record en haut, Video Conferencing au milieu, Options en
+    // bas. Chacun couvre une panne distincte et silencieuse :
+    //   • Auto-Record ≠ All Meetings  → le bot ne rejoint jamais
+    //   • logiciel visio non branché  → le bot ne peut pas entrer dans l'appel
+    //   • partage restreint           → l'autre participant tombe sur un mur de
+    //                                    connexion en ouvrant « Voir sur Fathom »
+    // Aucune ne remonte d'erreur chez nous : sans replay, on ne peut pas
+    // distinguer « pas branché » de « pas d'appel ». D'où la vérification à la main.
     instructions: [
       { text: 'La connexion se fait via le bouton OAuth ci-dessus.' },
       { text: 'Ouvre ensuite tes réglages Fathom →', href: 'https://fathom.video/customize', hrefLabel: 'fathom.video/customize' },
-      { text: 'Dans « Auto-Record Settings », choisis « All Meetings » dans le premier menu déroulant : Fathom rejoint alors tous tes calls sans que tu aies à lancer l\'enregistrement.' },
-      { text: 'Vérifie que ton agenda Google ou Microsoft est bien connecté à Fathom — sans lui, Fathom ne voit pas tes calls planifiés et ne peut pas les rejoindre.' },
+      { text: 'Tout en haut, dans « Auto-Record Settings », choisis « All Meetings » dans le premier menu déroulant : Fathom rejoint alors tous tes calls sans que tu aies à lancer l\'enregistrement.' },
+      { text: 'Plus bas, section « Video Conferencing » : ton logiciel d\'appel (Zoom, Google Meet ou Microsoft Teams) doit afficher « Fully Enabled » en vert, avec tous ses interrupteurs activés. S\'il n\'est pas branché, Fathom ne peut pas entrer dans l\'appel.' },
+      { text: 'Encore plus bas, section « Options » → ligne « Default Share Link Access » : choisis « Anyone with the link can view ». C\'est ce qui permet à l\'autre participant du call d\'ouvrir le replay ; avec « Only people added can view », il tombe sur un mur de connexion.' },
+      { text: 'Vérifie enfin que ton agenda Google ou Microsoft est bien connecté à Fathom — sans lui, Fathom ne voit pas tes calls planifiés et ne peut pas les rejoindre.' },
     ],
   },
 ];

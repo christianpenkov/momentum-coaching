@@ -73,6 +73,17 @@ export async function POST(request: NextRequest) {
     fathom_matched_at: new Date().toISOString(),
   }).eq('id', callId);
 
+  // Et la ligne qui dit à quel compte demander la vidéo (cf. call_recordings).
+  // Ici le propriétaire est certain : `fathom_unmatched.profile_id` a servi juste
+  // au-dessus à vérifier que cet enregistrement appartient bien à l'appelant.
+  await serviceSupabase.from('call_recordings').upsert({
+    call_id: callId,
+    profile_id: unmatched.profile_id,
+    fathom_recording_id: unmatched.fathom_recording_id,
+    fathom_share_url: unmatched.fathom_share_url,
+    recorded_at: unmatched.recording_start_time,
+  }, { onConflict: 'fathom_recording_id' });
+
   await serviceSupabase.from('fathom_unmatched').update({
     resolved_call_id: callId,
     resolved_at: new Date().toISOString(),
