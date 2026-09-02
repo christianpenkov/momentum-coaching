@@ -324,7 +324,10 @@ export function ChampMontant({ valeur, onChange, autoFocus, largeur = 200 }: {
         onBlur={() => setActif(false)}
         inputMode="decimal"
         autoFocus={autoFocus}
-        className="tabular"
+        // `champ-nu` : l'anneau de focus est dessiné par le conteneur ci-dessus,
+        // qui englobe le « € ». Sans elle, la règle globale en trace un second
+        // autour du seul input — plus petit, et s'arrêtant avant le symbole.
+        className="tabular champ-nu"
         aria-label="Montant en euros"
         style={{
           border: 'none', outline: 'none', background: 'transparent',

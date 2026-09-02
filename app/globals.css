@@ -129,6 +129,23 @@ textarea:focus-visible, select:focus-visible, [role="button"]:focus-visible,
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-brand) 40%, transparent);
 }
 
+/* ── Champ composé : un seul anneau, celui du conteneur ────────────────────
+   Quand un champ visible est un CONTENEUR bordé qui abrite l'input plus un
+   décor (« € », une loupe), c'est le conteneur qui dessine l'anneau de focus —
+   lui seul épouse la forme que l'œil identifie comme le champ.
+
+   La règle globale ci-dessus en traçait alors un SECOND, autour du seul input :
+   plus petit, décalé, et s'arrêtant avant le décor. Constaté le 2026-09-02 sur
+   le champ montant, dont l'anneau s'interrompait avant le « € ». `.search-wrap`
+   avait le même défaut depuis toujours.
+
+   `outline: none` ne suffit pas à l'éteindre — l'anneau est un `box-shadow`.
+   Poser cette classe sur tout input logé dans un conteneur qui gère son focus. */
+.champ-nu:focus-visible,
+.search-input:focus-visible {
+  box-shadow: none;
+}
+
 /* État désactivé — cohérent sur tous les interactifs, jusqu'ici géré au cas par
    cas (ou pas du tout) dans chaque composant. */
 button:disabled, [role="button"][aria-disabled="true"], input:disabled,
