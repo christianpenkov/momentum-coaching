@@ -373,14 +373,18 @@ export default function PipelineListView({
                   <div
                     key={c.key}
                     onClick={() => onCardClick(c.key)}
-                    className="pipeline-list-row"
+                    // La sélection passe par une CLASSE, plus par un fond en style
+                    // inline : l'inline l'emporte sur toute feuille de style, donc
+                    // aucun `:hover` n'aurait pu se voir. Les quatre états de la
+                    // ligne — repos, survol, pressé, sélectionné — vivent ensemble
+                    // dans `.pipeline-list-row`, où ils se lisent d'un bloc.
+                    className={`pipeline-list-row${sel ? ' is-selected' : ''}`}
                     style={{
                       display: 'grid',
                       gridTemplateColumns: '30px 26px minmax(0,1.35fr) minmax(0,.95fr) minmax(0,.85fr) minmax(0,1fr) 92px',
                       gap: 10, alignItems: 'center', padding: '8px 14px',
                       borderTop: '1px solid var(--border-soft, #f5f1e7)',
                       fontSize: 11.5, cursor: 'pointer',
-                      background: sel ? 'var(--accent-brand-soft, #eef2f4)' : 'transparent',
                     }}
                   >
                     <button

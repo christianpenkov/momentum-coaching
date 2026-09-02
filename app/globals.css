@@ -2188,6 +2188,31 @@ a { color: inherit; text-decoration: none; }
 .funnel-row { min-height: 56px; padding: 15px 14px; }
 .funnel-list { gap: 7px; }
 
+/* ── Une ligne de la vue liste ───────────────────────────────────────────────
+   Elle est cliquable et ouvre la fiche : elle doit le montrer AVANT le clic.
+   Quatre etats, du plus calme au plus marque.
+
+   Le fond ne peut pas rester en style inline : l'inline l'emporte sur toute
+   feuille de style, donc `:hover` n'aurait jamais pris.
+
+   `translateY` et non `scale` pour l'enfoncement : mettre a l'echelle une ligne
+   pleine de texte le fait resampler, et le texte devient flou une image sur
+   deux. Un pixel vers le bas se lit comme une pression, sans toucher au texte —
+   et `transform` ne deplace pas les lignes voisines, la liste ne bouge pas. */
+.pipeline-list-row {
+  background: transparent;
+  transition: background-color 120ms ease-out, transform 120ms ease-out;
+}
+.pipeline-list-row:hover              { background: var(--surface-2); }
+.pipeline-list-row:active             { background: var(--border-soft); transform: translateY(1px); }
+.pipeline-list-row.is-selected        { background: var(--accent-brand-soft, #eef2f4); }
+.pipeline-list-row.is-selected:hover  { background: #e5ebef; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pipeline-list-row { transition: none; }
+  .pipeline-list-row:active { transform: none; }
+}
+
 /* ── Panneau lateral du pipeline ─────────────────────────────────────────────
    Le voile couvre tout l'ecran SAUF la barre du logo, qui reste claire : c'est
    le seul repere de niveau superieur de l'application, et il ne change pas
