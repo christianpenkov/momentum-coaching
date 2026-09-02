@@ -265,7 +265,9 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
               rel="noopener noreferrer"
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 10,
-                fontSize: 12, fontWeight: 600, color: 'var(--muted)', textDecoration: 'none',
+                padding: '6px 12px',
+                border: '1px solid var(--border)', borderRadius: 7,
+                fontSize: 12, fontWeight: 600, color: 'var(--ink-2)', textDecoration: 'none',
               }}
             >
               <Icon name="external" size={13} /> Voir sur Fathom
