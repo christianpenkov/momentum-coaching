@@ -148,18 +148,33 @@ Deno.serve(async (req: Request) => {
 
   const now = new Date();
 
-  // Fenêtres de rappel avec tolérance ±8 min pour absorber les variations du cron
-  const window24hStart = new Date(now.getTime() + 24 * 60 * 60 * 1000 - 8 * 60 * 1000);
-  const window24hEnd   = new Date(now.getTime() + 24 * 60 * 60 * 1000 + 8 * 60 * 1000);
-  const window15mStart = new Date(now.getTime() + 15 * 60 * 1000 - 8 * 60 * 1000);
-  const window15mEnd   = new Date(now.getTime() + 15 * 60 * 1000 + 8 * 60 * 1000);
+  // ── Fenêtres LARGES, drapeaux étroits (audit du 2026-09-02) ────────────────
+  //
+  // Les fenêtres valaient ±8 min pour un cron aux 15 min : 16 min de couverture,
+  // 1 min de marge. UN passage sauté (hoquet pg_cron, incident Supabase, deploy)
+  // creusait un trou de 30 min > 16 min : tous les calls dont le rappel tombait
+  // dedans n'étaient JAMAIS rappelés — drapeau jamais posé, aucun signal.
+  //
+  // La checklist (§6) dit : fenêtre de rattrapage PLUS LARGE que l'intervalle.
+  // L'idempotence est déjà portée par les drapeaux reminder_*_sent : élargir la
+  // borne basse ne coûte rien et absorbe des heures de panne. Seul le libellé
+  // doit suivre — un « demain » envoyé 3 h avant le call mentirait, donc le titre
+  // s'adapte à l'écart réel.
+  const window24hEnd = new Date(now.getTime() + 24 * 60 * 60 * 1000 + 8 * 60 * 1000);
+  // Plancher du rappel « demain » : sous 1 h d'écart, il n'a plus de sens — le
+  // rappel 15 min prend le relais.
+  const floor24h = new Date(now.getTime() + 60 * 60 * 1000);
+  const window15mEnd = new Date(now.getTime() + 15 * 60 * 1000 + 8 * 60 * 1000);
+  // Plancher du rappel court : l'instant présent — un call déjà commencé ne se
+  // rappelle plus.
+  const floor15m = now;
 
-  // Appels actifs dans la prochaine heure (couvre les deux fenêtres)
+  // Appels actifs jusqu'à J+1 (couvre les deux fenêtres élargies)
   const { data: calls } = await sb
     .from('calls')
     .select('id, client_id, topic, scheduled_at, join_url, reminder_24h_sent, reminder_15min_sent')
     .eq('status', 'active')
-    .gte('scheduled_at', window15mStart.toISOString())
+    .gte('scheduled_at', floor15m.toISOString())
     .lte('scheduled_at', window24hEnd.toISOString());
 
   if (!calls || calls.length === 0) {
@@ -221,15 +236,20 @@ Deno.serve(async (req: Request) => {
     const dateStr = formatDateIn(scheduledAt, tz);
     const url = call.join_url || '/client/calls';
 
-    // Rappel 24h avant — idempotent via reminder_24h_sent
+    // Rappel « la veille » — idempotent via reminder_24h_sent, fenêtre de
+    // rattrapage large (voir le bloc des fenêtres). Le titre suit l'écart réel :
+    // au-delà de 20 h il dit « demain », en deçà (rattrapage après panne) il dit
+    // simplement que le call approche — le corps porte de toute façon la date et
+    // l'heure exactes.
     if (
       !call.reminder_24h_sent &&
-      scheduledAt >= window24hStart &&
+      scheduledAt >= floor24h &&
       scheduledAt <= window24hEnd
     ) {
+      const ecartH = (scheduledAt.getTime() - now.getTime()) / 3600_000;
       const livres = await sendPushToProfile(
         clientRow.profile_id,
-        'Rappel — call demain',
+        ecartH > 20 ? 'Rappel — call demain' : 'Rappel — call à venir',
         `${topic} · ${dateStr} à ${timeStr}`,
         url
       );
@@ -240,15 +260,17 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Rappel 15 min avant — idempotent via reminder_15min_sent
+    // Rappel court — idempotent via reminder_15min_sent, fenêtre de rattrapage
+    // jusqu'à l'heure du call : mieux vaut un rappel à 5 min qu'aucun rappel.
     if (
       !call.reminder_15min_sent &&
-      scheduledAt >= window15mStart &&
+      scheduledAt >= floor15m &&
       scheduledAt <= window15mEnd
     ) {
+      const minutes = Math.max(1, Math.round((scheduledAt.getTime() - now.getTime()) / 60_000));
       const livres = await sendPushToProfile(
         clientRow.profile_id,
-        'Ton call commence dans 15 min',
+        `Ton call commence dans ${minutes} min`,
         `${topic} · ${timeStr}`,
         url
       );

@@ -130,41 +130,81 @@ Deno.serve(async (req: Request) => {
       return;
     }
 
-    const res = await fetch(
-      `https://graph.instagram.com/v21.0/${igAccountId}/messages`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          recipient: { id: lead.ig_user_id },
-          messaging_type: 'RESPONSE',
-          message: { text: lead.pending_dm3 },
-          access_token: creds.token,
-        }),
-      }
-    );
-    const data = await res.json().catch(() => ({}));
+    // ── RÉSERVATION ATOMIQUE avant l'envoi (audit du 2026-09-02) ─────────────
+    // pg_cron relance toutes les 60 s, et une passe chargée (200 leads x
+    // concurrence 5 x 1-2 s par envoi Meta) dure 40 à 80 s : deux passages qui se
+    // chevauchent lisaient les MÊMES lignes — `pending_dm3` n'était mis à null
+    // qu'APRÈS l'appel Meta — et le prospect recevait deux fois la question
+    // d'ouverture, sur le tunnel de vente, précisément quand le volume monte.
+    //
+    // L'UPDATE conditionnel (`.not('pending_dm3','is',null)`) est atomique au
+    // niveau de la ligne : le premier passage la consomme, le second trouve zéro
+    // ligne et passe son chemin. Sur panne RÉSEAU (fetch qui lève), la ligne est
+    // restaurée : le passage suivant retente, borné par la fenêtre de 2 h. Sur
+    // refus MÉTA (data.error), on ne restaure pas — réessayer ne changerait rien.
+    const { data: reservee, error: claimErr } = await supa.from('instagram_leads')
+      .update({ pending_dm3: null, dm3_scheduled_at: null })
+      .eq('id', lead.id)
+      .not('pending_dm3', 'is', null)
+      .select('id')
+      .maybeSingle();
+    if (claimErr) { errors.push(`claim ${lead.ig_username || lead.id}: ${claimErr.message}`); return; }
+    if (!reservee) { skipped++; return; } // déjà prise par un passage concurrent
+
+    let data: any;
+    try {
+      const res = await fetch(
+        `https://graph.instagram.com/v21.0/${igAccountId}/messages`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            recipient: { id: lead.ig_user_id },
+            messaging_type: 'RESPONSE',
+            message: { text: lead.pending_dm3 },
+            access_token: creds.token,
+          }),
+        }
+      );
+      data = await res.json().catch(() => ({}));
+    } catch (e: any) {
+      // Panne réseau : rien n'est parti chez Meta. On restaure la réservation
+      // pour que le passage suivant (60 s) retente — la fenêtre de 2 h borne tout.
+      await supa.from('instagram_leads')
+        .update({ pending_dm3: lead.pending_dm3, dm3_scheduled_at: lead.dm3_scheduled_at })
+        .eq('id', lead.id);
+      errors.push(`reseau ${lead.ig_username || lead.id}: ${e?.message || 'unknown'}`);
+      return;
+    }
 
     if (data.error) {
-      // Échec (fenêtre 24 h refermée, blocage, token expiré) : on consomme quand
-      // même. Réessayer indéfiniment ne changerait rien et ferait boucler le cron.
+      // Échec (fenêtre 24 h refermée, blocage, token expiré) : la réservation
+      // reste consommée. Réessayer indéfiniment ne changerait rien et ferait
+      // boucler le cron.
       errors.push(`${lead.ig_username || lead.id}: ${data.error.message || 'unknown'}`);
-      await supa.from('instagram_leads')
-        .update({ pending_dm3: null, dm3_scheduled_at: null })
-        .eq('id', lead.id);
       skipped++;
       return;
     }
 
-    await supa.from('instagram_leads')
-      .update({ pending_dm3: null, dm3_scheduled_at: null })
-      .eq('id', lead.id);
     sent++;
   });
 
   results.forEach(r => {
     if (r.status === 'rejected') errors.push(`unexpected: ${r.reason?.message || 'unknown'}`);
   });
+
+  // ── Journal en base, pas seulement dans la réponse HTTP (audit du 2026-09-02).
+  // pg_cron jette la réponse : un refus Meta ou un échec de claim n'était visible
+  // NULLE PART. Même convention que sync-calendly — n'écrire que les passages en
+  // échec, la purge de cron_runs fait le ménage.
+  if (errors.length) {
+    const { error: journalErr } = await supa.from('cron_runs').insert({
+      fonction: 'send-pending-dm3',
+      profils_en_erreur: errors.length,
+      erreurs: { echecs: errors.slice(0, 50) },
+    });
+    if (journalErr) console.error('[send-pending-dm3] cron_runs:', journalErr.message);
+  }
 
   return new Response(JSON.stringify({
     ok: true,
