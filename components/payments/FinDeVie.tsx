@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Icon from '@/components/ui/Icon';
 import ModaleAction, {
+  BoutonFin, Rondelle,
   CaseResponsabilite, Encart, Ligne, Section, VersStripe, champStyle,
 } from './ModaleAction';
 import { modeDe, libelleRythme } from './etats';
@@ -66,7 +67,7 @@ export function Cloturer({ deal, onClose, onDone, onArreter }: {
   if (fait) {
     return (
       <ModaleAction titre="Vente clôturée" onClose={onDone}
-        pied={<button className="btn-primary-brand" style={{ fontSize: 12.5 }} onClick={onDone}>Terminé</button>}>
+        pied={<BoutonFin onDone={onDone} />}>
         <Encart ton="bien" titre="C’est fait">
           Cette vente n’attend plus rien. Elle reste comptée pour
           {' '}{fmtEurExact(deal.collected)} encaissés, et sort des relances.
@@ -199,7 +200,7 @@ export function Annuler({ deal, onClose, onDone, onRembourser }: {
   if (fait) {
     return (
       <ModaleAction titre="Vente annulée" onClose={onDone}
-        pied={<button className="btn-primary-brand" style={{ fontSize: 12.5 }} onClick={onDone}>J’ai compris</button>}>
+        pied={<BoutonFin onDone={onDone}>J’ai compris</BoutonFin>}>
         {/* ── Conditionnel, jamais générique ────────────────────────────────
             Annoncer « prélèvements arrêtés » quand il n'y en avait aucun, ou
             « liens désactivés » quand il n'y en avait pas, ferait douter du
@@ -320,7 +321,7 @@ export function ArreterPrelevements({ deal, detail, onClose, onDone }: {
       sousTitre={`${prenom} a été prélevé ${passees} fois sur ${nb}.`}
       onClose={onClose}
       largeur={600}
-      pied={<button className="btn-ghost" style={{ fontSize: 12.5 }} onClick={onDone}>Fermer</button>}>
+      pied={<BoutonFin onDone={onDone} discret>Fermer</BoutonFin>}>
 
       <Encart>
         Momentum ne peut pas arrêter des prélèvements à ta place : chez Stripe,

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Icon from '@/components/ui/Icon';
 import { Pill } from './PagePaiements';
 import type { Orphan, Candidate } from './types';
+import { BoutonFin } from './ModaleAction';
 import { fmtEur, fmtDateLong } from './types';
 
 /**
@@ -264,9 +265,7 @@ function OrphanCard({ orphan, onDone }: { orphan: Orphan; onDone: () => void }) 
           }}>
             {avertissement}
             <div style={{ marginTop: 10 }}>
-              <button className="btn-ghost" style={{ fontSize: 12 }} onClick={onDone}>
-                J&apos;ai compris
-              </button>
+              <BoutonFin onDone={onDone} discret>J&apos;ai compris</BoutonFin>
             </div>
           </div>
         )}

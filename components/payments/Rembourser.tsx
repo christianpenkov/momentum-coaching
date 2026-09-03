@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Icon from '@/components/ui/Icon';
 import ModaleAction, {
+  BoutonFin,
   CaseResponsabilite, Encart, Ligne, Section, VersStripe, champStyle, ChampMontant,
 } from './ModaleAction';
 import { modeDe } from './etats';
@@ -112,7 +113,7 @@ function AttendreStripe({
   if (fait) {
     return (
       <ModaleAction titre="Remboursement constaté" onClose={onDone}
-        pied={<button className="btn-primary-brand" style={{ fontSize: 12.5 }} onClick={onDone}>Terminé</button>}>
+        pied={<BoutonFin onDone={onDone} />}>
         <Encart ton="bien" titre="C’est fait">
           Momentum a constaté le remboursement, et les chiffres sont à jour.
           {motif === 'annulation' && <div style={{ marginTop: 6 }}>La vente est annulée.</div>}
@@ -276,7 +277,7 @@ function DeclarerRemboursement({ deal, motif, aRembourser, onClose, onDone }: {
   if (fait) {
     return (
       <ModaleAction titre="Remboursement enregistré" onClose={onDone}
-        pied={<button className="btn-primary-brand" style={{ fontSize: 12.5 }} onClick={onDone}>Terminé</button>}>
+        pied={<BoutonFin onDone={onDone} />}>
         <Encart ton="bien" titre="C’est noté">
           {fmtEurExact(valeur)} déduits du cash encaissé.
           {fait.annulee && <div style={{ marginTop: 6 }}>La vente est annulée.</div>}

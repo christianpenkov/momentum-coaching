@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import ModaleAction, {
+  BoutonFin, Rondelle,
   CaseResponsabilite, Encart, Section, Ligne, LienACopier, Chip,
 } from './ModaleAction';
 import { moyenDe } from './etats';
@@ -156,7 +157,7 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
           : resultat.cloture ? 'Vente clôturée'
           : `Vente ramenée à ${fmtEurExact(resultat.apres ?? nouveauMontant)}`}
         onClose={onDone}
-        pied={<button className="btn-primary-brand" style={{ fontSize: 12.5 }} onClick={onDone}>Terminé</button>}>
+        pied={<BoutonFin onDone={onDone} />}>
 
         {resultat.encoreDu ? (
           <>
@@ -293,9 +294,10 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
       bloque={envoi}
       pied={
         <>
-          <button className="btn-primary-brand" style={{ fontSize: 12.5 }}
+          <button className="btn-primary-brand"
+            style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 8 }}
             disabled={!coche || envoi} onClick={valider}>
-            {envoi ? 'Un instant…' : 'Confirmer'}
+            {envoi && <Rondelle />}{envoi ? 'Un instant…' : 'Confirmer'}
           </button>
           <button className="btn-ghost" style={{ fontSize: 12.5 }} onClick={() => setEtape('raison')}>
             Revenir

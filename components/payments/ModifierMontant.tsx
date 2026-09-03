@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import ModaleAction, {
+  BoutonFin, Rondelle,
   CaseResponsabilite, Encart, Section, LienACopier, Chip,
   ChampMontant, ApercuEcheances,
 } from './ModaleAction';
@@ -202,7 +203,7 @@ export default function ModifierMontant({ deal, detail, onClose, onDone, onRembo
               {/* « Fermer » et non « Annuler » : le montant EST déjà modifié.
                   « Annuler » laisserait croire qu'on peut encore revenir en
                   arrière, et que le remboursement est une étape à terminer. */}
-              <button className="btn-ghost" style={{ fontSize: 12.5 }} onClick={onDone}>Fermer</button>
+              <BoutonFin onDone={onDone} discret>Fermer</BoutonFin>
             </>
           ) : (
             // Fermer déclenche le rechargement de la fiche : environ une

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import ModaleAction, {
+  BoutonFin, Rondelle,
   CaseResponsabilite, Encart, Section, LienACopier, Chip, ApercuEcheances,
 } from './ModaleAction';
 import {
@@ -221,7 +222,7 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
         titre="Modalités modifiées"
         sousTitre={`${libelleAvant(modeActuel, nbActuel, rythmeActuel)} → ${libelleAvant(mode, nbEffectif, rythme)}`}
         onClose={onDone}
-        pied={<button className="btn-primary-brand" style={{ fontSize: 12.5 }} onClick={onDone}>Terminé</button>}>
+        pied={<BoutonFin onDone={onDone} />}>
 
         <Encart ton="bien" titre="C’est fait">
           {reste > 0.005

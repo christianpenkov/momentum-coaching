@@ -101,6 +101,53 @@ export default function ModaleAction({
 }
 
 /**
+ * La rondelle qui tourne — le seul signe qu'un bouton travaille.
+ *
+ * `@keyframes spin` vit déjà dans globals.css, on ne le redéfinit pas.
+ */
+export function Rondelle({ couleur = '#fff' }: { couleur?: string }) {
+  return (
+    <span aria-hidden style={{
+      width: 12, height: 12, borderRadius: '50%', flexShrink: 0,
+      border: `2px solid ${couleur === '#fff' ? 'rgba(255,255,255,.35)' : 'var(--border)'}`,
+      borderTopColor: couleur,
+      animation: 'spin .6s linear infinite',
+    }} />
+  );
+}
+
+/**
+ * Le bouton qui ferme un écran de résultat.
+ *
+ * ── Pourquoi un composant et pas dix boutons ───────────────────────────────
+ * Fermer déclenche le rechargement de la fiche : environ une seconde pendant
+ * laquelle, sans repère, l'écran semble ne rien faire — et on reclique. Dix
+ * boutons appelaient `onDone` sans le moindre retour ; les corriger un par un
+ * aurait garanti que le onzième l'oublie.
+ *
+ * L'état vit ICI et nulle part ailleurs : un écran de résultat n'a rien d'autre
+ * à savoir que « c'est fini », et lui faire porter un drapeau de fermeture
+ * mélangerait deux responsabilités.
+ */
+export function BoutonFin({ onDone, children = 'Terminé', discret = false }: {
+  onDone: () => void;
+  children?: React.ReactNode;
+  discret?: boolean;
+}) {
+  const [ferme, setFerme] = useState(false);
+  return (
+    <button
+      className={discret ? 'btn-ghost' : 'btn-primary-brand'}
+      style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 8 }}
+      disabled={ferme}
+      onClick={() => { setFerme(true); onDone(); }}>
+      {ferme && <Rondelle couleur={discret ? 'var(--ink-2)' : '#fff'} />}
+      {ferme ? 'Un instant…' : children}
+    </button>
+  );
+}
+
+/**
  * La case qui engage la responsabilité.
  *
  * Deux niveaux, et la distinction n'est pas décorative : l'orange couvre ce qui

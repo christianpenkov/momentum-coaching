@@ -6,6 +6,7 @@ import Avatar, { getInitials } from '@/components/ui/Avatar';
 import Portal from './Portal';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { useHauteurClavier } from '@/lib/useHauteurClavier';
+import { BoutonFin } from './ModaleAction';
 import { fmtEur } from './types';
 
 /**
@@ -342,7 +343,7 @@ function Done({ result, copied, onCopy, onDone }: { result: { url: string; mode:
           : 'Envoie-le à ton client. Le paiement se rattachera automatiquement à ce deal.'}
       </div>
 
-      <button className="btn-ghost" style={{ fontSize: 12.5 }} onClick={onDone}>Terminé</button>
+      <BoutonFin onDone={onDone} discret />
     </div>
   );
 }
