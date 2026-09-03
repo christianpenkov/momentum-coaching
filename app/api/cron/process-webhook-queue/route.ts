@@ -57,6 +57,32 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   }
 
+  // Filigrane de passage : la preuve que ce cron est encore INVOQUE.
+  //
+  // Pose AU PLUS TOT, juste apres l'authentification, et non a la fin — meme raison
+  // que dans notify-rapport, dont ce bloc est la copie : `crons_sante` repond a « le
+  // planificateur appelle-t-il encore cette URL ? », et un echec pendant l'execution
+  // est deja couvert par `cron_runs`.
+  //
+  // ⚠️ POURQUOI CE CRON-CI AVAIT ETE OUBLIE. Il est declenche par pg_cron via
+  // `net.http_post`, qui est ASYNCHRONE : il met la requete en file et rend son
+  // identifiant immediatement. `cron.job_run_details` enregistre donc le succes de
+  // l'INSTRUCTION SQL, jamais celui de l'appel HTTP. Mesure du 2026-09-03 : 10 858
+  // passages, 100 % « succeeded », message uniforme « 1 row » — la valeur de retour de
+  // net.http_post. Si cette fonction etait supprimee, repondait 500, ou si son secret
+  // ne correspondait plus, ces lignes diraient EXACTEMENT la meme chose.
+  //
+  // `net._http_response` porte bien les vrais codes HTTP, mais pg_net la purge : 5 h 58
+  // d'historique au moment de la mesure. Utilisable pour corroborer une enquete a
+  // chaud, inutilisable pour une alerte quotidienne.
+  //
+  // Le seuil de silence vit sur la LIGNE (`crons_passages.silence_max`), pas ici.
+  // Strictement non bloquant : un filigrane muet vaut mieux qu'un cron qui tombe.
+  try {
+    const { error: filigraneErr } = await serviceSupabase.rpc('marquer_passage_cron', { p_nom: 'process-webhook-queue' });
+    if (filigraneErr) console.error('[process-webhook-queue] filigrane de passage:', filigraneErr.message);
+  } catch (e) { console.error('[process-webhook-queue] filigrane de passage:', e); }
+
   const startedAt = Date.now();
 
   // Réservation ATOMIQUE (FOR UPDATE SKIP LOCKED côté SQL) : deux workers qui se

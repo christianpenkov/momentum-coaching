@@ -12,6 +12,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // web-push via npm (Deno)
 import webpush from 'npm:web-push';
 import { formatTimeIn, formatDateIn, safeZone } from '../_shared/timezone.ts';
+import { EMPREINTES_EDGE } from '../../../lib/empreintes-edge.generated.ts';
 
 const sb = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -104,6 +105,32 @@ Deno.serve(async (req: Request) => {
   if (authHeader !== `Bearer ${cronSecret}`) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
   }
+
+  // Filigrane de passage : la preuve que ce cron est encore INVOQUE.
+  //
+  // Pose AU PLUS TOT, juste apres l'authentification, et non a la fin — meme raison
+  // que dans notify-rapport, dont ce bloc est la copie : `crons_sante` repond a « le
+  // planificateur appelle-t-il encore cette URL ? », et un echec pendant l'execution
+  // est deja couvert par `cron_runs`.
+  //
+  // ⚠️ POURQUOI CE CRON-CI AVAIT ETE OUBLIE. Il est declenche par pg_cron via
+  // `net.http_post`, qui est ASYNCHRONE : il met la requete en file et rend son
+  // identifiant immediatement. `cron.job_run_details` enregistre donc le succes de
+  // l'INSTRUCTION SQL, jamais celui de l'appel HTTP. Mesure du 2026-09-03 : 724
+  // passages, 100 % « succeeded », message uniforme « 1 row » — la valeur de retour de
+  // net.http_post. Si cette fonction etait supprimee, repondait 500, ou si son secret
+  // ne correspondait plus, ces lignes diraient EXACTEMENT la meme chose.
+  //
+  // `net._http_response` porte bien les vrais codes HTTP, mais pg_net la purge : 5 h 58
+  // d'historique au moment de la mesure. Utilisable pour corroborer une enquete a
+  // chaud, inutilisable pour une alerte quotidienne.
+  //
+  // Le seuil de silence vit sur la LIGNE (`crons_passages.silence_max`), pas ici.
+  // Strictement non bloquant : un filigrane muet vaut mieux qu'un cron qui tombe.
+  try {
+    const { error: filigraneErr } = await sb.rpc('marquer_passage_cron', { p_nom: 'call-reminders', p_empreinte: EMPREINTES_EDGE['call-reminders'] });
+    if (filigraneErr) console.error('[call-reminders] filigrane de passage:', filigraneErr.message);
+  } catch (e) { console.error('[call-reminders] filigrane de passage:', e); }
 
   // Trace de diagnostic — cette fonction n'était pas identifiée comme le vrai
   // déclencheur des rappels de call avant ce fix (table déjà créée pour

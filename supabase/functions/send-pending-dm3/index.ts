@@ -15,6 +15,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { mapWithConcurrency } from '../_shared/rate-limit.ts';
+import { EMPREINTES_EDGE } from '../../../lib/empreintes-edge.generated.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -35,6 +36,32 @@ Deno.serve(async (req: Request) => {
   if (!auth || auth !== `Bearer ${CRON_SECRET}`) {
     return new Response(JSON.stringify({ error: 'Non autorisé' }), { status: 401 });
   }
+
+  // Filigrane de passage : la preuve que ce cron est encore INVOQUE.
+  //
+  // Pose AU PLUS TOT, juste apres l'authentification, et non a la fin — meme raison
+  // que dans notify-rapport, dont ce bloc est la copie : `crons_sante` repond a « le
+  // planificateur appelle-t-il encore cette URL ? », et un echec pendant l'execution
+  // est deja couvert par `cron_runs`.
+  //
+  // ⚠️ POURQUOI CE CRON-CI AVAIT ETE OUBLIE. Il est declenche par pg_cron via
+  // `net.http_post`, qui est ASYNCHRONE : il met la requete en file et rend son
+  // identifiant immediatement. `cron.job_run_details` enregistre donc le succes de
+  // l'INSTRUCTION SQL, jamais celui de l'appel HTTP. Mesure du 2026-09-03 : 10 858
+  // passages, 100 % « succeeded », message uniforme « 1 row » — la valeur de retour de
+  // net.http_post. Si cette fonction etait supprimee, repondait 500, ou si son secret
+  // ne correspondait plus, ces lignes diraient EXACTEMENT la meme chose.
+  //
+  // `net._http_response` porte bien les vrais codes HTTP, mais pg_net la purge : 5 h 58
+  // d'historique au moment de la mesure. Utilisable pour corroborer une enquete a
+  // chaud, inutilisable pour une alerte quotidienne.
+  //
+  // Le seuil de silence vit sur la LIGNE (`crons_passages.silence_max`), pas ici.
+  // Strictement non bloquant : un filigrane muet vaut mieux qu'un cron qui tombe.
+  try {
+    const { error: filigraneErr } = await supa.rpc('marquer_passage_cron', { p_nom: 'send-pending-dm3', p_empreinte: EMPREINTES_EDGE['send-pending-dm3'] });
+    if (filigraneErr) console.error('[send-pending-dm3] filigrane de passage:', filigraneErr.message);
+  } catch (e) { console.error('[send-pending-dm3] filigrane de passage:', e); }
 
   const now = Date.now();
   const staleCutoff = new Date(now - MAX_LATE_MS).toISOString();
