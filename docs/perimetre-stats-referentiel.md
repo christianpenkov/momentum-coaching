@@ -439,6 +439,46 @@ fonction n'est incorrecte. Ce qui est incorrect, c'est ce que l'ensemble produit
 
 ---
 
+## Piège nommé : deux grains dans le même tableau, sur des colonnes voisines
+
+Le tableau **« Breakdown par source — vers Calendly »** (onglet Business micro) mélange
+deux grains, délibérément, et ils sont côte à côte :
+
+| colonnes | grain | ce qu'on lit |
+|---|---|---|
+| **Clics / Liens** | **cohorte** | les liens **envoyés** dans la période, suivis **sans borne de date** |
+| Calls bookés, honorés, closés, Revenue | **date propre** | chaque événement compte dans la période où il a eu lieu |
+
+Les deux se défendent, et le choix a été tranché le 2026-09-03 : la cohorte reste, parce
+que la question posée par ces deux nombres est « parmi les liens que j'ai envoyés ce
+mois-là, combien ont fini par être cliqués » — un lien part, il est cliqué ou il ne l'est
+jamais, et attendre trois semaines pour le savoir n'y change rien. Borner le clic à la
+période aurait fait paraître le mois en cours artificiellement mauvais, un lien envoyé le
+30 n'ayant pas encore été cliqué.
+
+⚠️ **Le prix à payer, et il est réel : le nombre de clics d'un mois PASSÉ n'est pas
+figé.** Un lien envoyé en juin et cliqué en octobre s'ajoutera aux clics de juin. Une
+capture d'écran de juin et le même écran regardé en octobre peuvent donc différer, sans
+qu'aucun bug n'existe.
+
+⚠️ **Corollaire : ces colonnes ne forment PAS un tunnel.** Enchaîner clics → calls →
+closés comme s'ils décrivaient la même population donne un taux faux dans les deux sens.
+Un lien envoyé avant la période mais dont le call tombe dedans compte dans les calls sans
+compter dans les clics ; un lien envoyé dans la période et cliqué plus tard compte dans
+les clics sans que son call y soit. C'est écrit dans le point d'interrogation de la
+colonne (`AIDE_CLICS_LIENS`), pour que la personne qui lit le nombre le sache au même
+endroit qu'elle le lit.
+
+Le piège général, au-delà de ce tableau : **deux grains sur un même écran sont
+défendables, deux grains qu'on prend pour un seul ne le sont pas.** Un tableau dont les
+lignes se lisent naturellement de gauche à droite fait croire à un enchaînement ; c'est la
+mise en page qui invente le tunnel, pas le calcul. Même famille que
+« [Deux dates sur le même écran, et c'est voulu](#deux-dates-sur-le-même-écran-et-cest-voulu) »
+sous la règle 7 : ce qui est piégeux n'est jamais le choix, c'est le fait qu'il ne soit
+écrit nulle part.
+
+---
+
 ## Le réflexe à garder
 
 Avant d'ajouter un compteur, se demander :

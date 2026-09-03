@@ -573,6 +573,30 @@ const AIDE_TOP_CONTENUS =
   + "Ce tableau compte des ÉVÉNEMENTS depuis toujours, pas des personnes sur une "
   + "période : un contenu peut y apparaître pour des gens entrés par ailleurs.";
 
+// ⚠️ Cette colonne ne se compte PAS comme ses voisines, et c'est voulu. Le texte le dit
+// explicitement plutot que de laisser croire a un tunnel : « liens envoyes » et « clics »
+// forment une COHORTE (les liens partis pendant la periode, suivis sans limite de date),
+// alors que calls bookes / honores / closes / revenue sont bucketes sur LEUR propre date
+// — convention assumee et commentee au calcul du breakdown. Chris a tranche le 2026-09-03
+// entre borner le clic et garder la cohorte : garder, et l'ecrire ici.
+const AIDE_CLICS_LIENS =
+  "Ces deux nombres suivent une COHORTE, pas la période.\n\n"
+  + "« liens envoyés » : les liens Calendly partis pendant la période affichée.\n\n"
+  + "Le nombre de clics : parmi CES liens-là, combien ont été cliqués au moins une fois — "
+  + "à n'importe quelle date, même des mois plus tard.\n\n"
+  + "La question posée est donc « parmi les liens que j'ai envoyés ce mois-là, combien "
+  + "ont fini par être cliqués ». C'est ce qui mesure la qualité de l'envoi : un lien "
+  + "part, il est cliqué ou il ne l'est jamais, et attendre trois semaines pour le savoir "
+  + "n'y change rien.\n\n"
+  + "⚠️ Conséquence à connaître : le nombre de clics d'un mois PASSÉ peut encore "
+  + "augmenter. Un lien envoyé en juin et cliqué en octobre s'ajoutera aux clics de juin, "
+  + "pas à ceux d'octobre. Ce n'est pas une erreur, c'est la contrepartie de la cohorte.\n\n"
+  + "⚠️ Les colonnes calls bookés, honorés, closés et revenue de ce même tableau, elles, "
+  + "sont comptées à LEUR propre date. Elles ne répondent donc pas à la même question, et "
+  + "l'enchaînement clics → calls → closés n'est pas un tunnel : un lien envoyé avant la "
+  + "période mais dont le call tombe dedans compte dans les calls sans compter dans les "
+  + "clics.";
+
 const AIDE_CALLS_HONORES =
   "Parmi les calls bookés, ceux qui ont eu lieu. Même règle : un deuxième rendez-vous qui "
   + "prolonge la même vente n'est pas recompté. Ce nombre ne peut donc jamais dépasser les "
@@ -8495,7 +8519,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                 <thead>
                   <tr style={{ background: 'var(--surface-2)' }}>
                     <TH>Source</TH>
-                    <TH right><EnteteColonne nom="clicLien">Clics / Liens</EnteteColonne></TH>
+                    <TH right><EnteteColonne nom="clicLien">Clics / Liens</EnteteColonne><AideColonne texte={AIDE_CLICS_LIENS} /></TH>
                     <TH right><EnteteColonne nom="callBooke">Calls bookés</EnteteColonne><AideColonne texte={AIDE_CALLS_BOOKES} /></TH>
                     <TH right><EnteteColonne nom="callHonore">Calls honorés</EnteteColonne><AideColonne texte={AIDE_CALLS_HONORES} /></TH>
                     <TH right><EnteteColonne nom="close">Closés</EnteteColonne></TH>
