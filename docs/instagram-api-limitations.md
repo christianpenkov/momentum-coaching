@@ -137,6 +137,35 @@ for this media product type »* parle du TYPE DE MÉDIA, pas d'un volume d'audie
 Un refus de seuil se présenterait autrement. **Doc et mesure concordent** — c'est le
 seul cas où l'on peut clore une question d'API.
 
+#### Le seuil de 1 000 abonnés : réfuté par nos propres mesures
+
+L'hypothèse méritait d'être prise au sérieux — le compte de test a 254 abonnés, donc
+sous un seuil de 1 000. Elle est fausse, et on peut le démontrer **sans avoir de
+compte au-dessus du seuil** :
+
+> Sur le MÊME compte, à 254 abonnés, `follows` **répond** sur ses images (valeurs 0,
+> 2, 7…) et **est refusé** sur ses Reels.
+
+Un seuil d'audience est une propriété du COMPTE : il bloquerait la métrique partout,
+pas sélectivement sur un type de média. Le discriminant observé est donc le type de
+média, et il ne peut pas être l'audience. **C'est une réfutation logique, pas une
+présomption** — elle tient même si la doc de Meta change demain.
+
+D'où vient probablement le chiffre ? De la vraie règle, mais déformée deux fois. La
+page Insights de Meta dit :
+
+> « Some metrics are not available on Instagram accounts with fewer than **100**
+> followers. »
+
+Seuil de **100**, pas 1 000, et il porte sur les **insights de COMPTE**, pas de média.
+Les métriques réellement concernées chez nous sont les démographies
+(`follower_demographics`, `reached_audience_demographics`).
+
+⚠️ Note de méthode : aucun compte connecté ne dépasse 255 abonnés, donc le seuil ne
+pouvait pas être testé directement. Ce qui l'a tranché, c'est une **contradiction
+interne** dans des mesures déjà prises. À chercher avant de conclure « non
+testable ».
+
 #### Les STORIES, elles, l'ont — et on les collecte déjà
 
 `follows` est supporté sur STORY, et `poll-stories` le demande déjà
