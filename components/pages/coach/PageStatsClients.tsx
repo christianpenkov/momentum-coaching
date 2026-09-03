@@ -662,13 +662,29 @@ export default function PageStatsClients() {
    * test, DRG n'a pas de `onboarding_completed_at` — la note annonçait donc « 1 élève »
    * là où deux ne figuraient nulle part. Un écran qui compte mal ce qu'il cache est
    * pire qu'un écran qui ne compte rien : on le croit. */
-  const { seriesAccompagnement, semainesMax, nonTraces } = useMemo(() => {
+  const { seriesAccompagnement, semainesMax, nonTraces, depuisSemaine } = useMemo(() => {
     const vide = {
       seriesAccompagnement: [] as SerieGraphe[], semainesMax: 1,
       nonTraces: new Map<string, RaisonNonTrace>(),
+      depuisSemaine: new Map<string, number>(),
     };
     if (!data) return vide;
     const nonTraces = new Map<string, RaisonNonTrace>();
+    /* La semaine où la collecte a commencé, par élève.
+     *
+     * ⚠️ Elle répond à la seule question que ce graphe posait sans y répondre :
+     * « pourquoi cette courbe commence-t-elle au milieu ? ». On croit qu'une courbe
+     * devrait partir de S1 parce que l'axe part de S1 ; en réalité elle part de la
+     * semaine où l'on a commencé à mesurer CET élève. Sur le compte de test, RDJ est
+     * arrivé le 30 juillet mais son Instagram n'a été connecté que le 29 août : quatre
+     * semaines sans rien à mesurer, donc une courbe qui démarre à S5.
+     *
+     * En production ce cas est presque impossible : l'accès élève est verrouillé tant
+     * que les sept intégrations ne sont pas connectées (`app/(client)/layout.tsx`), donc
+     * la collecte démarre avec l'accompagnement. La mention ne s'affichera donc
+     * quasiment jamais — c'est voulu : elle explique l'anomalie quand elle survient, et
+     * se tait le reste du temps. */
+    const depuisSemaine = new Map<string, number>();
     const maintenant = new Date();
     const parProfil = new Map<string, LigneSerie[]>();
     for (const r of data.accompagnement) {
@@ -727,6 +743,9 @@ export default function PageStatsClients() {
       // Assez de données, mais pas dans la PLAGE affichée (S1-S12 par exemple).
       if (borne.filter(v => v !== null).length < 2) { nonTraces.set(c.id, 'hors-plage'); continue; }
       maxSemaines = Math.max(maxSemaines, borne.length);
+      // Index 0 = S1, donc la première valeur connue est en S(index + 1).
+      const premiere = borne.findIndex(v => v !== null);
+      if (premiere > 0) depuisSemaine.set(c.id, premiere + 1);
       series.push({
         nom: c.id,
         court: c.name.split(' ')[0],
@@ -734,7 +753,7 @@ export default function PageStatsClients() {
         valeurs: borne,
       });
     }
-    return { seriesAccompagnement: series, semainesMax: maxSemaines, nonTraces };
+    return { seriesAccompagnement: series, semainesMax: maxSemaines, nonTraces, depuisSemaine };
   }, [data, metriqueAccompagnement, plageAccompagnement]);
 
   const etiquettesAccompagnement = useMemo(() => {
@@ -917,8 +936,9 @@ export default function PageStatsClients() {
                       n'a rien à tracer avant S4. Ce n'est pas un trou, c'est le moment
                       où on a commencé à le mesurer — et sans cette phrase, le graphe
                       donne à croire à un défaut. */}
-                  Axe en semaines d'accompagnement · chaque courbe démarre à son propre S1 ·
-                  hors période · seules les semaines déjà collectées sont tracées
+                  Axe en semaines d'accompagnement · chaque courbe est calée sur l'arrivée
+                  de l'élève · hors période · elle démarre à la semaine où sa collecte a
+                  commencé
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -959,7 +979,7 @@ export default function PageStatsClients() {
                 {phraseNonTraces(nonTraces)}
               </div>
             )}
-            <Legende lignes={lignes} epingle={epingle} setEpingle={setEpingle} nonTraces={nonTraces} />
+            <Legende lignes={lignes} epingle={epingle} setEpingle={setEpingle} nonTraces={nonTraces} depuisSemaine={depuisSemaine} />
           </div>
 
           <div ref={ancreTableau} style={{ scrollMarginTop: 16 }} />
@@ -1304,10 +1324,13 @@ function CarteGraphe({ titre, sousTitre, metrique, setMetrique, children }: {
  * qui n'existe pas, donc il ne se passait rien. Même famille de défaut que le bouton
  * « Voir » qui ne menait nulle part — un contrôle qui a l'air actif et ne fait rien
  * apprend au coach à se méfier de l'écran entier. */
-function Legende({ lignes, epingle, setEpingle, nonTraces }: {
+function Legende({ lignes, epingle, setEpingle, nonTraces, depuisSemaine }: {
   lignes: LigneEleve[]; epingle: string | null; setEpingle: (n: string | null) => void;
-  /** Absent pour le graphe principal, qui n ecarte personne. */
+  /** Absent pour le graphe principal, qui n'écarte personne. */
   nonTraces?: Map<string, RaisonNonTrace>;
+  /** Première semaine mesurée, quand elle n'est pas S1. Absente pour le graphe
+   *  principal, dont l'axe est en dates et non en semaines de programme. */
+  depuisSemaine?: Map<string, number>;
 }) {
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 12 }}>
@@ -1345,6 +1368,12 @@ function Legende({ lignes, epingle, setEpingle, nonTraces }: {
                 courbe — `colorFromSeed(seedForPerson(nom))` partout. */}
             <Avatar avatarUrl={l.photo ?? undefined} initials={getInitials(l.nom)} size={14} seed={l.nom} />
             {l.nom.split(' ')[0]}
+            {/* Uniquement quand la courbe ne part PAS de S1. La mention n'apparaît donc
+                que là où elle explique quelque chose — ailleurs elle ne ferait que du
+                bruit sur quarante pastilles. */}
+            {depuisSemaine?.get(l.id) && (
+              <span style={{ fontSize: 9.5, opacity: .8 }}>· depuis S{depuisSemaine.get(l.id)}</span>
+            )}
           </button>
         );
       })}

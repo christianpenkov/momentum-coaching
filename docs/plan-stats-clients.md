@@ -1888,3 +1888,50 @@ Les photos sont désormais dans le tableau, les pastilles de légende et les nom
 bandeau. Quand il n'y en a pas, c'est la couleur de la courbe de l'élève qui reste :
 `colorFromSeed(seedForPerson(nom))` est la même graine partout, donc un élève garde sa
 couleur d'un écran à l'autre.
+
+### D87 — Une pastille dit depuis quelle semaine l'élève est mesuré (2026-09-03)
+
+Chris, deux fois : « on comprend pas pourquoi RDJ et Dolphin ont leur courbe seulement au
+milieu », puis « même moi j'ai pas compris pourquoi ». Le sous-titre ajouté la veille ne
+suffisait pas : il énonçait la règle en creux, sans jamais nommer le cas.
+
+**Le fond du malentendu** : on croit qu'une courbe devrait partir de S1 parce que l'axe
+part de S1. En réalité elle part de la semaine où l'on a commencé à mesurer CET élève.
+
+Et ce sont **deux causes différentes**, que j'avais eu tort de mettre dans le même sac :
+
+| Élève | Arrivée | Tracé | Pourquoi |
+|---|---|---|---|
+| **RDJ Test** | 30 juillet | S5 → S6 | Instagram connecté le **29 août**, quatre semaines après l'arrivée : avant S5, rien à mesurer |
+| **Dolphin** | 28 août | S1 → S2 | arrivé **il y a six jours** ; ses quatre autres semaines sont antérieures à l'arrivée et sont jetées |
+
+RDJ est au milieu, Dolphin est au **début** mais très court.
+
+La pastille de légende porte désormais « · depuis S5 », **et seulement quand la courbe ne
+part pas de S1**. Une mention qui n'apparaît que là où elle explique quelque chose ;
+ailleurs, elle ne ferait que du bruit sur quarante pastilles.
+
+⚠️ **En production, elle ne s'affichera quasiment jamais, et c'est voulu.** Chris l'a
+rappelé : l'accès élève est **verrouillé** tant que les sept intégrations ne sont pas
+connectées (`app/(client)/layout.tsx`, `accesVerrouille`). La collecte démarre donc avec
+l'accompagnement, et une courbe part de S1. Le cas de RDJ est un artefact du compte de
+test — son `integrations_ready_at` est posé alors qu'il n'a que deux providers.
+
+C'est le bon comportement pour un indicateur de ce genre : **il explique l'anomalie quand
+elle survient, et se tait le reste du temps.**
+
+Corollaire à garder en tête : les lignes du bandeau orange (D83, D84) sont, pour la même
+raison, des **filets de sécurité contre une incohérence de données**, pas de l'affichage
+quotidien. En production, un élève déclaré prêt a ses sept intégrations. Elles se
+déclenchent quand le drapeau ment — ce qui est arrivé — ou quand une intégration tombe
+après coup.
+
+### D88 — Les semaines antérieures à l'arrivée restent jetées, sans mention
+
+Tranché par Chris : « ne rien changer ». Dolphin porte quatre semaines d'historique
+Instagram récupérées au backfill, antérieures à son entrée dans le programme ; l'axe en
+semaines d'accompagnement les écarte.
+
+C'est cohérent — elles ne font pas partie du programme, et un axe qui compare des élèves
+au même stade n'a pas de place pour elles — et le cas ne concerne que les élèves connectés
+après leur arrivée, que le verrou d'accès rend presque impossibles en production.
