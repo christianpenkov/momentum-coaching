@@ -359,8 +359,8 @@ export async function POST(request: NextRequest) {
       invitee_email: inviteeEmail,
       invitee_name: inviteeName,
       status: 'active',
-      ready: 'pending',
-      reminder_sent: false,
+      // ready / reminder_sent : colonnes vestiges, retirees de l'ecriture le 2026-09-04
+      // (jamais lues, jamais posees a une autre valeur que leur defaut - audit).
     };
     // Les quatre champs d'attribution suivent la MÊME règle : sur une reprogrammation,
     // la valeur héritée prime, pour qu'ils décrivent tous le premier contact et jamais un

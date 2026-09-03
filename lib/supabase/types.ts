@@ -123,6 +123,10 @@ export interface Call {
   topic: string | null;
   scheduled_at: string | null;
   duration: string | null;
+  // ⚠️ VESTIGE (constaté à l'audit du 2026-09-04) : plus aucun code n'écrit cette
+  // colonne (défaut DB 'pending', jamais posée à 'ready'/'partial' hors maquette
+  // lib/data.ts). Ne rien y brancher — la retirer du schéma le jour d'un grand
+  // ménage, pas avant une livraison.
   ready: 'ready' | 'partial' | 'pending';
   notes: string | null;
   calendly_uri: string | null;
@@ -140,6 +144,8 @@ export interface Call {
   status: string | null;
   invitee_email: string | null;
   invitee_name: string | null;
+  // ⚠️ VESTIGE (audit du 2026-09-04) : jamais lue, jamais mise à true — les vrais
+  // rappels utilisent reminder_24h_sent / reminder_15min_sent. Ne rien y brancher.
   reminder_sent: boolean;
   created_at: string;
   no_show?: boolean | null;

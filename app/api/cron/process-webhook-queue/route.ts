@@ -85,6 +85,33 @@ export async function GET(request: Request) {
 
   const startedAt = Date.now();
 
+  // ── PLAFOND DE WORKERS SIMULTANÉS (décision Chris, 2026-09-04) ─────────────
+  //
+  // Chaque commentaire réveille SA propre invocation de cette route : sur un
+  // post viral, des centaines de workers partaient en parallèle, chacun
+  // réservant 20 lignes et envoyant 5 DMs à la fois — la concurrence effective
+  // devenait la taille de la rafale, exactement ce que la constante CONCURRENCY
+  // ci-dessus croyait borner. SKIP LOCKED empêchait le double traitement, pas
+  // la rafale sortante vers Meta.
+  //
+  // Sémaphore à une ligne (webhook_worker_slots), claim atomique par RPC, cap à
+  // 3 workers (3 × CONCURRENCY = 15 envois simultanés max). Un réveil refusé
+  // rend la main sans rien faire : le tick pg_cron à la minute garantit que la
+  // file avance de toute façon. La ligne se réinitialise seule si elle est
+  // périmée (> 2 min — un worker vit 60 s max), donc un crash sans relâche ne
+  // bloque jamais.
+  const { data: slotPris, error: slotErr } = await serviceSupabase.rpc('prendre_slot_worker');
+  if (slotErr) {
+    // Erreur de sémaphore : on continue sans — mieux vaut un risque de rafale
+    // qu'une file qui ne se vide plus.
+    console.error('[process-webhook-queue] prendre_slot_worker:', slotErr.message);
+  } else if (slotPris === false) {
+    return NextResponse.json({ ok: true, skipped: 'workers_satures' });
+  }
+  const slotAcquis = !slotErr && slotPris === true;
+
+  try {
+
   // Réservation ATOMIQUE (FOR UPDATE SKIP LOCKED côté SQL) : deux workers qui se
   // chevauchent ne peuvent pas réserver la même ligne. Sans ça, un commentaire
   // déclencherait deux DM1 — et Meta n'autorise qu'un private reply par
@@ -163,4 +190,13 @@ export async function GET(request: Request) {
     elapsed_ms: Date.now() - startedAt,
     errors: errors.slice(0, 5),
   });
+
+  } finally {
+    // Relâche du slot, succès OU échec. Si cette relâche rate (crash brutal),
+    // la péremption à 2 min de la ligne réinitialise le compteur toute seule.
+    if (slotAcquis) {
+      const { error: slotLibErr } = await serviceSupabase.rpc('liberer_slot_worker');
+      if (slotLibErr) console.error('[process-webhook-queue] liberer_slot_worker:', slotLibErr.message);
+    }
+  }
 }

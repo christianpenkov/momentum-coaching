@@ -2510,10 +2510,38 @@ async function rattraperTrousIg(profileId: string, token: string, igAccountId: s
       .gt('date', debutUtile)
       .lte('date', isoDate(1))
       .order('date', { ascending: false })   // les plus recents d'abord
-      .limit(MAX_JOURS_PAR_PASSAGE);
+      // La limite est LARGE (x4) puis refiltree en memoire : les journees deja
+      // refusees par Meta (voir ig_rattrapage_refus ci-dessous) occupent les
+      // rangs les plus recents du tri, et une limite exacte les aurait laissees
+      // masquer indefiniment les journees encore recuperables derriere elles.
+      .limit(MAX_JOURS_PAR_PASSAGE * 4);
     if (!trous?.length) return [];
 
-    for (const t of trous) {
+    // ── Memoire des journees que Meta ne sert pas (decision Chris, 2026-09-04) ──
+    //
+    // Sans elle, une journee definitivement vide etait re-selectionnee a CHAQUE
+    // passage horaire, pour toujours : jusqu'a 30 jours x 6 appels = 180 appels
+    // Meta par heure et par profil, gaspilles, plus un bandeau « partial »
+    // permanent. Meme philosophie que `ig_post_insights_etat` cote posts : un
+    // refus est memorise avec un verdict prudent — retente UNE fois apres
+    // 30 jours (l'agregation tardive de Meta existe), puis plus jamais. Une
+    // journee qui finit par repondre voit sa ligne effacee.
+    const { data: refusRows } = await supa
+      .from('ig_rattrapage_refus')
+      .select('date, tentatives, reessayer_apres')
+      .eq('profile_id', profileId);
+    const refusParDate = new Map<string, { tentatives: number; reessayer_apres: string }>();
+    for (const r of refusRows ?? []) refusParDate.set(r.date, r);
+    const maintenant = Date.now();
+    const aTraiter = trous
+      .filter((t: { date: string }) => {
+        const refus = refusParDate.get(t.date);
+        return !refus || new Date(refus.reessayer_apres).getTime() <= maintenant;
+      })
+      .slice(0, MAX_JOURS_PAR_PASSAGE);
+    if (!aTraiter.length) return [];
+
+    for (const t of aTraiter) {
       // Rendre la main des que le budget est epuise : le reste du passage doit
       // pouvoir se terminer. Ces journees seront reprises au passage suivant.
       if (!resteDuTempsPourRattraper()) break;
@@ -2524,8 +2552,34 @@ async function rattraperTrousIg(profileId: string, token: string, igAccountId: s
         const { jour: metrics } = await fetchIgDayMetrics(token, igAccountId, t.date);
         // Ne pas ecrire une ligne vide : si Meta ne renvoie rien pour ce jour, mieux
         // vaut laisser le trou que d'y poser des null qui empecheraient un nouvel essai
-        // de se distinguer d'un echec.
-        if (metrics.ig_reach == null) { errors.push(`ig_rattrapage_vide_${t.date}`); continue; }
+        // de se distinguer d'un echec. Et MEMORISER le refus — voir le bloc refus
+        // ci-dessus. Les journees de moins de 7 jours ne sont pas memorisees :
+        // l'agregation de Meta peut simplement etre en retard, elles restent du
+        // ressort du rattrapage normal.
+        if (metrics.ig_reach == null) {
+          const dateAgeMs = maintenant - new Date(t.date + 'T00:00:00Z').getTime();
+          if (dateAgeMs > 7 * 24 * 60 * 60 * 1000) {
+            const dejaVu = refusParDate.get(t.date);
+            const tentatives = (dejaVu?.tentatives ?? 0) + 1;
+            const { error: refusErr } = await supa.from('ig_rattrapage_refus').upsert({
+              profile_id: profileId,
+              date: t.date,
+              tentatives,
+              // 1er refus : on retente dans 30 jours. 2e : plus jamais (an 9999).
+              reessayer_apres: tentatives >= 2
+                ? '9999-01-01T00:00:00Z'
+                : new Date(maintenant + 30 * 24 * 60 * 60 * 1000).toISOString(),
+            }, { onConflict: 'profile_id,date' });
+            if (refusErr) errors.push(`ig_rattrapage_refus_${t.date}: ${refusErr.message}`);
+          }
+          errors.push(`ig_rattrapage_vide_${t.date}`);
+          continue;
+        }
+        // La journee a fini par repondre : le refus memorise est perime.
+        if (refusParDate.has(t.date)) {
+          await supa.from('ig_rattrapage_refus').delete()
+            .eq('profile_id', profileId).eq('date', t.date);
+        }
         const { error } = await supa.from('analytics_daily_snapshots').upsert(
           // ── ig_account_id : POSE ICI, ET SEULEMENT SUR LES ECRITURES INSTAGRAM ──
           //
@@ -2551,7 +2605,7 @@ async function rattraperTrousIg(profileId: string, token: string, igAccountId: s
         errors.push(`ig_rattrapage_${t.date}: ${e?.message || 'unknown'}`);
       }
     }
-    console.log(`[poll-leads] ig_rattrapage profile=${profileId}: ${trous.length} journee(s) traitee(s)`);
+    console.log(`[poll-leads] ig_rattrapage profile=${profileId}: ${aTraiter.length} journee(s) traitee(s), ${trous.length - aTraiter.length} refusee(s) memorisee(s) sautee(s)`);
   } catch (e: any) {
     errors.push(`ig_rattrapage: ${e?.message || 'unknown'}`);
   }
@@ -3148,6 +3202,35 @@ Deno.serve(async (req: Request) => {
     if (filigraneErr) console.error('[poll-leads] filigrane de passage:', filigraneErr.message);
   } catch (e) { console.error('[poll-leads] filigrane de passage:', e); }
 
+  // ── VERROU ANTI-DOUBLE-PASSAGE (décision Chris, 2026-09-04) ────────────────
+  //
+  // Deux invocations simultanées — double-fire cron-job.org, ou déclenchement
+  // manuel pendant qu'un passage tourne — lisaient le même filigrane
+  // `last_report_id`, téléchargeaient les mêmes rapports CTR YouTube, et
+  // `upsert_yt_ctr` ADDITIONNE (« impressions + EXCLUDED ») : impressions et
+  // clics doublés, corruption permanente. Les écritures secondaires doublaient
+  // aussi (pushs de rappel, prospect_events du click stream).
+  //
+  // L'UPDATE conditionnel est atomique : le second passage re-évalue le WHERE
+  // sur la ligne verrouillée, la voit fraîchement prise, et matche zéro ligne.
+  // Le verrou expire seul à 4 min (un run dure 150 s max) : un crash sans
+  // relâche ne coûte qu'UN passage sauté, jamais un blocage.
+  const verrouPerime = new Date(Date.now() - 4 * 60 * 1000).toISOString();
+  const { data: verrouPris, error: verrouErr } = await supa
+    .from('crons_passages')
+    .update({ verrou_pris_a: new Date().toISOString() })
+    .eq('nom', 'poll-leads')
+    .or(`verrou_pris_a.is.null,verrou_pris_a.lt.${verrouPerime}`)
+    .select('nom')
+    .maybeSingle();
+  if (verrouErr) console.error('[poll-leads] verrou:', verrouErr.message);
+  // Une erreur de verrou (DB indisponible ?) laisse passer : mieux vaut un
+  // risque théorique de doublon qu'un cron entier qui s'arrête de collecter.
+  if (!verrouErr && !verrouPris) {
+    console.warn('[poll-leads] passage déjà en cours — invocation ignorée');
+    return new Response(JSON.stringify({ status: 'skipped_run_en_cours' }), { status: 202, headers: { 'Content-Type': 'application/json' } });
+  }
+
   // Fenêtre d'auto-réparation Short.io : 7 jours par défaut, élargissable pour un
   // rattrapage ponctuel (`{"jours_reparation": 30}`). Bornée à FENETRE_REPARATION_MAX
   // pour qu'une valeur aberrante ne fasse pas exploser le temps de traitement.
@@ -3433,7 +3516,18 @@ Deno.serve(async (req: Request) => {
   // d'atteindre le bloc YouTube) devenait une rejection non gérée totalement
   // invisible, la réponse 202 étant déjà partie. Sans ce filet, un run qui plante
   // au démarrage rendrait tous les logs D1-D3 inopérants sans que personne ne le sache.
-  (globalThis as any).EdgeRuntime?.waitUntil(runMain().catch((e: any) => console.error('[poll-leads] runMain_fatal:', e?.message || e)));
+  (globalThis as any).EdgeRuntime?.waitUntil(
+    runMain()
+      .catch((e: any) => console.error('[poll-leads] runMain_fatal:', e?.message || e))
+      // Relâche du verrou anti-double-passage, succès OU échec — un verrou qui
+      // resterait posé après un crash est de toute façon périmé à 4 min.
+      .finally(() => supa.from('crons_passages')
+        .update({ verrou_pris_a: null })
+        .eq('nom', 'poll-leads')
+        .then(({ error }: { error: { message: string } | null }) => {
+          if (error) console.error('[poll-leads] relache du verrou:', error.message);
+        })),
+  );
 
   return new Response(JSON.stringify({ status: 'accepted' }), { status: 202, headers: { 'Content-Type': 'application/json' } });
 });

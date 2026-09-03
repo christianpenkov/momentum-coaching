@@ -242,8 +242,8 @@ export async function POST() {
       invitee_name: inviteeName,
       calendly_qa: questionsAndAnswers,
       status: 'active',
-      ready: 'pending',
-      reminder_sent: false,
+      // ready / reminder_sent : colonnes vestiges, retirees de l'ecriture le 2026-09-04
+      // (jamais lues, jamais posees a une autre valeur que leur defaut - audit).
     };
     if (effectiveSource)                       baseUpsert.source = effectiveSource;
     if (utmCampaign || inheritedUtmCampaign)   baseUpsert.utm_campaign = utmCampaign ?? inheritedUtmCampaign;

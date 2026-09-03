@@ -521,8 +521,8 @@ async function syncCalendlyEleve(
         ? 'ig_dm'
         : (source ?? inheritedSource),
       status: isCanceled ? 'canceled' : 'active',
-      ready: 'pending',
-      reminder_sent: false,
+      // ready / reminder_sent : colonnes vestiges, retirees de l'ecriture le 2026-09-04
+      // (jamais lues, jamais posees a une autre valeur que leur defaut - audit).
     };
     // Écrits seulement s'ils existent : un call redevenu actif (report) ne doit
     // pas conserver la date d'annulation du précédent, et un upsert avec null

@@ -286,8 +286,8 @@ export async function syncCalendlyEleve(
         calendly_qa: questionsAndAnswers,
         source: finalIgLeadId ? 'ig_dm' : (source ?? inheritedSource),
         status: isCanceled ? 'canceled' : 'active',
-        ready: 'pending',
-        reminder_sent: false,
+        // ready / reminder_sent : colonnes vestiges, retirees de l'ecriture le 2026-09-04
+        // (jamais lues, jamais posees a une autre valeur que leur defaut - audit).
       };
       if (utmCampaign)          upsertData.utm_campaign    = utmCampaign;
       let contenuValide: string | undefined;

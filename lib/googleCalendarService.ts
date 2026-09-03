@@ -195,7 +195,8 @@ export async function createGoogleCall(params: {
       google_event_id: googleEventId,
       call_type: 'google',
       status: 'pending_acceptance',
-      ready: 'pending',
+      // ready / reminder_sent : colonnes vestiges, retirees de l'ecriture le 2026-09-04
+      // (jamais lues, jamais posees a une autre valeur que leur defaut - audit).
     })
     .select()
     .single();
