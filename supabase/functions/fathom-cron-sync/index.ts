@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { mapWithConcurrency } from '../_shared/rate-limit.ts';
 // ⚠️ L'empreinte du code SOURCE de cette fonction, pour que `edge_sante_version` puisse
 // dire si la version en ligne est celle du depot. Une Edge Function ne part pas avec
 // `git push` : le 2026-09-03, `poll-leads` a tourne deux jours avec du code vieux de huit
@@ -40,7 +41,10 @@ async function getFathomToken(profileId: string): Promise<string | null> {
 
   if (!integ?.access_token) return null;
 
-  const expired = integ.expires_at &&
+  // `!integ.expires_at ||` et non `integ.expires_at &&` : un expires_at NULL
+  // signifie « jamais rafraichi », pas « n'expire jamais » — meme bug corrige cote
+  // Instagram (poll-leads/getIgCreds) puis YouTube. Au pire, un refresh de trop.
+  const expired = !integ.expires_at ||
     new Date(integ.expires_at).getTime() < Date.now() + 5 * 60 * 1000;
 
   if (!expired) return integ.access_token;
@@ -259,19 +263,33 @@ async function syncFathomProfile(profileId: string): Promise<{ checked: number; 
   // include_action_items, lui, passe sans erreur. Transcript/summary récupérés ensuite
   // séparément par recording_id via /recordings/{id}/transcript et /summary (les deux
   // confirmés fonctionnels en OAuth par appel réel).
-  const meetingsRes = await fetch(
-    `${FATHOM_API_BASE}/meetings?created_after=${encodeURIComponent(createdAfter)}&include_action_items=true`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  );
+  // ── PAGINATION suivie (audit du 2026-09-02) ────────────────────────────────
+  // Une seule page etait lue, sans suivre `next_cursor` : le code SUPPOSAIT que
+  // 48 h de meetings tiennent dans la premiere page. Un compte a fort volume
+  // depassait la page, les meetings excedentaires etaient perdus sans signal, et
+  // comme le lookback glisse, jamais rattrapes au-dela de 48 h. Borne a 10 pages
+  // — au-dela, on le DIT au lieu de tronquer en silence (meme regle que
+  // listerEventsCalendly dans sync-calendly).
+  const PAGES_FATHOM_MAX = 10;
+  const meetings: (FathomMeeting & { action_items?: unknown })[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < PAGES_FATHOM_MAX; page++) {
+    const url: string = `${FATHOM_API_BASE}/meetings?created_after=${encodeURIComponent(createdAfter)}&include_action_items=true`
+      + (cursor ? `&cursor=${encodeURIComponent(cursor)}` : '');
+    const meetingsRes: Response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
 
-  if (!meetingsRes.ok) {
-    const err = await meetingsRes.text().catch(() => '');
-    errors.push(`meetings_fetch_failed: ${meetingsRes.status} ${err}`);
-    return { checked: 0, matched: 0, unmatched: 0, errors };
+    if (!meetingsRes.ok) {
+      const err = await meetingsRes.text().catch(() => '');
+      errors.push(`meetings_fetch_failed: ${meetingsRes.status} ${err}`);
+      return { checked: 0, matched: 0, unmatched: 0, errors };
+    }
+
+    const meetingsData: { items?: (FathomMeeting & { action_items?: unknown })[]; next_cursor?: string | null } = await meetingsRes.json();
+    meetings.push(...(meetingsData?.items || []));
+    cursor = meetingsData?.next_cursor ?? null;
+    if (!cursor) break;
+    if (page === PAGES_FATHOM_MAX - 1) errors.push(`meetings_pagination_bornee_${PAGES_FATHOM_MAX}_pages`);
   }
-
-  const meetingsData = await meetingsRes.json();
-  const meetings: (FathomMeeting & { action_items?: unknown })[] = meetingsData?.items || [];
 
   let matched = 0;
   let unmatched = 0;
@@ -288,6 +306,22 @@ async function syncFathomProfile(profileId: string): Promise<{ checked: number; 
           headers: { Authorization: `Bearer ${accessToken}` },
         }),
       ]);
+
+      // ⚠️ Un echec TRANSITOIRE (429, 5xx) sur transcript ou summary fait SAUTER
+      // cet enregistrement — il sera retente au passage suivant (le lookback de
+      // 48 h le recouvre). Avant (audit du 2026-09-02) : `ok ? ... : null` sans
+      // distinction — un 429 passager ecrivait la ligne call_recordings SANS
+      // transcript, et l'idempotence (`dejaTraite` → 'skipped') faisait que
+      // l'enregistrement n'etait PLUS JAMAIS retraite : le rattrapage existait
+      // mais etait neutralise par le marqueur pose sur des donnees amputees.
+      // Un 404/403, lui, est definitif (transcript desactive ou inexistant) : on
+      // enregistre avec null, sinon un meeting sans transcript ne serait JAMAIS
+      // stocke — il sortirait de la fenetre en accumulant 48 h d'erreurs.
+      const transitoire = (r: Response) => !r.ok && r.status !== 404 && r.status !== 403;
+      if (transitoire(transcriptRes) || transitoire(summaryRes)) {
+        errors.push(`recording_${recordingId}_report: transcript ${transcriptRes.status} / summary ${summaryRes.status} — retente au prochain passage`);
+        continue;
+      }
 
       const transcriptData = transcriptRes.ok ? await transcriptRes.json().catch(() => null) : null;
       const summaryData = summaryRes.ok ? await summaryRes.json().catch(() => null) : null;
@@ -343,12 +377,19 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ ok: true, checked: 0, profiles: 0 }), { status: 200 });
   }
 
-  const results = await Promise.all(
-    integrations.map((integ: any) =>
-      syncFathomProfile(integ.profile_id)
-        .then(r => ({ profile_id: integ.profile_id, ...r }))
-        .catch((e: any) => ({ profile_id: integ.profile_id, checked: 0, matched: 0, unmatched: 0, errors: [e?.message || 'unknown'] }))
-    )
+  // Concurrence BORNEE a 3 profils, et non un Promise.all illimite : a 40 eleves,
+  // 40 syncs simultanees (1 /meetings + 2 fetches par recording chacune)
+  // partiraient d'un coup vers Fathom, dont le rate limit n'est pas documente.
+  // Meme motif que sync-calendly, corrige pour la meme raison (audit 2026-09-02).
+  const settled = await mapWithConcurrency(integrations as any[], 3, (integ: any) =>
+    syncFathomProfile(integ.profile_id)
+      .then(r => ({ profile_id: integ.profile_id, ...r }))
+      .catch((e: any) => ({ profile_id: integ.profile_id, checked: 0, matched: 0, unmatched: 0, errors: [e?.message || 'unknown'] }))
+  );
+  const results = settled.map((s, i) =>
+    s.status === 'fulfilled'
+      ? s.value
+      : { profile_id: (integrations as any[])[i].profile_id, checked: 0, matched: 0, unmatched: 0, errors: [s.reason?.message || 'unknown'] }
   );
 
   const totals = results.reduce((acc, r) => ({
