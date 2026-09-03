@@ -1,4 +1,4 @@
-// SW v15 — push + coquille hors ligne + pastille persistante
+// SW v16 — push + coquille hors ligne + pastille persistante + cache borné
 //
 // Strategie volontairement minimale, alignee sur les recommandations courantes :
 //   - navigations : RESEAU D'ABORD, repli sur /offline.html si le reseau echoue.
@@ -13,8 +13,42 @@
 const CACHE = 'momentum-v1';
 const OFFLINE_URL = '/offline.html';
 
-const SUPABASE_URL = 'https://nvjgwtetyuatnkjihmtw.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im52amd3dGV0eXVhdG5ramlobXR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwMzc3ODUsImV4cCI6MjA5NDYxMzc4NX0.0apyZEDUtM6LFBX5uDK5amD_jhKAgrYsZ61JSrA9gxk';
+// ── Plafond du cache d'assets (audit du 2026-09-02) ─────────────────────────
+//
+// Le cache `momentum-v1` ne se vidait JAMAIS : nom constant, et l'activate ne
+// supprime que les caches d'un AUTRE nom, qui n'existeront jamais. Chaque deploy
+// ajoutait ses fichiers hashés _next/static aux anciens, pour toujours. Sur des
+// mois et des dizaines de deploys, le stockage de l'origine gonflait sans borne
+// chez chaque élève — et sous pression, iOS peut évincer le stockage de
+// l'origine EN BLOC, y compris l'IndexedDB `momentum-badge` dont dépend la
+// pastille.
+//
+// Correctif : plafond FIFO. `cache.keys()` rend les entrées dans l'ordre
+// d'insertion (spec Cache API) : quand le cache dépasse le plafond, on retire
+// les plus anciennes. Un build Next.js compte quelques dizaines d'assets ;
+// 150 entrées couvrent large la version courante plus une transition, et
+// bornent définitivement la croissance. La coquille hors ligne et le logo,
+// pré-cachés à l'install, ne sont jamais élagués.
+const CACHE_MAX_ENTREES = 150;
+const JAMAIS_ELAGUES = [OFFLINE_URL, '/logo-momentum-trimmed.png'];
+
+function elaguerCache() {
+  return caches.open(CACHE).then(c =>
+    c.keys().then(keys => {
+      const surplus = keys.length - CACHE_MAX_ENTREES;
+      if (surplus <= 0) return;
+      const candidats = keys.filter(k => !JAMAIS_ELAGUES.some(u => k.url.endsWith(u)));
+      return Promise.all(candidats.slice(0, surplus).map(k => c.delete(k)));
+    })
+  ).catch(() => {});
+}
+
+// Plus d'URL ni de clé Supabase en dur ici (audit du 2026-09-02) : les logs
+// passent par /api/client-log (cookie de session, credentials: 'include') qui
+// écrit dans sw_logs côté serveur. Deux défauts fermés d'un coup : l'insertion
+// anonyme illimitée dans sw_logs, et un pointeur figé vers le projet Supabase
+// actuel qui aurait survécu dans le SW de chaque téléphone après une migration
+// de compte (docs/transfert-de-compte.md).
 
 // ── Compteur de pastille partage avec l'application ────────────────────────
 //
@@ -75,24 +109,16 @@ function badgeStore(mode, value) {
 }
 
 function swLog(event, data) {
-  fetch(`${SUPABASE_URL}/rest/v1/sw_logs`, {
+  fetch('/api/client-log', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': SUPABASE_ANON_KEY,
-      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-      'Prefer': 'return=minimal',
-    },
-    body: JSON.stringify({
-      event,
-      data: typeof data === 'string' ? data : JSON.stringify(data),
-      created_at: new Date().toISOString(),
-    }),
-  }).catch(() => {}); // silencieux si la table n'existe pas encore
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sw: true, message: event, data }),
+  }).catch(() => {}); // silencieux — un log est un confort, jamais une condition
 }
 
 self.addEventListener('install', e => {
-  swLog('install', { msg: 'SW v15 installing', ts: Date.now() });
+  swLog('install', { msg: 'SW v16 installing', ts: Date.now() });
   e.waitUntil(
     // L'ecran hors ligne doit etre en cache AVANT d'en avoir besoin : au moment
     // ou le reseau manque, il est trop tard pour le telecharger.
@@ -104,18 +130,17 @@ self.addEventListener('install', e => {
 });
 
 self.addEventListener('activate', e => {
-  swLog('activate', { msg: 'SW v8-debug activating + claim', ts: Date.now() });
+  // Le log disait « v8-debug » depuis quatre versions — un diagnostic à distance
+  // concluait qu'un vieux SW tournait alors que c'était le courant.
+  swLog('activate', { msg: 'SW v16 activating + claim', ts: Date.now() });
   e.waitUntil(
     self.clients.claim().then(() => {
-      swLog('activate_claimed', { ts: Date.now() });
       // Purge les anciennes versions mais preserve le cache courant, sinon
       // la coquille hors ligne serait effacee a chaque activation.
       return caches.keys().then(keys => Promise.all(
         keys.filter(k => k !== CACHE).map(k => caches.delete(k))
       ));
-    }).then(() => {
-      swLog('activate_caches_cleared', { ts: Date.now() });
-    })
+    }).then(() => elaguerCache())
   );
 });
 
@@ -149,7 +174,7 @@ self.addEventListener('fetch', e => {
         // partielle ou en erreur figerait un asset casse.
         if (res.ok && res.status === 200) {
           const copy = res.clone();
-          caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
+          caches.open(CACHE).then(c => c.put(req, copy)).then(() => elaguerCache()).catch(() => {});
         }
         return res;
       }).catch(() => {
@@ -182,8 +207,11 @@ self.addEventListener('fetch', e => {
 });
 
 self.addEventListener('push', e => {
-  swLog('push_received', e.data ? 'has_data' : 'no_data');
-
+  // Journaux de SUCCES supprimés (audit du 2026-09-02) : le handler écrivait
+  // CINQ lignes sw_logs par push et par appareil — du debug permanent en prod,
+  // et `push_parsed` recopiait le CONTENU du message (texte + expéditeur) dans
+  // une table technique. Règle du projet : n'écrire que les échecs — un push
+  // affiché est un non-événement.
   e.waitUntil(
     Promise.resolve()
       .then(() => {
@@ -191,14 +219,11 @@ self.addEventListener('push', e => {
         if (e.data) {
           try {
             payload = e.data.json();
-            swLog('push_parsed', payload);
           } catch (err) {
             payload = { title: 'Momentum', body: e.data.text() };
             swLog('push_parse_error', String(err));
           }
         }
-
-        swLog('push_showing_notification', payload.title);
 
         return self.registration.showNotification(
           payload.title || 'Momentum',
@@ -225,7 +250,6 @@ self.addEventListener('push', e => {
             data: { url: payload.url || '/' },
           }
         ).then(async () => {
-          swLog('push_notification_shown', 'success');
           // Pastille sur l'icône de l'app (iOS 16.4+, PWA installée) — Android
           // ignore setAppBadge et gère déjà un badge automatique via showNotification.
           if ('setAppBadge' in self.navigator) {
@@ -253,7 +277,6 @@ self.addEventListener('push', e => {
               const count = next.notifs + next.messages;
               await self.navigator.setAppBadge(count);
               await badgeStore('write', next);
-              swLog('badge_set', { count, previous, next });
             } catch (err) {
               swLog('badge_error', String(err));
             }

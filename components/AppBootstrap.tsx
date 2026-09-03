@@ -90,6 +90,27 @@ export default function AppBootstrap() {
           logClient('[SW] controllerchange', {});
         });
       });
+
+      // ── Rattrapage de déploiement (audit du 2026-09-02) ─────────────────────
+      // Le SW envoie DEPLOIEMENT_DETECTE quand un chunk _next/static renvoie 404
+      // — le cas d'une PWA restée en mémoire pendant qu'un deploy remplaçait les
+      // fichiers hashés. Le commentaire du SW promettait « on recharge la page
+      // une fois » avec « un drapeau en sessionStorage »… mais AUCUN code client
+      // n'écoutait : le message partait dans le vide, et l'élève voyait « this
+      // page couldn't load » (incident du 2026-08-21). Voici l'écouteur, avec le
+      // drapeau anti-boucle promis — levé après 60 s pour qu'un deploy ultérieur
+      // dans la même session soit rattrapé aussi.
+      navigator.serviceWorker.addEventListener('message', function (e) {
+        if (e.data?.type !== 'DEPLOIEMENT_DETECTE') return;
+        const dernierRechargement = Number(sessionStorage.getItem('__deploy_reload_at') || '0');
+        if (Date.now() - dernierRechargement < 60_000) {
+          logClient('[SW] deploiement_detecte_boucle_evitee', {});
+          return;
+        }
+        sessionStorage.setItem('__deploy_reload_at', String(Date.now()));
+        logClient('[SW] deploiement_detecte_reload', {});
+        location.reload();
+      });
     }
 
     let sessionId = sessionStorage.getItem('__boot_session_id');

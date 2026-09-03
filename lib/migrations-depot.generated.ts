@@ -124,4 +124,5 @@ export const MIGRATIONS_DEPOT: { version: string; nom: string }[] = [
   { version: '20260903200000', nom: 'publications_youtube' },
   { version: '20260904090000', nom: 'taille_base_mesuree' },
   { version: '20260904100000', nom: 'versionner_ig_entry_id_mapping_et_purge_verrous' },
+  { version: '20260904110000', nom: 'fermer_insertion_anon_sw_logs' },
 ];
