@@ -50,6 +50,14 @@ interface Person {
    * par `call_id`. Nul quand la personne n'a jamais réservé.
    */
   callId?: string | null;
+  /**
+   * L'identifiant `clients` quand la personne en a un.
+   *
+   * ⚠️ Distinct de `id` : sur un client existant reconnu par ses VENTES, `id` n'est
+   * qu'une clé d'affichage (`d:<deal>`) et ne doit jamais partir en `client_id` —
+   * la colonne est une clé étrangère vers `clients`, et l'insert échouerait.
+   */
+  clientId?: string | null;
   avatarUrl?: string | null;
   /** Sert à trier toutes les sources ensemble par fraîcheur. */
   at: string;

@@ -6,7 +6,7 @@ import Avatar, { getInitials } from '@/components/ui/Avatar';
 import Portal from './Portal';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { useHauteurClavier } from '@/lib/useHauteurClavier';
-import { BoutonFin } from './ModaleAction';
+import { BoutonFin, ChampMontant } from './ModaleAction';
 import { fmtEur } from './types';
 
 /**
@@ -32,6 +32,9 @@ interface LeadOption {
   lastDeal?: { amount: number; signedAt: string; status: string } | null;
   /** Le dernier rendez-vous passé de cette personne, quand elle en a un. */
   callId?: string | null;
+  /** L'identifiant `clients`, quand il existe. ⚠️ Pas `id` : sur un client reconnu
+   *  par ses ventes, `id` n'est qu'une clé d'affichage. */
+  clientId?: string | null;
 }
 
 export default function CreateLinkModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
@@ -112,7 +115,14 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
           // elle est datée de MAINTENANT au lieu du rendez-vous, et sort des
           // statistiques par contenu, qui rattachent l'argent par `call_id`.
           callId: selected?.kind === 'call' ? selected.id : (selected?.callId ?? null),
-          clientId: selected?.kind === 'client' ? selected.id : null,
+          // ⚠️ `clientId` et non `id` : un client existant reconnu par ses VENTES
+          // n'a pas forcément de ligne `clients`, et sa clé d'affichage ferait
+          // échouer la clé étrangère.
+          clientId: selected?.kind === 'client' ? (selected.clientId ?? null) : null,
+          // La nature de la vente, déclarée et non déduite. Sans elle, un upsell
+          // vers quelqu'un qui n'est pas élève d'un coach repartait en « hors
+          // pipeline » — la seule chose qu'il n'est pas.
+          upsell: selected?.kind === 'client',
           prospectHandle: selected?.kind === 'lead' || selected?.kind === 'link' ? selected.name : null,
         }),
       });
@@ -271,13 +281,11 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
               </Block>
 
               <Block n={2} label="Montant du deal">
-                <div style={{ display: 'flex', alignItems: 'center', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 14px', width: 210, background: 'var(--surface)' }}>
-                  <input value={amount} onChange={e => setAmount(e.target.value.replace(/[^\d.,]/g, ''))}
-                    inputMode="decimal" placeholder="0"
-                    className="tabular"
-                    style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 19, fontWeight: 700, letterSpacing: '-0.4px', width: '100%', fontFamily: 'inherit', color: 'var(--ink)' }} />
-                  <span style={{ fontSize: 15, color: 'var(--faint)', flexShrink: 0 }}>€</span>
-                </div>
+                {/* Le composant partagé, et non un champ refait ici : celui-ci
+                    n'avait aucun anneau de focus sur son conteneur, donc la règle
+                    globale en dessinait un autour du seul input — il s'arrêtait
+                    avant le « € ». Même défaut que ChampMontant, déjà corrigé. */}
+                <ChampMontant valeur={amount} onChange={setAmount} largeur={210} />
               </Block>
 
               <Block n={3} label="Plan de paiement" last>

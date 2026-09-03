@@ -345,7 +345,15 @@ export async function POST(request: NextRequest) {
     // puisqu'une ligne `prospects` naît d'une réservation, mais qui reste le bon repli
     // si la ligne survit à la suppression de son appel.
     if (!firstTouch) attributionSource = 'organic';
-  } else if (body.clientId) {
+  } else if (body.clientId || body.upsell) {
+    // ⚠️ `body.upsell` compte autant que `clientId`, et c'est le cas le PLUS
+    // courant. `clients` liste les élèves d'un coach : un élève n'en a aucun,
+    // donc `clientId` ne pouvait jamais être fourni depuis son écran, et cette
+    // valeur d'attribution était de fait impossible à produire pour l'usage
+    // principal du produit.
+    //
+    // La nature est désormais déclarée par l'écran de création, plus déduite de
+    // quel identifiant a survécu au parcours.
     attributionSource = 'client_existant';
   } else if (body.prospectHandle) {
     // Un lien Calendly a été envoyé à cette personne, mais elle n'est pas encore un
@@ -362,8 +370,11 @@ export async function POST(request: NextRequest) {
   // Un deal issu d'un CALL vient du pipeline, même sans lead Instagram rattaché
   // (prospect YouTube, call pris hors DM) — le classer « client direct » le
   // faisait passer pour une vente hors pipeline dans les stats du coach.
+  // `external` veut dire « hors pipeline ». Un upsell est tout sauf ça : la
+  // personne a déjà acheté, elle est connue. Sans ce cas, une vente à un client
+  // existant sans ligne `clients` repartait en client direct.
   const buyerKind = body.clientId ? 'student'
-    : (igLeadId || prospectId || body.callId) ? null
+    : (igLeadId || prospectId || body.callId || body.upsell) ? null
     : 'external';
 
   const { data: deal, error: dealErr } = await supa.from('deals').insert({
