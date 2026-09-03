@@ -639,28 +639,139 @@ du dossier, et il mérite d'être démontré plutôt qu'affirmé : le secret ne 
 parce que **rien ne change d'adresse ni de clé**. Les jobs continuent d'appeler les mêmes
 URL avec le même jeton, et les fonctions continuent de les accepter.
 
-Ce qui a été **mesuré** le 2026-09-03 — une seule et même valeur vit à **sept endroits** :
+Ce qui a été **mesuré** le 2026-09-03 — une seule et même valeur vivait à **sept
+endroits**, dont **trois en clair** :
 
-| # | Où | Forme | Change sous le plan A ? |
+| # | Où | Forme | Depuis le 2026-09-04 |
 |---|---|---|---|
-| 1 | Variable Vercel `CRON_SECRET` | chiffrée | non |
-| 2 | Secret Edge Supabase `CRON_SECRET` | chiffré | non |
-| 3 | `cron.job` → `call-reminders-15min` | **en clair** dans la commande SQL | non |
-| 4 | `cron.job` → `send-pending-dm3-1min` | **en clair** | non |
-| 5 | `cron.job` → `process-webhook-queue-1min` | **en clair** | non |
-| 6 | Vault → `push_webhook_secret` | chiffré | non |
-| 7 | Les **9 jobs cron-job.org**, en-tête `Authorization: Bearer …` | **hors de tout dépôt et de toute base** | non |
+| 1 | Variable Vercel `CRON_SECRET` | chiffrée | inchangé |
+| 2 | Secret Edge Supabase `CRON_SECRET` | chiffré | inchangé |
+| 3 | `cron.job` → `call-reminders-15min` | ~~en clair dans la commande SQL~~ | ✅ **plus aucune copie** — lit le Vault |
+| 4 | `cron.job` → `send-pending-dm3-1min` | ~~en clair~~ | ✅ **plus aucune copie** |
+| 5 | `cron.job` → `process-webhook-queue-1min` | ~~en clair~~ | ✅ **plus aucune copie** |
+| 6 | Vault → `push_webhook_secret` | chiffré | inchangé — **c'est désormais la source** |
+| 7 | Les **9 jobs cron-job.org**, en-tête `Authorization: Bearer …` | **hors de tout dépôt et de toute base** | inchangé |
 
 Vérifié par empreinte, pas par ressemblance : la valeur portée par les commandes pg_cron
-est **exactement** le `CRON_SECRET` de Vercel, et son SHA-256 est **exactement**
-l'empreinte publiée pour le secret Edge et pour le secret du Vault. Ce sont bien sept
-copies d'une seule valeur, pas sept valeurs qui se ressemblent.
+était **exactement** le `CRON_SECRET` de Vercel, et son SHA-256 **exactement** l'empreinte
+publiée pour le secret Edge et pour celui du Vault. Sept copies d'une seule valeur, pas
+sept valeurs qui se ressemblent.
 
-> ⚠️ **Rien ne les synchronise.** Le jour où ce secret sera tourné — et ce n'est PAS
-> nécessaire pour un transfert — il faudra le changer aux sept endroits, dont le
-> septième ne se lit nulle part ailleurs que dans l'interface de cron-job.org. En rater
-> un ne casse pas tout : ça casse **un seul** chemin, en silence. Un DM3 qui ne part
-> plus, ou une notification push qui n'arrive plus, sans aucune erreur nulle part.
+**Il en reste quatre**, dont une seule en clair — et elle est hors de portée d'un dépôt.
+
+> ⚠️ **Rien ne les synchronise.** Le jour où ce secret sera tourné, il faudra le changer
+> aux quatre endroits restants, dont le quatrième ne se lit nulle part ailleurs que dans
+> l'interface de cron-job.org. En rater un ne casse pas tout : ça casse **un seul**
+> chemin, en silence. Un DM3 qui ne part plus, ou une notification push qui n'arrive
+> plus, sans aucune erreur nulle part.
+
+### 🔴 L'incident du 2026-09-04 — le secret était public
+
+**Le dépôt GitHub est public** (`private: false`, vérifié auprès de l'hébergeur, créé le
+2026-05-18). Deux migrations du 19 août portaient le `CRON_SECRET` **en clair**, parce
+qu'elles inscrivaient un job pg_cron avec son en-tête `Authorization` écrit
+littéralement :
+
+```
+supabase/migrations/20260819000007_dm2_fields_and_dm3_delay.sql   → HTTP 200, secret présent
+supabase/migrations/20260819000009_webhook_queue.sql              → HTTP 200, secret présent
+```
+
+Prouvé par la conséquence, pas déduit d'un réglage : les deux fichiers se récupéraient
+**sans aucune authentification**.
+
+⚠️ **Le contrôle habituel était vert et sans rapport avec la question.** Aucun fichier
+`.env` suivi, aucun dans l'historique, règles d'ignorance correctes. Le secret n'a pas
+fui par le fichier prévu pour les secrets : **il a fui par du SQL**, écrit par quelqu'un
+qui pensait écrire du SQL. Il n'a été trouvé qu'en balayant tout l'historique **par
+valeur** :
+
+```bash
+git log --all --oneline -S"<valeur>"     # une valeur, pas un nom de fichier
+```
+
+**Ce que ce jeton ouvre** : il est l'**unique** rempart des 11 Edge Functions — toutes
+déployées en `verify_jwt: false` — et de 21 routes Vercel, dont `/api/push/webhook` et
+`/api/push/send`. Preuve non destructive de leur joignabilité, avec un jeton
+volontairement faux :
+
+```
+send-pending-dm3 → 401     poll-leads → 401     sync-stripe-payments → 401
+```
+
+401 et non 404 : les endpoints répondent depuis Internet, et seule la valeur du jeton les
+sépare de l'envoi de DM depuis les comptes Instagram des élèves, de notifications push
+sur tous les téléphones, ou de l'avancement du filigrane de `sync-stripe-payments`.
+
+#### Ce qui a été fait le 2026-09-04
+
+**La cause est fermée** (migration `20260904000000_secret_cron_hors_des_fichiers.sql`) :
+
+- une fonction `public.declencher_cron(p_nom text)`, `SECURITY DEFINER`, lit le secret
+  dans le Vault et l'attache à l'appel ;
+- les 3 jobs pg_cron ne portent plus qu'un **nom** :
+  `select public.declencher_cron('send-pending-dm3');` ;
+- les deux fichiers de migration fautifs sont **expurgés**, avec l'explication en place.
+
+⚠️ **Elle prend un NOM, pas une URL.** Une fonction `declencher_cron(url text)` aurait
+été plus souple et bien pire : `SECURITY DEFINER`, elle attache le secret à l'URL qu'on
+lui donne, et Supabase la grante à `anon` par défaut — on aurait remplacé une fuite
+passive par une fuite active. Elle résout donc l'URL dans une **liste fermée** écrite
+dans son corps, et le `revoke execute … from public, anon, authenticated` est posé
+par-dessus. **Les deux, pas l'un ou l'autre.**
+
+Vérifié après coup, pas supposé :
+
+| Contrôle | Résultat |
+|---|---|
+| `has_function_privilege('anon', …, 'EXECUTE')` | `false` |
+| `has_function_privilege('authenticated', …, 'EXECUTE')` | `false` |
+| `crons_passages` — `send-pending-dm3` et `process-webhook-queue` | **passage réel après la migration** (chemin Edge en POST **et** chemin Vercel en GET) |
+| Le secret dans les fichiers suivis | **absent** |
+
+#### Ce qui RESTE à faire — la rotation
+
+⚠️ **La cause est fermée, la fuite ne l'est pas.** La valeur est toujours dans
+l'historique git d'un dépôt public : **seule sa rotation la rend inoffensive.**
+
+**Étape 0, à faire en premier, un clic :** passer le dépôt en privé. Ça n'invalide pas ce
+qui a déjà été copié, mais ça arrête l'exposition. *(Un compte Hobby déploie bien son
+propre dépôt privé ; la restriction Hobby porte sur la collaboration à plusieurs sur
+dépôt privé — un argument de plus pour le Pro, §4.)*
+
+**La rotation ne peut PAS être faite par une seule main**, et c'est le point à connaître
+avant de commencer : les **9 jobs cron-job.org** ne se modifient que dans leur interface
+web. Rien dans le dépôt, dans la base ou dans une API accessible ici ne peut les
+atteindre.
+
+Séquence, à dérouler **d'un seul tenant** :
+
+| ☐ | Faire | Vérifier |
+|---|---|---|
+| ☐ 1 | Générer une nouvelle valeur (`openssl rand -hex 32`) | 64 caractères hexadécimaux |
+| ☐ 2 | Vercel : `printf '%s' "<nouvelle>" \| npx vercel env add CRON_SECRET production` (⚠️ **`printf`, jamais `echo`**), après avoir retiré l'ancienne | `npx vercel env ls production` |
+| ☐ 3 | **Redéployer** — une variable modifiée n'atteint pas un déploiement en ligne | statut `Ready` |
+| ☐ 4 | Supabase : `npx supabase secrets set CRON_SECRET=<nouvelle> --project-ref nvjgwtetyuatnkjihmtw` | `npx supabase secrets list` |
+| ☐ 5 | Vault : `select vault.update_secret(id, '<nouvelle>') from vault.secrets where name='push_webhook_secret';` → **couvre les 3 jobs pg_cron ET les deux triggers push d'un coup** | l'empreinte SHA-256 correspond à la nouvelle valeur |
+| ☐ 6 | **cron-job.org : les 9 jobs, en-tête `Authorization`** — *seul Chris peut le faire* | les 9 sont à jour |
+| ☐ 7 | Le lendemain : `select * from crons_sante;` | aucun `SILENCIEUX` |
+| ☐ 8 | Le lendemain : `select * from cron_runs order by ran_at desc;` | aucun incident |
+
+⚠️ **Entre l'étape 3 et l'étape 6, les crons prennent des 401.** C'est visible
+(`crons_passages` cesse d'avancer) et auto-réparant (le passage suivant réussit une fois
+l'étape 6 faite), mais ça veut dire qu'**il ne faut pas commencer sans pouvoir finir** :
+les 7 Edge Functions pilotées par cron-job.org ne collectent plus rien pendant la
+fenêtre. Faire les étapes 2 à 6 en une fois, pas en deux séances.
+
+⚠️ **Ne pas oublier `push_webhook_secret` (étape 5).** C'est le même secret : l'oublier
+ne casse pas les crons — ça casse **les notifications push**, en silence, et rien ne
+relie l'un à l'autre.
+
+**Nettoyage à faire pendant la rotation, tant qu'on y est** : le secret du Vault
+s'appelle `push_webhook_secret`, un nom qui sous-décrit ce qu'il contient — c'est LA
+valeur partagée par les crons **et** par le webhook push. Le renommer suppose d'éditer
+`notify_push_on_message` et `notify_push_on_reaction` : à faire le jour où l'on touche
+déjà à tout, jamais dans une migration qui répare autre chose.
 
 **Donc, côté crons, le transfert ne demande qu'une seule décision : à qui appartient le
 compte cron-job.org.** Deux réponses acceptables :

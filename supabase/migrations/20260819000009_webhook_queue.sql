@@ -120,7 +120,19 @@ SELECT cron.schedule(
   SELECT net.http_get(
     url := 'https://momentum-plateforme.vercel.app/api/cron/process-webhook-queue',
     headers := jsonb_build_object(
-      'Authorization', 'Bearer a7dd5bede262bc5198178488367f2b2369c407d305ee175fb980356fd5ff078e'
+  -- ⚠️ SECRET RETIRE LE 2026-09-04 — le depot est PUBLIC.
+  --
+  -- Cette ligne portait le CRON_SECRET en clair. Il etait donc recuperable sans
+  -- aucune authentification, alors qu il est l UNIQUE rempart des 11 Edge Functions
+  -- (toutes en verify_jwt: false) et de 21 routes Vercel.
+  --
+  -- Le job cree ici a ete REMPLACE par 20260904000000_secret_cron_hors_des_fichiers.sql :
+  -- il appelle desormais public.declencher_cron(<nom>), qui lit le secret dans le Vault.
+  -- Ne PAS rejouer ce fichier tel quel pour recreer le job — utiliser la migration de 2026-09-04.
+  --
+  -- La valeur reste dans l historique git : seule sa ROTATION la rend inoffensive.
+  -- Marche a suivre : docs/transfert-de-compte.md, section 5 bis.
+      'Authorization', 'Bearer SECRET-RETIRE-VOIR-COMMENTAIRE-CI-DESSUS'
     )
   );
   $cron$

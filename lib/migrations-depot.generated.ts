@@ -122,7 +122,9 @@ export const MIGRATIONS_DEPOT: { version: string; nom: string }[] = [
   { version: '20260903190000', nom: 'inscrire_les_trois_crons_pg_cron' },
   { version: '20260903200000', nom: 'migrations_sante' },
   { version: '20260903200000', nom: 'publications_youtube' },
+  { version: '20260904000000', nom: 'secret_cron_hors_des_fichiers' },
   { version: '20260904090000', nom: 'taille_base_mesuree' },
   { version: '20260904100000', nom: 'versionner_ig_entry_id_mapping_et_purge_verrous' },
   { version: '20260904110000', nom: 'fermer_insertion_anon_sw_logs' },
+  { version: '20260904120000', nom: 'verrou_poll_leads_refus_rattrapage_slots_worker' },
 ];

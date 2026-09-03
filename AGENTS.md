@@ -106,6 +106,42 @@ d'identité, pas un paramètre de confort : on ne l'édite que quand le projet a
 Témoin positif joué le 2026-09-03 : trois pointeurs faussés volontairement, trois écarts
 signalés, le quatrième resté juste déclaré juste.
 
+# ⚠️ Le dépôt est PUBLIC — un secret écrit ici est un secret publié
+
+Vérifié auprès de GitHub le 2026-09-04 : `private: false`. Tout ce qui est commité est
+lisible par n'importe qui, sans authentification.
+
+**Ne jamais écrire une valeur de secret dans un fichier versionné — y compris dans une
+migration SQL.** C'est exactement comme ça que le `CRON_SECRET` a fuité : deux migrations
+du 19 août inscrivaient un job pg_cron avec son en-tête `Authorization` en clair. Personne
+n'avait écrit un secret dans un fichier de secrets ; il a fui par du SQL, que personne ne
+range dans cette catégorie.
+
+⚠️ **Le contrôle « les fichiers `.env` sont-ils ignorés ? » était vert, et sans rapport
+avec la question.** Le seul contrôle qui répond est une recherche par **valeur** sur tout
+l'historique :
+
+```bash
+git log --all --oneline -S"<la valeur>"     # une valeur, jamais un nom de fichier
+```
+
+**Un secret que la base doit connaître va dans le Vault**, jamais dans une commande
+`cron.job` ni dans un corps de fonction. Le motif est posé :
+
+```sql
+select public.declencher_cron('send-pending-dm3');   -- un NOM, pas une URL, pas un jeton
+```
+
+⚠️ `declencher_cron` prend un **nom** et résout l'URL dans une liste fermée. Une variante
+prenant une URL aurait attaché le secret à n'importe quelle destination — et Supabase
+grante `EXECUTE` à `anon` par défaut, donc la fuite serait devenue active. Le `revoke`
+est posé par-dessus : **les deux, pas l'un ou l'autre**. Toute nouvelle fonction
+`SECURITY DEFINER` qui manipule un secret suit ce modèle.
+
+**La cause est fermée, la fuite ne l'est pas** : la valeur reste dans l'historique git.
+Seule sa ROTATION la rend inoffensive — procédure complète, y compris les 9 jobs
+cron-job.org que rien d'autre ne peut atteindre, dans `docs/transfert-de-compte.md` §5 bis.
+
 # Objectif permanent
 
 **Zéro maintenance après livraison, robuste à 30-40 élèves.** Solide plutôt que
