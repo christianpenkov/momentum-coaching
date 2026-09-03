@@ -1935,3 +1935,73 @@ semaines d'accompagnement les écarte.
 C'est cohérent — elles ne font pas partie du programme, et un axe qui compare des élèves
 au même stade n'a pas de place pour elles — et le cas ne concerne que les élèves connectés
 après leur arrivée, que le verrou d'accès rend presque impossibles en production.
+
+### D89 — « Publications » compte aussi les vidéos YouTube (2026-09-03)
+
+Chris : « pourquoi pour publications cumulées, même pour Christian, y a 0 ? »
+
+Le 0 était juste — dernière publication Instagram le 23 février 2026, accompagnement
+démarré le 8 juin — mais la question a découvert un vrai défaut : la fonction ne lisait
+que `analytics_ig_posts_history`. Elle **ignorait les vidéos YouTube**, alors que la page
+affiche les abonnés YouTube dans le même tableau. Le mot promettait plus que le chiffre
+ne donnait, et sur un élève actif sur YouTube il était faux.
+
+Un `post_id` et un `video_id` vivent dans deux espaces de noms distincts : ils ne peuvent
+pas se télescoper, donc additionner les deux comptes distincts est correct. Le `distinct`
+reste indispensable des deux côtés — ces tables portent une ligne par contenu **et par
+jour**, donc sans lui un post publié il y a trois mois serait compté une fois par jour de
+son historique.
+
+⚠️ **`analytics_yt_videos_history` n'a NI `deleted_at` NI `archived_at`**, contrairement à
+son équivalent Instagram. Une vidéo supprimée sur YouTube reste donc comptée tant que la
+table la porte, et le mécanisme d'isolation par archivage lors d'une bascule de compte ne
+s'applique pas au YouTube. **Non corrigé** : ce serait une migration de schéma sur une
+table alimentée par un cron.
+
+**Les stories restent exclues**, et c'est un choix. Une story est éphémère et bien plus
+fréquente qu'un post : les additionner rendrait le nombre ininterprétable — un élève à
+20 stories et 0 post paraîtrait plus productif qu'un élève à 4 posts. Et techniquement,
+une story n'a **pas de date de publication** en base, seulement le jour où le collecteur
+l'a vue : y mêler une date approximative dégraderait une métrique qui n'en a que
+d'exactes. Elles mériteraient leur propre entrée dans le sélecteur — en attente
+d'arbitrage.
+
+### D90 — La cinquième nature : compté par énumération
+
+Chris : « pourquoi y a écrit sur tous les comptes aucune donnée au lieu de 0 ? regarde
+s'il n'y a pas d'autres données dans ce cas là. »
+
+**AGENTS.md documente quatre natures de données** pour `analytics_daily_snapshots`
+(niveau, flux, cumul, dédupliqué). Il en manquait une cinquième, qui ne concerne pas la
+table mais la **provenance** :
+
+| Provenance | Ce qu'un vide signifie |
+|---|---|
+| **Relevée par un collecteur** — abonnés, vues, clics | « pas mesuré ». Un NULL est un trou. |
+| **Comptée par énumération** — publications, leads, calls, ventes, cash | « rien à compter ». Un vide est un **zéro**. |
+
+`publications` était la seule des cinq métriques comptées par énumération à traiter
+« rien trouvé » comme « inconnu ». D'où une légende qui annonçait « aucune donnée » sur
+tous les comptes alors que personne n'avait simplement rien publié.
+
+**La preuve que les autres colonnes sont saines** se lit en base : le collecteur écrit
+bien `0` quand c'est zéro, et ces zéros cohabitent avec les NULL.
+
+| Colonne | NULL | Vrais 0 |
+|---|---|---|
+| `ig_followers` | 111 | 36 |
+| `ig_views` | 111 | 43 |
+| `ig_profile_views` | 111 | 68 |
+| `shortio_human_clicks` | 213 | 24 |
+
+Chez elles, un NULL dit donc vraiment « pas mesuré ». Rien à corriger.
+
+⚠️ **Le zéro n'est posé que si la collecte tournait** pour cet élève sur cette fenêtre —
+`s.profile_id is not null`, c'est-à-dire « il existe un snapshot ». Sans cette condition,
+on affirmerait « zéro publication » sur une période où l'on ne mesurait rien du tout.
+C'est le défaut exactement inverse, et il est **plus grave** : il inventerait une donnée
+au lieu d'en cacher une.
+
+**Règle à retenir pour toute nouvelle métrique de cette page** : avant de choisir entre
+`0` et « inconnu », demander d'où vient le chiffre. S'il est relevé, un vide est un trou.
+S'il est compté, un vide est un zéro — à condition de pouvoir prouver qu'on comptait.
