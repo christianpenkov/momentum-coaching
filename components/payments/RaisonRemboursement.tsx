@@ -41,14 +41,30 @@ import {
 
 type Etape = 'raison' | 'consequence';
 
+/**
+ * ⚠️ Chaque raison PORTE sa conséquence, au lieu d'une seconde question.
+ *
+ * Une version précédente demandait ensuite « l'accompagnement s'est-il arrêté ? »
+ * dans tous les cas. Après « un geste commercial », la question tombait à plat :
+ * en choisissant ce mot on vient justement de dire que l'accompagnement n'est pas
+ * le sujet. Une question dont la réponse est déjà donnée fait douter d'avoir
+ * répondu à la précédente.
+ *
+ * Les deux premières se distinguent donc par ce qu'elles font, pas par la nuance
+ * juridique entre remise et rétractation : l'une baisse le prix, l'autre arrête
+ * l'accompagnement. Le sous-titre le dit avant qu'on clique.
+ *
+ * « Autre » reste la seule à poser des questions, parce qu'elle est la seule à
+ * ne rien affirmer.
+ */
 const RAISONS: { cle: RaisonRemboursement; titre: string; sous: string }[] = [
   { cle: 'geste_commercial', titre: 'Un geste commercial',
-    sous: 'Remise, dédommagement, arrangement — tu as choisi de rendre cet argent.' },
-  { cle: 'retractation', titre: 'Il s’est rétracté en partie',
-    sous: 'Il a renoncé à une partie de l’accompagnement, et tu l’as remboursé.' },
+    sous: 'Remise ou dédommagement — tu as choisi de rendre cet argent, et l’accompagnement suit son cours.' },
+  { cle: 'retractation', titre: 'L’accompagnement s’est arrêté',
+    sous: 'Il s’est rétracté, tu l’as remboursé, et ça s’arrête là. La vente sera clôturée.' },
   { cle: 'erreur', titre: 'C’était une erreur',
     sous: 'Ce remboursement n’aurait pas dû partir. Il te doit toujours cette somme.' },
-  { cle: 'autre', titre: 'Autre raison', sous: 'Tu précises, et tu dis si l’argent reste dû.' },
+  { cle: 'autre', titre: 'Autre raison', sous: 'Tu précises, et tu dis ce que ça change.' },
 ];
 
 export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
@@ -329,17 +345,21 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
               arrive juste par un autre chemin quand tout avait été payé d'avance,
               et doit donner le MÊME état — sinon deux clients qui ont décroché
               pareil se lisent différemment dans la liste. */}
-          <div style={{ marginBottom: 14 }}>
-            <Section marge={0}>L’accompagnement s’est-il arrêté ?</Section>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <Chip on={continue_} onClick={() => setContinue(true)}>
-                Non — il continue, ou il est allé au bout
-              </Chip>
-              <Chip on={!continue_} onClick={() => setContinue(false)}>
-                Oui — il s’est arrêté avant la fin
-              </Chip>
+          {/* Seule « Autre raison » l'affiche : les trois autres ont déjà
+              répondu en étant choisies. */}
+          {raison === 'autre' && (
+            <div style={{ marginBottom: 14 }}>
+              <Section marge={0}>L’accompagnement s’est-il arrêté ?</Section>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <Chip on={continue_} onClick={() => setContinue(true)}>
+                  Non — il continue, ou il est allé au bout
+                </Chip>
+                <Chip on={!continue_} onClick={() => setContinue(false)}>
+                  Oui — il s’est arrêté avant la fin
+                </Chip>
+              </div>
             </div>
-          </div>
+          )}
 
           {continue_ ? (
             <>
