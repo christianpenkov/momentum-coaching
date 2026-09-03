@@ -114,6 +114,18 @@ export async function POST(request: NextRequest) {
   // cas, l'élève créerait un faux lead pour encaisser, ce qui polluerait son
   // pipeline et ses taux de conversion.
   let firstTouch: string | null = null;
+  // `manual` n'est plus un DÉFAUT, c'est devenu un cas impossible.
+  //
+  // Deux natures de vente repartaient avec cette valeur faute qu'une branche les ait
+  // touchées : un lien Calendly envoyé à quelqu'un qui n'est pas encore un lead, et une
+  // vente hors pipeline saisie au nom libre. Elles se distinguent pourtant sans rien
+  // demander de plus, avec ce que la modale envoie déjà — remarque de la session
+  // Paiements, et elle a raison : une déclaration qu'on ne sait pas remplir se remplit
+  // au hasard, et vaut alors moins qu'une inférence documentée.
+  //
+  // Il reste en position initiale pour une seule raison : si un jour un chemin nouveau
+  // n'était couvert par aucune branche, `manual` le rendrait visible au lieu de le
+  // ranger sous une étiquette qui mentirait.
   let attributionSource = 'manual';
   // Un prospect sélectionné depuis un call sans lead : on récupère au passage son
   // ig_lead_id/prospect_id s'il en a un, et l'attribution portée par le call.
@@ -335,6 +347,15 @@ export async function POST(request: NextRequest) {
     if (!firstTouch) attributionSource = 'organic';
   } else if (body.clientId) {
     attributionSource = 'client_existant';
+  } else if (body.prospectHandle) {
+    // Un lien Calendly a été envoyé à cette personne, mais elle n'est pas encore un
+    // lead : aucune fiche, donc aucun contenu à créditer. Ce n'est pas « manuel », elle
+    // vient bien du pipeline — simplement de son tout premier geste.
+    attributionSource = 'lien_envoye';
+  } else {
+    // Nom libre : personne que la plateforme n'a jamais vue. Il n'y a rien à attribuer,
+    // et le dire est plus honnête que de laisser croire à une saisie manuelle sans objet.
+    attributionSource = 'hors_pipeline';
   }
 
   // Alimente la colonne « Type » côté coach : élève Momentum ou client direct.
