@@ -5,7 +5,7 @@ import { getStripeAccess, resolveTargetProfile } from '@/lib/stripe-account';
 import { createDealPaymentLink } from '@/lib/stripe-payment-links';
 import { isValidContentId } from '@/lib/contentId';
 import { dateDeVente } from '@/lib/callSeries';
-import { contenuConversion } from '@/lib/attribution-roles';
+import { contenuConversion, contenuActivation } from '@/lib/attribution-roles';
 
 /**
  * Création d'un deal et de son (ses) lien(s) de paiement.
@@ -222,12 +222,41 @@ export async function POST(request: NextRequest) {
   if (igLeadId) {
     const { data: lead } = await supa
       .from('instagram_leads')
-      .select('media_id, source')
+      .select('ig_user_id, media_id, source')
       .eq('id', igLeadId)
       .maybeSingle();
-    if (lead?.media_id) { firstTouch = lead.media_id; attributionSource = 'content'; }
-    else if (lead?.source === 'cold_dm') attributionSource = 'cold_dm';
-    else if (lead) attributionSource = 'organic';
+
+    // ⚠️ DERNIER RECOURS, et rien d'autre.
+    //
+    // Ce bloc ECRASAIT le contenu calculé au-dessus par `instagram_leads.media_id` —
+    // le champ mutable, réécrit à chaque nouveau commentaire, celui que
+    // `attribution-roles.ts` interdit explicitement. Toute vente rattachée à une fiche
+    // Instagram perdait donc l'attribution correcte, en silence et sans exception.
+    //
+    // Il garde une raison d'être, une seule : une vente SANS rendez-vous — upsell,
+    // vente conclue à la main — n'a pas de call, donc pas de `booked_at` à interroger.
+    // ⚠️ `/api/payments/links` est le SEUL endroit du produit où une vente est créée
+    // (vérifié le 2026-09-03 : un unique `insert` sur `deals` dans tout le dépôt), donc
+    // ce chemin est le seul à devoir traiter ce cas.
+    //
+    // Même dans ce cas, on demande d'abord au JOURNAL ce que la personne avait pris
+    // avant la vente. La fiche n'est consultée que s'il ne dit rien.
+    if (!firstTouch && lead?.ig_user_id) {
+      const { data: prises } = await supa
+        .from('instagram_lead_lm_history')
+        .select('media_id, detected_at, lead_magnet_sent')
+        .eq('profile_id', profileId)
+        .eq('ig_user_id', lead.ig_user_id);
+      const contenuAvantLaVente = contenuActivation(prises ?? [], signedAt);
+      if (isValidContentId(contenuAvantLaVente)) {
+        firstTouch = contenuAvantLaVente;
+        attributionSource = 'content';
+      }
+    }
+
+    if (!firstTouch && lead?.media_id) { firstTouch = lead.media_id; attributionSource = 'content'; }
+    else if (!firstTouch && lead?.source === 'cold_dm') attributionSource = 'cold_dm';
+    else if (!firstTouch && lead) attributionSource = 'organic';
   } else if (prospectId) {
     // Prospect YouTube ou « autre » : pas de media_id, l'origine reste la source.
     attributionSource = 'organic';
