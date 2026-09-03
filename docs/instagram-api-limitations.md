@@ -36,7 +36,25 @@ Nuance additionnelle : les métriques **compte/user** (niveau profil, pas média
 
 Un appel groupé `metric=a,b,c` sur `/insights` échoue **entièrement** si Meta refuse ne serait-ce qu'une seule métrique du groupe (`d.error` non-null, aucune donnée récupérable même pour les métriques qui auraient individuellement répondu). C'est le cas fréquent avec des posts proches de la limite des 2 ans.
 
-**Fix appliqué (`ig-posts.ts`, fonction `safeInsight`/`safeInsights`) :** chaque métrique est demandée dans un appel séparé, pour isoler les échecs — une métrique refusée ne fait plus perdre les autres.
+**Confirmé par la mesure le 2026-09-03**, sur un Reel réel :
+
+```
+metric=reach,views,saved           → OK, 3 metriques (224 / 399 / 0)
+metric=reach,views,saved,follows   → TOUT le groupe echoue (code 100)
+```
+
+Une seule metrique non supportee fait donc perdre les trois autres.
+
+**Ce qui l'evite dans le code (`ig-posts.ts`) :** deux jeux distincts,
+`METRIQUES_REELS` et `METRIQUES_FEED`, ce dernier seul portant `follows` et
+`profile_visits`. Cette separation n'est pas une precaution — elle est PORTEUSE : la
+supprimer detruirait silencieusement `reach`, `views` et `saved` sur tous les Reels.
+
+⚠️ Le paragraphe precedent annoncait « chaque metrique est demandee dans un appel
+separe ». Ce n'est plus vrai : le code lit en MULTI-OBJETS groupes
+(`?ids=…&fields=insights.metric(…)`), et c'est la machine a etats
+(`jeu_metriques` = `reduit` / `aucun`) qui isole les echecs, pas un appel par
+metrique.
 
 ---
 
@@ -93,14 +111,48 @@ Relevé du 2026-09-03 sur les 32 posts du compte de test :
 
 | Cause | Posts | Reconnaissable à |
 |---|---|---|
-| **REELS** — Meta refuse | 18 | `post_type = 'REELS'`, `follows` toujours NULL |
-| **Trop ancien** — rétention des insights | 4 | FEED publiés il y a plus de ~2,4 ans |
-| Disponible | 10 | FEED de moins de ~2 ans |
+| **REELS** — Meta refuse la métrique | 18 | `post_type = 'REELS'`, `follows` toujours NULL |
+| **Publié avant le compte pro** — Meta refuse l'objet | 4 | les métriques SONT toutes NULL, pas seulement `follows` |
+| Disponible | 10 | FEED publié après la conversion |
 
-La frontière de rétention est encadrée par la mesure, pas déduite : un FEED de
-2,04 ans porte encore ses valeurs, un de 2,40 ans n'en a plus. Entre 745 et 875
-jours, donc — cohérent avec les « 2 ans » annoncés, sans que la limite exacte soit
-observable.
+⚠️ **Correction d'une premiere lecture erronee.** J'avais attribue les 4 posts vides
+a la retention de 2 ans, sur la seule correlation de leur age. Le message de Meta
+dit autre chose :
+
+```
+GET /17978338856424267/insights?metric=follows,profile_visits,reach
+→ 100  « Le contenu multimédia a été publié avant la conversion en compte pro »
+```
+
+La cause est donc **permanente et sans rapport avec l'age** : ces posts ne rendront
+jamais rien, meme s'ils rajeunissaient. C'est le cas `posts_muets_definitif` de la
+vue `ig_sante_insights_posts`, que `AGENTS.md` signale deja comme NON-anomalie.
+
+La lecon vaut plus que le fait : deux causes produisent le meme symptome (colonnes
+NULL) et l'age les correlait par hasard. **Seul le message d'erreur de Meta
+distingue « trop vieux » de « publie avant le compte pro ».**
+
+### La collecte est-elle exacte ? Oui, a l'unite
+
+Comparaison base contre API en direct, sur les 5 posts FEED du profil actif
+(2026-09-03) :
+
+| Publié le | En base (fol/vis/reach) | API en direct | |
+|---|---|---|---|
+| 12/04/2025 | 0 / 8 / 307 | 0 / 8 / 307 | identique |
+| 19/08/2024 | 0 / 7 / 373 | 0 / 7 / 373 | identique |
+| 30/08/2024 | 0 / 1 / 212 | 0 / 1 / 212 | identique |
+| 21/08/2023 | — | refusé | avant compte pro |
+| 11/04/2024 | — | refusé | avant compte pro |
+
+**3 sur 3 identiques**, zéro écart. Le cron collecte donc correctement `follows` et
+`profile_visits` partout où Meta les rend — il n'y a rien à mettre a jour.
+
+⚠️ Et il n'y a PAS de mecanisme « lire une fois puis seulement si ça bouge » : chaque
+passage relit tous les posts eligibles. La machine a etats (`jeu_metriques` =
+`aucun` / `reduit`) choisit QUELLES metriques demander, pas QUAND relire. Les lignes
+quotidiennes sont donc de vraies relectures — ce qui est ce qui rend les baisses du
+3 du mois attribuables a Meta, et non a notre cadence.
 
 ⚠️ Corollaire pour l'affichage : `follows` absent sur un Reel n'est PAS la même
 chose que `follows = 0` sur un FEED. Le premier veut dire « Meta ne le dit pas », le
