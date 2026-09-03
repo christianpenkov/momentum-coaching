@@ -1361,6 +1361,24 @@ opération irréversible du dossier.
 - 🛑 **Arrêt si** : on ne l'a pas. Sans référence, on ne pourra pas distinguer « la
   bascule a cassé ça » de « ça n'allait déjà pas ».
 
+> ⚠️ **Deux de ces vues ne comparent pas au dépôt : elles comparent à une COPIE du dépôt,
+> inscrite en base par `/api/sante/alerte-vues`.** `edge_sante_version` et
+> `migrations_sante` sont donc **fausses entre un push et le passage suivant de cette
+> route** — elle ne tourne qu'une fois par jour, déclenchée par `poll-leads` dans la
+> tranche 8 h Paris.
+>
+> Constaté le 2026-09-04 : `edge_sante_version` affichait **7 alertes** deux heures après
+> un relevé à 0. Vérification faite, les 8 empreintes en ligne étaient **identiques** à
+> celles de `HEAD` — les fonctions déployées étaient bien celles du dépôt, et seule la
+> copie en base était périmée. Aucun e-mail n'est parti : la route réécrit les empreintes
+> **avant** de lire les vues, précisément pour ça.
+>
+> **Conséquence pour ce mode d'emploi** : ne pas lire ces deux vues comme témoin
+> avant/après sur une échelle plus courte que leur cycle de rafraîchissement. C'est
+> pourquoi V9 est en bloc **C** (le lendemain) et pas en bloc B. Si l'on veut trancher
+> tout de suite, la seule preuve valable est la comparaison directe :
+> `lib/empreintes-edge.generated.ts` de `HEAD` contre la colonne `empreinte_en_ligne`.
+
 **☐ B0.2 — Arbre de travail propre**
 
 - **Vérifier** : `git status --porcelain` (attention : d'autres sessions travaillent
