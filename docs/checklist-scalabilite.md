@@ -19,7 +19,20 @@ Le détail de cet audit est dans [`youtube-scalabilite.md`](./youtube-scalabilit
 | Instagram — contenus | ✅ 2026-08-30 | **~6 appels / 100 posts / nuit** (était 801) | [handoff-appels-instagram-scalabilite.md](./handoff-appels-instagram-scalabilite.md) |
 | Short.io | ✅ 2026-08-31 | **coût indépendant du nombre d'élèves** | [shortio-api.md](./shortio-api.md) |
 | Calendly | ✅ 2026-08-31 | **quota par jeton (non partagé)** — 60 req/min/élève | — |
-| Stripe | ❌ à faire | inconnue | — |
+| Stripe | ✅ 2026-09-02 | **~3 840 appels/jour à 40 élèves, ~2 % de la limite** | — |
+
+> **Stripe, audité le 2026-09-02** : le volume d'appels n'a jamais été le risque
+> (2 appels × 48 passes × 40 élèves, limiteur 20 req/s partagé). Les vrais
+> défauts étaient de **justesse**, pas d'échelle, et sont corrigés : la copie
+> Deno écrivait les remboursements à `paid_at NULL` (invisibles de toutes les
+> fenêtres, et elle écrasait la ligne correcte du webhook toutes les 30 min) ;
+> les remboursements **tardifs** n'étaient jamais vus (la fenêtre filtrait sur
+> la date de la CHARGE, pas du remboursement — passe `/v1/refunds` ajoutée) ;
+> et `refreshDealStatus` Deno était une copie amputée (pas de désactivation de
+> lien à l'annulation) — remplacée par un appel à `/api/stripe/deal-effects`,
+> qui exécute la règle unique de `lib/dealStatus.ts`. Pattern réutilisable :
+> quand une Edge Function a besoin d'un code qui vit dans `lib/`, une petite
+> route Vercel authentifiée CRON_SECRET vaut mieux qu'une copie Deno figée.
 
 ---
 

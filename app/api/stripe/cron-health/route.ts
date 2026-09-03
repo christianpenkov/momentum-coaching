@@ -10,11 +10,15 @@ import { getStripeAccess, appelStripe } from '@/lib/stripe-account';
  * tourne déjà, et l'y greffer évitait un job de plus sur cron-job.org. Deux
  * faits l'ont écarté.
  *
- * D'abord il ne traite QUE les comptes en clé restreinte (`access_token IS
- * NULL`) — précisément l'inverse de ceux qu'on cherche à surveiller. Ensuite et
- * surtout, l'y porter aurait coûté une seconde copie en Deno de `getStripeAccess`,
- * d'`appelStripe` et de la règle « quelles erreurs valent une panne » — le mode de
- * panne dominant de ce projet, une copie figée qui périme sans que rien ne bouge.
+ * La raison qui tient : l'y porter aurait coûté une seconde copie en Deno de
+ * `getStripeAccess`, d'`appelStripe` et de la règle « quelles erreurs valent une
+ * panne » — le mode de panne dominant de ce projet, une copie figée qui périme
+ * sans que rien ne bouge.
+ *
+ * ⚠️ Une autre raison figurait ici et a EXPIRÉ (corrigée le 2026-09-04) : « il ne
+ * traite que les comptes en clé restreinte ». Faux depuis le 2026-08-30 —
+ * sync-stripe-payments couvre AUSSI l'OAuth, son propre en-tête le crie. Retirée
+ * plutôt que laissée : une justification fausse coûte plus cher qu'une absente.
  *
  * ⚠️ Une troisième raison figurait ici et a EXPIRÉ : « il n'a pas `STRIPE_SECRET_KEY`
  * dans ses secrets ». C'était vrai à l'écriture ; la clé est posée côté Edge Functions
@@ -104,8 +108,9 @@ export async function GET(request: NextRequest) {
   // trop vieux, au meme endroit que les autres integrations.
   //
   // `last_synced_at` et non `metadata.stripe_synced_at` : cette derniere est la borne
-  // de synchronisation de `sync-stripe-payments`, qui ne traite que les comptes en
-  // cle restreinte. Les deux champs ne doivent jamais se confondre.
+  // de synchronisation de `sync-stripe-payments` (tous les comptes, cle restreinte
+  // ET OAuth depuis le 2026-08-30). Les deux champs ne doivent jamais se confondre :
+  // le battement de l'un masquerait la mort de l'autre.
   const { error: pingErr } = await supa
     .from('integrations')
     .update({ last_synced_at: new Date().toISOString() })
