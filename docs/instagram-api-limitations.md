@@ -105,6 +105,35 @@ Le doute qui figurait ici (« jamais demandé sur un Reel — comportement du co
 une limite Meta confirmée ») est donc **levé** : Meta refuse explicitement ces deux
 métriques sur les Reels. Rien à corriger côté plateforme, et inutile de réessayer.
 
+### Abonnés gagnés par Reel : AUCUNE voie, toutes testées (2026-09-03)
+
+Question posée deux fois, donc creusée à fond. Tout ci-dessous est un appel réel à
+Meta avec le jeton du projet. **Ne pas relancer cette recherche sans nouvelle raison.**
+
+| Tentative | Résultat |
+|---|---|
+| `metric=follows` sur un Reel | `100` — *does not support the follows metric for this media product type* |
+| `ig_reels_follows`, `net_follows`, `follower_count`, `accounts_engaged`, `follows_and_unfollows` sur le média | `100` — noms inexistants au niveau média |
+| `profile_activity`, `profile_visits` sur un Reel | `100` — même refus par type de média |
+| `metric=follows` en **v21, v22, v23, v24, v25** | refus identique dans les cinq versions |
+| Compte : `follows_and_unfollows` + `breakdown=media_product_type` | `1` — *An unknown error has occurred.* sur `day`, `week`, `days_28`, avec et sans `metric_type`, avec et sans fenêtre explicite |
+| Compte : la même sans `breakdown` (témoin) | ✅ répond — donc c'est bien la ventilation qui casse, pas la métrique |
+
+⚠️ **Piège d'introspection à connaître.** Demander une métrique inexistante fait
+énumérer les valeurs valides par Meta — 29 pour un média. `follows` y figure, et la
+liste est **identique pour un Reel et pour une image**. Cette énumération décrit donc
+le SCHÉMA de l'endpoint, pas ce qui est supporté pour ce média : le filtrage par type
+se joue à un second niveau. Se fier à cette liste conduirait à croire la métrique
+disponible sur les Reels.
+
+**Conclusion : l'attribution d'un abonné à un Reel n'existe pas dans l'API**, ni par
+Reel ni même par FORMAT. Le seul chemin autorisé par le validateur
+(`breakdown=media_product_type`) n'est pas implémenté côté Meta.
+
+Corollaire produit : sur un compte majoritairement en Reels, « abonnés gagnés par
+contenu » est structurellement borgne. Ne pas construire de classement de contenus
+là-dessus — il ne verrait que les images.
+
 ### Pourquoi la métrique manque sur un post donné — les trois causes
 
 Relevé du 2026-09-03 sur les 32 posts du compte de test :
