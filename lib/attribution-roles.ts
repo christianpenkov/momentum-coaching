@@ -281,6 +281,13 @@ export function activationParContenu(
  * test, 11 viennent d'une description, d'une bio ou d'une story, où l'UTM dit vrai.
  * L'appliquer partout serait une régression.
  *
+ * ⚠️ `historique` est OBLIGATOIRE, et ce n'est pas une coquetterie de signature. Rendu
+ * optionnel, il retombait sur l'ancien comportement — le lien décide — sans rien
+ * signaler : un appelant qui l'oubliait produisait des chiffres faux qu'aucun test,
+ * aucun type et aucune vue de santé n'aurait attrapés. Le compilateur le refuse
+ * désormais. Un appelant qui n'a légitimement pas de journal (vente sans rendez-vous
+ * Instagram) passe `[]`, et ce geste explicite est visible en relecture.
+ *
  * Un repli reste légitime, et un seul : `prospect_links.content_id`. Mesuré le
  * 2026-08-29, l'unique call DM sans `utm_content` (`af9d5898`, 15/08) portait bien
  * `utm_medium`, `utm_campaign` et `utm_term` — seul le contenu manquait, parce que son
@@ -294,7 +301,7 @@ export function activationParContenu(
  */
 export function contenuConversion(
   call: CallPourConversion,
-  historique?: PriseDeLeadMagnet[],
+  historique: PriseDeLeadMagnet[],
 ): string | null {
   const parLeLien = nettoyer(call.utm_content) ?? nettoyer(call.prospect_link_content_id);
   if (!vientDuLienPersonnel(call)) return parLeLien;
@@ -303,7 +310,7 @@ export function contenuConversion(
   // cette personne avait pris juste avant de réserver. Même question, même fonction et
   // même règle que l'Activation — c'est le seul rôle qui ne les partageait pas.
   const quand = call.booked_at ?? call.scheduled_at;
-  if (!quand || !historique?.length) return parLeLien;
+  if (!quand || historique.length === 0) return parLeLien;
   return contenuActivation(historique, quand) ?? parLeLien;
 }
 
@@ -357,11 +364,12 @@ function nettoyer(valeur: string | null | undefined): string | null {
 export function conversionParContenu(
   calls: CallPourConversion[],
   idsContinuation: ReadonlySet<string>,
+  journalDuCall: (call: CallPourConversion) => PriseDeLeadMagnet[],
 ): Map<string, number> {
   const parContenu = new Map<string, number>();
   for (const call of calls) {
     if (call.id && idsContinuation.has(call.id)) continue;
-    const cle = contenuConversion(call) ?? SANS_CONTENU;
+    const cle = contenuConversion(call, journalDuCall(call)) ?? SANS_CONTENU;
     parContenu.set(cle, (parContenu.get(cle) ?? 0) + 1);
   }
   return parContenu;

@@ -204,7 +204,7 @@ export async function POST(request: NextRequest) {
           booked_at: call.booked_at,
           scheduled_at: call.scheduled_at,
         },
-        journalDuProspect,
+        journalDuProspect,   // `[]` quand la vente n'a pas de fiche Instagram
       );
 
       // `isValidContentId` reste indispensable : le champ a longtemps reçu des pseudos

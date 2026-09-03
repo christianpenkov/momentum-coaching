@@ -555,6 +555,23 @@ const AIDE_CALLS_BOOKES =
   + "qui fait la différence : le second rendez-vous n'est écarté que si vous avez déclaré "
   + "qu'il suivrait.";
 
+const AIDE_TOP_CONTENUS =
+  "Comment un rendez-vous est rattaché à un contenu.\n\n"
+  + "• Lien en description, en bio ou dans une story : c'est le contenu qui PORTE le "
+  + "lien. Il n'en existe qu'un par publication, donc cliquer dessus prouve qu'on "
+  + "regardait celle-là.\n\n"
+  + "• Lien envoyé en DM : c'est le dernier lead magnet que la personne avait pris AVANT "
+  + "de réserver. Pas le premier, et pas celui inscrit dans le lien.\n\n"
+  + "Pourquoi cette exception : il n'existe qu'UN lien Calendly par personne. Il est "
+  + "fabriqué une fois, avec le contenu du moment, et il ne change plus — alors que la "
+  + "personne continue de prendre d'autres lead magnets. Quelqu'un qui reçoit son lien "
+  + "en mai, prend un autre lead magnet en juillet et réserve en août aurait vu son "
+  + "rendez-vous crédité au contenu de mai.\n\n"
+  + "La date de la prise décide, pas celle du lien. Un lead magnet pris APRÈS la "
+  + "réservation ne peut pas l'avoir déclenchée, il ne compte donc jamais.\n\n"
+  + "Ce tableau compte des ÉVÉNEMENTS depuis toujours, pas des personnes sur une "
+  + "période : un contenu peut y apparaître pour des gens entrés par ailleurs.";
+
 const AIDE_CALLS_HONORES =
   "Parmi les calls bookés, ceux qui ont eu lieu. Même règle : un deuxième rendez-vous qui "
   + "prolonge la même vente n'est pas recompté. Ce nombre ne peut donc jamais dépasser les "
@@ -1412,6 +1429,34 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   // Ce bloc est all-time — callsAllTime (jamais filtré par période), PAS calls (= callsEff, qui EST
   // coupé sur la fenêtre de la période affichée dès que periodIndex > 0).
   const callsForTopContent = callsAllTime ?? calls;
+  // Le journal indexe par fiche, pour que Top contenus attribue avec LA regle et non
+  // avec une regle a lui. Meme construction que dans Business micro.
+  const journalParFicheOv = new Map<string, NonNullable<typeof lmHistory>>();
+  {
+    const ficheParPersonne = new Map<string, string>();
+    // `id` est optionnel sur MockLead : une fiche sans identifiant ne peut relier
+    // aucun rendez-vous, donc elle n'entre pas dans la table de correspondance.
+    for (const l of (leads ?? [])) if (l.igUserId && l.id) ficheParPersonne.set(l.igUserId, l.id);
+    for (const h of (lmHistory ?? [])) {
+      const fiche = h.ig_user_id ? ficheParPersonne.get(h.ig_user_id) : undefined;
+      if (!fiche) continue;
+      const liste = journalParFicheOv.get(fiche);
+      if (liste) liste.push(h); else journalParFicheOv.set(fiche, [h]);
+    }
+  }
+  /** LA règle d'attribution, la même partout. Voir lib/attribution-roles.ts. */
+  const contenuDuCallOv = (c: CallRecord): string | null =>
+    contenuConversion(
+      {
+        utm_content: c.utm_content,
+        utm_medium: c.utm_medium,
+        source: c.source,
+        booked_at: c.booked_at,
+        scheduled_at: c.scheduled_at,
+      },
+      (c.ig_lead_id && journalParFicheOv.get(c.ig_lead_id)) || [],
+    );
+
   const igCallsAll = callsForTopContent.filter(isIGCall);
   const ytCallsAll = callsForTopContent.filter(isYTCall);
   // Fusion live + historique pour la LISTE de contenus (identité, titre, thumbnail) — ce bloc est un
@@ -1435,12 +1480,21 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   const igLiveViewsByIdOv = new Map<string, number>((igLive?.posts ?? []).map((p: any) => [p.id, p.views || p.reach || 0]));
   const ytLiveViewsByIdOv = new Map<string, number>((ytLive?.videos ?? []).map((v: any) => [v.id, v.views || 0]));
 
-  // Attribution calls IG → post : priorité à utm_content (daté au clic, lié au bon
-  // contenu au moment du booking) plutôt qu'à ig_lead_id → leadIdToMediaId (état
-  // COURANT mutable de instagram_leads, écrasé à chaque nouvelle interaction de la
-  // même personne — voir même correctif dans matchesContent/TabFunnel plus haut).
-  // 1. utm_content === postId (calls depuis lien description/bio, ou séquence story)
-  // 2. sans utm_content → ig_lead_id → media_id via leadIdToMediaId (fallback legacy)
+  // Attribution calls → contenu : `contenuConversion`, LA règle, celle de Business
+  // micro et celle qui a écrit `deals.first_touch_content_id`.
+  //
+  // Ce bloc avait sa PROPRE logique, et elle divergeait sur deux points :
+  //
+  //   1. elle se repliait sur `leadIdToMediaId`, c'est-à-dire `instagram_leads.media_id`,
+  //      l'état COURANT écrasé à chaque interaction. Ce repli est explicitement interdit
+  //      par `attribution-roles.ts` ; il avait été retiré de Business micro le
+  //      2026-08-29, jamais d'ici ;
+  //   2. elle faisait confiance à `utm_content` même pour un lien DM, alors qu'il n'y a
+  //      qu'UN lien Calendly par personne, gravé une fois et jamais regravé.
+  //
+  // Trois écrans répondaient donc à « quel contenu a rapporté cet argent » avec trois
+  // règles différentes. Il n'y en a plus qu'une.
+  //
   // ⚠️ Le montant d'un contenu vient de `deals`, PAS de `calls.revenue`.
   //
   // `calls.revenue` est le montant SAISI dans le rapport de call ; `deals.amount_total`
@@ -1466,16 +1520,7 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   type ContentItem = { id: string; title: string; thumbnail: string | null; platform: 'IG' | 'YT'; type: string; views: number; totalViews: number; watchTime: number; avgWatchTimeMin: number | null; rendezVous: number; noShowCount: number; noShowPct: number | null; closedCount: number; closedPct: number | null; callsBooked: number; callsHonores: number; revenueTotal: number; revenuePerCall: number; cashPerView: number | null };
   const allContent: ContentItem[] = [
     ...igPosts.map(p => {
-      const postCalls = igCallsAll.filter(c => {
-        if (c.utm_content) return c.utm_content === p.id;
-        // Le repli par lead ne vaut que pour un call venu d'un DM. Fusionner deux
-        // fiches pose `ig_lead_id` sur les rendez-vous d'une fiche e-mail — une
-        // bio, une description YouTube — qui n'ont pas d'`utm_content` : ils
-        // seraient crédités au post dont le lead vient, sans l'avoir jamais vu.
-        // `source` dit d'où la réservation arrive, `ig_lead_id` seulement chez
-        // qui elle est rangée, et la fusion change le second sans toucher au premier.
-        return c.source === 'ig_dm' && c.ig_lead_id ? leadIdToMediaId.get(c.ig_lead_id) === p.id : false;
-      });
+      const postCalls = igCallsAll.filter(c => contenuDuCallOv(c) === p.id);
       const callsBooked = postCalls.filter(c => c.status === 'active' && estOpportunite(c)).length;
       const noShowCount = postCalls.filter(c => c.no_show).length;
       const closedCount = postCalls.filter(c => c.deal_closed).length;
@@ -1504,7 +1549,10 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
       return { id: p.id, title: p.caption?.slice(0, 60) || '(sans titre)', thumbnail: p.thumbnail || null, platform: 'IG' as const, type: p.type === 'VIDEO' || p.type === 'REEL' || p.type === 'REELS' ? 'Reel' : p.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image', views: totalViewsIG, totalViews: totalViewsIG, watchTime: p.totalWatchTimeMs ? Math.round(p.totalWatchTimeMs / 1000 / 60) : 0, avgWatchTimeMin, rendezVous, noShowCount, noShowPct, closedCount, closedPct, callsBooked, callsHonores: honored, revenueTotal: revTotal, revenuePerCall: callsBooked > 0 ? Math.round(revTotal / callsBooked) : 0, cashPerView: viewsLifetimeIG && viewsLifetimeIG > 0 ? revTotal / viewsLifetimeIG : null };
     }),
     ...ytVideos.map(v => {
-      const postCalls = ytCallsAll.filter(c => c.utm_content === v.id);
+      // Même fonction que pour Instagram. Le résultat est identique — un lien en
+      // description de vidéo est PORTÉ par cette vidéo, donc son UTM dit vrai — mais une
+      // seule fonction d'attribution est ce qui empêche les deux de diverger un jour.
+      const postCalls = ytCallsAll.filter(c => contenuDuCallOv(c) === v.id);
       const callsBooked = postCalls.filter(c => c.status === 'active' && estOpportunite(c)).length;
       const noShowCount = postCalls.filter(c => c.no_show).length;
       const closedCount = postCalls.filter(c => c.deal_closed).length;
@@ -1739,7 +1787,10 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 22px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 700 }}>Top contenus</div>
+            <div style={{ fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center' }}>
+              Top contenus
+              <AideColonne texte={AIDE_TOP_CONTENUS} />
+            </div>
             <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>Toutes publications · {sortedContent.length} contenus · depuis toujours (all time)</div>
           </div>
           <div style={{ display: 'flex', gap: 4 }}>
@@ -7390,9 +7441,6 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     // n'en ont aucun par nature — un trou legitime, jamais un zero.
     //
     // La regle vit dans `lib/attribution-roles.ts`, testee sur fixtures reelles.
-    // ⚠️ `utm_medium`, `source` et `booked_at` ne sont pas decoratifs : ce sont eux qui
-    // font basculer la regle. Sans eux, `contenuConversion` retombe sur l ancien
-    // comportement — le lien decide — SANS RIEN SIGNALER. Voir lib/attribution-roles.ts.
     const matchesContent = (c: CallRecord) =>
       contenuConversion({
         utm_content: c.utm_content,
@@ -7401,7 +7449,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         source: c.source,
         booked_at: c.booked_at,
         scheduled_at: c.scheduled_at,
-      }, c.ig_lead_id ? journalParFiche.get(c.ig_lead_id) : undefined) === postId;
+      }, (c.ig_lead_id && journalParFiche.get(c.ig_lead_id)) || []) === postId;
     const postCalls = (calls && leadIdToMediaId)
       ? calls.filter(c => matchesContent(c) && isInPeriod(callPeriodDate(c)))
       : [];

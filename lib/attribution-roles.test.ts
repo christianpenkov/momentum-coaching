@@ -207,7 +207,7 @@ test('activation : une reponse sans contenu rattachable va en sans contenu', () 
 });
 
 test('conversion : utm_content et rien d autre, aucun repli sur le lead', () => {
-  assert.equal(contenuConversion({ utm_content: GUIDE }), GUIDE);
+  assert.equal(contenuConversion({ utm_content: GUIDE }, []), GUIDE);
 });
 
 test('conversion : repli LEGITIME sur le contenu du lien prospect', () => {
@@ -215,7 +215,7 @@ test('conversion : repli LEGITIME sur le contenu du lien prospect', () => {
   // qui a impose l identifiant de post dans utm_content. Le contenu n etait pas perdu,
   // prospect_links.content_id valait GUIDE.
   assert.equal(
-    contenuConversion({ utm_content: null, prospect_link_content_id: GUIDE }),
+    contenuConversion({ utm_content: null, prospect_link_content_id: GUIDE }, []),
     GUIDE,
   );
 });
@@ -224,21 +224,21 @@ test('conversion : utm_content prime toujours sur le repli', () => {
   // Le lien reellement clique fait autorite sur le lien par lequel le prospect est
   // arrive : c est lui qui a produit la reservation.
   assert.equal(
-    contenuConversion({ utm_content: A, prospect_link_content_id: GUIDE }),
+    contenuConversion({ utm_content: A, prospect_link_content_id: GUIDE }, []),
     A,
   );
 });
 
 test('conversion : un repli vide ou blanc ne vaut pas un contenu', () => {
-  assert.equal(contenuConversion({ utm_content: null, prospect_link_content_id: '  ' }), null);
-  assert.equal(contenuConversion({ utm_content: '  ', prospect_link_content_id: null }), null);
+  assert.equal(contenuConversion({ utm_content: null, prospect_link_content_id: '  ' }, []), null);
+  assert.equal(contenuConversion({ utm_content: '  ', prospect_link_content_id: null }, []), null);
 });
 
 test('conversion : un lien de bio n a aucun contenu, et c est normal', () => {
   // 5 calls sur 19 au 2026-08-29. Un trou, jamais un zero, jamais un repli.
-  assert.equal(contenuConversion({ utm_content: null }), null);
-  assert.equal(contenuConversion({}), null);
-  assert.equal(contenuConversion({ utm_content: '   ' }), null);
+  assert.equal(contenuConversion({ utm_content: null }, []), null);
+  assert.equal(contenuConversion({}, []), null);
+  assert.equal(contenuConversion({ utm_content: '   ' }, []), null);
 });
 
 test('conversion : le lien PERSONNEL ne decide plus, le journal decide', () => {
@@ -286,7 +286,7 @@ test('conversion : sans journal, le lien personnel garde son utm_content', () =>
   // Repli indispensable : les routes de paiement n ont pas toujours le journal sous
   // la main, et un appelant qui l oublie ne doit pas perdre l attribution.
   assert.equal(
-    contenuConversion({ utm_content: GUIDE, utm_medium: 'dm', booked_at: '2026-07-08 16:36:50.597662+00' }),
+    contenuConversion({ utm_content: GUIDE, utm_medium: 'dm', booked_at: '2026-07-08 16:36:50.597662+00' }, []),
     GUIDE,
   );
   assert.equal(
@@ -377,7 +377,7 @@ const PAIRE_AVEC_CONTINUATION = [
 test('conversion : une continuation recoit ZERO credit', () => {
   const continuations = idsDeContinuation(PAIRE_AVEC_CONTINUATION);
   assert.ok(continuations.has('c2'), 'c2 doit etre reconnu comme une continuation');
-  const conv = conversionParContenu(PAIRE_AVEC_CONTINUATION, continuations);
+  const conv = conversionParContenu(PAIRE_AVEC_CONTINUATION, continuations, () => []);
   assert.equal(conv.get(GUIDE), 1, 'un seul credit pour un seul prospect, pas deux');
 });
 
@@ -394,13 +394,13 @@ test('conversion : deux prospects distincts sur le meme contenu comptent deux fo
     { id: 'b', utm_content: GUIDE, invitee_email: 'deux@x.fr',
       booked_at: '2026-07-09 10:00:00+00', scheduled_at: '2026-07-09 10:00:00+00' },
   ];
-  assert.equal(conversionParContenu(calls, idsDeContinuation(calls)).get(GUIDE), 2);
+  assert.equal(conversionParContenu(calls, idsDeContinuation(calls), () => []).get(GUIDE), 2);
 });
 
 test('conversion : un call de bio tombe en sans contenu, il ne disparait pas', () => {
   const calls = [{ id: 'bio', utm_content: null, invitee_email: 'b@x.fr',
     booked_at: '2026-08-18 10:00:00+00', scheduled_at: '2026-08-18 10:00:00+00' }];
-  const conv = conversionParContenu(calls, new Set());
+  const conv = conversionParContenu(calls, new Set(), () => []);
   assert.equal(conv.get(SANS_CONTENU), 1);
 });
 
@@ -410,7 +410,7 @@ test('INVARIANT : la somme des credits de Conversion egale le nombre d opportuni
   // aucun des deux ne le signalerait seul.
   const continuations = idsDeContinuation(PAIRE_AVEC_CONTINUATION);
   const opportunites = PAIRE_AVEC_CONTINUATION.filter(c => !continuations.has(c.id)).length;
-  const conv = conversionParContenu(PAIRE_AVEC_CONTINUATION, continuations);
+  const conv = conversionParContenu(PAIRE_AVEC_CONTINUATION, continuations, () => []);
   assert.equal(ecartConversionOpportunites(conv, opportunites), null);
 });
 
