@@ -2005,3 +2005,37 @@ au lieu d'en cacher une.
 **Règle à retenir pour toute nouvelle métrique de cette page** : avant de choisir entre
 `0` et « inconnu », demander d'où vient le chiffre. S'il est relevé, un vide est un trou.
 S'il est compté, un vide est un zéro — à condition de pouvoir prouver qu'on comptait.
+
+### D91 — Le cartouche dit qui il ne montre PAS (2026-09-03)
+
+Chris : « là par exemple en S9, y a que Christian, y a pas les autres, pourquoi ? c'est
+normal ? »
+
+Oui, c'est normal, et c'est même tout le principe de cet axe :
+
+| Élève | Dans le programme | Semaine |
+|---|---|---|
+| Christian | 87 jours | **S13** |
+| Meta Review | 37 jours | S6 |
+| RDJ Test | 35 jours | S6 |
+| Dolphin | 6 jours | S1 |
+
+En S9, Christian est le seul à être arrivé jusque-là. Mais le cartouche ne listait que
+les séries ayant une valeur : les autres disparaissaient **en silence**, et il fallait
+demander pour savoir si elles étaient cassées.
+
+Le cartouche compte désormais ce qu'il ne montre pas, et distingue **deux absences qui
+n'ont rien à voir** :
+
+- `horsPortee` — la série ne va pas jusque-là. Sur l'axe d'accompagnement : « l'élève
+  n'est pas encore arrivé en S9 ». C'est le cas NORMAL, pas une anomalie.
+- `trous` — la série va jusque-là mais rien n'a été mesuré ce jour-là.
+
+⚠️ **Les mots sont écrits par l'appelant, pas par le graphe.** Sur l'axe des semaines
+d'accompagnement, une absence veut dire « pas encore arrivé » ; sur l'axe des dates, où
+toutes les séries couvrent la fenêtre, elle ne peut être qu'un trou de collecte. Le même
+compteur, deux phrases : c'est l'axe qui décide du sens, donc c'est lui qui doit choisir
+les mots.
+
+Le compte porte sur **toutes** les séries, y compris celles qui dépassent le plafond de
+seize lignes du cartouche : « + N autres » les couvre déjà, elles ne sont pas absentes.

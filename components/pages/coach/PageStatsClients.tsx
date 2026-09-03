@@ -920,6 +920,14 @@ export default function PageStatsClients() {
               vedette={vedette}
               depuisZero
               libelleAbscisse={i => formaterEtiquette(fenetres[i] ?? '', granularite, !allTime && period === 7)}
+              /* Ici l'axe est en DATES et toutes les séries couvrent la fenêtre : une
+                 absence ne peut donc être qu'un trou de collecte, jamais un « pas encore
+                 arrivé ». Les mots changent avec l'axe, c'est pour ça que la phrase est
+                 écrite par l'appelant et non par le graphe. */
+              noteAbsents={a => {
+                const n = a.trous + a.horsPortee;
+                return n > 0 ? `${n} élève${n > 1 ? 's' : ''} sans mesure à cette date` : null;
+              }}
               formater={v => formaterValeur(v, METRIQUES[metrique].unite)}
             />
             <Legende lignes={lignes} epingle={epingle} setEpingle={setEpingle} />
@@ -978,6 +986,21 @@ export default function PageStatsClients() {
               depuisZero
               pointsCourts
               libelleAbscisse={i => `Semaine ${i + 1}`}
+              /* Sur cet axe, « absent » veut dire « pas encore arrivé à cette semaine
+                 d'accompagnement » — et c'est le cas normal, pas une anomalie : au
+                 2026-09-03, Christian est en S13 quand les autres sont en S6 et S1. */
+              noteAbsents={(a, i) => {
+                const bouts: string[] = [];
+                if (a.horsPortee > 0) {
+                  bouts.push(a.horsPortee > 1
+                    ? `${a.horsPortee} élèves ne sont pas encore arrivés en S${i + 1}`
+                    : `1 élève n’est pas encore arrivé en S${i + 1}`);
+                }
+                if (a.trous > 0) {
+                  bouts.push(a.trous > 1 ? `${a.trous} sans mesure cette semaine-là` : `1 sans mesure cette semaine-là`);
+                }
+                return bouts.length ? bouts.join(' · ') : null;
+              }}
               formater={v => METRIQUES[metriqueAccompagnement].nature === 'niveau'
                 ? `${v >= 0 ? '+' : ''}${Math.round(v)} %`
                 : formaterValeur(v, METRIQUES[metriqueAccompagnement].unite)}

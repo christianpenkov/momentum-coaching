@@ -37,6 +37,18 @@ interface Props {
   formater: (v: number) => string;
   /** Signalé quand le mode change, pour que l'appelant explique ce qu'on voit. */
   onDense?: (dense: boolean) => void;
+  /** Une phrase pour les séries que le cartouche NE montre PAS à cette abscisse.
+   *
+   *  Le cartouche ne liste que les séries qui ont une valeur ici. Les autres
+   *  disparaissent en silence, et on se demande si elles sont cassées — question posée
+   *  par Chris le 2026-09-03 sur le graphe d'accompagnement, où seul Christian
+   *  apparaissait en S9 parce que les autres n'y étaient pas encore arrivés.
+   *
+   *  Deux absences très différentes, d'où deux compteurs : `horsPortee`, la série ne va
+   *  pas jusque-là (l'élève n'a pas atteint cette semaine) ; `trous`, elle va jusque-là
+   *  mais n'a rien mesuré ce jour-là. L'appelant choisit les mots, parce qu'ils
+   *  dépendent de ce que l'axe représente. */
+  noteAbsents?: (absents: { horsPortee: number; trous: number }, i: number) => string | null;
 }
 
 /** Le cartouche liste le maximum de monde — passé de 8 à 16 lignes à la demande de
@@ -45,7 +57,7 @@ const LIGNES_CARTOUCHE = 16;
 
 export default function GrapheSeries({
   series, n, etiquettes, unite, vedette, depuisZero, hauteur = 280,
-  pointsCourts, libelleAbscisse, formater, onDense,
+  pointsCourts, libelleAbscisse, formater, onDense, noteAbsents,
 }: Props) {
   const conteneur = useRef<HTMLDivElement>(null);
   const hote = useRef<HTMLDivElement>(null);
@@ -113,6 +125,18 @@ export default function GrapheSeries({
 
   const visibles = points.slice(0, LIGNES_CARTOUCHE);
 
+  // Compté sur TOUTES les séries, y compris celles qui dépassent le plafond du
+  // cartouche : « + N autres » les couvre déjà, elles ne sont pas absentes.
+  const absents = survol
+    ? series.reduce((acc, s) => {
+        const k = survol.i - (s.decalage ?? 0);
+        if (k < 0 || k >= s.valeurs.length) acc.horsPortee++;
+        else if (s.valeurs[k] === null || s.valeurs[k] === undefined) acc.trous++;
+        return acc;
+      }, { horsPortee: 0, trous: 0 })
+    : { horsPortee: 0, trous: 0 };
+  const note = survol && noteAbsents ? noteAbsents(absents, survol.i) : null;
+
   return (
     <div ref={conteneur} style={{ position: 'relative' }}>
       <div
@@ -166,6 +190,14 @@ export default function GrapheSeries({
           {points.length > visibles.length && (
             <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 5, fontFamily: 'var(--font-mono)' }}>
               + {points.length - visibles.length} autres
+            </div>
+          )}
+          {note && (
+            <div style={{
+              fontSize: 10.5, color: 'var(--faint)', marginTop: 6, paddingTop: 5,
+              borderTop: '1px solid var(--border)', maxWidth: 210, lineHeight: 1.45,
+            }}>
+              {note}
             </div>
           )}
         </div>
