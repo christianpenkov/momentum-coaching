@@ -127,7 +127,7 @@ export default function MoreSheetShell({
       >
         <header className="more-entete">
           <button type="button" className="more-fermer" onClick={close} aria-label="Fermer le menu">
-            <Icon name="x" size={17} />
+            <Icon name="x" size={19} />
           </button>
           <span className="more-titre">Menu</span>
           {/* Contrepoids de la croix : sans lui le titre ne serait pas centré

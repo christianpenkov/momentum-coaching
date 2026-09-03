@@ -4219,8 +4219,8 @@ html[data-splash='1'] .dot-wave {
      #fbfbf7 et #ffffff il n'y a que 4 points de clarte, les blocs se
      confondaient avec le fond et les groupes ne se lisaient plus. */
   background: var(--surface-2);
-  border-top-left-radius: 22px;
-  border-top-right-radius: 22px;
+  border-top-left-radius: 26px;
+  border-top-right-radius: 26px;
   box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.12);
 }
 
@@ -4232,11 +4232,11 @@ html[data-splash='1'] .dot-wave {
   flex-shrink: 0;
 }
 .more-titre {
-  font-size: 16px; font-weight: 650; letter-spacing: -0.01em;
+  font-size: 17.5px; font-weight: 650; letter-spacing: -0.01em;
   color: var(--ink);
 }
 .more-fermer, .more-entete-cale {
-  width: 34px; height: 34px; flex-shrink: 0;
+  width: 40px; height: 40px; flex-shrink: 0;
 }
 .more-fermer {
   display: inline-flex; align-items: center; justify-content: center;
@@ -4247,7 +4247,7 @@ html[data-splash='1'] .dot-wave {
   /* Cible tactile a 44px sans grossir le cercle visible. */
   position: relative;
 }
-.more-fermer::after { content: ''; position: absolute; inset: -5px; }
+.more-fermer::after { content: ''; position: absolute; inset: -2px; }
 .more-fermer:active { background: var(--surface-2); }
 
 .more-corps {
@@ -4260,7 +4260,7 @@ html[data-splash='1'] .dot-wave {
    qui fait qu'un titre de section delimite quelque chose de visible. */
 .more-carte {
   background: var(--surface);
-  border-radius: 14px;
+  border-radius: 17px;
   overflow: hidden;
 }
 
