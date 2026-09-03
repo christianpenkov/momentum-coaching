@@ -99,7 +99,25 @@ as $$
     s.ig_views,
     s.ig_profile_views,
     s.clics,
-    po.publications
+    -- Ne RIEN trouver n'est pas « on ne sait pas » : c'est ZÉRO publication.
+    --
+    -- Relevé par Chris le 2026-09-03 : la légende affichait « aucune donnée » sur tous
+    -- les comptes pour la métrique Publications, alors que personne n'avait simplement
+    -- rien publié. C'est la CINQUIÈME nature de donnée de cette page, distincte des
+    -- quatre déjà documentées dans AGENTS.md :
+    --
+    --   • relevée par un collecteur (abonnés, vues, clics) → un NULL dit « pas mesuré »,
+    --     et la base contient de vrais 0 à côté, ce qui le prouve ;
+    --   • comptée par ÉNUMÉRATION (publications, et les quatre métriques métier) →
+    --     l'absence de ligne signifie l'absence de contenu, donc zéro.
+    --
+    -- Les quatre métriques métier, comptées de la même façon en mémoire, rendaient déjà
+    -- 0. `publications` était la seule à traiter « rien trouvé » comme « inconnu ».
+    --
+    -- ⚠️ `s.profile_id is not null` est la preuve que la collecte tournait pour cet élève
+    -- sur cette fenêtre. Sans cette condition, on affirmerait « zéro publication » sur
+    -- une période où l'on ne mesurait rien du tout — le défaut exactement inverse.
+    case when s.profile_id is not null then coalesce(po.publications, 0) else po.publications end
   from snaps s
   full join publies po
     on po.profile_id = s.profile_id and po.fenetre = s.fenetre
