@@ -1,144 +1,80 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { createPortal } from 'react-dom';
-import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import Icon, { IconName } from '../ui/Icon';
+import { useQuery } from '@tanstack/react-query';
+import MoreSheetShell, { MoreGroupe } from './MoreSheetShell';
+import { useUser } from '@/lib/UserContext';
+import { getInitials } from '@/components/ui/Avatar';
+import { useClients } from '@/lib/ClientsContext';
+import type { Task } from '@/lib/supabase/types';
 
-const MORE_NAV: { href: string; icon: IconName; label: string }[] = [
-  // En tête : écran consulté quotidiennement, contrairement aux réglages.
-  { href: '/paiements', icon: 'circle-dollar-sign', label: 'Paiements' },
-  { href: '/pipeline', icon: 'trending-up', label: 'Pipeline Leads' },
-  { href: '/liens', icon: 'link', label: 'Gérer mes liens' },
-  { href: '/tasks', icon: 'task-check', label: 'Tâches' },
-  { href: '/calendar', icon: 'calendar', label: 'Calendrier' },
-  { href: '/ressources', icon: 'folder', label: 'Ressources' },
-  { href: '/settings', icon: 'settings', label: 'Réglages' },
-];
-
-// Doit rester aligné sur la transition CSS ci-dessous : le composant reste monté
-// le temps de l'animation de sortie, sinon React le démonte instantanément et
-// le panneau saute au lieu de redescendre.
-//
-// Volontairement court : au-delà, la descente se fait sentir comme un délai
-// avant l'écran suivant. Une sortie est toujours plus rapide qu'une entrée —
-// l'utilisateur a déjà décidé, on ne le fait pas patienter.
-const EXIT_MS = 160;
+/**
+ * Menu « Plus » du coach. La mise en forme vit dans MoreSheetShell ; ce
+ * fichier ne décrit que le contenu.
+ *
+ * Réglages ne figure PAS dans les groupes : la carte d'identité en haut y
+ * mène déjà.
+ */
 
 export default function CoachMoreSheet({ onClose }: { onClose: () => void }) {
-  const pathname = usePathname();
-  const router = useRouter();
-  const sheetRef = useRef<HTMLDivElement>(null);
-  // 'entering' le temps d'un frame pour que la transition CSS ait un état de
-  // départ à animer ; 'open' ensuite ; 'closing' pendant la sortie.
-  const [phase, setPhase] = useState<'entering' | 'open' | 'closing'>('entering');
+  const { user } = useUser();
+  const { clients } = useClients();
 
-  useEffect(() => {
-    const raf = requestAnimationFrame(() => setPhase('open'));
-    return () => cancelAnimationFrame(raf);
-  }, []);
+  // Même clé que PageTasks : si l'écran Tâches a déjà été ouvert, le compteur
+  // est gratuit. Sinon une requête légère part une fois.
+  const { data: taches } = useQuery({
+    queryKey: ['coach-tasks'],
+    queryFn: async () => {
+      const res = await fetch('/api/tasks');
+      return res.ok ? ((await res.json()).tasks || []) as Task[] : [];
+    },
+    staleTime: 60_000,
+  });
 
-  // Ferme en jouant l'animation de sortie, puis prévient le parent qui démonte.
-  const close = useCallback(() => {
-    setPhase('closing');
-    setTimeout(onClose, EXIT_MS);
-  }, [onClose]);
+  // « En retard » et non « à faire » : une tâche sans échéance ou dont
+  // l'échéance est à venir n'appelle aucune action aujourd'hui.
+  const enRetard = (taches ?? []).filter(t => {
+    if (t.done || !t.deadline) return false;
+    return new Date(t.deadline) < new Date(new Date().toDateString());
+  }).length;
 
-  // Navigation lancée TOUT DE SUITE, panneau qui redescend par-dessus : la page
-  // charge pendant l'animation au lieu d'attendre sa fin. Attendre rendait le
-  // menu perceptiblement plus lent que la navigation directe.
-  //
-  // Le démontage reste différé (onClose après l'animation) pour que la descente
-  // ait le temps de se jouer : c'est le re-rendu du layout par la navigation
-  // qui, sinon, retirerait le panneau instantanément.
-  const closeThen = useCallback((href: string) => {
-    setPhase('closing');
-    router.push(href);
-    setTimeout(onClose, EXIT_MS);
-  }, [onClose, router]);
+  const groupes: MoreGroupe[] = [
+    {
+      titre: 'Business',
+      liens: [
+        { href: '/pipeline', icon: 'trending-up', label: 'Pipeline Leads' },
+        { href: '/paiements', icon: 'circle-dollar-sign', label: 'Paiements' },
+      ],
+    },
+    {
+      titre: 'Organisation',
+      liens: [
+        { href: '/calendar', icon: 'calendar', label: 'Calendrier' },
+        { href: '/tasks', icon: 'task-check', label: 'Tâches', valeur: enRetard || null },
+      ],
+    },
+    {
+      titre: 'Contenus',
+      liens: [
+        { href: '/liens', icon: 'link', label: 'Gérer mes liens' },
+        { href: '/ressources', icon: 'folder', label: 'Ressources' },
+      ],
+    },
+  ];
 
-  useEffect(() => {
-    function handler(e: MouseEvent) {
-      if (sheetRef.current && !sheetRef.current.contains(e.target as Node)) close();
-    }
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [close]);
+  const nb = clients?.length ?? 0;
 
-  // Échap ferme aussi : le panneau est une couche modale, elle doit se comporter
-  // comme telle au clavier.
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') close();
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [close]);
-
-  const shown = phase === 'open';
-
-  return createPortal(
-    <>
-      <div
-        style={{
-          position: 'fixed', inset: 0, zIndex: 1999,
-          background: 'rgba(0,0,0,0.25)',
-          opacity: shown ? 1 : 0,
-          transition: `opacity ${EXIT_MS}ms ease-out`,
-        }}
-        onClick={close}
-      />
-      <div
-        ref={sheetRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Menu"
-        style={{
-          position: 'fixed',
-          left: 0, right: 0, bottom: 0,
-          zIndex: 2000,
-          background: 'var(--surface)',
-          borderTop: '1px solid var(--border)',
-          borderTopLeftRadius: 16,
-          borderTopRightRadius: 16,
-          paddingBottom: 'calc(env(safe-area-inset-bottom) + 8px)',
-          boxShadow: '0 -4px 24px rgba(0,0,0,0.12)',
-          // Glisse depuis le bas : une bottom sheet native monte, elle
-          // n'apparaît jamais d'un coup. Sortie plus rapide que l'entrée —
-          // l'utilisateur a déjà décidé, inutile de le faire attendre.
-          transform: shown ? 'translateY(0)' : 'translateY(100%)',
-          transition: shown
-            ? 'transform 200ms cubic-bezier(0.16, 1, 0.3, 1)'
-            : `transform ${EXIT_MS}ms cubic-bezier(0.4, 0, 1, 1)`,
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 4px' }}>
-          <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--border)' }} />
-        </div>
-        <div style={{ padding: '4px 8px 8px' }}>
-          {MORE_NAV.map(({ href, icon, label }) => {
-            const active = pathname === href || pathname.startsWith(href + '/');
-            return (
-              <Link
-                key={href}
-                href={href}
-                // preventDefault + closeThen : la navigation part tout de
-                // suite, mais le démontage du panneau est différé pour qu'il ait
-                // le temps de redescendre. Laisser le Link agir seul ferait
-                // démonter le panneau par le re-rendu, sans aucune animation.
-                onClick={(e) => { e.preventDefault(); closeThen(href); }}
-                className={`nav-item${active ? ' active' : ''}`}
-                style={{ padding: '14px 12px', fontSize: 15 }}
-              >
-                <Icon name={icon} size={18} />
-                <span>{label}</span>
-              </Link>
-            );
-          })}
-        </div>
-      </div>
-    </>,
-    document.body
+  return (
+    <MoreSheetShell
+      onClose={onClose}
+      groupes={groupes}
+      profil={{
+        nom: user?.full_name || user?.email || '—',
+        sousTitre: `Coach · ${nb} élève${nb !== 1 ? 's' : ''}`,
+        avatarUrl: user?.avatar_url,
+        initiales: user?.initials || getInitials(user?.full_name),
+        seed: user?.id,
+        href: '/settings',
+      }}
+    />
   );
 }

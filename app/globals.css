@@ -4192,3 +4192,138 @@ html[data-splash='1'] .dot-wave {
   .stats-hors-format p:last-child { margin-bottom: 0; }
   .stats-hors-format b { color: var(--ink); font-weight: 600; }
 }
+
+/* ── Menu « Plus » — feuille de navigation ────────────────────────────────
+   Motif des feuilles de reglages iOS : en-tete avec sa croix, carte
+   d'identite, puis des groupes titres rendus chacun comme UNE carte blanche
+   sur le fond creme, separateurs en retrait.
+
+   La liste plate precedente alignait sept destinations sans hierarchie, alors
+   qu'elles ne se ressemblent pas : suivre ses leads, s'organiser et gerer ses
+   contenus sont trois intentions differentes. Les groupes rendent cette
+   difference lisible sans rien ecrire.                                      */
+
+.more-voile {
+  position: fixed; inset: 0; z-index: 1999;
+  background: rgba(0, 0, 0, 0.25);
+  transition: opacity 160ms ease-out;
+}
+
+.more-feuille {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 2000;
+  display: flex; flex-direction: column;
+  /* Hauteur du contenu, plafonnee : au-dela la feuille defile plutot que de
+     passer sous la barre du bas. */
+  max-height: 88vh;
+  /* --surface-2 et non --bg : les cartes blanches doivent se detacher. Entre
+     #fbfbf7 et #ffffff il n'y a que 4 points de clarte, les blocs se
+     confondaient avec le fond et les groupes ne se lisaient plus. */
+  background: var(--surface-2);
+  border-top-left-radius: 22px;
+  border-top-right-radius: 22px;
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.12);
+}
+
+/* En-tete fixe : il ne doit pas defiler avec la liste, la croix reste
+   atteignable quel que soit le defilement. */
+.more-entete {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 14px 10px;
+  flex-shrink: 0;
+}
+.more-titre {
+  font-size: 16px; font-weight: 650; letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.more-fermer, .more-entete-cale {
+  width: 34px; height: 34px; flex-shrink: 0;
+}
+.more-fermer {
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: 50%;
+  background: var(--surface); color: var(--ink-2);
+  cursor: pointer; padding: 0;
+  box-shadow: 0 1px 2px rgba(26, 24, 21, .06);
+  /* Cible tactile a 44px sans grossir le cercle visible. */
+  position: relative;
+}
+.more-fermer::after { content: ''; position: absolute; inset: -5px; }
+.more-fermer:active { background: var(--surface-2); }
+
+.more-corps {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 16px calc(env(safe-area-inset-bottom) + 20px);
+}
+
+/* La carte : un bloc blanc par groupe, jamais une carte par ligne. C'est ce
+   qui fait qu'un titre de section delimite quelque chose de visible. */
+.more-carte {
+  background: var(--surface);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.more-profil {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; padding: 14px 15px;
+  border: none; text-align: left; font: inherit; cursor: pointer;
+  margin-bottom: 22px;
+}
+.more-profil:active { background: var(--surface-2); }
+.more-profil-texte { flex: 1; min-width: 0; }
+.more-profil-nom {
+  display: block; font-size: 16px; font-weight: 600; color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.more-profil-sous {
+  display: block; font-size: 12.5px; color: var(--muted); margin-top: 1px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.more-groupe { margin-bottom: 22px; }
+.more-groupe:last-child { margin-bottom: 0; }
+.more-groupe-titre {
+  /* Casse normale, pas de majuscules ni de lettrage etire : c'est un repere
+     de rangement, pas un titre de section a annoncer. */
+  font-size: 12.5px; font-weight: 500; color: var(--muted);
+  margin: 0 0 7px 15px; letter-spacing: 0;
+}
+
+.more-ligne {
+  display: flex; align-items: center; gap: 16px;
+  /* 54px : au-dessus du minimum tactile de 44px, et assez aere pour que six
+     lignes ne se lisent pas comme un bloc compact. Le couple 15/16 place le
+     libelle a ~50px du bord de la carte, l'espacement releve sur la capture
+     de reference. */
+  min-height: 54px; padding: 0 15px;
+  color: var(--ink); text-decoration: none;
+  position: relative;
+}
+.more-ligne:active { background: var(--surface-2); }
+/* Separateur EN RETRAIT : il demarre a l'alignement du texte, pas sous
+   l'icone — sans ce retrait la liste se lit comme un tableau. */
+.more-ligne + .more-ligne::before {
+  content: '';
+  position: absolute; top: 0; left: 50px; right: 0;
+  height: 1px; background: var(--border-soft);
+}
+.more-ligne-icone { color: var(--ink-2); flex-shrink: 0; }
+.more-ligne-label {
+  flex: 1; min-width: 0; font-size: 16px; font-weight: 450;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.more-ligne-valeur {
+  font-size: 13px; color: var(--muted); flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.more-chevron { color: var(--faint); flex-shrink: 0; opacity: .65; }
+
+/* Ligne de la page courante : l'icone et le libelle prennent l'accent, sans
+   fond colore qui trancherait avec le reste de la carte. */
+.more-ligne.active .more-ligne-label { font-weight: 600; color: var(--accent-brand); }
+.more-ligne.active .more-ligne-icone { color: var(--accent-brand); }
+
+@media (prefers-reduced-motion: reduce) {
+  .more-voile, .more-feuille { transition: none !important; }
+}
