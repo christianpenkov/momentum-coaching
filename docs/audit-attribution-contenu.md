@@ -179,7 +179,36 @@ repli pour un prospect DM sans aucune ligne au journal.
 
 ---
 
-## 7. Le piège à retenir, au-delà de ce cas
+## 7. Par où une vente est créée
+
+Deux vérités différentes, et c'est la seconde qui compte quand on cherche un trou.
+
+**En base**, un seul  sur `deals` dans tout le dépôt : `/api/payments/links`.
+Tout le reste est `update` ou `select`.
+
+**Dans l'interface**, DEUX boutons y mènent :
+
+| écran | ce qu'il envoie | attribution |
+|---|---|---|
+| Paiements → « Créer un lien de paiement » (`CreateLinkModal`) | `who` = prospect / client existant / hors pipeline | selon le cas |
+| Rapport d'appel → « vente conclue » (`RapportModal:571`) | `callId` | passe par la règle du journal |
+
+Le second est le chemin **principal** en pratique : la plupart des ventes naissent du
+rapport d'appel, pas de la page Paiements. Il transmet `callId`, donc l'attribution y
+est calculée depuis le journal, ancrée sur la réservation.
+
+⚠️ Chercher « où crée-t-on une vente » dans la base répond à une autre question que
+« où l'utilisateur en crée-t-il une ». La première a manqué le rapport d'appel, qui est
+pourtant le chemin le plus emprunté.
+
+**Ordre volontaire dans le rapport** : le deal est créé AVANT que le rapport soit
+enregistré. Si Stripe refuse ou que le réseau lâche, on obtient un rapport manquant
+plutôt qu'un appel marqué « vente conclue » sans deal — l'argent reste juste, seul le
+drapeau manque.
+
+---
+
+## 8. Le piège à retenir, au-delà de ce cas
 
 Le motif écrit dans `lib/attribution-roles.ts` — *« il réserve en rouvrant l'ancien lien
 Calendly de GUIDE qui traînait dans la conversation, donc GUIDE a fait réserver »* —
