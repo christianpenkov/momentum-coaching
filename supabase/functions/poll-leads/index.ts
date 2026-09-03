@@ -345,6 +345,21 @@ async function fetchIgDayMetrics(token: string, igAccountId: string, date: strin
     throw new Error('ig_quota_epuise');
   }
 
+  // ⚠️ Echec TOTAL hors quota (permission retiree, jeton invalide, panne Meta) :
+  // on leve au lieu de rendre un objet entierement null. Avant ce garde (audit du
+  // 2026-09-02), un 400/190 — exactement l'incident « acces avance » du
+  // 2026-09-01 — rendait {ig_reach: null, ig_views: null, …} que l'appelant
+  // ecrivait par-dessus les valeurs deja collectees du jour, toutes les heures,
+  // pour 40 profils. Le meme motif que le quota, traite pour le quota seulement.
+  // Un echec PARTIEL (une metrique depreciee, un sous-appel en panne) continue de
+  // passer : les reponses lisibles sont ecrites, les autres restent null et le
+  // filtre sansNull de l'appelant les empeche d'ecraser quoi que ce soit.
+  const toutEnEchec = reponses.every(([r, b]) => !r.ok || b?.error);
+  if (toutEnEchec) {
+    const detail = reponses.map(([r, b]) => b?.error?.message).find(Boolean) || `http_${reponses[0][0].status}`;
+    throw new Error(`ig_api_erreur: ${detail}`);
+  }
+
   const insightMap: Record<string, number[]> = {};
   for (const metric of insightsData?.data || []) {
     insightMap[metric.name] = (metric.values || []).map((v: any) => v.value || 0);
@@ -517,6 +532,9 @@ async function pollIgComments(profileId: string, token: string, igAccountId: str
   const sinceMs = Math.max(since.getTime(), Date.now() - 48 * 60 * 60 * 1000);
   const sinceDate = new Date(sinceMs);
   let leadsFound = 0;
+  // Echecs d'envoi DM1 (refus Meta, marquage rate) : collectes pour remonter dans
+  // { error } — donc dans cron_runs — au lieu d'etre avales un par un.
+  const dm1Echecs: string[] = [];
 
   try {
     const mediaRes = await fetch(`https://graph.instagram.com/v21.0/${igAccountId}/media?fields=id,permalink,timestamp&limit=30&access_token=${token}`);
@@ -634,7 +652,7 @@ async function pollIgComments(profileId: string, token: string, igAccountId: str
             .replace(/\s{2,}/g, ' ')
             .trim();
           try {
-            await fetch(`https://graph.instagram.com/v21.0/${igAccountId}/messages`, {
+            const dmRes = await fetch(`https://graph.instagram.com/v21.0/${igAccountId}/messages`, {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 recipient: { comment_id: comment.id },
@@ -654,27 +672,60 @@ async function pollIgComments(profileId: string, token: string, igAccountId: str
                 access_token: token,
               }),
             });
+            // ⚠️ Reponse VERIFIEE (audit du 2026-09-02). Avant : aucun controle — un
+            // refus HTTP de Meta (fenetre de messagerie, permission, quota) passait,
+            // lead_magnet_sent etait pose a true, et le prospect ne recevait JAMAIS
+            // son DM1 : ni retry, ni trace, sur le coeur du funnel. En levant ici,
+            // le drapeau n'est pas pose, le passage suivant (5 min) retente — la
+            // fenetre private reply de Meta est de 7 jours, un transitoire se
+            // rattrape seul — et l'echec remonte dans cron_runs via l'erreur du
+            // profil au lieu de disparaitre.
+            const dmData = await safeJson(dmRes);
+            if (!dmRes.ok || dmData?.error) {
+              throw new Error(`dm1_meta_refus: ${dmData?.error?.message || `http_${dmRes.status}`}`);
+            }
             // lead_magnet_sent: true impératif ici — sans lui, le prochain passage du cron
             // (5 min après) relit lead_magnet_sent toujours falsy et renvoie un 3e DM1
             // (même bug que le fix ci-dessus, côté écriture cette fois plutôt que côté
             // écrasement de la valeur webhook).
-            await supa.from('instagram_leads')
+            //
+            // L'erreur de CET update est lue : si le nettoyage echoue apres un envoi
+            // reussi, le passage suivant renverrait un 2e DM1 — on retente une fois
+            // tout de suite, et un double echec est trace.
+            const marquer = () => supa.from('instagram_leads')
               .update({ lead_magnet_sent: true, pending_dm2: cl.lm_short_url, pending_dm3: cl.dm_opener_message || null })
               .eq('profile_id', profileId)
               .eq('ig_user_id', commenterId);
-          } catch { /* non bloquant */ }
+            const { error: markErr } = await marquer();
+            if (markErr) {
+              const { error: markErr2 } = await marquer();
+              if (markErr2) throw new Error(`dm1_marquage_echec: ${markErr2.message} (DM envoye, risque de doublon au prochain passage)`);
+            }
+          } catch (e: any) {
+            // Trace par profil : remonte dans { error } du retour, donc dans
+            // cron_runs — plus jamais un « non bloquant » muet sur le funnel.
+            dm1Echecs.push(e?.message || 'dm1_inconnu');
+          }
         }
       }
     }
   } catch (e: any) {
-    return { leadsFound, error: e?.message };
+    const details = dm1Echecs.length ? ` | dm1: ${dm1Echecs.join('; ')}` : '';
+    return { leadsFound, error: `${e?.message || 'unknown'}${details}` };
   }
 
-  if (leadsFound > 0) {
-    await supa.from('integrations').update({ last_ig_poll: new Date().toISOString() })
-      .eq('profile_id', profileId).eq('provider', 'instagram');
-  }
-  return { leadsFound };
+  // ⚠️ Horodatage INCONDITIONNEL — c'est lui qui fait tourner la rotation
+  // « les plus en retard d'abord » de la boucle principale. Conditionne a
+  // `leadsFound > 0` (le cas majoritaire etant zero lead), l'horodatage restait
+  // fige pour presque tous les profils, l'ordre de tri devenait statique, et en
+  // saturation c'etaient TOUJOURS les memes profils de queue qui etaient differes
+  // — exactement le sacrifice permanent que la rotation affirme avoir corrige
+  // (constate a l'audit du 2026-09-02).
+  await supa.from('integrations').update({ last_ig_poll: new Date().toISOString() })
+    .eq('profile_id', profileId).eq('provider', 'instagram');
+  return dm1Echecs.length
+    ? { leadsFound, error: `dm1: ${dm1Echecs.join('; ')}` }
+    : { leadsFound };
 }
 
 async function pollIgHookReplied(profileId: string, token: string, igAccountId: string): Promise<{ updated: number; error?: string }> {
@@ -734,7 +785,10 @@ async function getYtToken(profileId: string): Promise<string | null> {
     .eq('profile_id', profileId).eq('provider', 'youtube').single();
   if (!integ?.access_token) return null;
 
-  const expired = integ.expires_at && new Date(integ.expires_at).getTime() < Date.now() + 5 * 60 * 1000;
+  // `!integ.expires_at ||` et non `integ.expires_at &&` : un expires_at NULL
+  // signifie « jamais rafraichi », pas « n'expire jamais » — le meme bug corrige
+  // cote Instagram (getIgCreds), jamais porte ici. Au pire, un refresh de trop.
+  const expired = !integ.expires_at || new Date(integ.expires_at).getTime() < Date.now() + 5 * 60 * 1000;
   if (!expired) return integ.access_token;
   if (!integ.refresh_token) return null;
 
@@ -743,11 +797,30 @@ async function getYtToken(profileId: string): Promise<string | null> {
     body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: integ.refresh_token, client_id: YOUTUBE_CLIENT_ID, client_secret: YOUTUBE_CLIENT_SECRET }),
   });
   const data = await safeJson(res);
-  if (!data.access_token) return null;
+  if (!data.access_token) {
+    // ⚠️ Trace le refus au lieu de rendre null en silence (audit du 2026-09-02) :
+    // un jeton Google revoque arretait la collecte YouTube SANS AUCUN signal — le
+    // statut restait « ok », le bandeau aussi, et seule yt_sante_donnees finissait
+    // par montrer un retard, des JOURS plus tard. C'est le bug Instagram du
+    // 2026-08-22, corrige la-bas (getIgCreds) et jamais porte ici. Comme la-bas,
+    // le retour null fait sauter le bloc YT du passage, et l'horodatage du caller
+    // empeche la boucle aux 5 minutes.
+    const msg = data?.error_description || data?.error || `http_${res.status}`;
+    console.error(`[poll-leads] yt_token_refresh_failed profile=${profileId}: ${msg}`);
+    await supa.from('integrations')
+      .update({ status: 'failed', last_snapshot_status: 'error', last_snapshot_error: `yt_token: ${String(msg).slice(0, 200)}` })
+      .eq('profile_id', profileId).eq('provider', 'youtube');
+    return null;
+  }
 
   const expiresAt = data.expires_in ? new Date(Date.now() + data.expires_in * 1000).toISOString() : null;
   await supa.from('integrations').update({ access_token: data.access_token, expires_at: expiresAt })
     .eq('profile_id', profileId).eq('provider', 'youtube');
+  // Auto-guerison, meme regle que cote Instagram : un refresh qui repasse remet le
+  // statut a « ok ». Zero ligne touchee dans le cas nominal grace au .eq('status').
+  await supa.from('integrations')
+    .update({ status: 'ok', last_snapshot_error: null })
+    .eq('profile_id', profileId).eq('provider', 'youtube').eq('status', 'failed');
   return data.access_token;
 }
 
@@ -1267,7 +1340,7 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
     console.log(`[poll-leads] shortio fenetre elargie profile=${profileId}: retard=${retardJours}j -> fenetre=${FENETRE_REPARATION_JOURS}j`);
   }
   const clicsParPathEtJour = new Map<string, { human: number; total: number }>();
-  const cle = (path: string, jour: string) => `${path} ${jour}`;
+  const cle = (path: string, jour: string) => `${path}\u0000${jour}`;
   let rawClicks: { path: string; dt: string; human: boolean }[] = [];
   // Jour le plus ancien réellement couvert par le flux : on ne réécrit JAMAIS un jour
   // qu'on n'a pas pu observer, sinon une rétention plus courte que la fenêtre effacerait
@@ -1359,15 +1432,28 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
   // rien de nouveau.
   const etatExistant = new Map<string, any>();
   if (joursAEcrire.length) {
-    const { data: rows, error: errRows } = await supa
-      .from('shortio_link_daily_snapshots')
-      .select('link_id, date, path, short_url, original_url, human_clicks, total_clicks, link_type, link_category, backfill_source')
-      .eq('profile_id', profileId)
-      .gte('date', joursAEcrire[0]);
-    if (errRows) errors.push(`lignes_a_corriger: ${errRows.message}`);
-    for (const r of rows ?? []) {
-      etatExistant.set(`${r.link_id}|${r.date}`, r);
-      if ((r.human_clicks ?? 0) > 0) dejaAvecClics.add(`${r.link_id}|${r.date}`);
+    // ⚠️ PAGINEE — PostgREST tronque a 1000 lignes SANS erreur. Au-dela de ~125
+    // liens (8 jours de fenetre x liens), la lecture non paginee rendait un
+    // `etatExistant` incomplet : une journee close portant une valeur fantome
+    // n'etait plus reecrite, et l'auto-reparation — l'argument central de ce
+    // design — se degradait en silence (audit du 2026-09-02). Meme piege que
+    // celui pour lequel `lireTout` existe dans _shared/ig-posts.ts.
+    const PAGE = 1000;
+    for (let depuis = 0; ; depuis += PAGE) {
+      const { data: rows, error: errRows } = await supa
+        .from('shortio_link_daily_snapshots')
+        .select('link_id, date, path, short_url, original_url, human_clicks, total_clicks, link_type, link_category, backfill_source')
+        .eq('profile_id', profileId)
+        .gte('date', joursAEcrire[0])
+        .order('link_id', { ascending: true })
+        .order('date', { ascending: true })
+        .range(depuis, depuis + PAGE - 1);
+      if (errRows) { errors.push(`lignes_a_corriger: ${errRows.message}`); break; }
+      for (const r of rows ?? []) {
+        etatExistant.set(`${r.link_id}|${r.date}`, r);
+        if ((r.human_clicks ?? 0) > 0) dejaAvecClics.add(`${r.link_id}|${r.date}`);
+      }
+      if ((rows?.length ?? 0) < PAGE) break;
     }
   }
 
@@ -2610,11 +2696,21 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
         // `igDernierSync` est deja lu plus haut : aucune requete supplementaire.
         // Si ce passage echoue, la ligne d'hier garde sa valeur de 23 h — proche de la
         // verite — et les vrais trous restent du ressort de rattraperTrousIg.
+        // Un null ne PORTE rien : il dit « Meta n'a pas fourni cette metrique », jamais
+        // « la valeur est zero » (le zero, lui, s'ecrit). L'ecrire par-dessus une valeur
+        // deja collectee detruit de l'information — c'est ce que faisaient les deux
+        // upserts ci-dessous a chaque echec partiel de Meta (audit du 2026-09-02) : la
+        // ligne du jour, reconstruite d'heure en heure, etait videe par le premier
+        // passage en panne, et `ig_followers` d'hier etait perdu definitivement (le
+        // rattrapage n'ecrit jamais `compte`). Meme garde que rattraperTrousIg, qui
+        // saute les metriques nulles depuis toujours.
+        const sansNull = (o: Record<string, unknown>) =>
+          Object.fromEntries(Object.entries(o).filter(([, v]) => v != null));
         if (igPremierPassageDuJour) {
           // `jour` seulement : `compte` n'a pas de date et ne doit jamais atterrir sur
           // une ligne autre que celle d'aujourd'hui.
           const { jour } = await fetchIgDayMetrics(igCreds.token, igCreds.igAccountId, yesterday);
-          const { error } = await supa.from('analytics_daily_snapshots').upsert({ profile_id: profileId, date: yesterday, ...jour, ig_account_id: igCreds.igAccountId, backfill_source: 'cron' }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
+          const { error } = await supa.from('analytics_daily_snapshots').upsert({ profile_id: profileId, date: yesterday, ...sansNull(jour), ig_account_id: igCreds.igAccountId, backfill_source: 'cron' }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
           if (error) throw new Error(error.message);
         }
         // Toutes les métriques day=period (reach, views, accounts_engaged,
@@ -2626,23 +2722,27 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
         // lendemain matin. todayMetrics contenait déjà reach/views/impressions depuis le
         // même appel API, mais seuls accounts_engaged/total_interactions étaient persistés
         // — le reste était calculé puis jeté sans raison (oubli, pas une limite Meta).
-        try {
-          // ── La journee d'AUJOURD'HUI : a chaque passage horaire ───────────────
-          //
-          // C'est ce bloc qui construit l'historique. La ligne du jour J est reecrite
-          // toutes les heures pendant J, donc sa derniere valeur est celle de fin de
-          // journee — exactement ce que « nombre d'abonnes ce jour-la » doit valoir.
-          //
-          // `compte` est ecrit ICI et NULLE PART AILLEURS : c'est l'etat live du
-          // compte, il n'est juste que pour aujourd'hui.
-          const { jour, compte } = await fetchIgDayMetrics(igCreds.token, igCreds.igAccountId, todayStr);
-          await supa.from('analytics_daily_snapshots').upsert({
-            profile_id: profileId, date: todayStr,
-            ...jour, ...compte,
-            ig_account_id: igCreds.igAccountId,
-            backfill_source: 'cron',
-          }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
-        } catch (e) { console.error(`[poll-leads] todayMetrics IG (${profileId}):`, (e as Error).message); }
+        // ── La journee d'AUJOURD'HUI : a chaque passage horaire ───────────────
+        //
+        // C'est ce bloc qui construit l'historique. La ligne du jour J est reecrite
+        // toutes les heures pendant J, donc sa derniere valeur est celle de fin de
+        // journee — exactement ce que « nombre d'abonnes ce jour-la » doit valoir.
+        //
+        // `compte` est ecrit ICI et NULLE PART AILLEURS : c'est l'etat live du
+        // compte, il n'est juste que pour aujourd'hui.
+        //
+        // Plus de try/catch muet ici (audit du 2026-09-02) : un echec de ce bloc ne
+        // partait que dans console.error — donc un quota epuise detecte ICI ne
+        // declenchait jamais le backoff de 24 h, et l'erreur n'atteignait jamais
+        // cron_runs. En levant, l'echec remonte au meme endroit que celui d'hier.
+        const { jour, compte } = await fetchIgDayMetrics(igCreds.token, igCreds.igAccountId, todayStr);
+        const { error: upsertJourErr } = await supa.from('analytics_daily_snapshots').upsert({
+          profile_id: profileId, date: todayStr,
+          ...sansNull(jour), ...sansNull(compte),
+          ig_account_id: igCreds.igAccountId,
+          backfill_source: 'cron',
+        }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
+        if (upsertJourErr) throw new Error(upsertJourErr.message);
       })(),
       // Echeance transmise : les travaux « une fois par post » (vignettes, durees)
       // s'arretent quand le budget d'invocation est consomme et reprennent au passage
@@ -2665,6 +2765,20 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
       // depuis le journalier (la deduplication ne s'additionne pas).
       majPeriodesIg(profileId, igCreds.token, igCreds.igAccountId),
     ]);
+    if (igMetricsResult.status === 'fulfilled') {
+      // Auto-guerison du statut. Le commentaire de getIgCreds pose la regle —
+      // « l'effacement appartient au succes d'une LECTURE » — mais l'audit du
+      // 2026-09-02 a montre que RIEN ne l'appliquait : seul le callback OAuth
+      // remettait status='ok'. Un hoquet transitoire de Meta (429, 5xx) au moment
+      // du rafraichissement marquait donc l'integration « failed » pour toujours,
+      // bandeau en alerte, meme quand la collecte repartait a l'heure suivante.
+      // Le `.eq('status','failed')` rend l'ecriture inoffensive dans le cas
+      // nominal : zero ligne touchee quand tout va bien.
+      await supa.from('integrations')
+        .update({ status: 'ok', last_snapshot_error: null })
+        .eq('profile_id', profileId).eq('provider', 'instagram').eq('status', 'failed');
+    }
+    let backoffQuotaApplique = false;
     if (igMetricsResult.status === 'rejected') {
       const msg = igMetricsResult.reason?.message || 'unknown';
       errors.push(`ig_fetch: ${msg}`);
@@ -2686,6 +2800,12 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
           })
           .eq('profile_id', profileId).eq('provider', 'instagram');
         console.warn(`[poll-leads] ig_quota_epuise profile=${profileId} — cadence repoussee a 24 h`);
+        // ⚠️ Sans ce drapeau, l'horodatage inconditionnel de fin de bloc reecrivait
+        // last_synced_at a « maintenant » 15 lignes plus bas : le repli a 24 h ne
+        // prenait JAMAIS effet, et le compte au quota epuise retentait toutes les
+        // heures (constate a l'audit du 2026-09-02). Le garde-fou etait contourne
+        // par le code qui en implementait un autre.
+        backoffQuotaApplique = true;
       }
     }
     if (igPostsResult.status === 'fulfilled') errors.push(...igPostsResult.value);
@@ -2700,10 +2820,16 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
     // Ecrit meme en cas d'erreur, volontairement : sans ca, un compte dont le jeton est
     // expire relancerait ses appels toutes les 5 minutes indefiniment. L'erreur reste
     // tracee dans last_snapshot_error et dans cron_runs.
-    await supa.from('integrations')
-      .update({ last_synced_at: new Date().toISOString() })
-      .eq('profile_id', profileId)
-      .eq('provider', 'instagram');
+    //
+    // SAUF quand le backoff quota vient d'etre pose : lui porte deja un horodatage
+    // futur (+23 h), et le reecrire a « maintenant » l'annulerait — c'etait le cas
+    // jusqu'au 2026-09-02.
+    if (!backoffQuotaApplique) {
+      await supa.from('integrations')
+        .update({ last_synced_at: new Date().toISOString() })
+        .eq('profile_id', profileId)
+        .eq('provider', 'instagram');
+    }
   }
 
   // Short.io J-1 + click stream
@@ -3258,21 +3384,33 @@ Deno.serve(async (req: Request) => {
           erreurs: erreursActionnables,
         });
       }
-      // La saturation de la passe est un incident a part entiere : elle ne casse rien
-      // dans l'immediat (le profil differe repasse en tete dans 5 minutes) mais elle
-      // annonce que la fonction touche son plafond de temps. C'est le signal qu'il faut
-      // repartir les eleves sur plusieurs invocations -- et il doit arriver AVANT que
-      // des donnees commencent a manquer, pas apres.
-      if (profilsDifferes > 0) {
-        await supa.from('cron_runs').insert({
-          fonction: 'poll-leads',
-          profils_en_erreur: profilsDifferes,
-          erreurs: { saturation: `${profilsDifferes} profil(s) differes : budget de ${BUDGET_PASSE_MS / 1000}s atteint sur ${profiles.length} profils` },
-        });
-      }
     } catch (e) {
       // Ne jamais faire echouer un run a cause de sa propre journalisation.
       console.error('[poll-leads] cron_runs insert failed', e);
+    }
+  }
+
+  // La saturation de la passe est un incident a part entiere : elle ne casse rien
+  // dans l'immediat (le profil differe repasse en tete dans 5 minutes) mais elle
+  // annonce que la fonction touche son plafond de temps. C'est le signal qu'il faut
+  // repartir les eleves sur plusieurs invocations -- et il doit arriver AVANT que
+  // des donnees commencent a manquer, pas apres.
+  //
+  // ⚠️ HORS du bloc `if (allErrors)` ci-dessus — c'est la correction de l'audit du
+  // 2026-09-02 : un profil differe ne pousse RIEN dans allErrors, donc une passe
+  // saturee ou tous les profils sont sains (le cas nominal de croissance a 40
+  // eleves) avait allErrors vide et ce signal n'etait JAMAIS ecrit. Le garde-fou
+  // concu pour prevenir avant la perte de donnees etait inatteignable dans le
+  // scenario exact qu'il visait.
+  if (profilsDifferes > 0) {
+    try {
+      await supa.from('cron_runs').insert({
+        fonction: 'poll-leads',
+        profils_en_erreur: profilsDifferes,
+        erreurs: { saturation: `${profilsDifferes} profil(s) differes : budget de ${BUDGET_PASSE_MS / 1000}s atteint sur ${profiles.length} profils` },
+      });
+    } catch (e) {
+      console.error('[poll-leads] cron_runs saturation insert failed', e);
     }
   }
 

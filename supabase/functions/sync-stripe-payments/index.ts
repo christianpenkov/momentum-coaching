@@ -40,14 +40,19 @@ import { calculerCash, statutDeal } from '../_shared/dealCash.ts';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const CRON_SECRET = Deno.env.get('CRON_SECRET')!;
+// Pour joindre /api/stripe/deal-effects — même pattern que poll-leads et
+// notify-rapport.
+const PLATFORM_URL = Deno.env.get('NEXT_PUBLIC_PLATFORM_URL') || 'https://momentum-plateforme.vercel.app';
 // Clé PLATEFORME — sert aux comptes OAuth, avec l'en-tête `Stripe-Account`. Les
 // comptes en clé restreinte utilisent la leur. Même dualité que lib/stripe-account.ts.
 const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY') ?? '';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-// Limiteur Stripe PARTAGÉ par tout le run. Stripe plafonne à ~100 req/s en test
-// mais 25/s en live, et le compteur est par compte — or plusieurs élèves peuvent
+// Limiteur Stripe PARTAGÉ par tout le run. Stripe plafonne à ~100 req/s en live
+// et 25/s en mode test (et non l'inverse — corrigé le 2026-09-02, la version
+// précédente de ce commentaire avait inversé les deux), et le compteur est par
+// compte — or plusieurs élèves peuvent
 // dépendre du même compte Stripe (clé restreinte d'une plateforme tierce).
 // 20 req/s laisse une marge sous la limite live, sans ralentir un run normal.
 // Le 429 de Stripe renvoie l'en-tête standard, géré par le backoff du limiteur.
@@ -139,7 +144,17 @@ async function stripeList(acces: AccesStripe, path: string, since: number, extra
   let startingAfter: string | undefined;
   let tronque = false;
 
-  for (let page = 0; page < 10; page++) {
+  // 30 pages = 3 000 objets = 30 requêtes (~1,5 s au limiteur 20 req/s) : la borne
+  // protège le budget de 150 s sans être atteignable par un compte de coaching
+  // normal. Elle était à 10, ce qui créait un risque de blocage PERMANENT : un
+  // profil tronqué ne voit pas sa borne avancer (voulu — le plus ancien serait
+  // perdu), donc il rejouait la MÊME fenêtre de > 1 000 objets à chaque passage,
+  // indéfiniment. Le seul compte capable de dépasser 3 000 objets en 30 jours est
+  // une clé restreinte partagée avec une plateforme tierce à très fort volume —
+  // et ce cas-là se voit : la troncature est journalisée dans cron_runs à chaque
+  // passage.
+  const MAX_PAGES = 30;
+  for (let page = 0; page < MAX_PAGES; page++) {
     const body = await stripeGet(acces, path, {
       'created[gte]': String(since),
       limit: '100',
@@ -150,25 +165,43 @@ async function stripeList(acces: AccesStripe, path: string, since: number, extra
     out.push(...data);
     if (!body.has_more || !data.length) break;
     startingAfter = data[data.length - 1].id;
-    // Dixième page ET il en reste : on s'arrête sur la borne, pas sur la fin des
+    // Dernière page ET il en reste : on s'arrête sur la borne, pas sur la fin des
     // données. Le drapeau remonte jusqu'au curseur, qui ne bougera pas.
-    if (page === 9) tronque = true;
+    if (page === MAX_PAGES - 1) tronque = true;
   }
 
   return { data: out, tronque };
 }
 
 /**
- * Recalcule le statut d'un deal à partir de ses paiements réellement encaissés.
+ * Recalcule le statut d'un deal — en déléguant les cas À EFFETS à la route
+ * /api/stripe/deal-effects, qui exécute la règle COMPLÈTE (lib/dealStatus.ts).
  *
- * La règle vit dans _shared/dealCash.ts, copie exacte de lib/dealCash.ts — elle
- * était recopiée ici, dans le webhook et dans la route de la page Paiements, et
- * les trois ignoraient les remboursements.
+ * Cette copie Deno était une version AMPUTÉE de celle du webhook : recalcul du
+ * statut seul, sans `desactiverLiensDuDeal` ni le drapeau `unexpected_payment_at`
+ * ni la push. Pour un compte en clé restreinte (pas de webhook — ce cron est son
+ * seul chemin), un remboursement intégral fait au dashboard Stripe annulait la
+ * vente EN LAISSANT LE LIEN DE PAIEMENT ACTIF. Constaté à l'audit du 2026-09-02.
  *
- * `statutDeal` renvoie `null` quand il ne faut RIEN changer : c'est le cas d'un
- * deal annulé, qu'aucun paiement retardataire ne doit ressusciter.
+ * On ne porte PAS ces effets en Deno : ils importent le SDK Stripe, getStripeAccess
+ * et web-push — trois copies figées de plus, le mode de panne dominant du projet.
+ * La route les exécute avec le code de lib/, LA source. Même architecture que
+ * cron-refresh-tokens et cron-health (AGENTS.md, « Pourquoi les deux dernières
+ * restent sur Vercel »).
+ *
+ * ⚠️ Sur échec de la route, on n'applique PAS la transition localement : on lève.
+ * C'est ce qui rend la reprise CONVERGENTE — l'erreur retient la borne du profil,
+ * la passe suivante rejoue la fenêtre, revoit le remboursement, retombe sur la
+ * transition encore en attente, et re-délègue. Appliquer le statut localement
+ * aurait « consommé » la transition : la route, rappelée plus tard, n'aurait plus
+ * rien vu à faire, et les liens seraient restés actifs pour toujours. Le statut
+ * reste stale quelques passages en cas de panne Vercel ; le cash, lui, reste
+ * juste (il se calcule sur deal_payments, jamais sur le statut).
+ *
+ * Les transitions SANS effets (open → partiellement payé, etc.) restent locales :
+ * pas de saut réseau sur le chemin courant.
  */
-async function refreshDealStatus(dealId: string) {
+async function refreshDealStatus(dealId: string, argentEntrant: boolean) {
   const { data: deal } = await supabase
     .from('deals').select('amount_total, status').eq('id', dealId).maybeSingle();
   if (!deal) return;
@@ -178,6 +211,22 @@ async function refreshDealStatus(dealId: string) {
 
   const status = statutDeal(calculerCash(payments), deal.amount_total, deal.status);
 
+  const transitionAnnulation = status === 'canceled' && status !== deal.status;
+  const argentSurVenteTerminee = argentEntrant && (deal.status === 'ended' || deal.status === 'canceled');
+
+  if (transitionAnnulation || argentSurVenteTerminee) {
+    const res = await fetch(`${PLATFORM_URL}/api/stripe/deal-effects`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${CRON_SECRET}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dealId, argentEntrant }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) {
+      throw new Error(`deal-effects ${res.status} — transition non appliquée, rejouée au prochain passage`);
+    }
+    return; // La route a appliqué statut + effets.
+  }
+
   if (status && status !== deal.status) {
     await supabase.from('deals').update({ status }).eq('id', dealId);
   }
@@ -185,7 +234,7 @@ async function refreshDealStatus(dealId: string) {
   // ⚠️ ON NE TOUCHE PAS À L'APPEL ICI — un remboursement dit qu'un mouvement
   // d'argent a eu lieu, jamais pourquoi. Seul le geste explicite « Annuler la
   // vente » déclasse un appel. Même raisonnement, mêmes mots, dans
-  // app/api/webhooks/stripe/route.ts.
+  // lib/dealStatus.ts.
 }
 
 /**
@@ -205,7 +254,7 @@ async function upsertPayment(profileId: string, p: {
   subscriptionId: string | null;
   /** Lu sur charge.billing_details.email / invoice.customer_email — voir plus bas. */
   buyerEmail: string | null;
-}, touchedDeals: Set<string>): Promise<boolean> {
+}, touchedDeals: Set<string>, dealsArgentEntrant: Set<string>): Promise<boolean> {
   // ── Résoudre AVANT d'écrire ──────────────────────────────────────────────────
   // L'ordre a changé : la trace brute porte désormais la CAUSE de l'orphelinat, et
   // cette cause est un produit de la résolution. L'écrire ensuite aurait demandé une
@@ -304,8 +353,11 @@ async function upsertPayment(profileId: string, p: {
     await supabase.from('deal_installments').update({ status: 'paid' }).eq('id', installmentId);
   }
 
-  // Statut recalculé une seule fois par deal, en fin de profil.
+  // Statut recalculé une seule fois par deal, en fin de profil. Ce chemin-ci a
+  // écrit un paiement `succeeded` NOUVEAU : c'est le signal « argent entrant »
+  // qu'attend la règle du drapeau `unexpected_payment_at` (lib/dealStatus.ts).
   touchedDeals.add(dealId);
+  dealsArgentEntrant.add(dealId);
   return true;
 }
 
@@ -327,7 +379,7 @@ async function upsertPayment(profileId: string, p: {
  */
 async function upsertRefund(
   profileId: string,
-  charge: { id: string; amount_refunded: number; currency: string; metadata?: Record<string, string> | null; billing_details?: { email?: string | null } | null },
+  charge: { id: string; created: number; amount_refunded: number; currency: string; metadata?: Record<string, string> | null; billing_details?: { email?: string | null } | null },
   touchedDeals: Set<string>,
 ): Promise<void> {
   // `charge.id` et non `refund_${charge.id}` : c'est ce qu'écrit le webhook sur son
@@ -339,7 +391,17 @@ async function upsertRefund(
   // paiement, jamais la remplacer.
   const refundId = charge.id;
   const montant = Number(charge.amount_refunded ?? 0) / 100;
-  const quand = new Date().toISOString();
+  // ⚠️ La date est celle de la charge D'ORIGINE, comme au webhook — pas « maintenant ».
+  //
+  // Deux raisons, toutes deux constatées le 2026-09-02 :
+  //   1. `new Date()` violait le point 3 bis du checklist (état actuel sur ligne
+  //      datée) : la date du remboursement se réécrivait à chaque repassage de la
+  //      fenêtre, donc elle ne voulait rien dire.
+  //   2. Le webhook écrit `charge.created` (décision de Chris du 2026-08-30 : le
+  //      remboursement se soustrait au mois où l'argent était entré). Deux chemins,
+  //      deux dates pour la même ligne = la copie du cron écrasait la bonne valeur
+  //      du webhook à chaque passage de 30 min.
+  const quand = new Date(charge.created * 1000).toISOString();
 
   await supabase.from('stripe_payments').upsert({
     profile_id: profileId,
@@ -368,7 +430,14 @@ async function upsertRefund(
     stripe_payment_id: refundId,
     amount: montant,
     currency: charge.currency,
-    paid_at: null,
+    // ⚠️ JAMAIS null. `paid_at` borne les périodes partout (`gte`/`lte`) : à NULL,
+    // le remboursement était invisible de TOUTES les fenêtres, donc jamais déduit
+    // nulle part — le bug exact que le webhook documente et corrige depuis le
+    // 2026-08-30 (« 1 000 € encaissés et 200 € remboursés s'affichaient 1 000 € »).
+    // Cette copie Deno ne l'avait jamais reçu, et comme elle fait delete+insert,
+    // elle REMPLAÇAIT la ligne correcte du webhook par une ligne à NULL toutes les
+    // 30 minutes. Motif « deux copies, une seule à jour », sur de l'argent.
+    paid_at: quand,
     status: 'refunded',
     match_method: 'metadata',
   });
@@ -392,8 +461,12 @@ async function syncProfile(profileId: string, acces: AccesStripe, lastSyncedAt: 
   const since = Math.floor(from / 1000);
 
   // Deals touchés pendant ce profil — leur statut est recalculé une seule fois,
-  // en fin de fonction, plutôt qu'à chaque paiement attaché.
+  // en fin de fonction, plutôt qu'à chaque paiement attaché. Le second Set trace
+  // ceux qui ont reçu un paiement `succeeded` NOUVEAU pendant cette passe : c'est
+  // le signal `argentEntrant` de lib/dealStatus.ts (drapeau « paiement sur vente
+  // terminée »), qu'un remboursement seul ne doit jamais déclencher.
   const touchedDeals = new Set<string>();
+  const dealsArgentEntrant = new Set<string>();
 
   // Charges : les paiements comptant. Factures : les échéances d'abonnement.
   // Un paiement d'abonnement produit les deux — le dédoublonnage se fait en base.
@@ -442,7 +515,7 @@ async function syncProfile(profileId: string, acces: AccesStripe, lastSyncedAt: 
       metadata: charge.metadata ?? null,
       subscriptionId: null,
       buyerEmail: charge.billing_details?.email ?? null,
-    }, touchedDeals);
+    }, touchedDeals, dealsArgentEntrant);
 
     // `amount_refunded` est CUMULATIF : deux remboursements partiels de 200 puis
     // 100 donnent 200 puis 300. On réécrit donc la ligne à chaque passage plutôt
@@ -456,6 +529,42 @@ async function syncProfile(profileId: string, acces: AccesStripe, lastSyncedAt: 
     if (r.status === 'fulfilled') { if (r.value) attached++; }
     else errors.push(`charge ${charges[i].id}: ${r.reason?.message || 'unknown'}`);
   });
+
+  // ── Remboursements TARDIFS : la passe qui manquait ──────────────────────────
+  //
+  // La liste `charges` ci-dessus filtre sur `created[gte]` de la CHARGE. Or un
+  // remboursement arrive typiquement des jours ou des semaines après
+  // l'encaissement : sa charge d'origine est alors hors fenêtre, et son
+  // `amount_refunded` n'était jamais relu. Conséquence, constatée à l'audit du
+  // 2026-09-02 : pour un compte en clé restreinte (pas de webhook — cette
+  // fonction est son seul chemin), quasiment AUCUN remboursement réel n'était
+  // jamais enregistré. Le cash net restait faux, sans erreur, définitivement.
+  //
+  // `/v1/refunds` filtre sur la date DU REMBOURSEMENT : c'est la bonne clé de
+  // fenêtre. On ne relit la charge d'origine que pour les remboursements dont la
+  // charge est hors de la fenêtre courante (les autres sont déjà couverts par la
+  // passe ci-dessus) — le surcoût est donc proportionnel aux remboursements
+  // tardifs, c'est-à-dire quasi nul en régime établi.
+  const lotRefunds = await stripeList(acces, 'refunds', since);
+  tronque = tronque || lotRefunds.tronque;
+  const chargesDejaVues = new Set(lotCharges.data.map((c: any) => c.id));
+  const chargesARelire = [...new Set(
+    lotRefunds.data
+      .filter((r: any) => r.status === 'succeeded' && typeof r.charge === 'string' && !chargesDejaVues.has(r.charge))
+      .map((r: any) => r.charge as string),
+  )];
+  const refundResults = await mapWithConcurrency(chargesARelire, 4, async (chargeId: string) => {
+    // La charge relue porte `amount_refunded` CUMULATIF, metadata et e-mail —
+    // exactement ce qu'attend upsertRefund, qui réécrit la ligne à chaque fois.
+    const charge = await stripeGet(acces, `charges/${chargeId}`, {});
+    if (Number(charge.amount_refunded ?? 0) > 0) {
+      await upsertRefund(profileId, charge, touchedDeals);
+    }
+  });
+  refundResults.forEach((r, i) => {
+    if (r.status === 'rejected') errors.push(`refund charge ${chargesARelire[i]}: ${r.reason?.message || 'unknown'}`);
+  });
+  seen += chargesARelire.length;
 
   const lotFactures = await stripeList(acces, 'invoices', since, { status: 'paid' });
   tronque = tronque || lotFactures.tronque;
@@ -479,7 +588,7 @@ async function syncProfile(profileId: string, acces: AccesStripe, lastSyncedAt: 
       metadata: details?.metadata ?? inv.metadata ?? null,
       subscriptionId: typeof sub === 'string' ? sub : sub?.id ?? null,
       buyerEmail: inv.customer_email ?? null,
-    }, touchedDeals);
+    }, touchedDeals, dealsArgentEntrant);
   });
   invoiceResults.forEach((r, i) => {
     if (r.status === 'fulfilled') { if (r.value) attached++; }
@@ -490,7 +599,7 @@ async function syncProfile(profileId: string, acces: AccesStripe, lastSyncedAt: 
   // sinon le statut serait calculé sur une vue partielle des échéances.
   for (const dealId of touchedDeals) {
     try {
-      await refreshDealStatus(dealId);
+      await refreshDealStatus(dealId, dealsArgentEntrant.has(dealId));
     } catch (e) {
       errors.push(`deal_status ${dealId}: ${(e as Error).message}`);
     }
@@ -577,6 +686,14 @@ Deno.serve(async (req: Request) => {
       : integ.api_key ? { cle: integ.api_key, compte: null }
       : null;
 
+  // La borne de chaque profil est avancée ICI, dès que SON traitement se termine
+  // sans erreur ni troncature — et non plus dans une boucle après le règlement de
+  // TOUS les profils. La version précédente perdait tout au mur des 150 s : si la
+  // fonction mourait sur le 38ᵉ profil d'une passe massive (onboarding groupé,
+  // reprise après panne longue), les 37 profils déjà terminés ne gardaient rien,
+  // rejouaient leur fenêtre complète au passage suivant, et le même mur pouvait
+  // retomber — un blocage qui ne converge jamais. Le retraitement reste idempotent
+  // dans les deux sens ; avancer par profil fait simplement converger la reprise.
   const settled = await mapWithConcurrency(integrations as any[], 5, (integ) => {
     const a = acces(integ);
     if (!a) {
@@ -587,7 +704,18 @@ Deno.serve(async (req: Request) => {
       return Promise.resolve({ profile_id: integ.profile_id, seen: 0, attached: 0, errors: [cause], tronque: false });
     }
     return syncProfile(integ.profile_id, a, integ.metadata?.stripe_synced_at ?? null)
-      .then(r => ({ profile_id: integ.profile_id, ...r }));
+      .then(async (r) => {
+        if (!r.errors.length && !r.tronque) {
+          const { error: stampErr } = await supabase.rpc('set_integration_metadata_key', {
+            p_profile_id: integ.profile_id,
+            p_provider: 'stripe',
+            p_key: 'stripe_synced_at',
+            p_value: runStartedAt,
+          });
+          if (stampErr) console.error('[sync-stripe-payments] stripe_synced_at:', stampErr.message);
+        }
+        return { profile_id: integ.profile_id, ...r };
+      });
   });
 
   const results = settled.map((r, i) =>
@@ -601,33 +729,17 @@ Deno.serve(async (req: Request) => {
         }
   );
 
-  // On n'avance la borne QUE pour les profils sans erreur : un profil en échec
-  // rejouera sa fenêtre complète au cycle suivant. En cas de doute on retraite
-  // trop, jamais trop peu — même règle que sync-calendly.
+  // La borne n'est avancée QUE pour les profils sans erreur (un profil en échec
+  // rejouera sa fenêtre complète — en cas de doute on retraite trop, jamais trop
+  // peu, même règle que sync-calendly), NI pour les profils TRONQUÉS (Stripe liste
+  // du plus récent au plus ancien : ce qui manque est le plus ANCIEN de la fenêtre,
+  // avancer la borne le perdrait pour toujours). L'avance elle-même est faite
+  // profil par profil, dans la boucle ci-dessus — voir son commentaire.
   //
   // RPC plutôt qu'un update de l'objet metadata entier : sync-calendly écrit AUSSI
-  // dans integrations.metadata (user_uri, resource). Relire ici l'objet chargé en
-  // début de run puis le réécrire écrasait toute clé posée entre-temps par l'autre
-  // cron. jsonb_set côté serveur ne touche que la clé visée, sous verrou de ligne.
-  //
-  // ⚠️ NI pour les profils TRONQUÉS. Stripe renvoie ses listes du plus RÉCENT au plus
-  // ancien : quand on s'arrête à la 10ᵉ page, ce qui manque est le plus ANCIEN de la
-  // fenêtre. Avancer la borne le perdrait pour toujours — exactement la classe de
-  // défaut de `jourLePlusAncienVu` côté Short.io (« ne jamais réécrire une journée que
-  // le flux n'a pas couverte »). On laisse donc la borne où elle est : la passe
-  // suivante rejoue la même fenêtre, le retraitement est idempotent (garde `existing`
-  // + index unique), et la troncature est journalisée pour qu'elle se voie.
-  for (const r of results) {
-    if (r.errors.length || r.tronque) continue;
-    const { error: stampErr } = await supabase.rpc('set_integration_metadata_key', {
-      p_profile_id: r.profile_id,
-      p_provider: 'stripe',
-      p_key: 'stripe_synced_at',
-      p_value: runStartedAt,
-    });
-    if (stampErr) console.error('[sync-stripe-payments] stripe_synced_at:', stampErr.message);
-  }
-
+  // dans integrations.metadata (user_uri, resource). Relire l'objet puis le
+  // réécrire écrasait toute clé posée entre-temps par l'autre cron. jsonb_set côté
+  // serveur ne touche que la clé visée, sous verrou de ligne.
   const allErrors: Record<string, string[]> = {};
   for (const r of results) if (r.errors.length) allErrors[r.profile_id] = r.errors;
 

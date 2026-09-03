@@ -288,8 +288,15 @@ async function syncCalendlyEleve(
 
   let skipped = 0;
 
-  // Parallélise tous les appels invitees — critique pour ne pas dépasser 150s
-  const results = await Promise.allSettled(allEvents.map(async (event: any) => {
+  // Concurrence BORNÉE (4) et non `Promise.allSettled(map)` : la version non
+  // bornée lançait UN appel /invitees par event actif, tous EN MÊME TEMPS. À
+  // ~60 events dans la fenêtre (60 j avant + 48 h arrière), la rafale dépassait
+  // le quota Calendly par jeton en une seconde → 429 en série. Et comme la
+  // réponse n'était pas vérifiée (voir plus bas), ces 429 ÉCRASAIENT des données
+  // correctes. Borner à 4 suffit largement pour le budget de 150 s (les appels
+  // durent ~200-400 ms), et le 429 résiduel est désormais une erreur visible,
+  // plus un effaceur silencieux.
+  const results = await mapWithConcurrency(allEvents, 4, (async (event: any) => {
     const eventUuid = event.uri?.split('/').pop() || '';
     if (!eventUuid) return false;
 
@@ -324,7 +331,20 @@ async function syncCalendlyEleve(
       `https://api.calendly.com/scheduled_events/${eventUuid}/invitees?count=10`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
-    const inviteesData = await inviteesRes.json();
+    // ⚠️ VÉRIFIÉE, contrairement à avant — c'était le défaut le plus grave de
+    // cette fonction (audit du 2026-09-02). Sur un 429/401, `collection` était
+    // undefined → `invitee = null` → l'upsert plus bas écrivait
+    // `invitee_email: null`, `invitee_name: null`, `calendly_qa: null` et
+    // `source: null` PAR-DESSUS une ligne qui portait ces valeurs. Une ligne
+    // correcte était VIDÉE, en silence, à chaque passage de 30 min — et c'est le
+    // SEUL chemin d'écriture des rendez-vous (pas de webhook Calendly).
+    // On lève : l'event part en erreur, la borne du profil ne bouge pas, le
+    // passage suivant retraite. Un trou se rattrape ; une ligne vidée, non.
+    if (!inviteesRes.ok) {
+      throw new Error(`calendly_invitees_http_${inviteesRes.status} (event ${eventUuid})`);
+    }
+    const inviteesData = await inviteesRes.json().catch(() => null);
+    if (!inviteesData) throw new Error(`calendly_invitees_illisible (event ${eventUuid})`);
     const invitees: any[] = inviteesData?.collection || [];
     const invitee = invitees[0] || null;
 
