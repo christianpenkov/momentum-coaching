@@ -266,7 +266,12 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
   // ── Étape 2 : la conséquence, écrite avant de valider ─────────────────────
   return (
     <ModaleAction
-      titre={duFinal ? `Réclamer ${fmtEurExact(montant)} à ${prenom}` : `Ramener la vente à ${fmtEurExact(nouveauMontant)}`}
+      // Le titre suit la branche RÉELLEMENT choisie. Il annonçait « Ramener la
+      // vente à 800,00 € » alors que l'arrêt ne baisse aucun montant — l'en-tête
+      // contredisait le corps de l'écran, sur la seule ligne qu'on lit en premier.
+      titre={duFinal ? `Réclamer ${fmtEurExact(montant)} à ${prenom}`
+        : continue_ ? `Ramener la vente à ${fmtEurExact(nouveauMontant)}`
+        : 'Clôturer cette vente'}
       sousTitre={`Vente du ${fmtDateLong(deal.signedAt)}`}
       onClose={onClose}
       bloque={envoi}
@@ -324,7 +329,7 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
               arrive juste par un autre chemin quand tout avait été payé d'avance,
               et doit donner le MÊME état — sinon deux clients qui ont décroché
               pareil se lisent différemment dans la liste. */}
-          <div>
+          <div style={{ marginBottom: 14 }}>
             <Section marge={0}>L’accompagnement s’est-il arrêté ?</Section>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <Chip on={continue_} onClick={() => setContinue(true)}>
@@ -369,22 +374,28 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
           ) : (
             <>
               <Encart ton="bien" titre="Ce que ça veut dire">
-                Tu avais bien vendu <strong>{fmtEurExact(deal.amountTotal)}</strong> —
-                ce montant ne bouge pas. La vente passe en <strong>Clôturée</strong> :
-                l’accompagnement s’est arrêté avant la fin, et les{' '}
-                {fmtEurExact(montant)} rendus restent visibles comme tels.
-                {' '}C’est exactement ce qui se serait passé sur un paiement en
-                plusieurs fois interrompu — même situation, même état.
+                Tu avais bien vendu <strong>{fmtEurExact(deal.amountTotal)}</strong>,
+                et ce montant ne bouge pas. La vente passe en{' '}
+                <strong>Clôturée</strong> : tu n’attends plus rien dessus, elle
+                sort des relances, et les {fmtEurExact(montant)} rendus restent
+                visibles comme de l’argent rendu.
               </Encart>
               <div style={{ marginTop: 12 }}>
                 <Ligne label="Cash contracté" valeur={`${fmtEurExact(deal.amountTotal)} — inchangé`} />
                 <Ligne label="Cash encaissé" valeur={`${fmtEurExact(deal.collected)} — inchangé`} />
+                {/* La question qui restait sans réponse à l'écran : le
+                    pourcentage. Ne pas la traiter laissait croire à un chiffre
+                    en suspens, alors que 80 % est ici la bonne valeur. */}
+                <Ligne label="Encaissé sur contracté"
+                  valeur={`${Math.round((deal.collected / (deal.amountTotal || 1)) * 100)} % — inchangé`} />
                 <Ligne label="La vente passe en" valeur="Clôturée" ton="fort" />
                 <Ligne label={`${prenom} sera relancé`} valeur="Non" />
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10, lineHeight: 1.6 }}>
-                L’écart entre les deux chiffres n’est pas une anomalie : c’est
-                l’argent que tu as rendu parce que l’accompagnement s’est arrêté.
+                Cette vente ne sera donc <strong>jamais à 100 %</strong>, et c’est
+                voulu : les {fmtEurExact(montant)} manquants sont l’argent que tu
+                as rendu parce que l’accompagnement s’est arrêté. C’est ce que
+                l’écart raconte.
               </div>
             </>
           )}
