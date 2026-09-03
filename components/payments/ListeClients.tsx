@@ -60,6 +60,13 @@ function LigneClient({ person, deals, isMobile, isCoach, onOuvrir }: {
   // clients directs ; l'élève n'a que des clients directs, le libellé n'y aurait
   // aucun sens.
   const siennes = deals.filter(d => person.dealIds.includes(d.id));
+
+  // ── Ce qui attend une réponse ─────────────────────────────────────────────
+  // La pastille dit l'ÉTAT d'une vente, jamais qu'elle attend quelque chose de
+  // toi. Un remboursement sans raison ne change aucun état — la vente reste
+  // « Soldée » — et la question ne se voyait donc qu'en ouvrant la fiche, une
+  // par une. Une question qu'il faut chercher est une question sans réponse.
+  const aExpliquer = siennes.some(d => d.refundInexplique > 0.005);
   const origine = isCoach ? person.subtitleCoach : person.subtitle;
   const soustitre = [origine, resume(siennes, person)].filter(Boolean).join(' · ');
 
@@ -105,6 +112,19 @@ function LigneClient({ person, deals, isMobile, isCoach, onOuvrir }: {
               {person.name}
             </span>
             <span style={{ width: 7, height: 7, borderRadius: '50%', background: e.color, flexShrink: 0 }} />
+            {/* Une étiquette et non une teinte : la couleur de la pastille est
+                déjà prise par l'état, et lui en superposer une seconde rendrait
+                les deux illisibles. Le mot dit ce qu'on attend de toi. */}
+            {aExpliquer && (
+              <span style={{
+                flexShrink: 0, fontSize: 9.5, fontWeight: 600, letterSpacing: '.2px',
+                padding: '2px 7px', borderRadius: 999, whiteSpace: 'nowrap',
+                background: 'var(--amber-soft)', color: 'var(--amber-ink)',
+                border: '1px solid rgba(181,128,37,.28)',
+              }}>
+                À EXPLIQUER
+              </span>
+            )}
           </span>
           <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {soustitre}
