@@ -40,6 +40,7 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
   const [query, setQuery] = useState('');
   const [options, setOptions] = useState<LeadOption[]>([]);
   const [loadingOptions, setLoadingOptions] = useState(true);
+  const [tronque, setTronque] = useState(false);
   const [selected, setSelected] = useState<LeadOption | null>(null);
   const [freeName, setFreeName] = useState('');
   const [amount, setAmount] = useState('');
@@ -74,7 +75,7 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
     const t = setTimeout(() => {
       fetch(`/api/payments/people?q=${encodeURIComponent(query.trim())}&kind=${who}`)
         .then(r => r.ok ? r.json() : { people: [] })
-        .then(d => setOptions(d.people ?? []))
+        .then(d => { setOptions(d.people ?? []); setTronque(!!d.tronque); })
         .catch(() => setOptions([]))
         .finally(() => setLoadingOptions(false));
     }, query ? 250 : 0);
@@ -235,8 +236,13 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
                         ))
                       ) : options.length === 0 ? (
                         <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: 'var(--muted)', padding: '0 16px', textAlign: 'center' }}>
+                          {/* « Aucun client » sans autre mot laissait croire à une
+                              panne. Il dit maintenant POURQUOI la liste est vide —
+                              cet onglet lit les élèves d'un coach, pas les gens à
+                              qui tu as vendu. */}
                           {query ? 'Aucun résultat'
-                            : who === 'prospect' ? 'Aucun prospect' : 'Aucun client'}
+                            : who === 'prospect' ? 'Aucun prospect'
+                            : 'Aucun client existant — cet onglet liste les élèves que tu accompagnes sur Momentum, pas les personnes à qui tu as déjà vendu.'}
                         </div>
                       ) : (
                         options.map(o => (
@@ -252,6 +258,14 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
                         ))
                       )}
                     </div>
+                    {/* Une troncature muette se lit comme une absence : on conclut
+                        que la personne n'existe pas, et on la ressaisit en « hors
+                        pipeline » — ce qui lui fabrique une seconde fiche. */}
+                    {tronque && !query && (
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6, lineHeight: 1.5 }}>
+                        Seules les {options.length} plus récentes sont affichées. Cherche par nom si tu ne trouves pas la tienne.
+                      </div>
+                    )}
                   </>
                 )}
               </Block>

@@ -27,7 +27,15 @@ const supa = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const LIMIT = 12;
+// ⚠️ Appliqué à CHAQUE source ET à la réponse finale. À 12, une liste de 18
+// prospects en montrait 12 sans rien dire — on en conclut que la personne
+// n'existe pas, et on la ressaisit à la main en « hors pipeline », ce qui fait
+// une seconde fiche pour quelqu'un qui en avait déjà une.
+//
+// 40 couvre confortablement un pipeline réel tout en gardant la requête légère.
+// Et quand la coupe MORD, l'écran le dit : une troncature muette est pire qu'une
+// liste courte, parce qu'elle se lit comme une absence.
+const LIMIT = 40;
 
 interface Person {
   id: string;
@@ -315,5 +323,8 @@ export async function GET(request: NextRequest) {
     return db.localeCompare(da);
   });
 
-  return NextResponse.json({ people: withDeals.slice(0, LIMIT) });
+  return NextResponse.json({
+    people: withDeals.slice(0, LIMIT),
+    tronque: withDeals.length > LIMIT,
+  });
 }
