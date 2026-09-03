@@ -1,10 +1,15 @@
 // GENERE — ne pas modifier a la main.
 //
-// `node scripts/empreintes-edge.mjs` le reecrit ; `npm test` echoue s'il est perime.
-// Le motif complet est dans l'en-tete de ce script : une Edge Function ne part pas avec
-// `git push`, et rien ne savait dire qu'une fonction en ligne etait plus vieille que le
-// code. L'empreinte couvre `index.ts` ET la cloture de ses imports locaux, parce qu'un
-// deploiement fige sa propre copie des modules partages.
+// Reecrit par `npm run empreintes-edge`, et automatiquement par `npm run prebuild`
+// (donc a chaque construction Vercel) et par `npm run deployer-edge <nom>` juste avant
+// l'envoi. Aucun test ne garde ce fichier : il n'a pas a etre a jour dans le depot, il
+// a a etre a jour AU MOMENT DU DEPLOIEMENT — c'est la valeur qu'il portait alors que le
+// bundle fige, et c'est elle qu'on compare.
+//
+// Le motif complet est dans l'en-tete de `scripts/empreintes-edge.mjs` : une Edge
+// Function ne part pas avec `git push`, et rien ne savait dire qu'une fonction en ligne
+// etait plus vieille que le code. L'empreinte couvre `index.ts` ET la cloture de ses
+// imports locaux, parce qu'un deploiement fige sa propre copie des modules partages.
 //
 // ⚠️ Chaque valeur ne change que si le code de CETTE fonction change. Ce n'est pas un
 // identifiant de commit : un identifiant de commit bougerait a chaque commit et
