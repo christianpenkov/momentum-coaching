@@ -9047,12 +9047,12 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           }
           cleAide="roles"
           aide={<>
-            <div><b>À quoi sert ce tableau.</b> Il répond à la question : qu&apos;est-ce que ce contenu a produit ? Pas pour les gens qu&apos;il a fait entrer, mais au total — y compris pour des personnes arrivées par ailleurs.</div>
+            <div><b>À quoi sert ce tableau.</b> Il répond à la question : qu&apos;est-ce que ce contenu a <b>déclenché</b> ? Pas seulement chez les gens qu&apos;il a fait entrer, mais au total — y compris chez des personnes arrivées par ailleurs.</div>
             <div><b>Il compte des événements, pas des personnes.</b> Une personne qui réserve deux fois compte deux fois. C&apos;est pourquoi ses nombres diffèrent de ceux du Parcours des leads, juste au-dessus, qui suit des personnes.</div>
             <div><b>Les trois chiffres ne se suivent pas, et on ne les additionne jamais.</b> Combien de personnes ce contenu a fait entrer, combien de conversations il a déclenchées, combien de rendez-vous il a produits : trois questions séparées. Un contenu peut ne faire entrer personne et produire des rendez-vous, quand des gens déjà présents réservent par son lien.</div>
             <div><b>Les rendez-vous d&apos;un contenu viennent de plusieurs origines</b> : le lien Calendly de sa description, celui envoyé en DM après son lead magnet, et d&apos;autres. Ils sont tous comptés ici.</div>
             <div><b>La période porte sur la date de chaque événement.</b> Un rendez-vous de juin apparaît en juin, même si la personne était entrée en mars.</div>
-            <div><b>L&apos;argent a sa propre date, et c&apos;est voulu.</b> Un rendez-vous réservé le 29 août pour le 2 septembre compte dans les calls bookés d&apos;août et dans le revenue de septembre. Un rendez-vous se produit quand on le réserve, une vente quand il a lieu : les aligner daterait la vente avant le rendez-vous qui l&apos;a produite.</div>
+            <div><b>Un rendez-vous et son argent ne tombent pas toujours dans le même mois.</b> Quelqu&apos;un réserve le <b>29 août</b> pour un appel le <b>2 septembre</b>, et il achète pendant l&apos;appel. Vous verrez ce rendez-vous dans les <b>calls bookés d&apos;août</b>, et son argent dans le <b>revenue de septembre</b>.<br /><br />Ce n&apos;est pas une erreur : ce sont deux faits qui n&apos;ont pas eu lieu le même jour. Le rendez-vous a été décroché en août, la vente s&apos;est faite en septembre. Si on les forçait dans le même mois, on daterait la vente <b>avant</b> l&apos;appel qui l&apos;a produite — et une bonne semaine de prospection en fin de mois vous paraîtrait mauvaise, parce que son argent n&apos;arrive que le mois suivant.</div>
           </>}
         />
 
