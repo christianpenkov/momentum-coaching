@@ -6,6 +6,9 @@ import { useQuery } from '@tanstack/react-query';
 import { createClient as createSupabase } from '@/lib/supabase/client';
 import { resolveUser } from '@/lib/waitForSession';
 import { getPeriodWindow, parisDateStr } from '@/lib/period';
+import {
+  etatDesSources, sourcesManquantes, sansAudience, enumerer, type SourcePage,
+} from '@/lib/sourcesStatsClients';
 import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import { calculerCash, type LignePaiement } from '@/lib/dealCash';
 import { fetchLignesLeadsBatch, compterLeads, type LignesLeads, type LigneCallLead } from '@/lib/salesCallStats';
@@ -93,13 +96,14 @@ interface DonneesStats {
    *  pas afficher « il y a 5 min » quand la moitié du portefeuille date d'hier. */
   dernierJourParProfil: Map<string, string>;
   /** Déclarés prêts, mais AUCUN compte Instagram ni YouTube branché. Cette page ne peut
-   *  rien dire d'eux : ni abonnés, ni vues, ni publications. Ils tombaient entre les
-   *  filets — trop « prêts » pour le bandeau d'installation, sans intégration en erreur
-   *  pour le bandeau d'intégration. */
-  sansSource: { profileId: string; nom: string }[];
+   *  rien dire d'eux : ni abonnés, ni vues, ni publications. */
+  sansAudience: { profileId: string; nom: string }[];
   /** Une source d'audience EST branchée et pourtant rien n'a jamais été collecté.
    *  Distinct du précédent : rien à connecter, une collecte à faire repartir. */
   sourceMuette: { profileId: string; nom: string }[];
+  /** L'audience est là, mais il manque d'autres sources de CETTE page : leurs colonnes
+   *  sont vides sans que rien ne dise pourquoi. */
+  partiels: { profileId: string; nom: string; manquantes: SourcePage[] }[];
   /** Élèves dont une intégration est tombée APRÈS le gate. Leur `integrations_ready_at`
    *  reste posé, donc ils comptent dans les totaux — avec des chiffres figés au jour de
    *  la panne, et rien à l'écran ne le dirait sans ce bandeau. */
@@ -252,48 +256,53 @@ async function charger(period: Period, periodIndex: number, allTime: boolean): P
     if (r.dernier_jour) dernierJourParProfil.set(r.profile_id, r.dernier_jour);
   }
 
-  // ⚠️ `status <> 'ok'` n'est PAS un filtre d'anomalie : `non_connectee` dit seulement
-  // que l'intégration n'a jamais été branchée, ce qui est le cas normal d'un élève en
-  // installation. Seule une intégration explicitement en erreur compte ici.
-  const nomParProfil = new Map(clients.filter(c => c.profile_id).map(c => [c.profile_id!, c.name]));
-  const cassesParProfil = new Set<string>();
-  /* ⚠️ Seuls Instagram et YouTube produisent une AUDIENCE. Les autres intégrations
-   * servent à autre chose : Short.io compte des clics, Calendly des rendez-vous, Stripe
-   * des encaissements. Un élève qui n'a que Short.io de branché n'a aucun abonné,
-   * aucune vue, aucune publication à afficher — cette page ne peut rien dire de lui.
-   *
-   * C'est le défaut trouvé le 2026-09-03 : « Meta Review » n'a que `shortio`, mais il
-   * produisait quand même 18 lignes de snapshots aux colonnes d'audience toutes nulles.
-   * Le critère précédent testait « a-t-il au moins une ligne en base », donc il passait
-   * à travers. La bonne question n'est pas « y a-t-il des lignes » mais « y a-t-il une
-   * source ». */
-  const avecSourceAudience = new Set<string>();
-  for (const r of (integRes.data || []) as { profile_id: string; provider: string | null; status: string | null }[]) {
-    if (r.status === 'error' || r.status === 'expired' || r.status === 'revoked') cassesParProfil.add(r.profile_id);
-    if (r.provider === 'instagram' || r.provider === 'youtube') avecSourceAudience.add(r.profile_id);
-  }
+  /* ⚠️ La liste des providers vient de `lib/sourcesStatsClients.ts`, jamais d'ici.
+   * Elle était écrite en dur dans ce fichier jusqu'au 2026-09-03, ce que
+   * `app/api/integrations/health/route.ts` interdit explicitement : « un écran qui les
+   * redéciderait serait la copie suivante d'une règle qui doit valoir partout pareil ». */
+  const etatSources = etatDesSources(
+    (integRes.data || []) as { profile_id: string; provider: string | null; status: string | null }[],
+  );
 
   const declares = clients.filter(c => c.profile_id && c.integrations_ready_at && !c.archived_at);
+  const etatDe = (c: ClientBrut) => etatSources.get(c.profile_id!);
 
-  /* Déclaré prêt, mais aucune source d'audience branchée. C'est la cause RACINE, et
-   * elle est actionnable : il faut connecter un compte. */
-  const sansSource = declares
-    .filter(c => !avecSourceAudience.has(c.profile_id!))
+  /* Une intégration TOMBÉE. Ses chiffres sont figés au jour de la panne et continuent
+   * d'être comptés : c'est le seul cas qui FAUSSE les totaux. */
+  const integrationsCassees = declares
+    .filter(c => (etatDe(c)?.cassees.size ?? 0) > 0)
     .map(c => ({ profileId: c.profile_id!, nom: c.name }));
 
-  /* Une source EST branchée, et pourtant rien n'est jamais arrivé. Cas distinct du
-   * précédent : là il n'y a rien à connecter, il y a une collecte à faire repartir.
-   * Transitoire dans les heures qui suivent une connexion, anormal au-delà. */
+  /* Ni Instagram ni YouTube : l'élève ne figure sur AUCUN graphe. Conséquence d'une
+   * autre nature qu'une colonne vide, d'où sa propre phrase. */
+  const sansAudienceListe = declares
+    .filter(c => sansAudience(etatDe(c)))
+    .map(c => ({ profileId: c.profile_id!, nom: c.name }));
+
+  /* Une source d'audience est branchée et pourtant rien n'est jamais arrivé. Rien à
+   * connecter ici : une collecte à faire repartir. Transitoire dans les heures qui
+   * suivent une connexion, anormal au-delà. */
   const sourceMuette = declares
-    .filter(c => avecSourceAudience.has(c.profile_id!) && !dernierJourParProfil.has(c.profile_id!))
+    .filter(c => !sansAudience(etatDe(c)) && !dernierJourParProfil.has(c.profile_id!))
     .map(c => ({ profileId: c.profile_id!, nom: c.name }));
+
+  /* Il manque une ou plusieurs sources, mais l'audience est là : l'élève apparaît, avec
+   * des colonnes vides. Tranché avec Chris le 2026-09-03 — il veut être prévenu, mais
+   * ceux qui n'ont AUCUNE audience reçoivent déjà un message plus fort, alors on ne les
+   * nomme pas deux fois. */
+  const sansAudienceIds = new Set(sansAudienceListe.map(x => x.profileId));
+  const partiels = declares
+    .filter(c => !sansAudienceIds.has(c.profile_id!))
+    .map(c => ({ profileId: c.profile_id!, nom: c.name, manquantes: sourcesManquantes(etatDe(c)) }))
+    .filter(x => x.manquantes.length > 0);
 
   return {
     clients,
     dernierJourParProfil,
-    sansSource,
+    sansAudience: sansAudienceListe,
     sourceMuette,
-    integrationsCassees: [...cassesParProfil].map(pid => ({ profileId: pid, nom: nomParProfil.get(pid) ?? 'Élève' })),
+    partiels,
+    integrationsCassees,
     series: (seriesRes.data || []) as LigneSerie[],
     seriesPrecedentes: (precRes.data || []) as LigneSerie[],
     calls: (callsRes.data || []) as any[],
@@ -623,8 +632,20 @@ export default function PageStatsClients() {
    * effort là où un compte à 140 000 plafonne à +12 %. Ce graphe sert à lire la FORME
    * des trajectoires, pas à classer les élèves — le classement, c'est le tableau.
    */
-  const { seriesAccompagnement, semainesMax, masquesTropRecents } = useMemo(() => {
-    if (!data) return { seriesAccompagnement: [] as SerieGraphe[], semainesMax: 1, masquesTropRecents: 0 };
+  /* ⚠️ Un élève non tracé doit être COMPTÉ et sa raison retenue.
+   *
+   * La version précédente sortait de la boucle par un `continue` nu quand la date
+   * d'arrivée manquait : l'élève disparaissait du graphe ET du compte. Sur le compte de
+   * test, DRG n'a pas de `onboarding_completed_at` — la note annonçait donc « 1 élève »
+   * là où deux ne figuraient nulle part. Un écran qui compte mal ce qu'il cache est
+   * pire qu'un écran qui ne compte rien : on le croit. */
+  const { seriesAccompagnement, semainesMax, nonTraces } = useMemo(() => {
+    const vide = {
+      seriesAccompagnement: [] as SerieGraphe[], semainesMax: 1,
+      nonTraces: new Map<string, RaisonNonTrace>(),
+    };
+    if (!data) return vide;
+    const nonTraces = new Map<string, RaisonNonTrace>();
     const maintenant = new Date();
     const parProfil = new Map<string, LigneSerie[]>();
     for (const r of data.accompagnement) {
@@ -640,23 +661,22 @@ export default function PageStatsClients() {
       : metriqueAccompagnement === 'publications' ? 'publications'
       : 'ig_followers';
 
-    let masques = 0;
     let maxSemaines = 1;
     const series: SerieGraphe[] = [];
 
     for (const c of data.clients) {
-      if (!c.profile_id || !c.onboarding_completed_at) continue;
       if (c.archived_at) continue;
+      if (!c.profile_id || !c.onboarding_completed_at) { nonTraces.set(c.id, 'sans-arrivee'); continue; }
       const jours = ancienneteEnJours(c.onboarding_completed_at, maintenant);
       // D21 : un élève de moins de cinq jours n'a pas une trajectoire, il a deux points.
-      if (jours === null || jours < JOURS_MINIMUM_TRAJECTOIRE) { masques++; continue; }
+      if (jours === null || jours < JOURS_MINIMUM_TRAJECTOIRE) { nonTraces.set(c.id, 'trop-recent'); continue; }
 
       // Le lundi de la semaine d'arrivée, calculé par la même règle que la base
       // (date_trunc('week'), norme ISO) — sinon les index se décalent d'une semaine.
       const lundiArrivee = sequenceFenetres(
         new Date(c.onboarding_completed_at), new Date(c.onboarding_completed_at), 'semaine',
       )[0];
-      if (!lundiArrivee) continue;
+      if (!lundiArrivee) { nonTraces.set(c.id, 'sans-arrivee'); continue; }
       const t0 = new Date(lundiArrivee + 'T00:00:00Z').getTime();
 
       const brutes: (number | null)[] = [];
@@ -667,7 +687,7 @@ export default function PageStatsClients() {
         brutes[idx] = v === null || v === undefined ? null : Number(v);
       }
       for (let i = 0; i < brutes.length; i++) if (brutes[i] === undefined) brutes[i] = null;
-      if (brutes.filter(v => v !== null).length < 2) { masques++; continue; }
+      if (brutes.filter(v => v !== null).length < 2) { nonTraces.set(c.id, 'sans-donnees'); continue; }
 
       let valeurs: (number | null)[];
       if (nature === 'niveau') {
@@ -681,7 +701,8 @@ export default function PageStatsClients() {
       }
 
       const borne = plageAccompagnement > 0 ? valeurs.slice(0, plageAccompagnement) : valeurs;
-      if (borne.filter(v => v !== null).length < 2) { masques++; continue; }
+      // Assez de données, mais pas dans la PLAGE affichée (S1-S12 par exemple).
+      if (borne.filter(v => v !== null).length < 2) { nonTraces.set(c.id, 'hors-plage'); continue; }
       maxSemaines = Math.max(maxSemaines, borne.length);
       series.push({
         nom: c.id,
@@ -690,7 +711,7 @@ export default function PageStatsClients() {
         valeurs: borne,
       });
     }
-    return { seriesAccompagnement: series, semainesMax: maxSemaines, masquesTropRecents: masques };
+    return { seriesAccompagnement: series, semainesMax: maxSemaines, nonTraces };
   }, [data, metriqueAccompagnement, plageAccompagnement]);
 
   const etiquettesAccompagnement = useMemo(() => {
@@ -819,11 +840,13 @@ export default function PageStatsClients() {
         <EcranVide lignes={lignes} />
       ) : (
         <>
-          {data && (data.integrationsCassees.length > 0 || data.sansSource.length > 0 || data.sourceMuette.length > 0) && (
+          {data && (data.integrationsCassees.length > 0 || data.sansAudience.length > 0
+            || data.sourceMuette.length > 0 || data.partiels.length > 0) && (
             <BandeauIntegrations
               casses={data.integrationsCassees}
-              sansSource={data.sansSource}
+              sansAudience={data.sansAudience}
               muets={data.sourceMuette}
+              partiels={data.partiels}
               onVoir={montrerDansLeTableau}
             />
           )}
@@ -908,13 +931,12 @@ export default function PageStatsClients() {
                 ? `${v >= 0 ? '+' : ''}${Math.round(v)} %`
                 : formaterValeur(v, METRIQUES[metriqueAccompagnement].unite)}
             />
-            {masquesTropRecents > 0 && (
+            {nonTraces.size > 0 && (
               <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 9, fontFamily: 'var(--font-mono)' }}>
-                {masquesTropRecents} élève{masquesTropRecents > 1 ? 's' : ''} sans trajectoire encore lisible
-                {masquesTropRecents > 1 ? ' ne sont' : ' n\'est'} pas tracé{masquesTropRecents > 1 ? 's' : ''}
+                {phraseNonTraces(nonTraces)}
               </div>
             )}
-            <Legende lignes={lignes} epingle={epingle} setEpingle={setEpingle} />
+            <Legende lignes={lignes} epingle={epingle} setEpingle={setEpingle} nonTraces={nonTraces} />
           </div>
 
           <div ref={ancreTableau} style={{ scrollMarginTop: 16 }} />
@@ -934,6 +956,30 @@ export default function PageStatsClients() {
       </div>
     </div>
   );
+}
+
+/** Pourquoi un élève ne figure pas sur le graphe d'accompagnement. Quatre raisons, et
+ *  elles ne se valent pas : deux se résorberont seules, deux demandent une action. */
+type RaisonNonTrace = 'trop-recent' | 'sans-donnees' | 'sans-arrivee' | 'hors-plage';
+
+const LIBELLES_NON_TRACE: Record<RaisonNonTrace, string> = {
+  'trop-recent':  'trop récent',
+  'sans-donnees': 'aucune donnée',
+  'sans-arrivee': "sans date d'arrivée",
+  'hors-plage':   'hors de la plage',
+};
+
+/** La note sous le graphe. Elle groupe par raison plutôt que d'annoncer un total :
+ *  « 3 élèves ne sont pas tracés » n'apprend rien, alors que « 2 sans donnée, 1 trop
+ *  récent » dit lequel se réglera tout seul. */
+function phraseNonTraces(nonTraces: Map<string, RaisonNonTrace>): string {
+  const parRaison = new Map<RaisonNonTrace, number>();
+  for (const r of nonTraces.values()) parRaison.set(r, (parRaison.get(r) ?? 0) + 1);
+  const morceaux = (Object.keys(LIBELLES_NON_TRACE) as RaisonNonTrace[])
+    .filter(r => parRaison.has(r))
+    .map(r => `${parRaison.get(r)} ${LIBELLES_NON_TRACE[r]}`);
+  const total = nonTraces.size;
+  return `${total} élève${total > 1 ? 's' : ''} non tracé${total > 1 ? 's' : ''} — ${morceaux.join(', ')}`;
 }
 
 /* ═══ Sous-composants ════════════════════════════════════════════════════════ */
@@ -965,13 +1011,27 @@ function Delta({ valeur, comparaison, unite }: { valeur: number | null; comparai
  *
  * « Voir lesquels » filtre le tableau du bas : le mécanisme de la recherche, déclenché
  * par le lien. Aucune modale, aucune écriture — on n'agit jamais depuis cette page. */
-function BandeauIntegrations({ casses, sansSource, muets, onVoir }: {
+/* Quatre lignes possibles, parce qu'il y a quatre ACTIONS différentes derrière — les
+ * fondre en un seul avertissement obligerait le coach à deviner laquelle le concerne :
+ *
+ *   1. reconnecter un compte tombé   (ses chiffres sont figés et faussent les totaux)
+ *   2. connecter Instagram ou YouTube (sinon l'élève n'apparaît nulle part)
+ *   3. relancer une collecte muette   (le compte est branché, rien n'arrive)
+ *   4. connecter le reste             (l'élève apparaît, des colonnes sont vides)
+ *
+ * ⚠️ Aucune de ces lignes n'annonce une PANNE. AGENTS.md prévient qu'une intégration
+ * non connectée n'en est pas une, et que les traiter comme telles fait remonter
+ * 23 faux positifs. Le bandeau dit ce qui MANQUERA À L'ÉCRAN — vérifiable en regardant
+ * la colonne concernée. */
+function BandeauIntegrations({ casses, sansAudience, muets, partiels, onVoir }: {
   casses: { profileId: string; nom: string }[];
   /** Aucun compte Instagram ni YouTube branché. Alerte DISTINCTE d'une intégration
    *  tombée : là, il n'y a jamais rien eu, donc rien n'est « figé ». */
-  sansSource: { profileId: string; nom: string }[];
+  sansAudience: { profileId: string; nom: string }[];
   /** Source branchée, collecte muette. Encore une autre action. */
   muets: { profileId: string; nom: string }[];
+  /** L'audience est là, d'autres sources manquent : colonnes vides. */
+  partiels: { profileId: string; nom: string; manquantes: SourcePage[] }[];
   onVoir: (nom: string) => void;
 }) {
   /* ⚠️ Le bandeau NOMME les élèves. La première version disait « 1 élève est déclaré
@@ -1000,12 +1060,12 @@ function BandeauIntegrations({ casses, sansSource, muets, onVoir }: {
       </>,
     });
   }
-  if (sansSource.length > 0) {
+  if (sansAudience.length > 0) {
     lignes.push({
-      cle: 'sans-source', premier: sansSource[0].nom,
+      cle: 'sans-audience', premier: sansAudience[0].nom,
       texte: <>
-        <b>{nommer(sansSource)}</b>{' : '}
-        {sansSource.length > 1
+        <b>{nommer(sansAudience)}</b>{' : '}
+        {sansAudience.length > 1
           ? 'aucun compte Instagram ni YouTube n’est connecté. Ils comptent déjà parmi les élèves actifs, mais cette page ne peut rien dire d’eux : ni abonnés, ni vues, ni publications.'
           : 'aucun compte Instagram ni YouTube n’est connecté. Il compte déjà parmi les élèves actifs, mais cette page ne peut rien dire de lui : ni abonnés, ni vues, ni publications.'}
       </>,
@@ -1022,6 +1082,27 @@ function BandeauIntegrations({ casses, sansSource, muets, onVoir }: {
       </>,
     });
   }
+  if (partiels.length > 0) {
+    /* On nomme chaque élève AVEC ce qui lui manque. « 3 élèves ont des intégrations
+     * incomplètes » n'aide personne : il faut savoir qui, et quoi connecter. La liste
+     * est plafonnée à trois pour ne pas transformer le bandeau en pavé à 40 élèves. */
+    const montres = partiels.slice(0, 3);
+    const reste = partiels.length - montres.length;
+    lignes.push({
+      cle: 'partiels', premier: partiels[0].nom,
+      texte: <>
+        {montres.map((x, i) => (
+          <span key={x.profileId}>
+            {i > 0 && ' · '}
+            <b>{x.nom}</b>{' : il manque '}{enumerer(x.manquantes.map(m => m.libelle))}
+          </span>
+        ))}
+        {reste > 0 && <span>{' · et '}{reste} autre{reste > 1 ? 's' : ''}</span>}
+        {'. Leurs colonnes correspondantes resteront vides.'}
+      </>,
+    });
+  }
+
   return (
     <div style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
       {lignes.map(l => (
@@ -1180,13 +1261,39 @@ function CarteGraphe({ titre, sousTitre, metrique, setMetrique, children }: {
   );
 }
 
-function Legende({ lignes, epingle, setEpingle }: {
+/* ⚠️ Une pastille d'élève NON TRACÉ ne doit pas ressembler aux autres. Avant le
+ * 2026-09-03 elle était identique et cliquable : le clic mettait en avant une courbe
+ * qui n'existe pas, donc il ne se passait rien. Même famille de défaut que le bouton
+ * « Voir » qui ne menait nulle part — un contrôle qui a l'air actif et ne fait rien
+ * apprend au coach à se méfier de l'écran entier. */
+function Legende({ lignes, epingle, setEpingle, nonTraces }: {
   lignes: LigneEleve[]; epingle: string | null; setEpingle: (n: string | null) => void;
+  /** Absent pour le graphe principal, qui n ecarte personne. */
+  nonTraces?: Map<string, RaisonNonTrace>;
 }) {
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 12 }}>
       {lignes.map(l => {
         const actif = epingle === l.id;
+        const raison = nonTraces?.get(l.id);
+        if (raison) {
+          return (
+            <span key={l.id} title={LIBELLES_NON_TRACE[raison]}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5,
+                border: '1px dashed var(--border)', borderRadius: 999,
+                padding: '2px 8px', fontFamily: 'inherit',
+                background: 'transparent', color: 'var(--faint)',
+              }}>
+              <i style={{
+                width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+                border: '1px solid var(--faint)', background: 'transparent',
+              }} />
+              {l.nom.split(' ')[0]}
+              <span style={{ fontSize: 9.5 }}>· {LIBELLES_NON_TRACE[raison]}</span>
+            </span>
+          );
+        }
         return (
           <button key={l.id} onClick={() => setEpingle(actif ? null : l.id)} aria-pressed={actif}
             style={{
