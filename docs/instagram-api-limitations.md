@@ -119,6 +119,31 @@ Meta avec le jeton du projet. **Ne pas relancer cette recherche sans nouvelle ra
 | Compte : `follows_and_unfollows` + `breakdown=media_product_type` | `1` — *An unknown error has occurred.* sur `day`, `week`, `days_28`, avec et sans `metric_type`, avec et sans fenêtre explicite |
 | Compte : la même sans `breakdown` (témoin) | ✅ répond — donc c'est bien la ventilation qui casse, pas la métrique |
 
+#### La doc officielle dit la même chose que le test
+
+Deux affirmations circulent et sont **fausses toutes les deux** : « les Reels ont bien
+la métrique `follows` », et « il suffit d'avoir 1 000 abonnés ». Vérifié sur la page
+de référence de Meta :
+
+> `"follows"` … The number of Instagram users following your app user's Instagram
+> professional account. | **FEED (posts) STORY**
+
+Donc **FEED et STORY, jamais REELS**. Et la page ne mentionne **aucun seuil
+d'abonnés** pour les métriques de média : le seul seuil qui y figure concerne les
+stories vues par moins de 5 personnes (erreur 10).
+
+Le message d'erreur du test le disait déjà : *« does not support the follows metric
+for this media product type »* parle du TYPE DE MÉDIA, pas d'un volume d'audience.
+Un refus de seuil se présenterait autrement. **Doc et mesure concordent** — c'est le
+seul cas où l'on peut clore une question d'API.
+
+#### Les STORIES, elles, l'ont — et on les collecte déjà
+
+`follows` est supporté sur STORY, et `poll-stories` le demande déjà
+(`reach,shares,views,follows,profile_visits,total_interactions,replies`). Les 5
+stories en base portent la colonne renseignée, dont 4 avec des visites de profil non
+nulles. Rien à ajouter de ce côté non plus.
+
 ⚠️ **Piège d'introspection à connaître.** Demander une métrique inexistante fait
 énumérer les valeurs valides par Meta — 29 pour un média. `follows` y figure, et la
 liste est **identique pour un Reel et pour une image**. Cette énumération décrit donc
