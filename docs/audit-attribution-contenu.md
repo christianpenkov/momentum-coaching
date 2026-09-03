@@ -183,7 +183,7 @@ repli pour un prospect DM sans aucune ligne au journal.
 
 Deux vérités différentes, et c'est la seconde qui compte quand on cherche un trou.
 
-**En base**, un seul  sur `deals` dans tout le dépôt : `/api/payments/links`.
+**En base**, un seul `insert` sur `deals` dans tout le dépôt : `/api/payments/links`.
 Tout le reste est `update` ou `select`.
 
 **Dans l'interface**, DEUX boutons y mènent :
