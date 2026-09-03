@@ -121,4 +121,5 @@ export const MIGRATIONS_DEPOT: { version: string; nom: string }[] = [
   { version: '20260903180000', nom: 'edge_sante_version' },
   { version: '20260903190000', nom: 'inscrire_les_trois_crons_pg_cron' },
   { version: '20260903200000', nom: 'migrations_sante' },
+  { version: '20260903200000', nom: 'publications_youtube' },
 ];
