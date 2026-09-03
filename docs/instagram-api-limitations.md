@@ -54,8 +54,61 @@ Toutes testées en production avec de vraies données (reach=1993, views=3036, a
 | `ig_reels_avg_watch_time` | `/insights` | REELS uniquement |
 | `ig_reels_video_view_total_time` | `/insights` | REELS uniquement |
 | `reels_skip_rate` | `/insights` | REELS uniquement |
-| `follows` | `/insights` | Non-REELS uniquement (jamais demandé sur un Reel — comportement actuel du code, pas une limite Meta confirmée) |
-| `profile_visits` | `/insights` | Non-REELS uniquement (idem) |
+| `follows` | `/insights` | Non-REELS uniquement (idem) — ⚠️ **non monotone**, voir la section dédiée |
+| `profile_visits` | `/insights` | Non-REELS uniquement (idem) — ⚠️ **non monotone**, voir la section dédiée |
+
+---
+
+## ⚠️ `follows` et `profile_visits` ne sont PAS monotones (2026-09-03)
+
+**Vérifié contre l'API réelle**, pas depuis la doc :
+`GET graph.instagram.com/v23.0/{media-id}/insights?metric=follows,profile_visits,reach,views,total_interactions,saved,shares`
+avec le jeton du projet. Les sept métriques répondent, toutes en période `lifetime`.
+
+Donc **oui, le nombre d'abonnés gagnés est disponible PAR CONTENU** — et les visites
+de profil aussi, contrairement à ce qu'affirment plusieurs guides en ligne qui les
+déclarent réservées au niveau du compte.
+
+### Mais Meta les fait REDESCENDRE, y compris jusqu'à zéro
+
+Le mot `lifetime` que renvoie l'API laisse croire à un cumul qui ne peut que
+monter. C'est faux. Historique d'un même post du compte de test
+(`18020261033173460`), relevé dans `analytics_ig_posts_history` :
+
+| Date | `reach` | `profile_visits` | `follows` |
+|---|---|---|---|
+| 21 juin → 13 juillet | 1 424 → 1 436 | 45 | **2** |
+| 3 août | **417** | **9** | **0** |
+| 3 septembre | **373** | **7** | 0 |
+
+`views`, lui, reste monotone sur la même période (2 466 → 2 501). La chute ne
+touche donc pas toutes les métriques : elle frappe `reach`, `profile_visits` et
+`follows`.
+
+**Les deux SEULES dates de tout l'historique portant des baisses sont le 3 août et
+le 3 septembre** — le 3 du mois dans les deux cas. Piste d'une fenêtre glissante
+mensuelle côté Meta malgré la période annoncée. Deux observations ne suffisent pas
+à l'affirmer ; elles suffisent à ne jamais traiter un `lifetime` Meta comme
+monotone.
+
+### Conséquence pratique
+
+État au 2026-09-03, sur les 32 posts du compte de test (dernière photo de chacun) :
+
+| | Posts |
+|---|---|
+| `follows` > 0 | **1** |
+| `follows` = 0 | 9 |
+| `follows` non collecté | 22 |
+
+Toute statistique qui DIVISE par `follows` — « vues par abonné gagné », coût
+d'acquisition par contenu — sera donc vide la plupart du temps. Ce n'est pas un
+défaut de collecte, et il n'y a rien à corriger côté plateforme.
+
+⚠️ **Ne pas non plus construire de série historique sur ces trois métriques** en
+supposant qu'elle est croissante : un graphique « abonnés gagnés par contenu »
+afficherait une chute collective le 3 du mois, sans aucune cause côté plateforme.
+Même famille que « le compteur d'abonnés n'était pas un historique » plus bas.
 
 ---
 
