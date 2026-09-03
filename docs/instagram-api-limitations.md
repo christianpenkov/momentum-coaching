@@ -54,8 +54,8 @@ Toutes testées en production avec de vraies données (reach=1993, views=3036, a
 | `ig_reels_avg_watch_time` | `/insights` | REELS uniquement |
 | `ig_reels_video_view_total_time` | `/insights` | REELS uniquement |
 | `reels_skip_rate` | `/insights` | REELS uniquement |
-| `follows` | `/insights` | Non-REELS uniquement (idem) — ⚠️ **non monotone**, voir la section dédiée |
-| `profile_visits` | `/insights` | Non-REELS uniquement (idem) — ⚠️ **non monotone**, voir la section dédiée |
+| `follows` | `/insights` | **FEED uniquement** — refusé sur REELS par Meta (message exact plus bas). ⚠️ non monotone |
+| `profile_visits` | `/insights` | **FEED uniquement** — refusé sur REELS par Meta. ⚠️ non monotone |
 
 ---
 
@@ -68,6 +68,44 @@ avec le jeton du projet. Les sept métriques répondent, toutes en période `lif
 Donc **oui, le nombre d'abonnés gagnés est disponible PAR CONTENU** — et les visites
 de profil aussi, contrairement à ce qu'affirment plusieurs guides en ligne qui les
 déclarent réservées au niveau du compte.
+
+### Refusées sur les REELS — limite Meta, pas un choix du code
+
+Testé métrique par métrique le 2026-09-03 sur deux Reels réels (un appel groupé
+qui échoue ne dit pas LAQUELLE est refusée, or c'était toute la question) :
+
+```
+GET /{reel-id}/insights?metric=follows         → 100  The Media Insights API does not
+                                                     support the follows metric for
+                                                     this media product type.
+GET /{reel-id}/insights?metric=profile_visits  → 100  idem pour profile_visits
+GET /{reel-id}/insights?metric=reach           → OK   224
+GET /{reel-id}/insights?metric=views           → OK   399
+```
+
+Le doute qui figurait ici (« jamais demandé sur un Reel — comportement du code, pas
+une limite Meta confirmée ») est donc **levé** : Meta refuse explicitement ces deux
+métriques sur les Reels. Rien à corriger côté plateforme, et inutile de réessayer.
+
+### Pourquoi la métrique manque sur un post donné — les trois causes
+
+Relevé du 2026-09-03 sur les 32 posts du compte de test :
+
+| Cause | Posts | Reconnaissable à |
+|---|---|---|
+| **REELS** — Meta refuse | 18 | `post_type = 'REELS'`, `follows` toujours NULL |
+| **Trop ancien** — rétention des insights | 4 | FEED publiés il y a plus de ~2,4 ans |
+| Disponible | 10 | FEED de moins de ~2 ans |
+
+La frontière de rétention est encadrée par la mesure, pas déduite : un FEED de
+2,04 ans porte encore ses valeurs, un de 2,40 ans n'en a plus. Entre 745 et 875
+jours, donc — cohérent avec les « 2 ans » annoncés, sans que la limite exacte soit
+observable.
+
+⚠️ Corollaire pour l'affichage : `follows` absent sur un Reel n'est PAS la même
+chose que `follows = 0` sur un FEED. Le premier veut dire « Meta ne le dit pas », le
+second « personne ne s'est abonné ». C'est pourquoi la modale de post filtre les
+métriques absentes au lieu d'afficher un tiret.
 
 ### Mais Meta les fait REDESCENDRE, y compris jusqu'à zéro
 
@@ -97,9 +135,15 @@ monotone.
 
 | | Posts |
 |---|---|
-| `follows` > 0 | **1** |
-| `follows` = 0 | 9 |
-| `follows` non collecté | 22 |
+| `follows` > 0 | **0** |
+| `follows` = 0 | 10 |
+| `follows` absent (Reels ou trop ancien) | 22 |
+
+⚠️ Un premier relevé annonçait « 1 post avec `follows` > 0 ». C'était une ligne
+PÉRIMÉE : elle appartient au profil `dc6f6aec`, dont la dernière photo date du
+29 juillet 2026 — sa collecte s'est arrêtée, la valeur est restée figée à 2. Le
+même post, sur le profil dont la collecte tourne, est à 0. **Toujours vérifier la
+date de la dernière photo avant de conclure qu'une métrique porte une valeur.**
 
 Toute statistique qui DIVISE par `follows` — « vues par abonné gagné », coût
 d'acquisition par contenu — sera donc vide la plupart du temps. Ce n'est pas un
