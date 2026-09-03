@@ -219,6 +219,62 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // ── Reprise du rendez-vous quand le coach a cliqué la PERSONNE ──────────────
+  //
+  // « Créer un lien de paiement » propose des personnes ET des rendez-vous, mais pas
+  // pour tout le monde : la liste des appels exclut ceux rattachés à un lead Instagram
+  // ou à un prospect (`payments/people`, `.is('ig_lead_id', null).is('prospect_id',
+  // null)`). Pour ces deux-là, le modal ne propose donc JAMAIS leur rendez-vous, même
+  // quand il en existe un — seulement la personne.
+  //
+  // Sans cette reprise, un contenu qui EXISTE est perdu parce que le coach a cliqué la
+  // seule chose qu'on lui offrait. Le cas est structurel, pas une erreur de sa part.
+  //
+  // ⚠️ Le prospect YouTube est le plus net : sa ligne `prospects` n'est créée QUE par
+  // le webhook Calendly, au moment d'une réservation. Il a donc forcément un
+  // rendez-vous, forcément une source, et forcément un contenu — celui de la
+  // description de la vidéo, où l'UTM dit vrai.
+  //
+  // On ne rattache PAS le deal à ce rendez-vous (`call_id` reste nul) : ce serait une
+  // décision de modèle, pas d'attribution, et elle changerait aussi la date de vente.
+  // On lui emprunte seulement de quoi répondre « quel contenu a déclenché ça ».
+  if (!body.callId && (igLeadId || prospectId)) {
+    const requete = supa
+      .from('calls')
+      .select('utm_content, utm_medium, source, booked_at, scheduled_at')
+      .eq('coach_id', profileId)
+      .neq('ignored', true)
+      .order('booked_at', { ascending: false, nullsFirst: false })
+      .limit(1);
+    const { data: rdv } = igLeadId
+      ? await requete.eq('ig_lead_id', igLeadId)
+      : await requete.eq('prospect_id', prospectId!);
+    const dernierRdv = rdv?.[0];
+
+    if (dernierRdv) {
+      // Un lead Instagram a un journal, un prospect YouTube n'en a pas — et il n'en a
+      // pas besoin : son lien est PORTÉ par sa vidéo, donc son UTM fait autorité.
+      let journal: { media_id: string | null; detected_at: string; lead_magnet_sent?: boolean | null }[] = [];
+      if (igLeadId) {
+        const { data: fiche } = await supa
+          .from('instagram_leads').select('ig_user_id').eq('id', igLeadId).maybeSingle();
+        if (fiche?.ig_user_id) {
+          const { data: prises } = await supa
+            .from('instagram_lead_lm_history')
+            .select('media_id, detected_at, lead_magnet_sent')
+            .eq('profile_id', profileId)
+            .eq('ig_user_id', fiche.ig_user_id);
+          journal = prises ?? [];
+        }
+      }
+      const contenu = contenuConversion(dernierRdv, journal);
+      if (isValidContentId(contenu)) {
+        firstTouch = contenu;
+        attributionSource = 'content';
+      }
+    }
+  }
+
   if (igLeadId) {
     const { data: lead } = await supa
       .from('instagram_leads')
@@ -272,8 +328,11 @@ export async function POST(request: NextRequest) {
     if (!firstTouch && lead?.source === 'cold_dm') attributionSource = 'cold_dm';
     else if (!firstTouch && lead) attributionSource = 'organic';
   } else if (prospectId) {
-    // Prospect YouTube ou « autre » : pas de media_id, l'origine reste la source.
-    attributionSource = 'organic';
+    // Le contenu a déjà été repris de son rendez-vous juste au-dessus s'il en a un.
+    // `organic` ne s'applique donc qu'à un prospect qui n'en a aucun — cas théorique,
+    // puisqu'une ligne `prospects` naît d'une réservation, mais qui reste le bon repli
+    // si la ligne survit à la suppression de son appel.
+    if (!firstTouch) attributionSource = 'organic';
   } else if (body.clientId) {
     attributionSource = 'client_existant';
   }
