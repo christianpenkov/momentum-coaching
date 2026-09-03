@@ -4327,3 +4327,12 @@ html[data-splash='1'] .dot-wave {
 @media (prefers-reduced-motion: reduce) {
   .more-voile, .more-feuille { transition: none !important; }
 }
+
+/* Corps de l'aide « ? » posée à côté d'un titre de graphe.
+   Le composant est rendu dans un `.card-title`, qui porte une graisse et une taille de
+   titre : sans ces règles, chaque paragraphe de l'explication héritait du gras du titre
+   et devenait illisible. */
+.aide-corps p { margin: 0 0 9px; }
+.aide-corps p:last-child { margin-bottom: 0; }
+.aide-corps b { color: var(--ink); font-weight: 600; }
+.aide-corps i { font-style: italic; }

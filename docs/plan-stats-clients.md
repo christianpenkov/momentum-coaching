@@ -2006,36 +2006,39 @@ au lieu d'en cacher une.
 `0` et « inconnu », demander d'où vient le chiffre. S'il est relevé, un vide est un trou.
 S'il est compté, un vide est un zéro — à condition de pouvoir prouver qu'on comptait.
 
-### D91 — Le cartouche dit qui il ne montre PAS (2026-09-03)
+### D91 — Un « ? » sur le titre, plutôt qu'un sous-titre qui gonfle (2026-09-03)
 
-Chris : « là par exemple en S9, y a que Christian, y a pas les autres, pourquoi ? c'est
-normal ? »
+Ce graphe a posé **quatre questions** à Chris en deux jours : pourquoi une courbe commence
+au milieu, pourquoi un élève manque à une semaine donnée, ce que veut dire « hors
+période », et à quoi sert l'axe.
 
-Oui, c'est normal, et c'est même tout le principe de cet axe :
+**Première tentative, écartée.** J'avais ajouté au cartouche de survol une ligne comptant
+les absents (« 3 élèves ne sont pas encore arrivés en S9 »), avec deux compteurs
+distincts — `horsPortee` et `trous`. Chris l'a fait retirer. C'était une réponse de plus
+posée à un endroit de plus, alors que le vrai problème était l'accumulation.
 
-| Élève | Dans le programme | Semaine |
-|---|---|---|
-| Christian | 87 jours | **S13** |
-| Meta Review | 37 jours | S6 |
-| RDJ Test | 35 jours | S6 |
-| Dolphin | 6 jours | S1 |
+**Ce qui a été retenu.** Un « ? » à côté du titre, qui ouvre une explication complète :
+à quoi sert le graphe, pourquoi l'axe n'est pas un calendrier, ce que trace la courbe
+selon la nature de la métrique, pourquoi une courbe démarre après S1, pourquoi un élève
+manque à une semaine, et ce que signifie un trait coupé.
 
-En S9, Christian est le seul à être arrivé jusque-là. Mais le cartouche ne listait que
-les séries ayant une valeur : les autres disparaissaient **en silence**, et il fallait
-demander pour savoir si elles étaient cassées.
+⚠️ **Un sous-titre qui explique tout n'est plus un sous-titre.** Chaque réponse était
+venue s'y ajouter, jusqu'à le faire passer sur trois lignes — et jusqu'à faire tomber les
+contrôles à la ligne suivante, l'incident du même jour. Le partage est désormais net :
+**le sous-titre dit ce que l'axe EST, l'aide dit comment le lire**, et elle ne s'ouvre que
+si on la demande.
 
-Le cartouche compte désormais ce qu'il ne montre pas, et distingue **deux absences qui
-n'ont rien à voir** :
+⚠️ **Au clic, jamais au survol.** Le contenu fait plusieurs paragraphes : il faut pouvoir
+le lire sans garder la souris immobile, et un survol n'existe pas au clavier. L'attribut
+`title` du navigateur ne convenait pas non plus — il tronque, il ne met rien en forme, et
+il disparaît au bout de quelques secondes. Échap et le clic à côté referment.
 
-- `horsPortee` — la série ne va pas jusque-là. Sur l'axe d'accompagnement : « l'élève
-  n'est pas encore arrivé en S9 ». C'est le cas NORMAL, pas une anomalie.
-- `trous` — la série va jusque-là mais rien n'a été mesuré ce jour-là.
+### D92 — « hors période » ne disait pas laquelle
 
-⚠️ **Les mots sont écrits par l'appelant, pas par le graphe.** Sur l'axe des semaines
-d'accompagnement, une absence veut dire « pas encore arrivé » ; sur l'axe des dates, où
-toutes les séries couvrent la fenêtre, elle ne peut être qu'un trou de collecte. Le même
-compteur, deux phrases : c'est l'axe qui décide du sens, donc c'est lui qui doit choisir
-les mots.
+Le sous-titre annonçait « hors période », ce qui pouvait aussi bien vouloir dire « les
+données hors période sont exclues ». Il dit maintenant **« hors période sélectionnée »** :
+ce graphe ignore volontairement le sélecteur en haut de page, puisqu'il remonte toujours
+à l'arrivée de l'élève.
 
-Le compte porte sur **toutes** les séries, y compris celles qui dépassent le plafond de
-seize lignes du cartouche : « + N autres » les couvre déjà, elles ne sont pas absentes.
+Le supprimer aurait perdu un fait réel — que ce graphe est le seul de la page à ne pas
+suivre le sélecteur.

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { createClient as createSupabase } from '@/lib/supabase/client';
@@ -920,14 +920,6 @@ export default function PageStatsClients() {
               vedette={vedette}
               depuisZero
               libelleAbscisse={i => formaterEtiquette(fenetres[i] ?? '', granularite, !allTime && period === 7)}
-              /* Ici l'axe est en DATES et toutes les séries couvrent la fenêtre : une
-                 absence ne peut donc être qu'un trou de collecte, jamais un « pas encore
-                 arrivé ». Les mots changent avec l'axe, c'est pour ça que la phrase est
-                 écrite par l'appelant et non par le graphe. */
-              noteAbsents={a => {
-                const n = a.trous + a.horsPortee;
-                return n > 0 ? `${n} élève${n > 1 ? 's' : ''} sans mesure à cette date` : null;
-              }}
               formater={v => formaterValeur(v, METRIQUES[metrique].unite)}
             />
             <Legende lignes={lignes} epingle={epingle} setEpingle={setEpingle} />
@@ -945,16 +937,17 @@ export default function PageStatsClients() {
                 Avec ces trois règles, le texte se replie DANS sa colonne et les
                 contrôles restent à droite quelle que soit la longueur du libellé. */}
               <div style={{ flex: '1 1 300px', minWidth: 0 }}>
-                <div className="card-title">{METRIQUES[metriqueAccompagnement].titreCumule} depuis l'arrivée</div>
+                <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {METRIQUES[metriqueAccompagnement].titreCumule} depuis l'arrivée
+                  <AideTitre titre="Comment lire ce graphe">{AIDE_ACCOMPAGNEMENT}</AideTitre>
+                </div>
                 <div className="card-sub">
-                  {/* La dernière mention répond à une question posée le 2026-09-03 :
-                      « pourquoi certaines courbes commencent au milieu ? ». Parce qu'un
-                      élève arrivé en juillet dont la collecte n'a démarré qu'en août
-                      n'a rien à tracer avant S4. Ce n'est pas un trou, c'est le moment
-                      où on a commencé à le mesurer — et sans cette phrase, le graphe
-                      donne à croire à un défaut. */}
-                  Axe en semaines d'accompagnement, hors période · chaque courbe démarre
-                  à la semaine où sa collecte a commencé
+                  {/* « hors période » ne disait pas de quelle période il s'agissait :
+                      celle du sélecteur en haut de page, que ce graphe ignore
+                      volontairement puisqu'il remonte toujours à l'arrivée de l'élève.
+                      Le détail du reste est dans l'aide du titre, pas ici — un
+                      sous-titre qui explique tout n'est plus un sous-titre. */}
+                  Axe en semaines d'accompagnement, hors période sélectionnée
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', flexShrink: 0, marginLeft: 'auto' }}>
@@ -986,21 +979,6 @@ export default function PageStatsClients() {
               depuisZero
               pointsCourts
               libelleAbscisse={i => `Semaine ${i + 1}`}
-              /* Sur cet axe, « absent » veut dire « pas encore arrivé à cette semaine
-                 d'accompagnement » — et c'est le cas normal, pas une anomalie : au
-                 2026-09-03, Christian est en S13 quand les autres sont en S6 et S1. */
-              noteAbsents={(a, i) => {
-                const bouts: string[] = [];
-                if (a.horsPortee > 0) {
-                  bouts.push(a.horsPortee > 1
-                    ? `${a.horsPortee} élèves ne sont pas encore arrivés en S${i + 1}`
-                    : `1 élève n’est pas encore arrivé en S${i + 1}`);
-                }
-                if (a.trous > 0) {
-                  bouts.push(a.trous > 1 ? `${a.trous} sans mesure cette semaine-là` : `1 sans mesure cette semaine-là`);
-                }
-                return bouts.length ? bouts.join(' · ') : null;
-              }}
               formater={v => METRIQUES[metriqueAccompagnement].nature === 'niveau'
                 ? `${v >= 0 ? '+' : ''}${Math.round(v)} %`
                 : formaterValeur(v, METRIQUES[metriqueAccompagnement].unite)}
@@ -1419,6 +1397,113 @@ function Legende({ lignes, epingle, setEpingle, nonTraces, depuisSemaine }: {
         }}>Tout afficher</button>
       )}
     </div>
+  );
+}
+
+/* ═══ L'aide du graphe d'accompagnement ══════════════════════════════════════
+ *
+ * Ce graphe a posé quatre questions à Chris en deux jours : pourquoi une courbe commence
+ * au milieu, pourquoi un élève manque à une semaine donnée, pourquoi « hors période », et
+ * à quoi sert l'axe. Les réponses tenaient dans le sous-titre, qui gonflait à chaque
+ * fois — jusqu'à faire passer les contrôles à la ligne (cf. l'incident du 2026-09-03).
+ *
+ * ⚠️ Un sous-titre qui explique tout n'est plus un sous-titre. Le sous-titre dit ce que
+ * l'axe EST ; l'aide dit comment le lire, et ne s'ouvre que si on la demande. */
+const AIDE_ACCOMPAGNEMENT = (
+  <>
+    <p><b>À quoi il sert.</b> Comparer les élèves au même <i>stade</i> de leur
+      accompagnement, et non à la même date. Un élève arrivé en juin et un autre arrivé en
+      août se superposent : on voit qui progresse le plus vite à nombre de semaines égal.</p>
+
+    <p><b>L'axe n'est pas un calendrier.</b> S1 est la première semaine <i>de chaque
+      élève</i>, pas une date. Chaque courbe est donc décalée sur sa propre arrivée. C'est
+      aussi pourquoi ce graphe ignore la période choisie en haut de la page : il remonte
+      toujours jusqu'à l'arrivée.</p>
+
+    <p><b>Ce que trace la courbe.</b> Pour un volume — publications, vues, clics — chaque
+      point additionne tout ce qui précède depuis l'arrivée : la courbe ne peut donc que
+      monter ou rester plate. Pour les abonnés, elle montre l'écart en pourcentage par
+      rapport au premier jour mesuré, ce qui rend comparables un élève parti de 300
+      abonnés et un autre parti de 30 000.</p>
+
+    <p><b>Si une courbe démarre après S1</b>, c'est que la collecte a commencé plus tard
+      que l'arrivée. Un élève arrivé en juillet dont le compte n'a été branché qu'en août
+      n'a rien à tracer avant. Sa pastille de légende le dit — « depuis S5 ».</p>
+
+    <p><b>Si un élève manque à une semaine donnée</b>, c'est qu'il n'y est pas encore
+      arrivé. En S9 on ne voit que ceux qui ont neuf semaines d'accompagnement derrière
+      eux ; les autres apparaîtront quand ils y seront.</p>
+
+    <p><b>Un trait coupé</b> signale un jour sans mesure. Le pointillé qui l'enjambe dit
+      la seule chose vraie : on sait où on était avant, où on est après, pas ce qui s'est
+      passé entre les deux.</p>
+  </>
+);
+
+/** Le « ? » posé à côté d'un titre. Ouvre une explication au clic, se ferme à la touche
+ *  Échap ou au clic à côté.
+ *
+ *  ⚠️ Au CLIC et non au survol : le contenu fait plusieurs paragraphes, donc il faut
+ *  pouvoir le lire sans garder la souris immobile — et un survol n'existe pas au clavier.
+ *  L'attribut `title` du navigateur ne convenait pas non plus : il tronque, il ne met
+ *  rien en forme, et il disparaît au bout de quelques secondes. */
+function AideTitre({ titre, children }: { titre: string; children: React.ReactNode }) {
+  const [ouvert, setOuvert] = useState(false);
+  const boite = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!ouvert) return;
+    const surTouche = (e: KeyboardEvent) => { if (e.key === 'Escape') setOuvert(false); };
+    const surClic = (e: MouseEvent) => {
+      if (boite.current && !boite.current.contains(e.target as Node)) setOuvert(false);
+    };
+    document.addEventListener('keydown', surTouche);
+    document.addEventListener('mousedown', surClic);
+    return () => {
+      document.removeEventListener('keydown', surTouche);
+      document.removeEventListener('mousedown', surClic);
+    };
+  }, [ouvert]);
+
+  return (
+    <span ref={boite} style={{ position: 'relative', display: 'inline-flex', flexShrink: 0 }}>
+      <button
+        type="button"
+        onClick={() => setOuvert(o => !o)}
+        aria-expanded={ouvert}
+        aria-label={ouvert ? "Fermer l'aide" : titre}
+        style={{
+          width: 16, height: 16, borderRadius: '50%', cursor: 'pointer',
+          border: `1px solid ${ouvert ? 'var(--ink)' : 'var(--border)'}`,
+          background: ouvert ? 'var(--ink)' : 'transparent',
+          color: ouvert ? 'var(--surface)' : 'var(--muted)',
+          fontSize: 10.5, fontWeight: 700, lineHeight: 1, fontFamily: 'inherit',
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          padding: 0, transition: 'all .15s',
+        }}
+      >?</button>
+
+      {ouvert && (
+        <span
+          role="dialog"
+          aria-label={titre}
+          style={{
+            position: 'absolute', top: 24, left: 0, zIndex: 20,
+            width: 'min(420px, calc(100vw - 48px))',
+            background: 'var(--surface)', border: '1px solid var(--border)',
+            borderRadius: 'var(--r-lg)', boxShadow: 'var(--shadow-menu)',
+            padding: '14px 16px', textAlign: 'left',
+            fontSize: 12.5, fontWeight: 400, lineHeight: 1.6, color: 'var(--muted)',
+            display: 'block', whiteSpace: 'normal',
+          }}
+        >
+          <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>
+            {titre}
+          </span>
+          <span className="aide-corps" style={{ display: 'block' }}>{children}</span>
+        </span>
+      )}
+    </span>
   );
 }
 
