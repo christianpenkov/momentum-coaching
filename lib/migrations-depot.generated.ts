@@ -122,4 +122,5 @@ export const MIGRATIONS_DEPOT: { version: string; nom: string }[] = [
   { version: '20260903190000', nom: 'inscrire_les_trois_crons_pg_cron' },
   { version: '20260903200000', nom: 'migrations_sante' },
   { version: '20260903200000', nom: 'publications_youtube' },
+  { version: '20260904090000', nom: 'taille_base_mesuree' },
 ];
