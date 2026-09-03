@@ -17,9 +17,9 @@
 
 export const EMPREINTES_EDGE: Record<string, string> = {
   'backfill-shortio': 'b3f9d7918e7a77ab', // 2 fichiers
-  'call-reminders': '310c7c0ed88d4af1', // 2 fichiers
+  'call-reminders': '824103909daa0b97', // 2 fichiers
   'fathom-cron-sync': '7d8ac493e72f64ce', // 1 fichier
-  'installment-reminders': '4a321a5e996cb16a', // 1 fichier
+  'installment-reminders': 'be99ea92fdb0aab4', // 1 fichier
   'notify-rapport': '1f2f6a0dce0f433b', // 2 fichiers
   'poll-leads': 'f869886b261d8230', // 7 fichiers
   'poll-stories': '8dec82c5f2fe74e6', // 2 fichiers

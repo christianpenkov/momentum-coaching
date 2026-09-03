@@ -16,8 +16,7 @@
 // Déploiement séparé du reste du code (git push ne suffit pas) :
 //   npx supabase functions deploy installment-reminders --no-verify-jwt
 
-import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
-import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import webpush from 'npm:web-push';
 // ⚠️ L'empreinte du code SOURCE de cette fonction, pour que `edge_sante_version` puisse
 // dire si la version en ligne est celle du depot. Une Edge Function ne part pas avec
