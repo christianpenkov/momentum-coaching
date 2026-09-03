@@ -241,17 +241,106 @@ test('conversion : un lien de bio n a aucun contenu, et c est normal', () => {
   assert.equal(contenuConversion({ utm_content: '   ' }), null);
 });
 
+test('conversion : le lien PERSONNEL ne decide plus, le journal decide', () => {
+  // Le cas qui a motive la correction du 2026-09-03. rdjdkzjd :
+  //   05/07  il prend GUIDE  -> le lien Calendly est grave sur GUIDE ce jour-la
+  //   06/07  il reprend A    -> le lien, lui, ne bouge pas
+  //   08/07  il RESERVE en rouvrant l ancien lien, qui porte toujours GUIDE
+  // GUIDE recoltait la vente d un rendez-vous que A avait declenche.
+  assert.equal(
+    contenuConversion(
+      { utm_content: GUIDE, utm_medium: 'dm', booked_at: '2026-07-08 16:36:50.597662+00' },
+      HISTORIQUE_REEL,
+    ),
+    A,
+  );
+});
+
+test('conversion : un lien PORTE par un contenu garde son utm_content', () => {
+  // La regle ne vaut QUE pour le lien personnel. Un lien en description vit DANS un
+  // contenu : il n en existe qu un par post, donc cliquer dessus prouve qu on
+  // regardait ce post. 11 des 18 rendez-vous du profil de test sont dans ce cas —
+  // etendre la regle du journal les casserait tous.
+  assert.equal(
+    contenuConversion(
+      { utm_content: GUIDE, utm_medium: 'description', booked_at: '2026-07-08 16:36:50.597662+00' },
+      HISTORIQUE_REEL,
+    ),
+    GUIDE,
+  );
+});
+
+test('conversion : `source` sert de repli quand utm_medium manque', () => {
+  // Un call ancien peut ne pas porter d utm_medium ; `source` est posee par le
+  // webhook Calendly dans tous les cas.
+  assert.equal(
+    contenuConversion(
+      { utm_content: GUIDE, source: 'ig_dm', booked_at: '2026-07-08 16:36:50.597662+00' },
+      HISTORIQUE_REEL,
+    ),
+    A,
+  );
+});
+
+test('conversion : sans journal, le lien personnel garde son utm_content', () => {
+  // Repli indispensable : les routes de paiement n ont pas toujours le journal sous
+  // la main, et un appelant qui l oublie ne doit pas perdre l attribution.
+  assert.equal(
+    contenuConversion({ utm_content: GUIDE, utm_medium: 'dm', booked_at: '2026-07-08 16:36:50.597662+00' }),
+    GUIDE,
+  );
+  assert.equal(
+    contenuConversion({ utm_content: GUIDE, utm_medium: 'dm', booked_at: '2026-07-08 16:36:50.597662+00' }, []),
+    GUIDE,
+  );
+});
+
+test('conversion : une prise APRES la reservation ne peut pas l avoir declenchee', () => {
+  // rdjdkzjd a repris A le 01/09, bien apres sa reservation du 08/07. Le compter
+  // reviendrait a crediter un contenu qui n existait pas encore dans son parcours.
+  const avecPriseTardive = [
+    ...HISTORIQUE_REEL,
+    { media_id: GUIDE, detected_at: '2026-09-01 18:22:46.958+00', lead_magnet_sent: true, ig_user_id: RDJ },
+  ];
+  assert.equal(
+    contenuConversion({ utm_content: GUIDE, utm_medium: 'dm', booked_at: '2026-07-08 16:36:50.597662+00' }, avecPriseTardive),
+    A,
+  );
+});
+
+test('conversion : une demande NON livree ne compte pas', () => {
+  // La ligne du 28/06 a `lead_magnet_sent: false` — vue, jamais partie. Seule la
+  // seconde, deux minutes plus tard, fait entrer.
+  const uniquementNonLivre = [HISTORIQUE_REEL[0]];
+  assert.equal(
+    contenuConversion({ utm_content: GUIDE, utm_medium: 'dm', booked_at: '2026-07-08 16:36:50.597662+00' }, uniquementNonLivre),
+    GUIDE,   // repli : le journal ne propose rien de livre
+  );
+});
+
 test('le parcours reel credite DEUX contenus differents, un par role', () => {
-  // La vente de 500 EUR du 08/07 : A a fait parler, GUIDE a fait reserver.
+  // La vente de 500 EUR du 08/07.
+  //
+  // ⚠️ Ce test affirmait « A a fait parler, GUIDE a fait reserver », en s appuyant sur
+  // l idee que le prospect avait rouvert « le lien de GUIDE ». Cette premisse est
+  // FAUSSE : il n existe qu un lien par personne, grave une fois. Verifie le
+  // 2026-09-03. Les trois roles creditent donc A, et c est coherent — c est bien le
+  // lead magnet du 06/07 qui l a fait reserver deux jours plus tard.
+  //
+  // Le test garde son nom et son intention : montrer que les roles se calculent
+  // separement. Ils peuvent tomber d accord, et ici ils ont raison de le faire.
   const acq = acquisitionParContenu(HISTORIQUE_REEL);
   const act = activationParContenu(HISTORIQUE_REEL, [{ occurred_at: '2026-07-08 16:34:22.151+00' }]);
-  const conv = contenuConversion({ utm_content: GUIDE });
+  const conv = contenuConversion(
+    { utm_content: GUIDE, utm_medium: 'dm', booked_at: '2026-07-08 16:36:50.597662+00' },
+    HISTORIQUE_REEL,
+  );
 
   assert.equal(acq.get(A), 1);
   assert.equal(acq.get(GUIDE), 1);   // plus personne ne sort de nulle part
   assert.equal(act.get(A), 1);
   assert.equal(act.get(GUIDE), undefined);
-  assert.equal(conv, GUIDE);
+  assert.equal(conv, A);
 });
 
 test('invariant : l activation PEUT depasser l acquisition, et c est le signal recherche', () => {

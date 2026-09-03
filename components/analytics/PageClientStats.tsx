@@ -6790,6 +6790,19 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     if (wasCalendlyLinkSent(pl, linkClickedByLeadId)) ficheCalendlyEnvoyeParcours.add(pl.ig_lead_id);
   }
 
+  // Le journal indexe par fiche, pour `contenuConversion`.
+  //
+  // Un call porte `ig_lead_id` (la fiche), le journal porte `ig_user_id` (la personne).
+  // `idFicheParPersonne` fait le pont, et il est deja construit plus haut pour le
+  // Parcours — on ne redérive rien.
+  const journalParFiche = new Map<string, typeof lmHistoryPourRoles>();
+  for (const h of lmHistoryPourRoles) {
+    const fiche = h.ig_user_id ? idFicheParPersonne.get(h.ig_user_id) : undefined;
+    if (!fiche) continue;
+    const liste = journalParFiche.get(fiche);
+    if (liste) liste.push(h); else journalParFiche.set(fiche, [h]);
+  }
+
   const refsParcours: RefsParcours = {
     ficheParPersonne: idFicheParPersonne,
     lmReclame: lmReclameParLeadId ?? new Set<string>(),
@@ -7377,11 +7390,18 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     // n'en ont aucun par nature — un trou legitime, jamais un zero.
     //
     // La regle vit dans `lib/attribution-roles.ts`, testee sur fixtures reelles.
+    // ⚠️ `utm_medium`, `source` et `booked_at` ne sont pas decoratifs : ce sont eux qui
+    // font basculer la regle. Sans eux, `contenuConversion` retombe sur l ancien
+    // comportement — le lien decide — SANS RIEN SIGNALER. Voir lib/attribution-roles.ts.
     const matchesContent = (c: CallRecord) =>
       contenuConversion({
         utm_content: c.utm_content,
         prospect_link_content_id: c.prospect_link_id ? contenuDuLienProspect.get(c.prospect_link_id) ?? null : null,
-      }) === postId;
+        utm_medium: c.utm_medium,
+        source: c.source,
+        booked_at: c.booked_at,
+        scheduled_at: c.scheduled_at,
+      }, c.ig_lead_id ? journalParFiche.get(c.ig_lead_id) : undefined) === postId;
     const postCalls = (calls && leadIdToMediaId)
       ? calls.filter(c => matchesContent(c) && isInPeriod(callPeriodDate(c)))
       : [];

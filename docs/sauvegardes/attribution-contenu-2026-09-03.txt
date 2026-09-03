@@ -1,0 +1,38 @@
+CORRECTION D'ATTRIBUTION — 2026-09-03
+=====================================
+
+Ce que la regle devient : pour un rendez-vous venu du lien Calendly PERSONNEL (DM),
+le contenu credite est le dernier lead magnet pris AVANT la reservation, lu dans
+`instagram_lead_lm_history`. Partout ailleurs — description, bio, story — l'UTM du
+lien reste la source, parce que ces liens sont PORTES par un contenu.
+
+Motif : il n'existe qu'un lien Calendly par personne (`prendre-rdv-<pseudo>`), grave
+une fois avec le contenu que portait la fiche ce jour-la, et jamais regrave. Detail
+complet dans docs/audit-attribution-contenu.md.
+
+
+CE QUI A CHANGE EN BASE
+-----------------------
+
+Une seule ligne sur huit. Simulation jouee avant ecriture, les sept autres etaient
+identiques des deux cotes.
+
+  deal 2ae3336b-877b-41e1-a4d3-3716618bf1fe  (RZK, 500 EUR, rendez-vous du 08/07)
+    avant : 18034119419716572   (le lien, grave le 05/07)
+    apres : 18056185901693457   (le lead magnet repris le 06/07)
+
+
+ROLLBACK
+--------
+
+update deals set first_touch_content_id = '18034119419716572'
+where id = '2ae3336b-877b-41e1-a4d3-3716618bf1fe';
+
+⚠️ Ne PAS jouer ce rollback pour faire taire `ventes_sante_contenu` : la vue a ete
+mise a jour en meme temps que la donnee. Remettre l'ancienne valeur sans revenir
+aussi sur la vue ET sur `lib/attribution-roles.ts` recreerait l'alerte a l'envers.
+
+Les trois doivent bouger ensemble :
+  - lib/attribution-roles.ts          la regle
+  - supabase/.../ventes_sante_contenu sa traduction SQL, qui la surveille
+  - deals.first_touch_content_id      la copie figee

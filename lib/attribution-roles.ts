@@ -77,6 +77,18 @@ export interface CallPourConversion {
    * L'appelant fait la jointure ; cette fonction reste pure.
    */
   prospect_link_content_id?: string | null;
+  /**
+   * `dm` (ou `source = 'ig_dm'`) désigne le lien PERSONNEL, `prendre-rdv-<pseudo>`.
+   * Tout le reste — description, bio, story — désigne un lien PORTÉ par un contenu.
+   *
+   * La distinction n'est pas cosmétique, c'est elle qui décide de la règle. Vérifié
+   * le 2026-09-03 sur les 18 rendez-vous du profil de test.
+   */
+  utm_medium?: string | null;
+  source?: string | null;
+  /** Quand le rendez-vous a été RÉSERVÉ. Repli sur la tenue pour les calls anciens. */
+  booked_at?: string | null;
+  scheduled_at?: string | null;
 }
 
 /** Clé des évènements qui ne se rattachent à AUCUN contenu.
@@ -239,6 +251,36 @@ export function activationParContenu(
  * 1 call sur 19. Supprimé — un contenu de juin ne doit pas récolter une vente d'août
  * qu'il n'a pas déclenchée.
  *
+ * ── CORRECTION DU 2026-09-03 : le lien personnel ne décide plus ───────────────
+ *
+ * Ce qui précède supposait qu'un `utm_content` identifie le contenu par lequel la
+ * personne est arrivée. C'est vrai d'un lien PORTÉ par un contenu — description de
+ * post ou de vidéo, story — où il n'existe qu'un lien par contenu : cliquer dessus
+ * prouve qu'on regardait ce contenu-là.
+ *
+ * C'est FAUX du lien envoyé en DM. Il n'en existe qu'UN par personne
+ * (`prendre-rdv-<pseudo>`), gravé une fois avec le contenu que portait la fiche ce
+ * jour-là, et jamais regravé — alors que la personne continue de prendre d'autres lead
+ * magnets. Ce n'est donc ni le premier contenu ni le dernier : c'est l'instantané d'un
+ * champ mutable, pris au moment où quelqu'un a cliqué « générer ».
+ *
+ * Cas mesuré (rdjdkzjd) : lien gravé le 05/07 sur GUIDE, nouveau lead magnet pris le
+ * 06/07, réservation le 08/07 en rouvrant l'ancien lien. GUIDE récoltait la vente.
+ *
+ * Le motif écrit plus haut — « il rouvre l'ancien lien de GUIDE, donc GUIDE a fait
+ * réserver » — reposait sur une prémisse fausse : il n'existe pas « le lien de GUIDE »
+ * et « le lien de A ». Le raisonnement était cohérent, documenté et testé, et bâti sur
+ * une hypothèse jamais vérifiée sur le mécanisme réel.
+ *
+ * Depuis, pour ce SEUL cas, la question est posée au journal : quel lead magnet cette
+ * personne avait-elle pris juste avant de réserver ? C'est exactement ce que fait déjà
+ * `contenuActivation` pour les conversations. Conversion était le dernier des trois
+ * rôles à ne pas lire le journal.
+ *
+ * ⚠️ Ne PAS étendre cette règle aux liens portés : sur les 18 rendez-vous du profil de
+ * test, 11 viennent d'une description, d'une bio ou d'une story, où l'UTM dit vrai.
+ * L'appliquer partout serait une régression.
+ *
  * Un repli reste légitime, et un seul : `prospect_links.content_id`. Mesuré le
  * 2026-08-29, l'unique call DM sans `utm_content` (`af9d5898`, 15/08) portait bien
  * `utm_medium`, `utm_campaign` et `utm_term` — seul le contenu manquait, parce que son
@@ -250,8 +292,30 @@ export function activationParContenu(
  * ils ont leur ligne dans « Breakdown par source », et une note de bas de tableau
  * réconcilie le total de « Performance par contenu ».
  */
-export function contenuConversion(call: CallPourConversion): string | null {
-  return nettoyer(call.utm_content) ?? nettoyer(call.prospect_link_content_id);
+export function contenuConversion(
+  call: CallPourConversion,
+  historique?: PriseDeLeadMagnet[],
+): string | null {
+  const parLeLien = nettoyer(call.utm_content) ?? nettoyer(call.prospect_link_content_id);
+  if (!vientDuLienPersonnel(call)) return parLeLien;
+
+  // Le lien personnel ne dit rien de fiable : on demande au JOURNAL quel lead magnet
+  // cette personne avait pris juste avant de réserver. Même question, même fonction et
+  // même règle que l'Activation — c'est le seul rôle qui ne les partageait pas.
+  const quand = call.booked_at ?? call.scheduled_at;
+  if (!quand || !historique?.length) return parLeLien;
+  return contenuActivation(historique, quand) ?? parLeLien;
+}
+
+/**
+ * Le rendez-vous vient-il du lien Calendly PERSONNEL envoyé en DM ?
+ *
+ * `utm_medium` d'abord, `source` en repli : les deux ont toujours concordé en base au
+ * 2026-09-03, mais `utm_medium` peut manquer sur un call ancien alors que `source` est
+ * posée par le webhook Calendly dans tous les cas.
+ */
+function vientDuLienPersonnel(call: CallPourConversion): boolean {
+  return call.utm_medium === 'dm' || call.source === 'ig_dm';
 }
 
 /** Une chaîne exploitable, ou `null`. Une chaîne d'espaces ne vaut pas un contenu. */

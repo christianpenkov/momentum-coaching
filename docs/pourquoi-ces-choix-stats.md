@@ -31,9 +31,18 @@ Le cas réel qui l'a montré (profil de test, vente de 500 € du 08/07/2026) :
 
 *Premier touch* dit A. *Dernier touch* dit GUIDE. Les deux sont défendables et les deux
 sont inutiles, parce qu'un élève ne veut pas savoir « à qui attribuer cette vente ». Il
-veut savoir **quoi refaire**. Et là, la réponse est double et précise : **A fait
-parler**, **GUIDE fait réserver**. Ce sont deux informations différentes, toutes deux
-vraies, et aucune ne mérite d'être écrasée par l'autre.
+veut savoir **quoi refaire**. D'où les trois rôles, qui répondent à trois questions
+séparées plutôt qu'à une seule mal posée.
+
+⚠️ **Correction du 2026-09-03.** Ce passage disait « A fait parler, GUIDE fait
+réserver », en s'appuyant sur l'idée que le prospect avait rouvert « le lien de GUIDE ».
+**Cette prémisse est fausse** : il n'existe pas un lien par contenu, seulement **un lien
+par personne**, gravé une fois. Vérifié en base et dans le code. C'est le lead magnet
+repris le 06/07 qui l'a fait réserver le 08/07, et les trois rôles créditent donc A.
+
+Ce qui reste vrai, et qui est le vrai enseignement : **les trois rôles se calculent
+séparément**. Ils peuvent tomber d'accord, comme ici, sans que cela retire leur raison
+d'être. Détail complet dans `audit-attribution-contenu.md`.
 
 D'où les **trois rôles** — Acquisition, Activation, Conversion — qui ne s'additionnent
 jamais. La règle vit dans `lib/attribution-roles.ts`.

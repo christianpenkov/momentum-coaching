@@ -5,6 +5,7 @@ import { getStripeAccess, resolveTargetProfile } from '@/lib/stripe-account';
 import { createDealPaymentLink } from '@/lib/stripe-payment-links';
 import { isValidContentId } from '@/lib/contentId';
 import { dateDeVente } from '@/lib/callSeries';
+import { contenuConversion } from '@/lib/attribution-roles';
 
 /**
  * Création d'un deal et de son (ses) lien(s) de paiement.
@@ -125,7 +126,7 @@ export async function POST(request: NextRequest) {
   if (body.callId) {
     const { data: call } = await supa
       .from('calls')
-      .select('ig_lead_id, prospect_id, utm_content, source, scheduled_at, booked_at, outcome, invitee_email, invitee_name')
+      .select('ig_lead_id, prospect_id, utm_content, utm_medium, source, scheduled_at, booked_at, outcome, invitee_email, invitee_name')
       .eq('id', body.callId)
       .eq('coach_id', profileId)
       .maybeSingle();
@@ -167,10 +168,50 @@ export async function POST(request: NextRequest) {
 
       igLeadId = igLeadId ?? call.ig_lead_id;
       prospectId = prospectId ?? call.prospect_id;
-      // utm_content ne vaut que si c'est un vrai ID de contenu : le champ a
-      // longtemps reçu des pseudos slugifiés (bug documenté PageLiens.tsx:1897).
-      if (isValidContentId(call.utm_content)) {
-        firstTouch = call.utm_content;
+
+      // ── QUEL CONTENU a déclenché ce rendez-vous ? ───────────────────────────
+      //
+      // La règle vit dans `contenuConversion` (lib/attribution-roles.ts). Elle n'est
+      // PAS inline ici, et l'appel doit lui passer le journal : sans lui, elle retombe
+      // sur l'`utm_content` du lien — ce qui était le comportement d'avant le
+      // 2026-09-03, et il était faux pour les rendez-vous venus d'un DM.
+      //
+      // Motif, en une phrase : il n'existe qu'UN lien Calendly par personne, gravé une
+      // fois avec le contenu que portait sa fiche ce jour-là, et jamais regravé. Le
+      // journal, lui, dit quel lead magnet elle avait pris juste avant de réserver.
+      //
+      // Le journal ne concerne qu'Instagram : une vente sans `ig_lead_id` (bio, YouTube,
+      // vente manuelle) n'en a pas, et `contenuConversion` retombe alors sur le lien —
+      // ce qui est correct pour elle, son lien EST porté par un contenu.
+      let journalDuProspect: { media_id: string | null; detected_at: string; lead_magnet_sent?: boolean | null }[] = [];
+      if (call.ig_lead_id) {
+        const { data: fiche } = await supa
+          .from('instagram_leads').select('ig_user_id').eq('id', call.ig_lead_id).maybeSingle();
+        if (fiche?.ig_user_id) {
+          const { data: prises } = await supa
+            .from('instagram_lead_lm_history')
+            .select('media_id, detected_at, lead_magnet_sent')
+            .eq('profile_id', profileId)
+            .eq('ig_user_id', fiche.ig_user_id);
+          journalDuProspect = prises ?? [];
+        }
+      }
+      const contenu = contenuConversion(
+        {
+          utm_content: call.utm_content,
+          utm_medium: call.utm_medium,
+          source: call.source,
+          booked_at: call.booked_at,
+          scheduled_at: call.scheduled_at,
+        },
+        journalDuProspect,
+      );
+
+      // `isValidContentId` reste indispensable : le champ a longtemps reçu des pseudos
+      // slugifiés (bug documenté PageLiens.tsx:1897), et le journal peut porter un
+      // `media_id` nul pour une story hors séquence.
+      if (isValidContentId(contenu)) {
+        firstTouch = contenu;
         attributionSource = 'content';
       } else if (call.source) {
         attributionSource = 'organic';
