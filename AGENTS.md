@@ -110,17 +110,44 @@ cd /tmp/wt && npm run deployer-edge poll-leads
 git worktree remove --force /tmp/wt
 ```
 
-⚠️ `installment-reminders` ne passe pas `deno check`, et **pas à cause de son code** :
-`import 'jsr:@supabase/functions-js/edge-runtime.d.ts'` tire des types qui référencent
-`npm:openai@^4.52.5`, absent de `node_modules`. Mesuré le 2026-09-03 en rejouant la
-vérification sur la version HEAD du fichier, même dossier, même `node_modules` : erreur
-identique. La vérification imposée ci-dessus est donc **impossible pour cette fonction
-depuis un moment, et personne ne le savait**. Échappatoire explicite, qui nomme ce
-qu'elle désactive :
+⚠️ **Les onze fonctions passent `deno check`, et il n'existe aucune échappatoire** — à
+garder tel quel. Deux d'entre elles échouaient jusqu'au 2026-09-03 : `installment-reminders`
+et `call-reminders` importaient `jsr:@supabase/supabase-js@2` et
+`jsr:@supabase/functions-js/edge-runtime.d.ts`, qui tirent des paquets npm introuvables
+sans `node_modules` côté Deno. Les neuf autres importaient déjà
+`https://esm.sh/@supabase/supabase-js@2`, qui embarque ses dépendances.
 
-```bash
-npm run deployer-edge installment-reminders -- --ignorer-deno-check
-```
+**La vraie anomalie n'était pas l'échec, c'était la divergence** : deux sources
+différentes pour onze fonctions. Alignées, la vérification passe partout, et
+`call-reminders` portait le même défaut latent sans que personne l'ait encore lancé.
+
+⚠️ Une note de session a affirmé pendant cinq jours que « `deno check` échoue sur ce
+projet », généralisant un échec observé sur une seule fonction. Conséquence : la
+vérification que ce document rend obligatoire a été considérée comme indisponible alors
+qu'elle fonctionnait sur dix fonctions sur onze. **Un constat négatif se généralise tout
+seul, parce qu'il autorise à ne pas faire.** Mesurer sur deux autres cibles avant
+d'écrire « cet outil échoue ici ».
+
+### Lire cette vue juste après un déploiement
+
+⚠️ Deux latences normales, à connaître pour ne pas conclure à un échec (remarque de la
+session Paiements, 2026-09-03) :
+
+- **`empreinte_du_depot` ne lit pas le fichier**, mais une copie en base
+  (`edge_empreintes_attendues`) écrite par `/api/sante/alerte-vues`, elle-même
+  reconstruite par Vercel. Après une régénération locale, la colonne montre encore
+  l'ancienne valeur jusqu'au prochain passage de la route.
+- **`empreinte_en_ligne` reste nulle jusqu'au prochain passage du cron**, puisque c'est
+  la fonction qui la déclare **en tournant**. Une fonction quotidienne ne se confirme
+  donc que le lendemain.
+
+Juste après un déploiement, l'état attendu est `'non instrumentee'`, pas `'ok'`. Ce n'est
+pas un échec. La preuve immédiate est ailleurs : `npm run deployer-edge` affiche
+l'empreinte qu'il envoie, et `get_edge_function` permet de la retrouver dans le bundle.
+
+⚠️ Une ALERTE juste après un déploiement, elle, est significative : elle veut dire que la
+fonction remonte une empreinte que le dépôt ne connaît pas — donc qu'on a déployé sans
+régénérer, ou depuis une copie de travail non poussée.
 
 ### Le retard d'un déploiement est désormais DÉTECTÉ
 

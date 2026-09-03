@@ -77,29 +77,26 @@ if (sale.length) {
 
 // ── 2. Verification de types (ni tsc ni next build ne couvrent ce dossier) ──────────
 //
-// ⚠️ `installment-reminders` NE PASSE PAS cette verification, et pas a cause de son
-// code : `import 'jsr:@supabase/functions-js/edge-runtime.d.ts'` tire des types qui
-// referencent `npm:openai@^4.52.5`, absent de node_modules. Mesure le 2026-09-03 en
-// rejouant `deno check` sur la version HEAD du fichier, dans le meme dossier et avec le
-// meme node_modules : erreur identique. La verification imposee par AGENTS.md est donc
-// IMPOSSIBLE pour cette fonction depuis un moment, et personne ne le savait.
+// ⚠️ AUCUNE echappatoire, et c'est le fruit d'une lecon du 2026-09-03.
 //
-// D'ou l'echappatoire, explicite et bruyante plutot qu'un echec silencieux :
+// Ce script a porte pendant deux heures un flag `--ignorer-deno-check`, ajoute parce que
+// `installment-reminders` echouait la verification « a cause d'une dependance distante,
+// pas de son code » — un diagnostic exact, et une conclusion fausse. La session Paiements
+// a corrige la cause en DEUX lignes : l'import `jsr:@supabase/functions-js/edge-runtime.d.ts`
+// n'apportait rien (Deno type deja `Deno.serve`) et `jsr:@supabase/supabase-js@2` tirait
+// `npm:@supabase/realtime-js` sur le meme mur. Les neuf autres fonctions importaient
+// deja `https://esm.sh/@supabase/supabase-js@2`, qui embarque ses dependances : la vraie
+// anomalie etait qu'il restait DEUX sources differentes pour onze fonctions.
 //
-//   npm run deployer-edge installment-reminders -- --ignorer-deno-check
+// Les onze passent desormais. Un contournement pose « pour le cas connu » aurait donc
+// masque une dette de divergence, et surtout il aurait survecu a sa raison d'etre — le
+// jour ou quelqu'un le rejoue sur une vraie erreur de types, personne ne s'en apercoit.
 //
-// Elle nomme ce qu'elle desactive. Un script qui rendrait la verification non bloquante
-// par defaut ne verifierait plus rien du tout au bout de trois semaines.
-const ignorerDenoCheck = flagsSupplementaires.includes('--ignorer-deno-check');
-const flagsPourSupabase = flagsSupplementaires.filter(f => f !== '--ignorer-deno-check');
+// Regle qui en sort : quand une verification obligatoire echoue, corriger la cause. Une
+// verification qu'on peut desactiver n'est plus une verification, c'est une formalite.
+lancer('npx', ['deno', 'check', `supabase/functions/${nom}/index.ts`], 'deno check');
 
-if (ignorerDenoCheck) {
-  console.log('\n⚠️  deno check IGNORE a la demande. Le code deploye n\'a PAS ete verifie.');
-  console.log('   A n\'utiliser que pour un echec de resolution de dependances connu,');
-  console.log('   jamais pour faire passer une vraie erreur de types.');
-} else {
-  lancer('npx', ['deno', 'check', `supabase/functions/${nom}/index.ts`], 'deno check');
-}
+const flagsPourSupabase = flagsSupplementaires;
 
 // ── 3. Empreinte, AVANT l'envoi ─────────────────────────────────────────────────────
 lancer('node', ['scripts/empreintes-edge.mjs'], 'empreintes du code source');
