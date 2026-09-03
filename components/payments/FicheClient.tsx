@@ -372,20 +372,29 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
             action qu'on va chercher, c'est une question que la plateforme pose.
             Tant qu'on n'y répond pas, le pourcentage de cette vente reste
             inexplicable — et c'est ce qui fait prendre la règle pour un bug. */}
+        {/* ⚠️ Un vrai bouton À L'INTÉRIEUR, et non le bandeau entier cliquable.
+            Un bloc coloré se lit comme un avertissement — on le lit, on n'imagine
+            pas qu'il attend un clic. La question restait donc sans réponse alors
+            même qu'elle était vue. Ce qui appelle une action doit RESSEMBLER à
+            une action. */}
         {aExpliquer && (
-          <button onClick={() => onAction('raisonRemboursement')} style={{
-            display: 'block', width: '100%', textAlign: 'left', marginTop: 10,
-            background: 'var(--amber-soft)', border: '1px solid rgba(181,128,37,.28)',
-            borderRadius: 10, padding: '11px 13px', cursor: 'pointer', fontFamily: 'inherit',
+          <div style={{
+            marginTop: 10, background: 'var(--amber-soft)',
+            border: '1px solid rgba(181,128,37,.28)', borderRadius: 10, padding: '12px 14px',
           }}>
-            <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--amber-ink)', marginBottom: 2 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--amber-ink)', marginBottom: 3 }}>
               Pourquoi {fmtEurExact(deal.refundInexplique)} sont-ils repartis ?
             </div>
             <div style={{ fontSize: 11.5, color: 'var(--ink-2)', lineHeight: 1.55 }}>
               Sans la raison, on ne sait pas si {deal.buyerName.split(' ')[0]} te doit
               encore cette somme — et c’est elle qui explique le pourcentage ci-dessus.
             </div>
-          </button>
+            <button onClick={() => onAction('raisonRemboursement')}
+              className="btn-primary-brand"
+              style={{ fontSize: 12.5, marginTop: 11 }}>
+              Dire pourquoi
+            </button>
+          </div>
         )}
 
         {/* Ce que les totaux ne montrent pas : l'argent rendu ou repris. */}
@@ -534,7 +543,11 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
                 }} />
                 <span style={{ flex: 1, minWidth: 0, fontSize: 12.5 }}>
                   {p.status === 'refunded' ? 'Remboursé' : p.status === 'succeeded' ? 'Encaissé' : (p.failure_reason ?? 'Échec')}
-                  {' '}<span style={{ color: 'var(--muted)' }}>{p.paid_at ? `le ${fmtDateLong(p.paid_at)}` : ''}</span>
+                  {' '}<span style={{ color: 'var(--muted)' }}>
+                    {/* Même repli que pour le tri : sans lui, la ligne la plus
+                        lourde de l'historique était la seule sans date. */}
+                    {(p.paid_at ?? p.created_at) ? `le ${fmtDateLong(p.paid_at ?? p.created_at!)}` : ''}
+                  </span>
                   {/* La raison là où le montant est : c'est ici qu'on se demande
                       pourquoi cet argent est reparti. */}
                   {p.refund_reason && (

@@ -151,7 +151,7 @@ export async function GET(request: NextRequest) {
       stripe_subscription_id, stripe_customer_id, stripe_payment_link_id,
       first_touch_content_id, attribution_source, shortio_link_id,
       ended_by, ended_at, ended_reason, stops_at, dispute_due_by, unexpected_payment_at,
-      deal_payments ( id, installment_id, amount, status, paid_at, stripe_payment_id, failure_reason, refund_reason, refund_reason_note ),
+      deal_payments ( id, installment_id, amount, status, paid_at, created_at, stripe_payment_id, failure_reason, refund_reason, refund_reason_note ),
       deal_installments ( id, rank, amount, due_on, status, short_url, sent_at, shortio_link_id )
     `)
     .eq('profile_id', profileId)
@@ -499,7 +499,11 @@ export async function GET(request: NextRequest) {
       .from('deal_events')
       .select('id, deal_id, kind, label, created_at, meta')
       .in('deal_id', dealIds)
-      .order('created_at', { ascending: false });
+      // Ordre CROISSANT : le journal partage désormais une seule section avec
+      // l'origine et les paiements, qui se lisent du plus ancien au plus récent.
+      // Deux sens de lecture dans le même bloc font douter de la chronologie
+      // entière — c'est ce qui s'est produit sur la ligne de remboursement.
+      .order('created_at', { ascending: true });
     for (const e of events ?? []) {
       const liste = journalParDeal.get(e.deal_id);
       if (liste) liste.push(e); else journalParDeal.set(e.deal_id, [e]);
@@ -535,7 +539,14 @@ export async function GET(request: NextRequest) {
     // Détail par deal, pour le panneau latéral et l'échéancier déplié.
     details: Object.fromEntries((deals ?? []).map((d: any) => [d.id, {
       payments: (d.deal_payments ?? [])
-        .sort((a: any, b: any) => (a.paid_at ?? '').localeCompare(b.paid_at ?? '')),
+        // ⚠️ Repli sur `created_at`. Une ligne de REMBOURSEMENT n'a pas de
+        // `paid_at` : l'événement Stripe porte la charge remboursée, pas une
+        // date de paiement. Trier sur une chaîne vide la faisait remonter AVANT
+        // l'encaissement qu'elle annule — l'historique se lisait à l'envers sur
+        // sa ligne la plus importante. `created_at` est l'instant où on l'a
+        // enregistrée, à quelques secondes de l'événement réel.
+        .sort((a: any, b: any) =>
+          (a.paid_at ?? a.created_at ?? '').localeCompare(b.paid_at ?? b.created_at ?? '')),
       installments: (d.deal_installments ?? [])
         .sort((a: any, b: any) => a.rank - b.rank)
         .map((i: any) => ({

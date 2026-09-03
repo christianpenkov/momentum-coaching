@@ -82,6 +82,9 @@ export interface DealPayment {
   amount: number | string;
   status: string;
   paid_at: string | null;
+  /** Quand la ligne a été enregistrée — sert de date de repli à un remboursement,
+   *  qui n'a pas de `paid_at`. */
+  created_at?: string | null;
   stripe_payment_id: string;
   failure_reason: string | null;
   /**
