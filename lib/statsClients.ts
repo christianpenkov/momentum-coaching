@@ -140,6 +140,9 @@ export interface LigneEleve {
   callsBookes: number | null;
   cashContracte: number;
   cashCollecte: number;
+  /** Photo de profil, quand elle existe. Facultative : un élève sans photo retombe sur
+   *  ses initiales, et aucun appelant n'est obligé de la fournir. */
+  photo?: string | null;
   serie: (number | null)[];
   etat: EtatEleve | null;
 }

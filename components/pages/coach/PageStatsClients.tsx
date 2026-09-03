@@ -76,6 +76,10 @@ interface ClientBrut {
   archived_at: string | null;
 }
 
+/** Un élève nommé dans le bandeau. `id` et `photo` servent uniquement à le dessiner :
+ *  on le reconnaît à son visage avant de lire son nom. */
+interface EleveSignale { profileId: string; nom: string; id: string; photo: string | null }
+
 interface DonneesStats {
   clients: ClientBrut[];
   series: LigneSerie[];
@@ -97,18 +101,21 @@ interface DonneesStats {
   dernierJourParProfil: Map<string, string>;
   /** Déclarés prêts, mais AUCUN compte Instagram ni YouTube branché. Cette page ne peut
    *  rien dire d'eux : ni abonnés, ni vues, ni publications. */
-  sansAudience: { profileId: string; nom: string }[];
+  sansAudience: EleveSignale[];
   /** Une source d'audience EST branchée et pourtant rien n'a jamais été collecté.
    *  Distinct du précédent : rien à connecter, une collecte à faire repartir. */
-  sourceMuette: { profileId: string; nom: string }[];
+  sourceMuette: EleveSignale[];
   /** L'audience est là, mais il manque d'autres sources de CETTE page : leurs colonnes
    *  sont vides sans que rien ne dise pourquoi. */
-  partiels: { profileId: string; nom: string; manquantes: SourcePage[] }[];
+  partiels: (EleveSignale & { manquantes: SourcePage[] })[];
   /** Élèves dont une intégration est tombée APRÈS le gate. Leur `integrations_ready_at`
    *  reste posé, donc ils comptent dans les totaux — avec des chiffres figés au jour de
    *  la panne, et rien à l'écran ne le dirait sans ce bandeau. */
-  integrationsCassees: { profileId: string; nom: string }[];
+  integrationsCassees: EleveSignale[];
   debut: Date;
+  /** Photo de profil par identifiant de CLIENT. Sur `profiles`, jamais sur `clients` :
+   *  c'est pour ça qu'elle manquait partout sur cette page. */
+  photoParClient: Map<string, string | null>;
   /** Le jour où le portefeuille a commencé à mesurer. ⚠️ À NE PAS confondre avec
    *  `debut`, qui est le début de la période affichée : c'est cette confusion qui
    *  bloquait la navigation arrière. */
@@ -193,7 +200,7 @@ async function charger(period: Period, periodIndex: number, allTime: boolean): P
     ? new Date(Math.min(...arrivees))
     : new Date(Date.now() - 365 * 86_400_000);
 
-  const [seriesRes, precRes, callsRes, dealsRes, paiementsRes, lignesLeads, accompRes, fraicheurRes, integRes] = await Promise.all([
+  const [seriesRes, precRes, callsRes, dealsRes, paiementsRes, lignesLeads, accompRes, fraicheurRes, integRes, profilsRes] = await Promise.all([
     profileIds.length
       ? supabase.rpc('stats_clients_series', {
           p_profile_ids: profileIds, p_debut: jour(debut), p_fin: jour(fin), p_granularite: granularite,
@@ -243,6 +250,13 @@ async function charger(period: Period, periodIndex: number, allTime: boolean): P
     profileIds.length
       ? supabase.from('integrations').select('profile_id, provider, status').in('profile_id', profileIds)
       : rien,
+    /* La photo de profil vit sur `profiles`, pas sur `clients` — c'est pour ça que
+     * cette page n'en affichait aucune : elle ne lisait que `clients`, et passait donc
+     * à `Avatar` des initiales sans jamais lui donner d'URL. Le composant sait afficher
+     * une photo depuis toujours (`avatarUrl`), personne ne la lui fournissait. */
+    profileIds.length
+      ? supabase.from('profiles').select('id, avatar_url').in('id', profileIds)
+      : rien,
   ]);
 
   if (seriesRes.error) throw seriesRes.error;
@@ -264,6 +278,12 @@ async function charger(period: Period, periodIndex: number, allTime: boolean): P
     (integRes.data || []) as { profile_id: string; provider: string | null; status: string | null }[],
   );
 
+  const photoParProfil = new Map<string, string | null>();
+  for (const r of (profilsRes.data || []) as { id: string; avatar_url: string | null }[]) {
+    photoParProfil.set(r.id, r.avatar_url);
+  }
+  const photoDe = (c: ClientBrut) => (c.profile_id ? photoParProfil.get(c.profile_id) ?? null : null);
+
   const declares = clients.filter(c => c.profile_id && c.integrations_ready_at && !c.archived_at);
   const etatDe = (c: ClientBrut) => etatSources.get(c.profile_id!);
 
@@ -271,20 +291,20 @@ async function charger(period: Period, periodIndex: number, allTime: boolean): P
    * d'être comptés : c'est le seul cas qui FAUSSE les totaux. */
   const integrationsCassees = declares
     .filter(c => (etatDe(c)?.cassees.size ?? 0) > 0)
-    .map(c => ({ profileId: c.profile_id!, nom: c.name }));
+    .map(c => ({ profileId: c.profile_id!, nom: c.name, id: c.id, photo: photoDe(c) }));
 
   /* Ni Instagram ni YouTube : l'élève ne figure sur AUCUN graphe. Conséquence d'une
    * autre nature qu'une colonne vide, d'où sa propre phrase. */
   const sansAudienceListe = declares
     .filter(c => sansAudience(etatDe(c)))
-    .map(c => ({ profileId: c.profile_id!, nom: c.name }));
+    .map(c => ({ profileId: c.profile_id!, nom: c.name, id: c.id, photo: photoDe(c) }));
 
   /* Une source d'audience est branchée et pourtant rien n'est jamais arrivé. Rien à
    * connecter ici : une collecte à faire repartir. Transitoire dans les heures qui
    * suivent une connexion, anormal au-delà. */
   const sourceMuette = declares
     .filter(c => !sansAudience(etatDe(c)) && !dernierJourParProfil.has(c.profile_id!))
-    .map(c => ({ profileId: c.profile_id!, nom: c.name }));
+    .map(c => ({ profileId: c.profile_id!, nom: c.name, id: c.id, photo: photoDe(c) }));
 
   /* Il manque une ou plusieurs sources, mais l'audience est là : l'élève apparaît, avec
    * des colonnes vides. Tranché avec Chris le 2026-09-03 — il veut être prévenu, mais
@@ -293,7 +313,7 @@ async function charger(period: Period, periodIndex: number, allTime: boolean): P
   const sansAudienceIds = new Set(sansAudienceListe.map(x => x.profileId));
   const partiels = declares
     .filter(c => !sansAudienceIds.has(c.profile_id!))
-    .map(c => ({ profileId: c.profile_id!, nom: c.name, manquantes: sourcesManquantes(etatDe(c)) }))
+    .map(c => ({ profileId: c.profile_id!, nom: c.name, id: c.id, photo: photoDe(c), manquantes: sourcesManquantes(etatDe(c)) }))
     .filter(x => x.manquantes.length > 0);
 
   return {
@@ -310,6 +330,7 @@ async function charger(period: Period, periodIndex: number, allTime: boolean): P
     paiements: (paiementsRes.data || []) as any[],
     lignesLeads,
     accompagnement: (accompRes.data || []) as LigneSerie[],
+    photoParClient: new Map(clients.map(c => [c.id, photoDe(c)])),
     debut, fin, debutPrecedent, finPrecedente, debutPortefeuille,
   };
 }
@@ -378,6 +399,7 @@ export default function PageStatsClients() {
     };
     if (!data) return vide;
 
+    const photoParLigne = data.photoParClient;
     const fenetres = sequenceFenetres(data.debut, data.fin, granularite);
 
     const parProfil = new Map<string, Map<string, LigneSerie>>();
@@ -521,6 +543,7 @@ export default function PageStatsClients() {
         variationIg: variation(serieIg), variationYt: variation(serieYt),
         publications, leads, callsBookes,
         cashContracte, cashCollecte,
+        photo: photoParLigne.get(c.id) ?? null,
         serie: serieDeLaMetrique(),
         etat,
       });
@@ -1024,14 +1047,14 @@ function Delta({ valeur, comparaison, unite }: { valeur: number | null; comparai
  * 23 faux positifs. Le bandeau dit ce qui MANQUERA À L'ÉCRAN — vérifiable en regardant
  * la colonne concernée. */
 function BandeauIntegrations({ casses, sansAudience, muets, partiels, onVoir }: {
-  casses: { profileId: string; nom: string }[];
+  casses: EleveSignale[];
   /** Aucun compte Instagram ni YouTube branché. Alerte DISTINCTE d'une intégration
    *  tombée : là, il n'y a jamais rien eu, donc rien n'est « figé ». */
-  sansAudience: { profileId: string; nom: string }[];
+  sansAudience: EleveSignale[];
   /** Source branchée, collecte muette. Encore une autre action. */
-  muets: { profileId: string; nom: string }[];
+  muets: EleveSignale[];
   /** L'audience est là, d'autres sources manquent : colonnes vides. */
-  partiels: { profileId: string; nom: string; manquantes: SourcePage[] }[];
+  partiels: (EleveSignale & { manquantes: SourcePage[] })[];
   onVoir: (nom: string) => void;
 }) {
   /* ⚠️ Le bandeau NOMME les élèves. La première version disait « 1 élève est déclaré
@@ -1039,10 +1062,24 @@ function BandeauIntegrations({ casses, sansAudience, muets, partiels, onVoir }: 
    * veut rien dire pour un coach), aucun nom, et donc rien à faire de l'information.
    * Un avertissement qu'on ne peut pas relier à quelqu'un est un avertissement qu'on
    * apprend à ignorer. */
-  const nommer = (l: { nom: string }[]) => {
-    const noms = l.map(x => x.nom);
-    if (noms.length <= 3) return noms.join(', ');
-    return `${noms.slice(0, 3).join(', ')} et ${noms.length - 3} autre${noms.length - 3 > 1 ? 's' : ''}`;
+  /** Chaque élève nommé porte sa photo : on le reconnaît avant d'avoir lu son nom, et
+   *  ça évite au coach de traduire un nom en visage pour savoir de qui on parle.
+   *  Plafonné à trois pour qu'un portefeuille de quarante ne fasse pas un pavé. */
+  const nommer = (l: EleveSignale[]) => {
+    const montres = l.slice(0, 3);
+    const reste = l.length - montres.length;
+    return (
+      <>
+        {montres.map((x, i) => (
+          <span key={x.profileId} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, verticalAlign: 'middle' }}>
+            {i > 0 && <span style={{ marginRight: 2 }}>, </span>}
+            <Avatar avatarUrl={x.photo ?? undefined} initials={getInitials(x.nom)} size={16} seed={x.nom} />
+            <b>{x.nom}</b>
+          </span>
+        ))}
+        {reste > 0 && <span>{' et '}{reste} autre{reste > 1 ? 's' : ''}</span>}
+      </>
+    );
   };
 
   const lignes: { cle: string; texte: React.ReactNode; premier: string }[] = [];
@@ -1053,7 +1090,7 @@ function BandeauIntegrations({ casses, sansAudience, muets, partiels, onVoir }: 
     lignes.push({
       cle: 'casses', premier: casses[0].nom,
       texte: <>
-        <b>{nommer(casses)}</b>{' : '}
+        {nommer(casses)}{' : '}
         {casses.length > 1
           ? 'leurs comptes se sont déconnectés. Leurs chiffres n’ont plus bougé depuis, et sont comptés tels quels dans les totaux ci-dessous.'
           : 'son compte s’est déconnecté. Ses chiffres n’ont plus bougé depuis, et sont comptés tels quels dans les totaux ci-dessous.'}
@@ -1064,7 +1101,7 @@ function BandeauIntegrations({ casses, sansAudience, muets, partiels, onVoir }: 
     lignes.push({
       cle: 'sans-audience', premier: sansAudience[0].nom,
       texte: <>
-        <b>{nommer(sansAudience)}</b>{' : '}
+        {nommer(sansAudience)}{' : '}
         {sansAudience.length > 1
           ? 'aucun compte Instagram ni YouTube n’est connecté. Ils comptent déjà parmi les élèves actifs, mais cette page ne peut rien dire d’eux : ni abonnés, ni vues, ni publications.'
           : 'aucun compte Instagram ni YouTube n’est connecté. Il compte déjà parmi les élèves actifs, mais cette page ne peut rien dire de lui : ni abonnés, ni vues, ni publications.'}
@@ -1075,7 +1112,7 @@ function BandeauIntegrations({ casses, sansAudience, muets, partiels, onVoir }: 
     lignes.push({
       cle: 'muets', premier: muets[0].nom,
       texte: <>
-        <b>{nommer(muets)}</b>{' : '}
+        {nommer(muets)}{' : '}
         {muets.length > 1
           ? 'leurs comptes sont bien connectés, mais aucune donnée n’est jamais arrivée. Si la connexion date de plus d’une journée, la collecte est à relancer.'
           : 'son compte est bien connecté, mais aucune donnée n’est jamais arrivée. Si la connexion date de plus d’une journée, la collecte est à relancer.'}
@@ -1092,8 +1129,9 @@ function BandeauIntegrations({ casses, sansAudience, muets, partiels, onVoir }: 
       cle: 'partiels', premier: partiels[0].nom,
       texte: <>
         {montres.map((x, i) => (
-          <span key={x.profileId}>
-            {i > 0 && ' · '}
+          <span key={x.profileId} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, verticalAlign: 'middle' }}>
+            {i > 0 && <span style={{ margin: '0 3px' }}>·</span>}
+            <Avatar avatarUrl={x.photo ?? undefined} initials={getInitials(x.nom)} size={16} seed={x.nom} />
             <b>{x.nom}</b>{' : il manque '}{enumerer(x.manquantes.map(m => m.libelle))}
           </span>
         ))}
@@ -1285,10 +1323,9 @@ function Legende({ lignes, epingle, setEpingle, nonTraces }: {
                 padding: '2px 8px', fontFamily: 'inherit',
                 background: 'transparent', color: 'var(--faint)',
               }}>
-              <i style={{
-                width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
-                border: '1px solid var(--faint)', background: 'transparent',
-              }} />
+              <span style={{ opacity: .45, display: 'inline-flex', flexShrink: 0 }}>
+                <Avatar avatarUrl={l.photo ?? undefined} initials={getInitials(l.nom)} size={14} seed={l.nom} />
+              </span>
               {l.nom.split(' ')[0]}
               <span style={{ fontSize: 9.5 }}>· {LIBELLES_NON_TRACE[raison]}</span>
             </span>
@@ -1303,7 +1340,10 @@ function Legende({ lignes, epingle, setEpingle, nonTraces }: {
               background: actif ? 'var(--ink)' : 'var(--surface-2)',
               color: actif ? '#fff' : 'var(--muted)',
             }}>
-            <i style={{ width: 7, height: 7, borderRadius: '50%', background: colorFromSeed(seedForPerson(l.nom)), flexShrink: 0 }} />
+            {/* On reconnaît quelqu'un à son visage avant de lire son prénom. La
+                pastille de couleur reste le repli, et c'est la MÊME couleur que sa
+                courbe — `colorFromSeed(seedForPerson(nom))` partout. */}
+            <Avatar avatarUrl={l.photo ?? undefined} initials={getInitials(l.nom)} size={14} seed={l.nom} />
             {l.nom.split(' ')[0]}
           </button>
         );
@@ -1422,7 +1462,7 @@ function LigneTableau({ l, metrique, onSurvol }: { l: LigneEleve; metrique: Metr
   const identite = (
     <td>
       <Link href={`/clients/${l.id}`} style={{ display: 'flex', alignItems: 'center', gap: 9, textDecoration: 'none' }}>
-        <Avatar initials={getInitials(l.nom)} size={30} seed={l.id} />
+        <Avatar avatarUrl={l.photo ?? undefined} initials={getInitials(l.nom)} size={30} seed={l.id} />
         <div>
           <div style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{l.nom}</div>
           <div style={{ fontSize: 10, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{l.niche || 'Infopreneur'}</div>
@@ -1510,7 +1550,7 @@ function EcranVide({ lignes }: { lignes: LigneEleve[] }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 9, maxWidth: 340, margin: '22px auto 0', textAlign: 'left' }}>
         {lignes.map(l => (
           <Link key={l.id} href={`/clients/${l.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
-            <Avatar initials={getInitials(l.nom)} size={30} seed={l.id} />
+            <Avatar avatarUrl={l.photo ?? undefined} initials={getInitials(l.nom)} size={30} seed={l.id} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--ink)' }}>{l.nom}</div>
               <div style={{ fontSize: 11, color: 'var(--muted)' }}>{l.etat ? LIBELLE_ETAT[l.etat] : ''}</div>
