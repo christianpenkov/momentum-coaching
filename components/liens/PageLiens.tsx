@@ -2184,7 +2184,7 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
         { label: 'Enregistrements', valeur: statValeur(post.saved) },
         { label: 'Partages', valeur: statValeur(post.shares) },
         { label: 'Interactions', valeur: statValeur(post.totalInteractions) },
-        { label: 'Visites du profil', valeur: statValeur(post.profileVisits) },
+        { label: 'Visites de profil', valeur: statValeur(post.profileVisits) },
         { label: 'Abonnements', valeur: statValeur(post.follows), aide: 'Depuis ce contenu' },
       ];
 
@@ -2816,7 +2816,7 @@ function TabStoryStats({ story }: { story: Post }) {
   const gains = [
     { l: 'Réponses', v: v(story.replies) },
     { l: 'Partages', v: v(story.shares) },
-    { l: 'Visites du profil', v: v(story.profileVisits) },
+    { l: 'Visites de profil', v: v(story.profileVisits) },
     { l: 'Abonnements', v: v(story.follows) },
   ];
 
@@ -3453,7 +3453,7 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
   const [igUserId, setIgUserId] = useState<string | null>(null);
   const [usernameSearch, setUsernameSearch] = useState('');
   const [showLeads, setShowLeads] = useState(false);
-  const [leads, setLeads] = useState<{ ig_username: string; ig_user_id: string | null; detected_at?: string; keyword_matched?: string; media_id?: string | null; avatar_url?: string | null; origine?: string }[]>([]);
+  const [leads, setLeads] = useState<{ ig_username: string; ig_user_id: string | null; detected_at?: string; keyword_matched?: string; media_id?: string | null; avatar_url?: string | null; origine?: string; sourceLead?: string | null }[]>([]);
   const [leadsLoading, setLeadsLoading] = useState(false);
 
   // Contenu source — postMode: 'auto' | 'lead' | 'manual' | 'none'
@@ -3461,6 +3461,15 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
   const [postId, setPostId] = useState('');
   const [postSearch, setPostSearch] = useState('');
   const [showPostPicker, setShowPostPicker] = useState(false);
+
+  // Qui a fait le premier pas — demande UNIQUEMENT quand on ne le sait pas.
+  //
+  // Une personne dont la fiche porte deja une `source` ('comment',
+  // 'story_reply') n'a pas a etre requalifiee : le geste reel fait autorite, et
+  // le redemander exposerait a le contredire. Pour tous les autres — un nom tape
+  // a la main, un prospect venu d'une bio, d'une description ou d'un call — rien
+  // en base ne repond, et le lien atterrissait en « Cold DM » par defaut assume.
+  const [origineDm, setOrigineDm] = useState<'entrant' | 'sortant' | null>(null);
 
   const [result, setResult] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -3502,6 +3511,9 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
         ig_user_id: l.ig_user_id ?? null, avatar_url: l.avatar_url ?? null,
         detected_at: l.detected_at, keyword_matched: l.keyword_matched,
         media_id: l.media_id ?? null, origine: 'Instagram',
+        // `source` de la fiche : c'est elle qui dit si l'on SAIT deja qui a fait
+        // le premier pas. Absente, on posera la question au coach.
+        sourceLead: l.source ?? null,
       }));
 
     // `source` et non `platform` : platform vaut 'other' pour tout ce qui n'est
@@ -3530,7 +3542,25 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
     !postSearch || p.caption.toLowerCase().includes(postSearch.toLowerCase()) || p.platform.toLowerCase().includes(postSearch.toLowerCase())
   );
 
-  const resolvedPostId = postMode === 'auto' ? (posts[0]?.id || undefined)
+  // ── EN MODE AUTOMATIQUE, NE RIEN GRAVER PLUTÔT QU'INVENTER ─────────────────
+  //
+  // « Automatique » repliait sur `posts[0]` — le DERNIER contenu publié du
+  // compte — quand la personne n'a pas de `media_id` : un cold DM, ou quelqu'un
+  // venu d'une bio, d'une description, ou d'un call. Le prospect n'a jamais vu
+  // ce contenu.
+  //
+  // Et ce contenu ne reste pas dans l'écran : il est gravé dans l'UTM du lien
+  // Short.io, transmis à Calendly, écrit sur le rendez-vous, puis recopié dans
+  // la vente. Une attribution inventée à la source contamine toute la chaîne, et
+  // plus rien en aval ne permet de s'en apercevoir.
+  //
+  // Un trou dit « on ne sait pas » ; `posts[0]` dit une chose fausse. Le mode
+  // 'lead' — enclenché quand on choisit une personne QUI a un `media_id` — grave
+  // son contenu réel et reste inchangé.
+  //
+  // Zéro cas en base à ce jour (les 3 liens existants portent tous un
+  // `ig_lead_id` avec un `media_id`), mais le premier cold DM tombait dedans.
+  const resolvedPostId = postMode === 'auto' ? undefined
     : postMode === 'none' ? undefined
     : (postId || undefined); // 'lead' ou 'manual' → postId direct
 
@@ -3716,8 +3746,12 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
                 style={{ width: '100%', padding: '9px 12px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '90%' }}>
                   {(postMode === 'auto' || postMode === 'lead') ? (
+                    // Ne JAMAIS afficher `posts[0]` ici : le bouton annonçait le
+                    // dernier contenu publié comme s'il avait été détecté, alors
+                    // qu'aucun contenu ne l'a été. C'est ce mensonge d'affichage
+                    // qui rendait invisible l'attribution inventée en dessous.
                     <span style={{ color: INK }}>Automatique <span style={{ color: FAINT, fontSize: 11 }}>
-                      {selectedPost ? `— ${selectedPost.platform} · ${selectedPost.caption.slice(0, 30)}` : posts[0] ? `— ${posts[0].platform} · ${posts[0].caption.slice(0, 30)}` : ''}
+                      {selectedPost ? `— ${selectedPost.platform} · ${selectedPost.caption.slice(0, 30)}` : '— aucun contenu détecté'}
                     </span></span>
                   ) : postMode === 'manual' && selectedPost ? (
                     <span>{selectedPost.platform} · {selectedPost.caption.slice(0, 40)}</span>
@@ -3746,7 +3780,7 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
                       style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 12, color: INK, borderBottom: `1px solid ${BORDER}`, background: postMode === 'auto' ? BLUE_SOFT : 'transparent', fontWeight: postMode === 'auto' ? 600 : 400 }}
                       onMouseEnter={e => { if (postMode !== 'auto') e.currentTarget.style.background = SURFACE2; }}
                       onMouseLeave={e => { if (postMode !== 'auto') e.currentTarget.style.background = 'transparent'; }}>
-                      Automatique <span style={{ color: FAINT, fontWeight: 400 }}>(détecté via le commentaire)</span>
+                      Automatique <span style={{ color: FAINT, fontWeight: 400 }}>(le contenu commenté, s'il y en a un)</span>
                     </div>
                     {/* Option sans attribution */}
                     <div onMouseDown={() => { setPostMode('none'); setPostId(''); setShowPostPicker(false); setPostSearch(''); }}

@@ -50,6 +50,7 @@ import { bucketCallsByBookedDay, parisDayRange, tauxOuTrou, idsDeContinuation, r
 // porter le meme symbole.
 import { EnteteColonne, type NomIcone } from './IconesColonnes';
 import { dureeDepuisSecondes, dureeDepuisMinutes, positionLecteur, formaterDureeVideo } from '@/lib/duree';
+import { canalDuDm } from '@/lib/canalDm';
 
 // ─── Portal Modal ─────────────────────────────────────────────────────────────
 function usePortalMounted() {
@@ -2048,7 +2049,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
   // ig_total_interactions identiques corrigé le 2026-07-06 — même confusion ici,
   // côté lecture cette fois plutôt que côté collecte).
   const igInteractionsP = igDaysSlice.reduce((s, d) => s + (d.totalInteractions ?? 0), 0);
-  // Vues du profil sur la periode. Collectee depuis le 2026-08-22 : les journees
+  // Visites de profil sur la periode. Collectee depuis le 2026-08-22 : les journees
   // anterieures valent null, d'ou le `?? 0` qui les traite comme sans consultation
   // plutot que de casser la somme. Le rattrapage les comble progressivement.
   const igProfileViewsP = igDaysSlice.reduce((s, d) => s + ((d as any).profileViews ?? 0), 0);
@@ -2220,7 +2221,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
     })), color: GREEN },
     // Serie de la nouvelle carte. « Abonnés nets » garde la sienne : elle alimente
     // desormais la modale ouverte depuis le BADGE de la carte Abonnés.
-    'Vues du profil': { data: igDays.map(d => ({
+    'Visites de profil': { data: igDays.map(d => ({
       date: d.date,
       // null (pas 0) avant le 2026-08-22 : la metrique n'etait pas collectee, la
       // courbe doit faire un trou plutot que d'affirmer « aucune consultation ».
@@ -2339,7 +2340,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
         {[
           // Remplace « Abonnés nets », desormais en badge sur la carte Abonnés.
-          { label: 'Vues du profil', value: fmt(igProfileViewsP), sub: igEtiquettePeriode, color: 'var(--ink)', key: 'Vues du profil' },
+          { label: 'Visites de profil', value: fmt(igProfileViewsP), sub: igEtiquettePeriode, color: 'var(--ink)', key: 'Visites de profil' },
           { label: "Taux d'engagement", value: fmtPct(engRate), sub: 'interactions / reach', color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, key: "Taux d'engagement" },
           // « / total » etait ambigu : on ne savait pas si le denominateur etait le
           // reach ou le nombre d'abonnes. C'est le nombre d'ABONNES, la ou la carte
@@ -2735,7 +2736,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
                 // ci-dessous qui masque celles qui sont absentes plutot que d'afficher
                 // des tirets (2026-08-22).
                 ['👤 Abonnements', selectedPost.follows],
-                ['🔍 Visites du profil', selectedPost.profileVisits],
+                ['🔍 Visites de profil', selectedPost.profileVisits],
               ].filter(([, v]) => v !== null && v !== undefined)
                .map(([label, value], i) => (
                 <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -3080,7 +3081,7 @@ function StoryStats({ story }: { story: any }) {
     // Silhouette avec plus — nouveaux abonnes
     'Abonnements': 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M19 8v6M22 11h-6',
     // Silhouette simple — visites de profil
-    'Visites du profil': 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8',
+    'Visites de profil': 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8',
     // Chevron droit — passage a la story suivante
     'Story suivante': 'M9 18l6-6-6-6',
     // Chevron gauche — retour arriere
@@ -3100,7 +3101,7 @@ function StoryStats({ story }: { story: any }) {
     ['Réponses', story.replies ?? null],
     ['Partages', story.shares ?? null],
     ['Abonnements', story.follows ?? null],
-    ['Visites du profil', story.profile_visits ?? null],
+    ['Visites de profil', story.profile_visits ?? null],
   ];
   const navigation: [string, number | null][] = [
     ['Story suivante', story.navigation_taps_forward ?? null],
@@ -8084,13 +8085,16 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           };
           const dmDirectLinks = prospectLinks.filter((l: any) => !isLMProspect(l));
 
-          // Cold DM = coach a initié la conversation (instagram_leads.source === 'cold_dm',
-          // posé par le vrai webhook Instagram — app/api/webhooks/instagram/route.ts). Le
-          // webhook ne pose jamais 'organic' littéralement : DM organique = tout DM direct
-          // dont le lead existe mais dont source n'est PAS 'cold_dm' (donc initié par le
-          // prospect). Sans lead correspondant (lien créé hors flux Instagram), on classe
-          // par défaut en Cold DM faute de mieux — même choix par défaut que l'ancien champ
-          // dmType, jamais peuplé.
+          // Le classement des trois bacs vit dans `canalDuDm` (lib/canalDm.ts), pas ici :
+          // la règle était recopiée à sept endroits, écrite en négatif
+          // (« ni story_reply ni comment »), ce qui rangeait en Cold DM tout ce qu'elle
+          // ne connaissait pas — `null` compris. Un lien créé pour un inconnu atterrissait
+          // donc en « le coach est allé le chercher » sans que personne l'ait décidé.
+          //
+          // Depuis le 2026-09-02, ce cas est tranché à la création du lien : le coach
+          // répond entrant ou sortant, et sa réponse est figée dans `source_at_creation`.
+          // Un DM entrant rejoint « DM organique », qui a toujours voulu dire « tout DM
+          // que le prospect a initié ».
           const dmLinkSentInPeriod = (l: any) => {
             if (!wasCalendlyLinkSent(l, linkClickedByLeadId)) return false;
             return isInPeriod(calendlySentAt(l, linkClickedByLeadId));
@@ -8105,9 +8109,9 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           // "story_reply" a sa propre catégorie dédiée ("Story - Lead Magnet", cf. rows
           // plus bas) — fix d'un bug latent où ces leads tombaient silencieusement dans
           // "DM organique" (même condition que "comment"), sans distinction possible.
-          const coldDMLinks = dmDirectLinks.filter((l: any) => sourceForLink(l) !== 'story_reply' && sourceForLink(l) !== 'comment' && dmLinkSentInPeriod(l));
-          const organicDMLinks = dmDirectLinks.filter((l: any) => sourceForLink(l) === 'comment' && dmLinkSentInPeriod(l));
-          const storyReplyDMLinks = dmDirectLinks.filter((l: any) => sourceForLink(l) === 'story_reply' && dmLinkSentInPeriod(l));
+          const coldDMLinks = dmDirectLinks.filter((l: any) => canalDuDm(sourceForLink(l)) === 'sortant' && dmLinkSentInPeriod(l));
+          const organicDMLinks = dmDirectLinks.filter((l: any) => canalDuDm(sourceForLink(l)) === 'entrant' && dmLinkSentInPeriod(l));
+          const storyReplyDMLinks = dmDirectLinks.filter((l: any) => canalDuDm(sourceForLink(l)) === 'story' && dmLinkSentInPeriod(l));
 
           // Calls bookés/honorés/closés comptés selon LEUR PROPRE date (scheduled_at dans
           // la période), indépendamment de la date d'envoi du lien Calendly — convention
@@ -8167,9 +8171,9 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           // à la période : élargir les liens n'élargit donc pas les calls.
           const allDmLinksBySource = (pred: (l: any) => boolean) =>
             dmDirectLinks.filter((l: any) => pred(l) && wasCalendlyLinkSent(l, linkClickedByLeadId));
-          const coldDMLinksAll    = allDmLinksBySource(l => sourceForLink(l) !== 'story_reply' && sourceForLink(l) !== 'comment');
-          const organicDMLinksAll = allDmLinksBySource(l => sourceForLink(l) === 'comment');
-          const storyReplyLinksAll = allDmLinksBySource(l => sourceForLink(l) === 'story_reply');
+          const coldDMLinksAll    = allDmLinksBySource(l => canalDuDm(sourceForLink(l)) === 'sortant');
+          const organicDMLinksAll = allDmLinksBySource(l => canalDuDm(sourceForLink(l)) === 'entrant');
+          const storyReplyLinksAll = allDmLinksBySource(l => canalDuDm(sourceForLink(l)) === 'story');
 
           const coldCalls = callsForLinks(coldDMLinksAll);
           const coldBooked = nbBooked(coldCalls);
@@ -9575,7 +9579,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                             // avant la migration. Évite qu'un lien historique bascule de canal
                             // à tort si le lead a réinteragi via un autre canal depuis.
                             const linkSource = l.source_at_creation ?? lead?.source;
-                            const isOrganic = linkSource === 'story_reply' || linkSource === 'comment';
+                            const isOrganic = canalDuDm(linkSource) !== 'sortant';
                             const canal = lead?.leadMagnetSent ? 'LM' : (isOrganic ? 'DM organique' : 'Cold DM');
                             const canalColor2 = lead?.leadMagnetSent ? AMBER : (isOrganic ? '#10B981' : BLUE);
                             const st = getProspectStatus(l);
