@@ -27,7 +27,11 @@ type Filter = 'all' | 'open' | 'unpaid' | 'paid' | 'ended' | 'canceled';
 const FILTRES: readonly Filter[] = ['all', 'open', 'unpaid', 'paid', 'ended', 'canceled'];
 const LIBELLES: readonly (readonly [Filter, string])[] = [
   ['all', 'Tous'], ['open', 'En cours'], ['unpaid', 'Impayés'],
-  ['paid', 'Soldés'], ['ended', 'Arrêtés'], ['canceled', 'Annulés'],
+  // « Terminés » et non « Arrêtés » : ce filtre couvre les DEUX mots que la
+  // pastille distingue — « Arrêtée » (Stripe a cessé de prélever) et « Clôturée »
+  // (l'élève a déclaré ne plus rien attendre). Le nommer d'après un seul des deux
+  // faisait chercher une vente clôturée sous un filtre qui semblait l'exclure.
+  ['paid', 'Soldés'], ['ended', 'Terminés'], ['canceled', 'Annulés'],
 ];
 
 export default function PagePaiements({ title = 'Paiements', isCoach = false }: { title?: string; isCoach?: boolean }) {
