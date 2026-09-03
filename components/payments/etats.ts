@@ -167,6 +167,25 @@ export function moyenDefini(d: DealRow): boolean {
   return !!d.stripeSubscriptionId || d.hasLinks || d.hasSchedule;
 }
 
+/**
+ * Le mot affiché sur la pastille — pas toujours celui du tableau ETATS.
+ *
+ * ⚠️ Un seul état stocké (`ended`), DEUX mots : « Arrêtée » quand Stripe l'a
+ * constaté, « Clôturée » quand l'élève l'a déclaré. Le plan a délibérément gardé
+ * les deux, et l'implémentation les avait fondus en « Arrêtée » — au point qu'un
+ * écran promettant « la vente passe en Clôturée » affichait ensuite « Arrêtée »,
+ * ce qui fait douter de tout le reste de la promesse.
+ *
+ * La nuance n'est pas cosmétique : l'une est subie (les prélèvements ont cessé
+ * chez Stripe), l'autre est décidée (« je n'attends plus rien »). Elles n'appellent
+ * ni la même vérification, ni la même suite.
+ */
+export function libelleEtat(d: DealRow): string {
+  const e = etatDe(d);
+  if (e === 'ended') return d.endedBy === 'user' ? 'Clôturée' : 'Arrêtée';
+  return ETATS[e].label;
+}
+
 export function libelleMode(m: Mode): string {
   return m === 'installments_auto' ? 'prélèvement automatique'
     : m === 'installments_manual' ? 'un lien par échéance'
@@ -177,11 +196,26 @@ export function libelleMode(m: Mode): string {
 export const libelleRythme = (i: string | null) =>
   i === 'week' ? 'hebdomadaire' : 'mensuel';
 
+/**
+ * Le MOYEN d'encaisser, en toutes lettres.
+ *
+ * ⚠️ Distinct du mode. `libelleMode` répond à « combien de fois » pour un
+ * comptant et à « par quel moyen » pour les autres — c'est le mélange des deux
+ * axes hérité de `payment_plan`. Utilisé tel quel dans la ligne des modalités,
+ * il produisait « comptant · comptant » sur une vente payée en une fois par lien.
+ */
+export function libelleMoyen(d: DealRow): string {
+  const m = moyenDe(d);
+  if (m === 'auto') return 'prélèvement automatique';
+  if (m === 'offline') return 'hors Stripe';
+  return (d.installmentsCount ?? 1) > 1 ? 'un lien par échéance' : 'par lien de paiement';
+}
+
 /** « 3 fois mensuel · prélèvement automatique » — la ligne sous le montant. */
 export function libelleModalites(d: DealRow): string {
-  const mode = libelleMode(modeDe(d));
-  if (!d.installmentsCount || d.installmentsCount < 2) return `comptant · ${mode}`;
-  return `${d.installmentsCount} fois ${libelleRythme(d.installmentInterval)} · ${mode}`;
+  const moyen = libelleMoyen(d);
+  if (!d.installmentsCount || d.installmentsCount < 2) return `comptant · ${moyen}`;
+  return `${d.installmentsCount} fois ${libelleRythme(d.installmentInterval)} · ${moyen}`;
 }
 
 const jour = (iso: string) =>

@@ -3,7 +3,7 @@
 import Icon from '@/components/ui/Icon';
 import Avatar, { getInitials, seedForPerson } from '@/components/ui/Avatar';
 import { useIsMobile } from '@/lib/useIsMobile';
-import { ETATS, type EtatVente } from './etats';
+import { ETATS, libelleEtat, type EtatVente } from './etats';
 import { Barre } from './FicheClient';
 import { fmtEurExact, fmtDateLong, type PersonRow, type DealRow } from './types';
 
@@ -164,7 +164,10 @@ function resume(siennes: DealRow[], person: PersonRow): string {
   }
   const compte = new Map<string, number>();
   for (const d of siennes) {
-    const label = ETATS[(etatSimple(d) as EtatVente)]?.label ?? 'En cours';
+    // `libelleEtat` et non le tableau : c'est lui qui distingue « Clôturée »
+    // (déclarée par l'élève) de « Arrêtée » (constatée chez Stripe). Sans ça, la
+    // fiche disait « Clôturée » et le sous-titre de la même personne « arrêtée ».
+    const label = libelleEtat(d);
     compte.set(label, (compte.get(label) ?? 0) + 1);
   }
   const detail = [...compte.entries()]

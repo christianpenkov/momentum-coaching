@@ -5,7 +5,7 @@ import Icon from '@/components/ui/Icon';
 import Avatar, { getInitials, seedForPerson } from '@/components/ui/Avatar';
 import Portal from './Portal';
 import { useIsMobile } from '@/lib/useIsMobile';
-import { ETATS, etatDe, precisionEtat, modeDe, moyenDefini, libelleModalites, compteDansLesTotaux } from './etats';
+import { ETATS, etatDe, libelleEtat, precisionEtat, modeDe, moyenDefini, libelleModalites, compteDansLesTotaux } from './etats';
 import { useEcheancesAVenir } from './useEcheances';
 import { LIBELLE_RAISON, fmtEur, fmtEurExact, fmtDateLong, type DealRow, type DealDetail, type PersonRow } from './types';
 import ModifierMontant from './ModifierMontant';
@@ -349,7 +349,7 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
           background: e.bg, color: e.color, whiteSpace: 'nowrap',
         }}>
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: e.color }} />
-          {e.label}
+          {libelleEtat(deal)}
         </span>
       </div>
 
