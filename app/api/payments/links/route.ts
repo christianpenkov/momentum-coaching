@@ -254,8 +254,19 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (!firstTouch && lead?.media_id) { firstTouch = lead.media_id; attributionSource = 'content'; }
-    else if (!firstTouch && lead?.source === 'cold_dm') attributionSource = 'cold_dm';
+    // ⚠️ `instagram_leads.media_id` a DISPARU du chemin d'attribution, et pour de bon.
+    //
+    // Il servait de repli ultime quand le journal ne dit rien. Ce repli est
+    // inatteignable : la fiche et le journal sont ecrits par le MEME evenement, la
+    // detection d'un commentaire. Une fiche qui porte un contenu a donc toujours au
+    // moins une ligne de journal. Mesure le 2026-09-03 sur les 6 fiches du profil de
+    // test — les deux sans journal n'ont aucun `media_id`, les quatre avec en ont un.
+    //
+    // Le garder aurait ete du code mort portant une regle interdite : quelqu'un
+    // finit par « reparer » ce qu'il trouve, et ce repli est precisement celui que
+    // `attribution-roles.ts` bannit. Si l'invariant cassait un jour, la vente n'aurait
+    // simplement aucun contenu — un trou plutot qu'une valeur fausse.
+    if (!firstTouch && lead?.source === 'cold_dm') attributionSource = 'cold_dm';
     else if (!firstTouch && lead) attributionSource = 'organic';
   } else if (prospectId) {
     // Prospect YouTube ou « autre » : pas de media_id, l'origine reste la source.
