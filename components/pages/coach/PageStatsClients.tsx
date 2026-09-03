@@ -92,11 +92,14 @@ interface DonneesStats {
    *  Sert à dater la page sur l'élève le PLUS EN RETARD : un seul élève à jour ne doit
    *  pas afficher « il y a 5 min » quand la moitié du portefeuille date d'hier. */
   dernierJourParProfil: Map<string, string>;
-  /** Élèves dont le démarrage est déclaré (`integrations_ready_at` posé) mais dont
-   *  RIEN n'a jamais été collecté. Ils tombaient entre les deux filets : trop « prêts »
-   *  pour le bandeau d'installation, sans aucune intégration en erreur pour le bandeau
-   *  d'intégration — et ils faisaient afficher « màj plus de 10 j » à toute la page. */
-  jamaisCollectes: { profileId: string; nom: string }[];
+  /** Déclarés prêts, mais AUCUN compte Instagram ni YouTube branché. Cette page ne peut
+   *  rien dire d'eux : ni abonnés, ni vues, ni publications. Ils tombaient entre les
+   *  filets — trop « prêts » pour le bandeau d'installation, sans intégration en erreur
+   *  pour le bandeau d'intégration. */
+  sansSource: { profileId: string; nom: string }[];
+  /** Une source d'audience EST branchée et pourtant rien n'a jamais été collecté.
+   *  Distinct du précédent : rien à connecter, une collecte à faire repartir. */
+  sourceMuette: { profileId: string; nom: string }[];
   /** Élèves dont une intégration est tombée APRÈS le gate. Leur `integrations_ready_at`
    *  reste posé, donc ils comptent dans les totaux — avec des chiffres figés au jour de
    *  la panne, et rien à l'écran ne le dirait sans ce bandeau. */
@@ -254,24 +257,42 @@ async function charger(period: Period, periodIndex: number, allTime: boolean): P
   // installation. Seule une intégration explicitement en erreur compte ici.
   const nomParProfil = new Map(clients.filter(c => c.profile_id).map(c => [c.profile_id!, c.name]));
   const cassesParProfil = new Set<string>();
-  for (const r of (integRes.data || []) as { profile_id: string; status: string | null }[]) {
+  /* ⚠️ Seuls Instagram et YouTube produisent une AUDIENCE. Les autres intégrations
+   * servent à autre chose : Short.io compte des clics, Calendly des rendez-vous, Stripe
+   * des encaissements. Un élève qui n'a que Short.io de branché n'a aucun abonné,
+   * aucune vue, aucune publication à afficher — cette page ne peut rien dire de lui.
+   *
+   * C'est le défaut trouvé le 2026-09-03 : « Meta Review » n'a que `shortio`, mais il
+   * produisait quand même 18 lignes de snapshots aux colonnes d'audience toutes nulles.
+   * Le critère précédent testait « a-t-il au moins une ligne en base », donc il passait
+   * à travers. La bonne question n'est pas « y a-t-il des lignes » mais « y a-t-il une
+   * source ». */
+  const avecSourceAudience = new Set<string>();
+  for (const r of (integRes.data || []) as { profile_id: string; provider: string | null; status: string | null }[]) {
     if (r.status === 'error' || r.status === 'expired' || r.status === 'revoked') cassesParProfil.add(r.profile_id);
+    if (r.provider === 'instagram' || r.provider === 'youtube') avecSourceAudience.add(r.profile_id);
   }
 
-  /* Le démarrage est déclaré, mais rien n'est jamais arrivé.
-   *
-   * Constaté en base le 2026-09-02 sur un élève réel : `integrations_ready_at` posé le
-   * 16 août, AUCUNE ligne dans `integrations`, zéro donnée collectée en dix-sept jours.
-   * Le drapeau est censé dire « le pipeline est opérationnel » ; il peut mentir. */
-  const jamaisCollectes = clients
-    .filter(c => c.profile_id && c.integrations_ready_at && !c.archived_at)
-    .filter(c => !dernierJourParProfil.has(c.profile_id!))
+  const declares = clients.filter(c => c.profile_id && c.integrations_ready_at && !c.archived_at);
+
+  /* Déclaré prêt, mais aucune source d'audience branchée. C'est la cause RACINE, et
+   * elle est actionnable : il faut connecter un compte. */
+  const sansSource = declares
+    .filter(c => !avecSourceAudience.has(c.profile_id!))
+    .map(c => ({ profileId: c.profile_id!, nom: c.name }));
+
+  /* Une source EST branchée, et pourtant rien n'est jamais arrivé. Cas distinct du
+   * précédent : là il n'y a rien à connecter, il y a une collecte à faire repartir.
+   * Transitoire dans les heures qui suivent une connexion, anormal au-delà. */
+  const sourceMuette = declares
+    .filter(c => avecSourceAudience.has(c.profile_id!) && !dernierJourParProfil.has(c.profile_id!))
     .map(c => ({ profileId: c.profile_id!, nom: c.name }));
 
   return {
     clients,
     dernierJourParProfil,
-    jamaisCollectes,
+    sansSource,
+    sourceMuette,
     integrationsCassees: [...cassesParProfil].map(pid => ({ profileId: pid, nom: nomParProfil.get(pid) ?? 'Élève' })),
     series: (seriesRes.data || []) as LigneSerie[],
     seriesPrecedentes: (precRes.data || []) as LigneSerie[],
@@ -798,10 +819,11 @@ export default function PageStatsClients() {
         <EcranVide lignes={lignes} />
       ) : (
         <>
-          {data && (data.integrationsCassees.length > 0 || data.jamaisCollectes.length > 0) && (
+          {data && (data.integrationsCassees.length > 0 || data.sansSource.length > 0 || data.sourceMuette.length > 0) && (
             <BandeauIntegrations
               casses={data.integrationsCassees}
-              jamais={data.jamaisCollectes}
+              sansSource={data.sansSource}
+              muets={data.sourceMuette}
               onVoir={montrerDansLeTableau}
             />
           )}
@@ -843,7 +865,14 @@ export default function PageStatsClients() {
               <div>
                 <div className="card-title">{METRIQUES[metriqueAccompagnement].titreCumule} depuis l'arrivée</div>
                 <div className="card-sub">
-                  Axe en semaines d'accompagnement · chaque courbe démarre à son propre S1 · hors période
+                  {/* La dernière mention répond à une question posée le 2026-09-03 :
+                      « pourquoi certaines courbes commencent au milieu ? ». Parce qu'un
+                      élève arrivé en juillet dont la collecte n'a démarré qu'en août
+                      n'a rien à tracer avant S4. Ce n'est pas un trou, c'est le moment
+                      où on a commencé à le mesurer — et sans cette phrase, le graphe
+                      donne à croire à un défaut. */}
+                  Axe en semaines d'accompagnement · chaque courbe démarre à son propre S1 ·
+                  hors période · seules les semaines déjà collectées sont tracées
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -936,11 +965,13 @@ function Delta({ valeur, comparaison, unite }: { valeur: number | null; comparai
  *
  * « Voir lesquels » filtre le tableau du bas : le mécanisme de la recherche, déclenché
  * par le lien. Aucune modale, aucune écriture — on n'agit jamais depuis cette page. */
-function BandeauIntegrations({ casses, jamais, onVoir }: {
+function BandeauIntegrations({ casses, sansSource, muets, onVoir }: {
   casses: { profileId: string; nom: string }[];
-  /** Démarrage déclaré, zéro donnée collectée. Alerte DISTINCTE d'une intégration
+  /** Aucun compte Instagram ni YouTube branché. Alerte DISTINCTE d'une intégration
    *  tombée : là, il n'y a jamais rien eu, donc rien n'est « figé ». */
-  jamais: { profileId: string; nom: string }[];
+  sansSource: { profileId: string; nom: string }[];
+  /** Source branchée, collecte muette. Encore une autre action. */
+  muets: { profileId: string; nom: string }[];
   onVoir: (nom: string) => void;
 }) {
   /* ⚠️ Le bandeau NOMME les élèves. La première version disait « 1 élève est déclaré
@@ -969,14 +1000,25 @@ function BandeauIntegrations({ casses, jamais, onVoir }: {
       </>,
     });
   }
-  if (jamais.length > 0) {
+  if (sansSource.length > 0) {
     lignes.push({
-      cle: 'jamais', premier: jamais[0].nom,
+      cle: 'sans-source', premier: sansSource[0].nom,
       texte: <>
-        <b>{nommer(jamais)}</b>{' : '}
-        {jamais.length > 1
-          ? 'aucune donnée n’a jamais été collectée pour eux. Leurs comptes Instagram et YouTube n’ont jamais été connectés, alors qu’ils comptent déjà parmi les élèves actifs : ils n’apportent donc rien aux chiffres de cette page.'
-          : 'aucune donnée n’a jamais été collectée. Son compte Instagram ou YouTube n’a jamais été connecté, alors qu’il compte déjà parmi les élèves actifs : il n’apporte donc rien aux chiffres de cette page.'}
+        <b>{nommer(sansSource)}</b>{' : '}
+        {sansSource.length > 1
+          ? 'aucun compte Instagram ni YouTube n’est connecté. Ils comptent déjà parmi les élèves actifs, mais cette page ne peut rien dire d’eux : ni abonnés, ni vues, ni publications.'
+          : 'aucun compte Instagram ni YouTube n’est connecté. Il compte déjà parmi les élèves actifs, mais cette page ne peut rien dire de lui : ni abonnés, ni vues, ni publications.'}
+      </>,
+    });
+  }
+  if (muets.length > 0) {
+    lignes.push({
+      cle: 'muets', premier: muets[0].nom,
+      texte: <>
+        <b>{nommer(muets)}</b>{' : '}
+        {muets.length > 1
+          ? 'leurs comptes sont bien connectés, mais aucune donnée n’est jamais arrivée. Si la connexion date de plus d’une journée, la collecte est à relancer.'
+          : 'son compte est bien connecté, mais aucune donnée n’est jamais arrivée. Si la connexion date de plus d’une journée, la collecte est à relancer.'}
       </>,
     });
   }
