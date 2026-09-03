@@ -78,6 +78,28 @@ type Surveillance = {
 
 const SURVEILLANCES: Surveillance[] = [
   {
+    cle: 'sante_acces_lecture',
+    source: 'acces_sante_lecture',
+    titre: 'Une donnée est lisible depuis le navigateur sans que la RLS ne s’applique',
+    detection: 'toute_ligne',
+    surveille:
+      'Un invariant, pas une liste : toute relation de `public` que `anon` ou `authenticated` peut lire DOIT appliquer la RLS — `security_invoker = true` pour une vue, RLS activée pour une table.',
+    signifie:
+      'Une vue sans `security_invoker` s’exécute avec les droits de son PROPRIÉTAIRE : la RLS des tables sources est contournée, et la vue rend TOUTES les lignes de tous les coachs. Si `anon` peut la lire, aucune session n’est même nécessaire — la clé `anon` est publique par construction, elle est dans le bundle JS de chaque élève. ⚠️ Cette vue existe parce que Supabase pose des privilèges par défaut sur `public` : toute vue nouvellement créée y est immédiatement lisible par `anon` et `authenticated`, SANS qu’aucun `grant` n’apparaisse dans le diff. Le verrouillage du 2 septembre 2026 a été défait dès le lendemain par deux `create view` ordinaires, exposant les ventes, montants et identifiants Stripe de tous les coachs.',
+    quoiFaire: [
+      '`select * from acces_sante_lecture;` — la colonne `protection` dit ce qui manque.',
+      'Vue lue seulement par le serveur (toutes les vues de santé) : `revoke select on public.<vue> from anon, authenticated;` puis `grant select on public.<vue> to service_role;`',
+      'Vue réellement lue par le navigateur : `alter view public.<vue> set (security_invoker = true);` — la RLS s’applique alors, `service_role` continue de tout voir.',
+      'Table : `alter table public.<table> enable row level security;` puis écrire les policies, ou aucune policy si seul le serveur la lit.',
+      '⚠️ Ne PAS retirer les privilèges par défaut du schéma (`alter default privileges … revoke`) : les tables applicatives en dépendent, le navigateur les lit avec `authenticated` protégé par la RLS.',
+    ],
+    docs: [
+      'supabase/migrations/20260903170000_verrou_structurel_lecture_public.sql',
+      'docs/security-notes.md',
+      'AGENTS.md, section « Un `profile_id` est PUBLIC »',
+    ],
+  },
+  {
     cle: 'sante_ventes_date',
     source: 'ventes_sante_date',
     titre: 'Une vente est datée autrement qu’à la tenue de son rendez-vous',
@@ -130,13 +152,14 @@ const SURVEILLANCES: Surveillance[] = [
     source: 'ventes_sante_sur_encaissement',
     titre: 'Une vente a encaissé plus que son montant contracté',
     detection: 'toute_ligne',
-    surveille: 'Qu’aucun deal n’ait reçu plus d’argent qu’il n’en a contracté.',
+    surveille:
+      'Qu’aucun deal n’ait encaissé NET plus d’argent qu’il n’en a contracté. Net = encaissé − remboursé − contesté, la règle unique de `lib/dealCash.ts`.',
     signifie:
-      'Un trop-perçu fait dépasser 100 % de collecte, et dans les totaux il vient effacer la dette d’un autre client. C’est le garde-fou du cash, celui qui rattrape ce qu’aucune garde à l’écriture n’attrape.',
+      'Un trop-perçu fait dépasser 100 % de collecte, et dans les totaux il vient effacer la dette d’un autre client. C’est le garde-fou du cash, celui qui rattrape ce qu’aucune garde à l’écriture n’attrape. ⚠️ Elle comparait du BRUT jusqu’au 3 septembre 2026, ce qui la faisait crier à chaque geste commercial : le parcours de remise BAISSE `amount_total` du montant rendu, donc le brut dépassait toujours le contracté. Si elle recommence à alerter sur une remise ordinaire, c’est que la déduction a été perdue — et non qu’un doublement a eu lieu.',
     quoiFaire: [
-      '`select * from ventes_sante_sur_encaissement;`',
+      '`select * from ventes_sante_sur_encaissement;` — les colonnes `encaisse_brut`, `rembourse`, `conteste`, `encaisse_net` séparent les deux lectures.',
       'Vérifier si un paiement a été rattaché au mauvais deal, ou si le montant contracté a été révisé à la baisse après coup.',
-      'Ne jamais sommer des paiements à la main pour trancher : `lib/dealCash.ts` porte la règle unique.',
+      'Ne jamais sommer des paiements à la main pour trancher : `lib/dealCash.ts` porte la règle unique, et elle déduit les remboursements ET les contestations.',
     ],
     docs: ['docs/stripe-paiements.md', 'lib/dealCash.ts'],
   },

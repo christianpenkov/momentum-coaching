@@ -92,4 +92,13 @@ comment on view public.ventes_sante_contenu is
   'ecarts qui n''en sont pas, ou pire, cesse d''en signaler. '
   'etat like ''ALERTE%'' pour les vraies anomalies ; ''vente sans rendez-vous'' est normal.';
 
-grant select on public.ventes_sante_contenu to authenticated, service_role;
+-- ⚠️ CORRIGE LE 2026-09-03 : cette ligne disait `to authenticated, service_role`,
+-- recopiee de la migration d'origine de la vue. Elle a REOUVERT a tout compte connecte
+-- une vue que la migration 20260902200000 avait fermee la veille — et comme
+-- `security_invoker` vaut false par defaut, la RLS etait contournee : les ventes et
+-- montants de TOUS les coachs, lisibles par n'importe quel eleve.
+--
+-- Aucun lecteur legitime n'est `authenticated` : `alerte-vues` et `integrations/health`
+-- utilisent SUPABASE_SERVICE_ROLE_KEY. Le verrou structurel et sa surveillance sont
+-- dans 20260903170000_verrou_structurel_lecture_public.sql.
+grant select on public.ventes_sante_contenu to service_role;

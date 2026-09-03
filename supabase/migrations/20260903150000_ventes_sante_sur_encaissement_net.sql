@@ -88,9 +88,23 @@ comment on view public.ventes_sante_sur_encaissement is
   'geste commercial : le parcours de remise BAISSE amount_total du montant rendu, donc '
   'le brut depassait toujours le contracte.';
 
--- ⚠️ `service_role` SEULEMENT. La migration 20260902200000 a revoque `anon` et
--- `authenticated` sur toutes les vues de sante : le navigateur n'en lit aucune, seules
--- `alerte-vues` et `integrations/health` les interrogent. Regrant `authenticated` ici
--- rouvrirait ce qu'elle a ferme, sans que rien ne le signale. Meme piege pour toute
--- migration de vue de sante rejouee apres cette date.
+-- ⚠️ CE COMMENTAIRE ETAIT FAUX — corrige le 2026-09-03, quelques heures apres.
+--
+-- Il disait « `service_role` SEULEMENT », et le `grant` ci-dessous ne mentionne bien que
+-- lui. Mais un `grant` explicite ne dit RIEN de ce que la vue autorise deja : Supabase
+-- pose des privileges par defaut sur le schema `public` (`select * from pg_default_acl`),
+-- et le `drop view` + `create view` ci-dessus a donc rendu cette vue lisible par `anon`
+-- et `authenticated` — sans session pour `anon`, dont la cle est publique et vit dans le
+-- bundle JS de chaque eleve. `security_invoker` valant false par defaut, la RLS etait en
+-- prime contournee : les ventes, montants et identifiants Stripe de TOUS les coachs.
+--
+-- **Ne jamais lire un `grant` comme une restriction.** Un `grant` ajoute ; il n'enleve
+-- rien. La seule facon de savoir ce qu'une relation autorise est de le DEMANDER a la
+-- base (`has_table_privilege('anon', …)`), jamais de le deduire des lignes ecrites.
+--
+-- Ferme, et surtout rendu detectable pour la prochaine fois, par
+-- 20260903170000_verrou_structurel_lecture_public.sql — qui teste l'invariant « lisible
+-- du navigateur ⇒ la RLS s'applique » plutot que de rejouer un `revoke` de plus.
 grant select on public.ventes_sante_sur_encaissement to service_role;
+revoke select on public.ventes_sante_sur_encaissement from anon, authenticated;
+alter view public.ventes_sante_sur_encaissement set (security_invoker = true);

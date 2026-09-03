@@ -421,9 +421,46 @@ select * from ventes_sante_date;                -- aucune ligne 'ALERTE%'
 select * from ig_sante_insights_posts;          -- 'ok' partout
 select * from ig_sante_periodes;                -- aucune ligne 'ALERTE%'
 select * from base_sante_taille;                -- 'ok' = plafond de stockage loin
-select * from clics_sante_redirection;
-select * from crons_sante;                      -- aucun 'SILENCIEUX' = les crons inscrits tournent          -- 'ok' partout
+select * from clics_sante_redirection;          -- 'ok' partout
+select * from crons_sante;                      -- aucun 'SILENCIEUX' = les crons inscrits tournent
+select * from acces_sante_lecture;              -- vide = aucune donnée lisible du navigateur sans RLS
 ```
+
+## ⚠️ Un `revoke` ne se maintient pas — l'invariant, si
+
+Supabase pose des **privilèges par défaut** sur le schéma `public`
+(`select * from pg_default_acl`) : `anon` et `authenticated` reçoivent `ALL` sur toute
+table et toute vue **nouvellement créée**. Donc `create view` suffit à exposer une
+donnée, sans qu'aucun `grant` n'apparaisse dans le diff.
+
+Constaté le 2026-09-03 : la migration `20260902200000` avait fermé les 15 vues de santé
+la veille ; **deux migrations du lendemain les ont rouvertes** — l'une par un `drop` +
+`create` (privilèges par défaut), l'autre par un `grant … to authenticated` recopié.
+`ventes_sante_sur_encaissement` est redevenue lisible **sans aucune session**, et comme
+`security_invoker` vaut `false` par défaut, la RLS était contournée : les ventes, les
+montants et les identifiants Stripe de tous les coachs.
+
+**Ne jamais lire un `grant` comme une restriction.** Un `grant` ajoute, il n'enlève rien.
+La seule façon de savoir ce qu'une relation autorise est de le demander à la base :
+
+```sql
+select has_table_privilege('anon', 'public.ma_vue', 'SELECT');
+```
+
+L'invariant qui remplace la vigilance, porté par `acces_sante_lecture` et alerté par
+e-mail comme les autres vues :
+
+> Toute relation de `public` que `anon` ou `authenticated` peut lire **doit appliquer la
+> RLS** — `security_invoker = true` pour une vue, RLS activée pour une table.
+
+Il n'énumère rien et ne dépend d'aucune convention de nommage : les défauts de Postgres
+(ACL ouverte, `security_invoker` à false, RLS désactivée) font tomber toute relation
+nouvelle **du mauvais côté**, donc dans la vue. Témoin positif joué : une vue créée sans
+aucun `grant` y apparaît d'elle-même.
+
+⚠️ **Ne PAS retirer les privilèges par défaut du schéma** (`alter default privileges …
+revoke`) : les tables applicatives en dépendent — le navigateur les lit avec
+`authenticated`, protégé par la RLS.
 
 ⚠️ **`cron_runs` couvre désormais aussi `sync-calendly`** (ajouté le 2026-08-31 : ses
 erreurs partaient dans une réponse HTTP que cron-job.org jette). Filtrer par
