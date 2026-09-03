@@ -16,6 +16,17 @@ import { createLinkCategoryResolver, type LinkCategory } from '../../../lib/shor
 // qu'une seule règle de filtrage et de datation existe dans toute la plateforme.
 import { fetchClicsShortio, agregerClics, estVraiClic, cleClic, hoteDuLien, type ClicShortio } from '../../../lib/shortio-clicks.ts';
 import { CALL_TYPES_VENTE } from '../../../lib/callTypes.ts';
+// ⚠️ L'empreinte du code SOURCE de cette fonction, pour que `edge_sante_version` puisse
+// dire si la version en ligne est celle du depot. Une Edge Function ne part pas avec
+// `git push` : le 2026-09-03, CETTE fonction a tourne deux jours avec du code vieux de
+// huit commits, dont le correctif qui empechait l'origine d'un lead d'etre ecrasee toutes
+// les cinq minutes — un champ que six ecrans lisent, dont toute l'attribution des
+// paiements. `crons_passages` prouve qu'un cron TOURNE, jamais qu'il tourne le BON code.
+//
+// Le fichier est genere par `scripts/empreintes-edge.mjs`, rejoue par
+// `npm run deployer-edge <nom>` juste avant l'envoi : la valeur figee dans le bundle est
+// donc celle du code reellement deploye.
+import { EMPREINTES_EDGE } from '../../../lib/empreintes-edge.generated.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -3133,7 +3144,7 @@ Deno.serve(async (req: Request) => {
   //
   // Strictement non bloquant : un filigrane muet vaut mieux qu'un cron qui tombe.
   try {
-    const { error: filigraneErr } = await supa.rpc('marquer_passage_cron', { p_nom: 'poll-leads' });
+    const { error: filigraneErr } = await supa.rpc('marquer_passage_cron', { p_nom: 'poll-leads', p_empreinte: EMPREINTES_EDGE['poll-leads'] });
     if (filigraneErr) console.error('[poll-leads] filigrane de passage:', filigraneErr.message);
   } catch (e) { console.error('[poll-leads] filigrane de passage:', e); }
 

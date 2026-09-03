@@ -1,6 +1,15 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { RateLimiter, mapWithConcurrency } from '../_shared/rate-limit.ts';
 import { calculerCash, statutDeal } from '../_shared/dealCash.ts';
+// ⚠️ L'empreinte du code SOURCE de cette fonction, pour que `edge_sante_version` puisse
+// dire si la version en ligne est celle du depot. Une Edge Function ne part pas avec
+// `git push` : le 2026-09-03, `poll-leads` a tourne deux jours avec du code vieux de huit
+// commits sans que rien ne puisse le voir. `crons_passages` prouve qu'un cron TOURNE, jamais qu'il tourne le BON code.
+//
+// Le fichier est genere par `scripts/empreintes-edge.mjs`, rejoue par
+// `npm run deployer-edge <nom>` juste avant l'envoi : la valeur figee dans le bundle est
+// donc celle du code reellement deploye.
+import { EMPREINTES_EDGE } from '../../../lib/empreintes-edge.generated.ts';
 
 /**
  * Le FILET du cash : relit les paiements chez Stripe, pour TOUS les comptes.
@@ -632,7 +641,7 @@ Deno.serve(async (req: Request) => {
   //
   // Strictement non bloquant : un filigrane muet vaut mieux qu'un cron qui tombe.
   try {
-    const { error: filigraneErr } = await supabase.rpc('marquer_passage_cron', { p_nom: 'sync-stripe-payments' });
+    const { error: filigraneErr } = await supabase.rpc('marquer_passage_cron', { p_nom: 'sync-stripe-payments', p_empreinte: EMPREINTES_EDGE['sync-stripe-payments'] });
     if (filigraneErr) console.error('[sync-stripe-payments] filigrane de passage:', filigraneErr.message);
   } catch (e) { console.error('[sync-stripe-payments] filigrane de passage:', e); }
 

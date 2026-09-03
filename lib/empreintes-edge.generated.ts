@@ -21,12 +21,12 @@ export const EMPREINTES_EDGE: Record<string, string> = {
   'fathom-cron-sync': '7d8ac493e72f64ce', // 1 fichier
   'installment-reminders': 'be99ea92fdb0aab4', // 1 fichier
   'notify-rapport': '1f2f6a0dce0f433b', // 2 fichiers
-  'poll-leads': 'f869886b261d8230', // 7 fichiers
+  'poll-leads': 'dd7e44cc2e750b21', // 7 fichiers
   'poll-stories': '8dec82c5f2fe74e6', // 2 fichiers
   'refresh-ig-posts': 'e3689052b0aff79d', // 2 fichiers
   'send-pending-dm3': '7c0268bf583fc300', // 2 fichiers
-  'sync-calendly': '08efa71ef6e7069a', // 2 fichiers
-  'sync-stripe-payments': '250550acf58cb82e', // 3 fichiers
+  'sync-calendly': 'd2813715d46b5bf8', // 2 fichiers
+  'sync-stripe-payments': '0f6c66420309f9f2', // 3 fichiers
 };
 
 /** L'empreinte d'une fonction, ou `null` si elle n'est pas dans le depot. */
