@@ -7558,7 +7558,16 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                   // pose. « À quoi sert ce tableau ? » se lisait comme le contenu entier
                   // du panneau, alors que c'en était le titre : on croyait avoir tout lu
                   // en survolant, et on ne cliquait pas.
-                  title={ouverte ? 'Masquer les explications' : 'Comment lire ce tableau — ce qu’il compte, ce qu’il ne compte pas, et les pièges'}
+                  // L'infobulle dit d'abord QUOI FAIRE, ensuite ce qu'on y gagne.
+                  //
+                  // Elle annonçait seulement le contenu du panneau, et rien ne disait
+                  // qu'il fallait cliquer : un « ? » qui se contente de décrire se lit
+                  // comme une infobulle qui a déjà tout dit, et on ne clique jamais.
+                  // Contrairement aux « ? » des colonnes, dont le survol montre déjà le
+                  // texte entier, celui-ci ne révèle rien tant qu'on ne l'ouvre pas.
+                  title={ouverte
+                    ? 'Cliquez pour masquer les explications'
+                    : 'Cliquez pour lire les explications en détail : ce que ce tableau compte, ce qu’il ne compte pas, et les pièges'}
                   style={{ width: 16, height: 16, borderRadius: '50%', flex: 'none', cursor: 'pointer', fontSize: 10, fontWeight: 700, lineHeight: 1, display: 'grid', placeItems: 'center', border: `1px solid ${ouverte ? BLUE : 'var(--muted)'}`, color: ouverte ? BLUE : 'var(--muted)', background: ouverte ? BLUE + '12' : 'transparent' }}>
                   ?
                 </button>
