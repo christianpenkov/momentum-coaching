@@ -101,8 +101,13 @@ function fmtJour(iso: string): string {
 }
 
 Deno.serve(async (req) => {
+  // FAIL-CLOSED : un CRON_SECRET absent de l'environnement refuse tout, il
+  // n'ouvre pas tout. L'ancien `if (secret && …)` laissait la fonction
+  // publiquement invocable si le secret disparaissait des variables — les dix
+  // autres fonctions échouent fermé, celle-ci était la seule exception
+  // (audit du 2026-09-02).
   const secret = Deno.env.get('CRON_SECRET');
-  if (secret && req.headers.get('authorization') !== `Bearer ${secret}`) {
+  if (!secret || req.headers.get('authorization') !== `Bearer ${secret}`) {
     return new Response('Unauthorized', { status: 401 });
   }
 
@@ -253,6 +258,20 @@ Deno.serve(async (req) => {
       // Une échéance en échec ne doit pas empêcher les suivantes de partir.
       errors.push(`${r.id}: ${e?.message ?? 'erreur'}`);
     }
+  }
+
+  // Journal en base, pas seulement dans la réponse HTTP (audit du 2026-09-02) :
+  // cron-job.org jette le corps de la réponse — une erreur persistante (donnée
+  // corrompue, RPC en panne) se serait répétée trente jours sans laisser une
+  // seule trace consultable. Même convention que sync-calendly : n'écrire que
+  // les passages en échec.
+  if (errors.length) {
+    const { error: journalErr } = await sb.from('cron_runs').insert({
+      fonction: 'installment-reminders',
+      profils_en_erreur: errors.length,
+      erreurs: { echecs: errors.slice(0, 50) },
+    });
+    if (journalErr) console.error('[installment-reminders] cron_runs:', journalErr.message);
   }
 
   return new Response(

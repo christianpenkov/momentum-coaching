@@ -4,6 +4,7 @@
 // À déclencher une seule fois manuellement via Supabase Dashboard ou curl.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { RateLimiter } from '../_shared/rate-limit.ts';
 import { createLinkCategoryResolver } from '../../../lib/shortio-link-category.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -14,14 +15,30 @@ const supa = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 const safeJson = async (r: Response) => { try { return await r.json(); } catch { return {}; } };
 
+// Limiteur partagé du projet, et non la pause fixe de 100 ms qui vivait ici :
+// 100 ms = jusqu'à ~600 req/min contre un budget Short.io de ~50/min/domaine
+// (audit du 2026-09-02). Le backoff du limiteur absorbe les 429 avec
+// Retry-After au lieu de les compter comme « lien sans données ». Ce fichier
+// est le parcours de PREMIÈRE CONNEXION, rejoué pour chaque nouvel élève —
+// pas un outil jetable.
+const shortioLimiter = new RateLimiter({
+  concurrency: 2,
+  tokensPerInterval: 40,
+  intervalMs: 60_000,
+  maxRetryWaitMs: 30_000,
+  maxRetries: 3,
+});
+
 async function fetchShortioLinksForDomain(apiKey: string, domainId: string): Promise<any[]> {
   const headers = { authorization: apiKey, accept: 'application/json' };
   const all: any[] = [];
   let beforeId: string | undefined;
   while (true) {
     const url = `https://api.short.io/api/links?domain_id=${domainId}&limit=150${beforeId ? `&beforeId=${beforeId}` : ''}`;
-    const res = await fetch(url, { headers });
-    if (!res.ok) break;
+    const res = await shortioLimiter.run(() => fetch(url, { headers }));
+    // LÈVE au lieu de `break` : un 429/5xx tronquait la liste EN SILENCE — le
+    // backfill se croyait complet en étant partiel, et rien ne le disait.
+    if (!res.ok) throw new Error(`links_http_${res.status} (domaine ${domainId}, ${all.length} liens lus)`);
     const data = await safeJson(res);
     const page: any[] = data?.links ?? [];
     if (!page.length) break;
@@ -112,8 +129,11 @@ Deno.serve(async (req) => {
         try { link_type = new URL(originalUrl).searchParams.get('utm_medium') || null; } catch {}
         const link_category = resolveLinkCategory(path, shortUrl, originalUrl);
 
-        const statsRes = await fetch(`https://api-v2.short.io/statistics/link/${linkId}?period=last30`, { headers });
-        if (!statsRes.ok) { skipped++; continue; }
+        const statsRes = await shortioLimiter.run(() => fetch(`https://api-v2.short.io/statistics/link/${linkId}?period=last30`, { headers }));
+        // Un échec HTTP est une ERREUR comptée, plus un « skipped » : un 429
+        // était indiscernable d'un lien sans données, et le backfill se croyait
+        // complet en étant partiel.
+        if (!statsRes.ok) { errors++; continue; }
         const stats = await safeJson(statsRes);
 
         const chartRaw: { x: string; y: string }[] = stats.clickStatistics?.datasets?.[0]?.data || [];
@@ -139,9 +159,6 @@ Deno.serve(async (req) => {
           .upsert(rows, { onConflict: 'profile_id,link_id,date', ignoreDuplicates: true });
 
         if (error) { errors++; } else { inserted += rows.length; }
-
-        // Pause pour ne pas dépasser le rate limit Short.io
-        await new Promise(r => setTimeout(r, 100));
       } catch {
         errors++;
       }

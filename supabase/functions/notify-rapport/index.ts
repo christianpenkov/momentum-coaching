@@ -155,5 +155,22 @@ Deno.serve(async (req: Request) => {
     }
   }));
 
+  // Journal en base, pas seulement dans la réponse HTTP (audit du 2026-09-02) :
+  // cron-job.org jette le corps — y compris les `no_delivery_…` et les HTTP
+  // non-200 de /api/push/send, qui n'étaient visibles nulle part. Même
+  // convention que sync-calendly : n'écrire que les passages en échec.
+  //
+  // `no_delivery` exclu du journal : un élève sans abonnement push n'est pas un
+  // incident de cron, et le drapeau non posé fait retenter au passage suivant.
+  const incidents = errors.filter((e) => !e.startsWith('no_delivery_'));
+  if (incidents.length) {
+    const { error: journalErr } = await supabase.from('cron_runs').insert({
+      fonction: 'notify-rapport',
+      profils_en_erreur: incidents.length,
+      erreurs: { echecs: incidents.slice(0, 50) },
+    });
+    if (journalErr) console.error('[notify-rapport] cron_runs:', journalErr.message);
+  }
+
   return new Response(JSON.stringify({ ok: true, notified, errors }), { status: 200 });
 });

@@ -264,7 +264,12 @@ export async function getIgCreds(supa: SupabaseClient, profileId: string): Promi
 
   if (!integ?.access_token) return null;
 
-  const needsRefresh = integ.expires_at &&
+  // `!integ.expires_at ||` et non `integ.expires_at &&` : un expires_at NULL
+  // signifie « jamais rafraichi », pas « n'expire jamais ». Le bug etait corrige
+  // dans poll-leads/index.ts (getIgCreds) avec un commentaire decrivant
+  // l'incident — cette copie ne l'avait jamais recu (motif « deux copies, une
+  // seule a jour », audit du 2026-09-02). Au pire, un refresh de trop.
+  const needsRefresh = !integ.expires_at ||
     new Date(integ.expires_at).getTime() < Date.now() + 5 * 24 * 60 * 60 * 1000;
 
   let token = integ.access_token;
