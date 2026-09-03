@@ -127,4 +127,6 @@ export const MIGRATIONS_DEPOT: { version: string; nom: string }[] = [
   { version: '20260904100000', nom: 'versionner_ig_entry_id_mapping_et_purge_verrous' },
   { version: '20260904110000', nom: 'fermer_insertion_anon_sw_logs' },
   { version: '20260904120000', nom: 'verrou_poll_leads_refus_rattrapage_slots_worker' },
+  { version: '20260904130000', nom: 'figer_search_path_figer_detected_at' },
+  { version: '20260904140000', nom: 'supprimer_index_duplique_deal_installments' },
 ];
