@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { CALL_TYPES_VENTE } from '@/lib/callTypes';
+import { CALL_COLUMNS } from '@/lib/supabase/types';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
 
@@ -48,9 +49,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   // PageClientStats.tsx:5766 — sans lui, les calls que le coach a "supprimés"
   // depuis le pipeline (marqués ignored=true plutôt qu'effacés physiquement)
   // reviennent dans les KPI.
+  // CALL_COLUMNS et non '*' : exclut fathom_transcript (jusqu'à plusieurs Mo par
+  // call) — première cause d'egress de la plateforme, cf. lib/supabase/types.ts.
   let query = serviceSupabase
     .from('calls')
-    .select('*')
+    .select(CALL_COLUMNS)
     .eq('coach_id', clientRow.profile_id)
     .in('call_type', CALL_TYPES_VENTE)
     .neq('ignored', true)

@@ -205,7 +205,15 @@ export interface Call {
  * calculées (`alias:col.not.is(null)`) — les deux renvoient PGRST100 — d'où
  * l'énumération explicite et la colonne générée `has_fathom_transcript`.
  */
-export const CALL_COLUMNS = 'id, client_id, topic, scheduled_at, duration, ready, notes, calendly_uri, reminder_sent, created_at, join_url, calendly_event_uuid, status, invitee_email, coach_id, invitee_name, calendly_qa, source, no_show, deal_closed, revenue, ig_lead_id, short_link_path, utm_campaign, utm_medium, utm_content, google_event_id, meet_link, call_type, reminder_24h_sent, reminder_15min_sent, rapport_notif_sent, outcome, prospect_link_id, no_show_at, rescheduled, rescheduled_at, manual_override, cancellation_reason, next_rescheduled_uri, prospect_id, lead_deleted, booked_at, is_follow_up, ignored, qualified, session_completed, session_no_show, session_rapport_reminder_sent, lead_rapport_comment, invite_reminder_24h_sent, invite_reminder_2h_sent, fathom_recording_id, fathom_share_url, fathom_summary, fathom_action_items, fathom_status, fathom_matched_at, has_fathom_transcript, objection, objection_autre, relance_at' as const;
+export const CALL_COLUMNS = 'id, client_id, topic, scheduled_at, duration, ready, notes, calendly_uri, reminder_sent, created_at, join_url, calendly_event_uuid, status, invitee_email, coach_id, invitee_name, calendly_qa, source, no_show, deal_closed, revenue, ig_lead_id, short_link_path, utm_campaign, utm_medium, utm_content, google_event_id, meet_link, call_type, reminder_24h_sent, reminder_15min_sent, rapport_notif_sent, outcome, prospect_link_id, no_show_at, rescheduled, rescheduled_at, manual_override, cancellation_reason, next_rescheduled_uri, prospect_id, lead_deleted, booked_at, is_follow_up, ignored, qualified, session_completed, session_no_show, session_rapport_reminder_sent, lead_rapport_comment, invite_reminder_24h_sent, invite_reminder_2h_sent, fathom_recording_id, fathom_share_url, fathom_summary, fathom_action_items, fathom_status, fathom_matched_at, has_fathom_transcript, objection, objection_autre, relance_at, utm_term, canceled_at, canceled_by, click_id, clicked_at' as const;
+// ⚠️ Complétée le 2026-09-03 (utm_term, canceled_at, canceled_by, click_id,
+// clicked_at) : cinq colonnes ajoutées à `calls` après l'écriture de cette liste
+// n'y avaient jamais été reportées. Toute nouvelle colonne de `calls` DOIT être
+// ajoutée ici — c'est le prix de l'exclusion de fathom_transcript, qui vaut
+// largement ce prix : un transcript pèse jusqu'à plusieurs Mo par call, et un
+// `select('*')` sur une liste de calls en tirait des dizaines à chaque
+// ouverture d'écran — la première cause d'egress de la plateforme (5,45 Go/5 Go
+// du plan gratuit consommés en août 2026 avec DEUX utilisateurs de test).
 
 export interface SessionReport {
   id: string;

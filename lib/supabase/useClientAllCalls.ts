@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import { createClient } from '@/lib/supabase/client';
-import type { Call } from '@/lib/supabase/types';
+import { CALL_COLUMNS, type Call } from '@/lib/supabase/types';
 
 export function useClientAllCalls(client: { id: string; profile_id: string } | null) {
   const [calls, setCalls] = useState<Call[]>([]);
@@ -21,7 +21,10 @@ export function useClientAllCalls(client: { id: string; profile_id: string } | n
         .select('integrations_ready_at').eq('profile_id', client.profile_id).maybeSingle();
       const integrationsReadyAt: string | null = clientRow?.integrations_ready_at ?? null;
 
-      let calendlyQuery = supabase.from('calls').select('*')
+      // CALL_COLUMNS et non '*' : exclut fathom_transcript (jusqu'à plusieurs Mo
+      // par call, tiré ici À CHAQUE ouverture de l'écran calls d'un élève) —
+      // première cause d'egress de la plateforme, cf. lib/supabase/types.ts.
+      let calendlyQuery = supabase.from('calls').select(CALL_COLUMNS)
         .eq('coach_id', client.profile_id)
         .in('call_type', CALL_TYPES_VENTE)
         .neq('status', 'cancelled')
@@ -38,7 +41,7 @@ export function useClientAllCalls(client: { id: string; profile_id: string } | n
       const { data: calendlyCalls } = await calendlyQuery;
 
       // Calls Google Calendar : client_id = client.id
-      const { data: googleCalls } = await supabase.from('calls').select('*')
+      const { data: googleCalls } = await supabase.from('calls').select(CALL_COLUMNS)
         .eq('client_id', client.id)
         .eq('call_type', 'google')
         .neq('status', 'canceled')

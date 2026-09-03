@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { CALL_TYPES_VENTE } from '@/lib/callTypes';
+import { CALL_COLUMNS } from '@/lib/supabase/types';
 import { parcoursDesLeads, parcoursDesLiensPartages, type RefsParcours, type CallParcours, type PriseParcours, type CallPartage } from '@/lib/parcoursLeads';
 import InlineLoader from '@/components/ui/InlineLoader';
 import BandeauIntegrations from '@/components/analytics/BandeauIntegrations';
@@ -9753,7 +9754,8 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     // requête filtrait encore sur scheduled_at, donc un call réservé le 29/08 pour le
     // 02/09 sortait du snapshot d'août alors que le mode live l'y comptait.
     // Repli sur scheduled_at pour les calls importés sans booked_at.
-    supabase.from('calls').select('*')
+    // CALL_COLUMNS et non '*' : exclut fathom_transcript — cf. lib/supabase/types.ts.
+    supabase.from('calls').select(CALL_COLUMNS)
       .eq('coach_id', targetId)
       .or(`and(booked_at.gte.${periodStart.toISOString()},booked_at.lte.${periodEnd.toISOString()}),and(booked_at.is.null,scheduled_at.gte.${periodStart.toISOString()},scheduled_at.lte.${periodEnd.toISOString()})`)
       .in('call_type', CALL_TYPES_VENTE)
@@ -10607,7 +10609,8 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
   // cumule tout l'historique d'un élève sur plusieurs années — même raison que les
   // autres .limit() fixes déjà migrés ci-dessus).
   const callsRawRows = await fetchAllPages<any>(() => {
-    const q = supabase.from('calls').select('*')
+    // CALL_COLUMNS et non '*' : exclut fathom_transcript — cf. lib/supabase/types.ts.
+    const q = supabase.from('calls').select(CALL_COLUMNS)
       .eq('coach_id', callsOwnerId)
       .neq('ignored', true)
       .in('call_type', CALL_TYPES_VENTE)
