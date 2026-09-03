@@ -66,6 +66,7 @@
 //   node scripts/empreintes-edge.mjs --verifier    # ne rien ecrire, sortir 1 si perime
 
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -86,8 +87,26 @@ function normaliserChemin(absolu) {
   return relative(RACINE, absolu).split('\\').join('/');
 }
 
+// `--depuis-head` : lire le code COMMITE au lieu de la copie de travail.
+//
+// ⚠️ Les deux lectures repondent a deux questions differentes, et confondre les deux
+// produit un fichier faux.
+//
+//   * defaut (copie de travail)  → « qu'est-ce que je DEPLOIE ? »   Utilise par
+//     `deployer-edge` juste avant l'envoi : la valeur figee dans le bundle doit decrire
+//     ce que le bundle contient.
+//   * `--depuis-head` (code commite) → « qu'est-ce que le DEPOT contient ? »  Utilise
+//     pour ecrire le fichier qu'on commite, et par la porte de `npm test`.
+//
+// Sans ce second mode, regenerer le fichier dans un depot ou une AUTRE session a du
+// travail non commite y inscrirait les empreintes de son travail en cours — et le
+// commit publierait des valeurs qui ne correspondent a aucune version du depot. Le cas
+// n'est pas theorique : trois Edge Functions sur onze etaient dans cet etat le
+// 2026-09-03.
+const DEPUIS_HEAD = process.argv.includes('--depuis-head');
+
 /**
- * Le contenu vient de la COPIE DE TRAVAIL, delibrement.
+ * Le contenu vient de la COPIE DE TRAVAIL par defaut, delibrement.
  *
  * ⚠️ C'est ce qui donne son sens a l'alerte : `npx supabase functions deploy` envoie le
  * disque, pas `HEAD`. Une empreinte calculee sur le code commite decrirait donc quelque
@@ -107,10 +126,24 @@ function normaliserChemin(absolu) {
  * pour un code identique, et l'alerte crierait sans qu'une ligne ait bouge. Un BOM
  * eventuel part pour la meme raison.
  */
-function contenuNormalise(chemin) {
-  let texte = readFileSync(chemin, 'utf8');
+function normaliser(texte) {
   if (texte.charCodeAt(0) === 0xfeff) texte = texte.slice(1);
   return texte.split('\r\n').join('\n');
+}
+
+function contenuNormalise(chemin) {
+  if (DEPUIS_HEAD) {
+    try {
+      return normaliser(execFileSync('git', ['show', `HEAD:${normaliserChemin(chemin)}`], {
+        cwd: RACINE, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }));
+    } catch {
+      // Absent de HEAD : fichier nouveau, pas encore commite. On retombe sur le disque —
+      // il n'est de toute facon pas encore deploye.
+    }
+  }
+  return normaliser(readFileSync(chemin, 'utf8'));
 }
 
 /**
@@ -207,10 +240,20 @@ const attendu = rendre(empreintes);
 const verifier = process.argv.includes('--verifier');
 
 if (verifier) {
-  const actuel = existsSync(FICHIER_GENERE) ? contenuNormalise(FICHIER_GENERE) : '';
+  // ⚠️ Le fichier genere se lit sur le DISQUE meme en `--depuis-head` : c'est la copie
+  // qu'on s'apprete a commiter qu'on verifie, pas celle deja commitee.
+  const actuel = existsSync(FICHIER_GENERE)
+    ? normaliser(readFileSync(FICHIER_GENERE, 'utf8'))
+    : '';
   if (actuel !== attendu) {
-    console.error('lib/empreintes-edge.generated.ts est PERIME.');
-    console.error('Rejouer : node scripts/empreintes-edge.mjs');
+    console.error('lib/empreintes-edge.generated.ts est PERIME'
+      + (DEPUIS_HEAD ? ' par rapport au code COMMITE.' : ' par rapport a la copie de travail.'));
+    console.error('Rejouer puis commiter le fichier :');
+    console.error('  npm run empreintes-edge -- --depuis-head');
+    console.error('');
+    console.error("Une Edge Function a ete modifiee sans que le fichier d'empreintes suive.");
+    console.error('Sans ca, un deploiement fait autrement que par `npm run deployer-edge`');
+    console.error("embarquerait une empreinte perimee, et l'alerte partirait le lendemain.");
     process.exit(1);
   }
   console.log(`empreintes a jour (${Object.keys(empreintes).length} fonctions)`);

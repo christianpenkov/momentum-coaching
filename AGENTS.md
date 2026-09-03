@@ -100,6 +100,24 @@ Elle déduit aussi `--no-verify-jwt` du code (présence de `CRON_SECRET`) au lie
 supposer : l'ajouter « au cas où » ouvrirait un endpoint public, l'oublier ferait
 recevoir un 401 au planificateur et le cron mourrait en silence.
 
+⚠️ **Commiter aussi `lib/empreintes-edge.generated.ts`**, que la commande vient de
+réécrire — **avec `--depuis-head`** :
+
+```bash
+npm run empreintes-edge -- --depuis-head
+git add lib/empreintes-edge.generated.ts
+```
+
+Sans `--depuis-head`, la régénération inscrit les empreintes de la **copie de travail**,
+donc du travail non commité des autres sessions : le dépôt publierait des valeurs qui ne
+correspondent à aucune version de lui-même. C'est arrivé le 2026-09-03 sur trois
+fonctions. `npm test` porte la garde en filet et dit quoi rejouer.
+
+⚠️ Les deux modes répondent à deux questions, et les confondre produit un fichier faux :
+le défaut (copie de travail) répond « qu'est-ce que je **déploie** ? », `--depuis-head`
+répond « qu'est-ce que le **dépôt** contient ? ». Le déploiement a besoin du premier, le
+commit du second.
+
 ⚠️ **Elle envoie la COPIE DE TRAVAIL.** Si une autre session a du travail en cours dans
 le fichier, ce travail part en production — la commande le dit avant d'envoyer. Pour ne
 déployer que le code commité :

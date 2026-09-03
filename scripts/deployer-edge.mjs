@@ -127,3 +127,31 @@ lancer('npx', flags, `deploiement de ${nom}`);
 console.log(`\n✓ ${nom} deploye avec l'empreinte ${trouvee[1]}.`);
 console.log('  Verifier demain matin : select * from edge_sante_version;  (aucune ligne ALERTE%)');
 console.log('  Ou tout de suite, apres un passage du cron : la colonne `empreinte_en_ligne` doit valoir cette valeur.');
+
+// ── Le fichier d'empreintes reste-t-il a commiter ? ─────────────────────────────────
+//
+// ⚠️ Ce rappel existe parce que le cas s'est produit des le premier usage : la session
+// Crons a instrumente deux Edge Functions, deploye correctement (donc regenere), et
+// commite les fichiers modifies SANS le fichier d'empreintes — que rien ne lui demandait
+// de commiter. Le depot a alors porte deux empreintes perimees pendant une heure.
+//
+// Sans consequence ce jour-la (Vercel recalcule a chaque construction, et cette commande
+// aussi), mais c'est un mensonge dans le depot : le premier deploiement fait autrement
+// embarquerait la valeur perimee, et l'alerte partirait le lendemain matin.
+//
+// Le rappel est pose ICI, au moment ou le fichier vient d'etre reecrit et ou la personne
+// est encore devant son terminal — pas dans une documentation qu'elle lira plus tard.
+// `npm test` porte la meme garde en filet, en mode `--depuis-head`.
+try {
+  const modifie = execFileSync('git', ['status', '--porcelain', '--', 'lib/empreintes-edge.generated.ts'], {
+    cwd: RACINE, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+  }).trim();
+  if (modifie) {
+    console.log('\n⚠️  `lib/empreintes-edge.generated.ts` a ete reecrit et n\'est PAS commite.');
+    console.log('   A commiter avec votre changement, sinon le depot porte une empreinte perimee :');
+    console.log('     npm run empreintes-edge -- --depuis-head');
+    console.log('     git add lib/empreintes-edge.generated.ts');
+    console.log('\n   ⚠️ Bien avec `--depuis-head` : sans lui, la regeneration inscrirait aussi');
+    console.log('      les empreintes du travail NON COMMITE des autres sessions.');
+  }
+} catch { /* hors depot git : rien a rappeler */ }
