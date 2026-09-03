@@ -8793,7 +8793,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                             aria-label="Replier l'engagement du DM1"
                             title="Replier « LM réclamés » et « Clics LM »."
                             style={{ border: 'none', background: 'transparent', padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                            <span style={{ fontSize: 8, lineHeight: 1 }}>▾</span>
+                            {/* Meme taille que le triangle de la bande repliee : c'est le
+                                MEME controle dans son autre etat, et une paire qui change
+                                de taille en s'ouvrant se lit comme deux objets differents. */}
+                            <span aria-hidden style={{ fontSize: 14, lineHeight: 1 }}>▾</span>
                             Engagement du DM1
                           </button>
                           <span
