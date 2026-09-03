@@ -30,9 +30,16 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { exigerBonneCible } from './verifier-cible.mjs';
 
 const RACINE = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const REF_PROJET = 'nvjgwtetyuatnkjihmtw';
+
+// ⚠️ La reference du projet vient de PROJET.json, jamais d'une constante ici. Une
+// constante en dur et un lien CLI peuvent designer deux projets differents sans que
+// rien ne le dise : le deploiement reussit, ailleurs. `exigerBonneCible` refuse de
+// partir tant que les pointeurs locaux ne designent pas tous le projet declare.
+exigerBonneCible('Le deploiement');
+const REF_PROJET = JSON.parse(readFileSync(join(RACINE, 'PROJET.json'), 'utf8')).supabase_ref;
 
 const [nom, ...flagsSupplementaires] = process.argv.slice(2);
 if (!nom) {

@@ -31,6 +31,14 @@
 
 import { readFileSync } from 'node:fs';
 import { construireDestinationShortio } from '../lib/click-redirect.ts';
+import { exigerBonneCible } from './verifier-cible.mjs';
+
+// ⚠️ Ce script ECRIT chez Short.io, sur des liens deja publies en bio d'eleves. Branche
+// sur la base d'un autre projet, il reecrirait les liens d'un autre compte — et un lien
+// de bio ne se corrige pas en editant une publication. Le controle passe avant tout, y
+// compris avant une simple simulation : une simulation faite sur la mauvaise base donne
+// une liste juste pour le mauvais projet, ce qui est pire qu'une erreur.
+exigerBonneCible('La reecriture des liens');
 
 // ── Environnement ───────────────────────────────────────────────────────────
 

@@ -1,0 +1,13 @@
+{
+  "_lisez_moi": "L'identite DECLAREE de ce projet. C'est la seule source de verite : tout le reste (lien Supabase CLI, lien Vercel CLI, remote git, .env.local) est VERIFIE contre ce fichier par scripts/verifier-cible.mjs, qui tourne automatiquement avant tout deploiement d'Edge Function, avant toute reecriture de liens Short.io, et dans npm test. Le jour d'un transfert de compte (docs/transfert-de-compte.md), ce fichier est le PREMIER a mettre a jour, et le seul endroit ou l'identite se change.",
+
+  "nom": "Momentum",
+  "supabase_ref": "nvjgwtetyuatnkjihmtw",
+  "vercel_project_id": "prj_bJsNTFxTelIqO7DWcgd6E8J5rDTx",
+  "vercel_org_id": "team_AXapxwtsI8F9IFjU8hWhE0Xo",
+  "vercel_project_name": "momentum-plateforme",
+  "git_remote": "https://github.com/christianpenkov/momentum-coaching.git",
+
+  "_note_origine": "L'origine servie aux liens Short.io PARTAGES ne se declare PAS ici : elle vit dans MOMENTUM_REDIRECT_ORIGIN (Vercel et .env.local), volontairement distincte de NEXT_PUBLIC_PLATFORM_URL. La changer oblige a rejouer scripts/reecrire-liens-shortio.mjs. Voir docs/click-id.md.",
+  "_mesure_le": "2026-09-03"
+}

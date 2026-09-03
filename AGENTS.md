@@ -39,6 +39,14 @@ This version has breaking changes — APIs, conventions, and file structure may 
   L'adresse du projet est écrite dans la **destination de tous les liens partagés** :
   la changer sans rejouer le script de réécriture casse d'un coup le lien de bio de
   chaque élève, celui qu'aucune édition de publication ne rattrape.
+- **Transférer la plateforme vers d'autres comptes** (Supabase, Vercel, GitHub) →
+  `docs/transfert-de-compte.md`. La décision y est déjà prise et argumentée : **on
+  transfère les projets, on ne les reconstruit pas** — Supabase et Vercel savent tous
+  les deux déplacer un projet d'un compte à l'autre en gardant l'identifiant, les clés,
+  l'URL et le nom, ce qui neutralise cinq des six points de casse. Le document contient
+  aussi la seule opération irréversible du chantier (une collision de nom côté Vercel) et
+  la liste exhaustive des valeurs codées en dur, si un jour la reconstruction devient
+  inévitable.
 - **Changer une règle de comptage, ou trouver une décision bizarre dans les stats** →
   `docs/pourquoi-ces-choix-stats.md` **avant** `docs/perimetre-stats-referentiel.md`. Le
   second dit ce que fait la plateforme, le premier dit **pourquoi ces choix plutôt que
@@ -58,6 +66,45 @@ chaque lien Calendly partagé (bio Instagram, description YouTube) — voir
 `docs/click-id.md`. **Un `profile_id` reçu d'un appelant n'est donc jamais une preuve
 d'identité** : authentifier d'abord, vérifier l'ownership ensuite, jamais un `.eq()` sur
 l'identifiant reçu tel quel. Détail et motif dans `docs/security-notes.md`.
+
+# L'identité du projet est DÉCLARÉE, et vérifiée avant toute écriture
+
+`PROJET.json`, à la racine, déclare une fois pour toutes sur quoi ce dossier travaille :
+référence Supabase, projet et équipe Vercel, dépôt git. **C'est la seule source de
+vérité**, et le seul endroit où l'identité se change le jour d'un transfert.
+
+```bash
+npm run verifier-cible    # ✓ sur chaque pointeur, ou refus motivé
+```
+
+Les outils en ligne de commande gardent leur session dans le **compte**, pas dans le
+dossier : une seule connexion Supabase, une seule connexion Vercel, valables pour tous
+les projets. Le dossier ne porte que des pointeurs — `.vercel/project.json`,
+`supabase/.temp/project-ref`, `.env.local`, le remote git — et **rien ne garantissait
+qu'ils désignent le même projet**.
+
+⚠️ **Un pointeur qui désigne un autre projet ne produit aucune erreur : la commande
+réussit, et elle réussit ailleurs.** Un déploiement d'Edge Function part dans la mauvaise
+base, une réécriture de liens touche les bios d'un autre compte. Le risque grandit avec
+le nombre de projets ouverts sur le poste, et il devient certain le jour d'un transfert,
+où les pointeurs sont tous à repointer — il suffit d'en oublier un.
+
+Le contrôle tourne **tout seul** au début de `npm run deployer-edge`, au début de
+`scripts/reecrire-liens-shortio.mjs` (y compris en simulation : une simulation sur la
+mauvaise base donne une liste juste pour le mauvais projet) et dans `npm test`. Rien à
+penser à faire.
+
+⚠️ **Un pointeur ABSENT n'est pas un écart** — « pas encore relié » échoue tout seul et
+bruyamment au moment de s'en servir. Seul un pointeur **présent et différent** est une
+contamination. Exiger une installation locale complète ferait échouer la vérification
+chez quelqu'un qui ne déploie pas, donc ferait désactiver la vérification.
+
+⚠️ **Ne jamais modifier `PROJET.json` « pour que ça passe ».** C'est la déclaration
+d'identité, pas un paramètre de confort : on ne l'édite que quand le projet a
+*réellement* changé de compte, en suivant `docs/transfert-de-compte.md`.
+
+Témoin positif joué le 2026-09-03 : trois pointeurs faussés volontairement, trois écarts
+signalés, le quatrième resté juste déclaré juste.
 
 # Objectif permanent
 
