@@ -154,7 +154,7 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
         {data?.stripeConnected !== false && (
           <button className="btn-primary-brand" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}
             onClick={() => setCreating(true)}>
-            <Icon name="plus" size={13} /> {isMobile ? 'Lien' : 'Créer un lien de paiement'}
+            <Icon name="plus" size={13} /> {isMobile ? 'Vente' : 'Créer une vente'}
           </button>
         )}
       </div>
@@ -629,7 +629,7 @@ function EmptyDeals({ onCreate }: { onCreate: () => void }) {
         </div>
       </div>
       <button className="btn-primary-brand" style={{ fontSize: 12, marginTop: 6 }} onClick={onCreate}>
-        Créer un lien de paiement
+        Créer une vente
       </button>
     </div>
   );

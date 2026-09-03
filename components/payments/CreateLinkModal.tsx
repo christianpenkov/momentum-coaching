@@ -30,6 +30,8 @@ interface LeadOption {
   avatarUrl?: string | null;
   /** Dernier deal de cette personne — un montant deja vendu change ce qu'on propose. */
   lastDeal?: { amount: number; signedAt: string; status: string } | null;
+  /** Le dernier rendez-vous passé de cette personne, quand elle en a un. */
+  callId?: string | null;
 }
 
 export default function CreateLinkModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
@@ -104,7 +106,11 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
           // que son pseudo, qui suffit à l'identifier dans les stats.
           igLeadId: selected?.kind === 'lead' ? selected.id : null,
           prospectId: selected?.kind === 'prospect' ? selected.id : null,
-          callId: selected?.kind === 'call' ? selected.id : null,
+          // ⚠️ Aussi pour un lead ou un prospect, via le rendez-vous que la
+          // route `people` leur attache. Sans lui, la vente n'a pas de `call_id` :
+          // elle est datée de MAINTENANT au lieu du rendez-vous, et sort des
+          // statistiques par contenu, qui rattachent l'argent par `call_id`.
+          callId: selected?.kind === 'call' ? selected.id : (selected?.callId ?? null),
           clientId: selected?.kind === 'client' ? selected.id : null,
           prospectHandle: selected?.kind === 'lead' || selected?.kind === 'link' ? selected.name : null,
         }),
@@ -155,7 +161,11 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
         )}
         <div style={{ padding: isMobile ? '14px 20px' : '18px 24px', borderBottom: '1px solid var(--border-soft)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-0.1px' }}>Créer un lien de paiement</div>
+            {/* « Créer une vente » et non « Créer un lien de paiement » : l'objet durable
+              créé ici est une VENTE, le lien n'est que la façon dont elle se paie.
+              Nommer l'écran d'après son sous-produit faisait chercher ailleurs
+              l'endroit où enregistrer une vente — il n'y en a pas d'autre. */}
+          <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-0.1px' }}>Créer une vente</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>Le lien est généré par Stripe.</div>
           </div>
           <button onClick={onClose} disabled={submitting} aria-label="Fermer"

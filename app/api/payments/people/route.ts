@@ -34,6 +34,14 @@ interface Person {
   name: string;
   subtitle: string | null;
   kind: 'lead' | 'prospect' | 'call' | 'link' | 'client';
+  /**
+   * Le dernier rendez-vous PASSÉ de cette personne, s'il en existe un.
+   *
+   * Transmis à la création : sans lui, la vente est datée de la saisie au lieu du
+   * rendez-vous, et sort des statistiques par contenu — qui rattachent l'argent
+   * par `call_id`. Nul quand la personne n'a jamais réservé.
+   */
+  callId?: string | null;
   avatarUrl?: string | null;
   /** Sert à trier toutes les sources ensemble par fraîcheur. */
   at: string;
@@ -123,6 +131,49 @@ export async function GET(request: NextRequest) {
     q ? linkQ.ilike('ig_username', like) : linkQ,
   ]);
 
+  // ── Le rendez-vous d'un lead ou d'un prospect ────────────────────────────
+  // La liste des « calls » ci-dessus exclut volontairement ceux qui appartiennent
+  // à un lead ou à un prospect (`.is('ig_lead_id', null).is('prospect_id', null)`),
+  // pour ne pas faire apparaître la même personne deux fois. Conséquence : pour ces
+  // deux populations, on ne pouvait choisir QUE la personne, jamais son rendez-vous.
+  //
+  // Une vente créée ainsi part sans `call_id`. Elle est alors datée de l'instant de
+  // saisie au lieu du rendez-vous, et sort des statistiques par contenu, qui
+  // rattachent l'argent par `call_id`. Trois personnes dans ce cas sur le profil de
+  // test.
+  //
+  // On ne rajoute PAS une seconde ligne : on attache le rendez-vous à la personne.
+  // Choisir entre « Marc » et « le call de Marc » est une question d'implémentation,
+  // pas une décision que l'élève a à prendre — et c'était la raison d'être du filtre.
+  //
+  // Le plus RÉCENT et PASSÉ, comme le rapport d'appel et le pipeline : un rendez-vous
+  // à venir n'a encore rien produit, et le dater d'une vente serait faux.
+  const idsLeads = (ig.data ?? []).map(l => l.id);
+  const idsProspects = (yt.data ?? []).map(p => p.id);
+  const rdvParLead = new Map<string, string>();
+  const rdvParProspect = new Map<string, string>();
+
+  if (idsLeads.length || idsProspects.length) {
+    const { data: rdv } = await supa
+      .from('calls')
+      .select('id, ig_lead_id, prospect_id, scheduled_at')
+      .eq('coach_id', profileId)
+      .neq('ignored', true)
+      .neq('lead_deleted', true)
+      .lte('scheduled_at', new Date().toISOString())
+      .or([
+        idsLeads.length ? `ig_lead_id.in.(${idsLeads.join(',')})` : null,
+        idsProspects.length ? `prospect_id.in.(${idsProspects.join(',')})` : null,
+      ].filter(Boolean).join(','))
+      .order('scheduled_at', { ascending: false });
+
+    // Ordre décroissant + premier gagnant : le plus récent l'emporte.
+    for (const c of rdv ?? []) {
+      if (c.ig_lead_id && !rdvParLead.has(c.ig_lead_id)) rdvParLead.set(c.ig_lead_id, c.id);
+      if (c.prospect_id && !rdvParProspect.has(c.prospect_id)) rdvParProspect.set(c.prospect_id, c.id);
+    }
+  }
+
   const people: Person[] = [];
 
   for (const l of ig.data ?? []) {
@@ -133,6 +184,7 @@ export async function GET(request: NextRequest) {
       kind: 'lead',
       avatarUrl: l.avatar_url ?? null,
       at: l.detected_at,
+      callId: rdvParLead.get(l.id) ?? null,
     });
   }
 
@@ -150,6 +202,7 @@ export async function GET(request: NextRequest) {
       subtitle: p.platform === 'yt' ? 'YouTube' : (p.source || 'autre source'),
       kind: 'prospect',
       at: p.created_at,
+      callId: rdvParProspect.get(p.id) ?? null,
     });
   }
 
