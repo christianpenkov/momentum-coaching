@@ -927,7 +927,16 @@ export default function PageStatsClients() {
 
           <div className="card" style={{ padding: 18, marginBottom: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap', marginBottom: 14 }}>
-              <div>
+            {/* ⚠️ `flex: 1 1 …` + `minWidth: 0` sur le bloc de texte, `flexShrink: 0`
+                sur les contrôles.
+                Sans ça, le bloc de texte prend la largeur de son contenu : le
+                2026-09-03, un sous-titre rallongé a suffi à pousser le sélecteur et les
+                onglets à la ligne suivante, donc à GAUCHE, et Chris a demandé pourquoi
+                on les avait déplacés. Personne ne les avait déplacés — c'est le retour
+                à la ligne d'un `flexWrap` qui les avait fait tomber.
+                Avec ces trois règles, le texte se replie DANS sa colonne et les
+                contrôles restent à droite quelle que soit la longueur du libellé. */}
+              <div style={{ flex: '1 1 300px', minWidth: 0 }}>
                 <div className="card-title">{METRIQUES[metriqueAccompagnement].titreCumule} depuis l'arrivée</div>
                 <div className="card-sub">
                   {/* La dernière mention répond à une question posée le 2026-09-03 :
@@ -936,12 +945,11 @@ export default function PageStatsClients() {
                       n'a rien à tracer avant S4. Ce n'est pas un trou, c'est le moment
                       où on a commencé à le mesurer — et sans cette phrase, le graphe
                       donne à croire à un défaut. */}
-                  Axe en semaines d'accompagnement · chaque courbe est calée sur l'arrivée
-                  de l'élève · hors période · elle démarre à la semaine où sa collecte a
-                  commencé
+                  Axe en semaines d'accompagnement, hors période · chaque courbe démarre
+                  à la semaine où sa collecte a commencé
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', flexShrink: 0, marginLeft: 'auto' }}>
                 <div className="seg-plage" style={{ display: 'flex', gap: 2, background: 'var(--surface-chat-field)', borderRadius: 8, padding: 3 }}>
                   {[12, 26, 0].map(p => (
                     <button key={p} onClick={() => setPlageAccompagnement(p)} aria-pressed={plageAccompagnement === p}
@@ -1303,13 +1311,17 @@ function CarteGraphe({ titre, sousTitre, metrique, setMetrique, children }: {
   return (
     <div className="card" style={{ padding: 18, marginBottom: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap', marginBottom: 14 }}>
-        <div>
+        {/* Même règle que le graphe d'accompagnement, et pour la même raison : un
+            sous-titre un peu long ferait passer le sélecteur à la ligne, donc à gauche.
+            Ici le sous-titre est CALCULÉ, donc sa longueur change toute seule. */}
+        <div style={{ flex: '1 1 300px', minWidth: 0 }}>
           {/* Titre CALCULÉ depuis la métrique : un titre écrit en dur au-dessus d'un
               sélecteur devient faux au premier changement. */}
           <div className="card-title">{titre}</div>
           <div className="card-sub">{sousTitre}</div>
         </div>
-        <select className="stats-select" value={metrique} onChange={e => setMetrique(e.target.value as Metrique)}>
+        <select className="stats-select" style={{ flexShrink: 0, marginLeft: 'auto' }}
+          value={metrique} onChange={e => setMetrique(e.target.value as Metrique)}>
           {(Object.keys(METRIQUES) as Metrique[])
             .map(m => <option key={m} value={m}>{METRIQUES[m].titre}</option>)}
         </select>
@@ -1428,13 +1440,13 @@ function CarteTableau({ lignes, total, intituleCourbe, critere, setCritere, sens
   return (
     <div className="card" style={{ overflow: 'hidden', padding: 0 }}>
       <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-        <div>
+        <div style={{ flex: '0 1 auto', minWidth: 0 }}>
           <div className="card-title">Tous les élèves</div>
           <div className="card-sub">
             {lignes.length} {recherche ? `résultat${lignes.length !== 1 ? 's' : ''} sur ${total}` : `ligne${lignes.length !== 1 ? 's' : ''}`}
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', flexShrink: 0, marginLeft: 'auto' }}>
           <input className="stats-search" type="search" value={recherche} onChange={e => setRecherche(e.target.value)}
             placeholder="Chercher un élève ou une niche" aria-label="Chercher un élève" />
           <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Trier par</span>
