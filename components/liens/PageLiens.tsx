@@ -12,6 +12,7 @@ import ModalShell from '@/components/ui/ModalShell';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { refusSequence } from '@/lib/sequenceDm';
 import { personnesParContenu } from '@/lib/attribution-roles';
+import { SOURCE_DM_ENTRANT, SOURCE_DM_SORTANT } from '@/lib/canalDm';
 
 // ─── Garde de navigation — bloque un changement de post/onglet si des DMs ne sont pas sauvegardés ──
 interface UnsavedGuardApi {
@@ -3537,6 +3538,13 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
     !usernameSearch || l.ig_username.toLowerCase().includes(usernameSearch.toLowerCase())
   );
 
+  // La personne saisie est-elle deja qualifiee ? On compare sur le pseudo, seule
+  // cle disponible ici — c'est aussi celle que la route utilise pour retrouver la
+  // fiche, les deux repondent donc toujours la meme chose.
+  const leadSaisi = leads.find(l => l.ig_username.toLowerCase() === username.trim().toLowerCase());
+  const origineConnue = !!leadSaisi?.sourceLead;
+  const origineADemander = !!username.trim() && !origineConnue;
+
   const selectedPost = posts.find(p => p.id === postId);
   const filteredPosts = posts.filter(p =>
     !postSearch || p.caption.toLowerCase().includes(postSearch.toLowerCase()) || p.platform.toLowerCase().includes(postSearch.toLowerCase())
@@ -3590,6 +3598,10 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
 
   const generate = async () => {
     if (!username.trim() || !hasCalendly || !canGenerate) return;
+    // Sans reponse, on ne genere pas : ecrire `null` renverrait au comportement
+    // qu'on corrige, un lien classe « le coach est alle le chercher » sans que
+    // personne l'ait decide.
+    if (origineADemander && !origineDm) { setError("Indique d'abord qui a fait le premier pas."); return; }
     setLoading(true); setError(null);
     try {
       const us = slugify(username);
@@ -3618,7 +3630,13 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
       const res = await fetch('/api/client/prospect-links', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ig_username: username, short_url: shortUrl, content_id: resolvedPostId || null }),
+        body: JSON.stringify({
+          ig_username: username, short_url: shortUrl, content_id: resolvedPostId || null,
+          // Repli seulement : la route prefere toujours la source deja en base.
+          source_declaree: origineADemander && origineDm
+            ? (origineDm === 'entrant' ? SOURCE_DM_ENTRANT : SOURCE_DM_SORTANT)
+            : null,
+        }),
       });
       const saved = await res.json().catch(() => null);
       if (!res.ok || !saved?.link) {
@@ -3677,7 +3695,7 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ fontSize: 12, color: MUTED }}>Envoie ce lien en DM à <strong>@{username}</strong></div>
           <GeneratedUrlRow url={result} label="Lien Calendly" />
-          <button onClick={() => { setResult(null); setUsername(''); setIgUserId(null); setUsernameSearch(''); setPostId(''); setPostMode('auto'); }}
+          <button onClick={() => { setResult(null); setUsername(''); setIgUserId(null); setUsernameSearch(''); setPostId(''); setPostMode('auto'); setOrigineDm(null); }}
             style={{ fontSize: 12, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, textDecoration: 'underline' }}>
             Générer pour un autre prospect
           </button>
@@ -3737,6 +3755,48 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
               )}
             </div>
           </div>
+
+          {/* Qui a fait le premier pas — seulement quand rien en base ne repond.
+              C'est le seul moment ou l'information existe : le coach seul sait,
+              en creant le lien, si cette personne lui a ecrit ou s'il est alle
+              la chercher. Sans elle, le lien atterrissait en « Cold DM », ce qui
+              affirme la deuxieme reponse sans l'avoir demandee.
+
+              On ne demande RIEN de plus. Attribuer un contenu a un inconnu
+              obligerait a le compter comme lead magnet ou comme clic
+              description, et il n'a ni pris de lead magnet ni clique de
+              description : ce serait fabriquer une ligne qui ne correspond a
+              aucun geste reel. */}
+          {origineADemander && (
+            <div>
+              <div className="eyebrow-sm" style={{ marginBottom: 7 }}>Qui a fait le premier pas ?</div>
+              <div style={{ display: 'flex', gap: 7 }}>
+                {([
+                  { cle: 'entrant' as const, libelle: "Il m'a écrit", aide: 'Compte comme DM organique' },
+                  { cle: 'sortant' as const, libelle: "Je l'ai contacté", aide: 'Compte comme Cold DM' },
+                ]).map(({ cle, libelle, aide }) => (
+                  <button key={cle} type="button" onClick={() => { setOrigineDm(cle); setError(null); }}
+                    title={aide}
+                    style={{
+                      flex: 1, minHeight: 44, borderRadius: 8, cursor: 'pointer',
+                      fontSize: 12.5, fontWeight: 600, fontFamily: 'inherit', padding: '6px 10px',
+                      border: `1px solid ${origineDm === cle ? INK : BORDER}`,
+                      background: origineDm === cle ? INK : SURFACE,
+                      color: origineDm === cle ? 'var(--bg)' : MUTED,
+                      transition: `all var(--dur-quick) var(--ease-out)`,
+                    }}>{libelle}</button>
+                ))}
+              </div>
+              <div style={{ fontSize: 10.5, color: FAINT, marginTop: 5, lineHeight: 1.4 }}>
+                Personne inconnue du pipeline : c'est toi qui sais d'où elle vient. Ce choix range ses statistiques, il ne peut pas se deviner après coup.
+              </div>
+            </div>
+          )}
+          {origineConnue && leadSaisi && (
+            <div style={{ fontSize: 11.5, color: MUTED }}>
+              Origine déjà connue : <strong style={{ color: INK }}>{leadSaisi.keyword_matched ? `commentaire ${leadSaisi.keyword_matched}` : leadSaisi.origine}</strong>
+            </div>
+          )}
 
           {/* Contenu source */}
           <div>

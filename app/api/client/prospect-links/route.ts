@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { CALL_TYPES_VENTE } from '@/lib/callTypes';
+import { sourceDeclareeValide } from '@/lib/canalDm';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 
@@ -116,7 +117,7 @@ export async function POST(request: Request) {
 
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
-  const { ig_username, short_url, content_id } = body;
+  const { ig_username, short_url, content_id, source_declaree } = body;
   if (!ig_username || !short_url) return NextResponse.json({ error: 'ig_username et short_url requis' }, { status: 400 });
   if (ig_username.length > 100) return NextResponse.json({ error: 'ig_username trop long' }, { status: 400 });
 
@@ -136,7 +137,27 @@ export async function POST(request: Request) {
     .maybeSingle();
   const ig_lead_id = leadRow?.id ?? null;
   const keyword_matched = leadRow?.keyword_matched ?? null;
-  const source_at_creation = leadRow?.source ?? null;
+
+  // ── QUAND ON NE SAIT PAS, ON DEMANDE — ON NE SUPPOSE PAS ───────────────────
+  //
+  // Sans source, le Breakdown rangeait le lien en « Cold DM », c'est-à-dire en
+  // « le coach est allé chercher cette personne ». Trois situations très
+  // différentes y tombaient : tu es allé la chercher, elle t'a écrit, ou elle
+  // vient d'ailleurs.
+  //
+  // La création du lien est le SEUL moment où l'information existe : le coach
+  // seul sait, en le créant, d'où vient cette personne. On la lui demande alors,
+  // et sa réponse est figée ici.
+  //
+  // La réponse du client ne sert QUE de repli : une source déjà connue en base
+  // (un commentaire, une réponse de story) fait toujours autorité. Redemander
+  // puis écraser exposerait à contredire un geste réel par un souvenir.
+  //
+  // Et seulement deux valeurs sont acceptées : `source_at_creation` décide d'un
+  // bac de statistiques, un appel ne doit pas pouvoir y écrire `comment` — ce
+  // qui reviendrait à s'inventer un commentaire qui n'a pas eu lieu.
+  const source_at_creation = leadRow?.source
+    ?? (sourceDeclareeValide(source_declaree) ? source_declaree : null);
 
   // ── Rattachement d'un lien de suivi à une personne déjà connue ──────────────
   //

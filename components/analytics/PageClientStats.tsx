@@ -2735,7 +2735,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
                 // Meta ne les fournit que pour les posts NON-Reels, d'ou le filtre
                 // ci-dessous qui masque celles qui sont absentes plutot que d'afficher
                 // des tirets (2026-08-22).
-                ['👤 Abonnements', selectedPost.follows],
+                ['👤 Abonnés gagnés', selectedPost.follows],
                 ['🔍 Visites de profil', selectedPost.profileVisits],
               ].filter(([, v]) => v !== null && v !== undefined)
                .map(([label, value], i) => (
@@ -2770,10 +2770,25 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
               </>}
             </div>
             <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border-soft)' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
                 {[
                   ['ER', selectedPost.totalInteractions != null && selectedPost.reach ? fmtPct(pct(selectedPost.totalInteractions, selectedPost.reach)) : '—', 'Engagement rate'],
                   ['Save rate', selectedPost.saved != null && selectedPost.reach ? fmtPct(pct(selectedPost.saved, selectedPost.reach)) : '—', 'Saves / Reach'],
+                  // Combien de vues il a fallu pour convertir UNE personne en abonné.
+                  //
+                  // ⚠️ Sera vide la plupart du temps, et ce n'est pas un defaut de
+                  // collecte. `follows` est bien rendu par media par l'API Meta —
+                  // verifie contre l'API reelle le 2026-09-03 sur le compte de test —
+                  // mais Meta le RAMENE A ZERO au bout de quelques semaines. Mesure du
+                  // meme jour : sur 32 posts, un seul portait encore un `follows` non
+                  // nul, neuf etaient a zero, vingt-deux n'avaient rien de collecte.
+                  //
+                  // Le tiret est donc le bon affichage : a `follows` nul la division
+                  // est indefinie, et repondre « 0 vue par abonne » serait faux. Un
+                  // trou dit « on ne sait pas », un zero affirmerait quelque chose.
+                  ['Vues / abonné',
+                    selectedPost.follows ? fmt(Math.round((selectedPost.views ?? 0) / selectedPost.follows)) : '—',
+                    'Vues par abonné gagné'],
                 ].map(([label, value, desc], i) => (
                   <div key={i} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 12px', textAlign: 'center' }}>
                     <div style={{ fontSize: 10, color: 'var(--muted)' }}>{label}</div>
