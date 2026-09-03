@@ -8658,6 +8658,11 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         // son rendez-vous ; ici elle appartient à la ligne de la porte d'entrée, quelle
         // que soit la date de la vente. Reprendre le texte d'ailleurs tel quel aurait
         // affirmé le contraire de ce que ce tableau fait.
+        // Le meme texte pour la tete de bande ET pour chacune de ses cellules. Deux
+        // copies auraient diverge a la premiere retouche — c'est la regle qui vaut deja
+        // pour `AIDE_CALLS_BOOKES` et ses voisins, appliquee ici.
+        const AIDE_DM1_REPLIE = "Déplier « LM réclamés » et « Clics LM ».\n\nCes deux colonnes ne sont pas des étapes du parcours : on peut répondre au message d'accroche sans avoir appuyé sur le bouton du DM1, et sans avoir cliqué sur le lead magnet. Elles mesurent l'efficacité du message automatique, pas la progression du prospect — d'où leur mise à l'écart.";
+
         const SUITE_COHORTE =
           "\n\nATTENTION, la période ne se lit pas comme ailleurs. Cette ligne suit les "
           + "personnes entrées par cette porte, et tout ce qu'elles ont fait ENSUITE y "
@@ -8675,7 +8680,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           <div><b>À quoi sert ce tableau.</b> Sur les personnes entrées par ce contenu, combien sont allées jusqu&apos;au bout, et à quelle étape les autres se sont arrêtées. C&apos;est l&apos;écran des goulots d&apos;étranglement.</div>
           <div><b>Il compte des personnes, pas des rendez-vous.</b> Une personne qui réserve deux fois compte une seule fois. C&apos;est ce qui fait que les nombres ne remontent jamais de gauche à droite, et pourquoi ils diffèrent de ceux de « Ce que fait chaque contenu », juste en dessous, qui compte des événements.</div>
           <div><b>Seuls les gens entrés par le tunnel DM figurent ici.</b> Une réservation venue d&apos;un lien de bio, d&apos;une description ou d&apos;une story n&apos;a aucune personne identifiable en amont : elle est comptée dans Vue générale et dans le Breakdown par source, pas ici. Le total de la colonne Revenue est donc normalement inférieur à celui de Vue générale, et ce n&apos;est pas un écart à corriger.</div>
-          <div><b>Le groupe « Engagement du DM1 » est hors de la chaîne</b>, et <b>replié par défaut</b> : c'est la pastille <b>DM1</b> entre « Commentaires LM » et « Conversations ». Un clic dessus l'ouvre, un clic sur son titre le referme. Replié, la chaîne se lit d'un trait ; ouvert, le groupe s'isole entre filets, parce qu'il dérive des commentaires sans en être la suite. Appuyer sur le bouton du DM1 puis cliquer le lead magnet ne sont pas obligatoires pour répondre ensuite : les mettre dans la chaîne la ferait remonter le jour où quelqu&apos;un répond sans avoir cliqué. Ces deux colonnes mesurent l&apos;efficacité du message automatique, pas la progression du prospect.</div>
+          <div><b>Le groupe « Engagement du DM1 » est hors de la chaîne</b>, et <b>replié par défaut</b> : c'est la bande verticale marquée <b>DM1</b>, juste après « Commentaires LM ». Un clic dessus l'ouvre, un clic sur son titre la referme. Replié, la chaîne se lit d'un trait ; ouvert, le groupe s'isole entre filets, parce qu'il dérive des commentaires sans en être la suite. Appuyer sur le bouton du DM1 puis cliquer sur le lead magnet ne sont pas obligatoires pour répondre ensuite : les mettre dans la chaîne la ferait remonter le jour où quelqu&apos;un répond sans avoir cliqué. Ces deux colonnes mesurent l&apos;efficacité du message automatique, pas la progression du prospect.</div>
           <div><b>La période porte sur la date d&apos;entrée.</b> En regardant mars, vous voyez les personnes entrées en mars et tout ce qu&apos;elles ont fait ensuite, même en juin. Un rendez-vous se range dans la ligne par laquelle la personne était entrée juste avant lui. <b>Une relance manuelle n&apos;ouvre pas de nouvelle cohorte</b> : seule une nouvelle prise de lead magnet le fait.</div>
           <div><b>Les périodes récentes paraissent toujours faibles</b>, parce que les gens viennent d&apos;entrer et n&apos;ont pas encore eu le temps d&apos;aller au bout.</div>
           <div><b>Pas de ligne Total.</b> Une même personne peut être entrée par plusieurs contenus : additionner les lignes la compterait plusieurs fois.</div>
@@ -8792,38 +8797,33 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                             Engagement du DM1
                           </button>
                           <span
-                            title={"Ces deux colonnes ne sont PAS des étapes du parcours, et c'est pour ça qu'elles sont entre deux filets.\n\nOn peut répondre au message d'accroche sans avoir appuyé sur le bouton du DM1, et sans avoir cliqué son lead magnet. Si elles étaient dans la chaîne, celle-ci remonterait le jour où quelqu'un fait ça — par exemple 1 clic puis 2 réponses.\n\nElles mesurent l'efficacité du message automatique, pas la progression du prospect."}
+                            title={"Ces deux colonnes ne sont PAS des étapes du parcours, et c'est pour ça qu'elles sont entre deux filets.\n\nOn peut répondre au message d'accroche sans avoir appuyé sur le bouton du DM1, et sans avoir cliqué sur le lead magnet. Si elles étaient dans la chaîne, celle-ci remonterait le jour où quelqu'un fait ça — par exemple 1 clic puis 2 réponses.\n\nElles mesurent l'efficacité du message automatique, pas la progression du prospect."}
                             style={{ display: 'inline-grid', placeItems: 'center', width: 13, height: 13, marginLeft: 5, borderRadius: '50%', border: `1px solid ${BLUE}`, color: BLUE, fontSize: 8.5, fontWeight: 700, cursor: 'help', verticalAlign: 'middle' }}>
                             ?
                           </span>
                         </th>
                       ) : (
-                        // Le groupe replie tient dans une PASTILLE « DM1 » horizontale,
-                        // centree par `rowSpan` sur la hauteur des deux rangees d'en-tete.
-                        //
-                        // Pourquoi plus de texte pivote : trois lettres tiennent a plat
-                        // dans une colonne de 48 px, et un libelle droit se lit d'un coup
-                        // d'oeil la ou un texte vertical demande de pencher la tete. Et la
-                        // bande grise pleine hauteur posait un aplat que rien d'autre
-                        // n'utilise dans ce tableau — elle pesait plus que l'information
-                        // qu'elle portait.
-                        //
-                        // La pastille reprend MOT POUR MOT le vocabulaire des filtres de
-                        // la barre au-dessus : meme rayon, meme bordure, meme typographie
-                        // d'etiquette. C'est un objet cliquable que l'ecran a deja appris
-                        // a l'utilisateur, pas une invention de plus.
+                        // La bande repliee. `rowSpan` la fait descendre sur les deux rangees
+                        // d'en-tete : c'est ce qui lui donne assez de hauteur pour que le
+                        // libelle vertical se lise. Le fond la relie visuellement aux
+                        // cellules du corps, qui portent le meme, si bien que la colonne se
+                        // lit comme UNE bande continue et non comme des cases vides.
                         <th
                           rowSpan={2}
-                          style={{ ...thP, ...filet, width: 48, minWidth: 48, padding: '0 5px', textAlign: 'center', verticalAlign: 'middle', borderRight: '1px solid var(--border)' }}>
+                          style={{ ...thP, ...filet, width: 30, minWidth: 30, padding: 0, background: 'var(--surface-2)', borderRight: '1px solid var(--border)' }}>
                           <button
                             type="button"
                             onClick={() => setDm1Ouvert(true)}
                             aria-expanded={false}
                             aria-label="Déplier l'engagement du DM1"
-                            title={"Déplier « LM réclamés » et « Clics LM ».\n\nCes deux colonnes ne sont pas des étapes du parcours : on peut répondre au message d'accroche sans avoir appuyé sur le bouton du DM1, et sans avoir cliqué son lead magnet. Elles mesurent l'efficacité du message automatique, pas la progression du prospect — d'où leur mise à l'écart."}
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 7px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--muted)', fontSize: 9, fontWeight: 700, letterSpacing: '.05em', lineHeight: 1, cursor: 'pointer', transition: 'color .15s, border-color .15s' }}>
-                            DM1
-                            <span aria-hidden style={{ fontSize: 7, lineHeight: 1 }}>▸</span>
+                            title={AIDE_DM1_REPLIE}
+                            style={{ width: '100%', height: '100%', minHeight: 54, border: 'none', background: 'transparent', padding: '6px 0', cursor: 'pointer', color: 'var(--muted)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                            <span style={{ fontSize: 8, lineHeight: 1 }}>▸</span>
+                            {/* `vertical-rl` + rotation : le texte se lit de bas en haut,
+                                sens attendu pour un libelle de colonne pivote. */}
+                            <span style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>
+                              DM1
+                            </span>
                           </button>
                         </th>
                       )}
@@ -8851,11 +8851,16 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     {estYT
                       ? <th style={{ ...thP, ...filet }}><EnteteColonne nom="clicLien">Clics desc.</EnteteColonne></th>
                       : <>
-                          {/* Le groupe replie occupe une colonne etroite portant la
-                              pastille « DM1 », rendue plus haut dans la rangee d'intertitre
-                              avec `rowSpan` — le detail du choix est la-bas. Un glyphe nu
-                              de 16 px ne se voyait pas ; une commande qu'on ne voit pas
-                              n'existe pas. */}
+                          {/* Le groupe se replie en BANDE VERTICALE, pas derriere un
+                              chevron : un glyphe de 16 px dans un en-tete dense ne se voit
+                              pas, et une commande qu'on ne voit pas n'existe pas. La bande
+                              occupe une colonne etroite sur toute la hauteur du tableau,
+                              libellee a la verticale — le motif des tableurs, ou replier un
+                              groupe de colonnes laisse toujours une trace cliquable.
+
+                              Elle est rendue plus haut, dans la rangee d'intertitre, avec
+                              `rowSpan` : c'est ce qui lui donne la hauteur necessaire pour
+                              que « DM1 » se lise. */}
                           <th style={thP}><EnteteColonne nom="leadsGeneres">Commentaires LM</EnteteColonne></th>
                           {dm1Ouvert && <th style={{ ...thP, ...filet }}><EnteteColonne nom="clicLeadMagnet">LM réclamés</EnteteColonne></th>}
                           {dm1Ouvert && <th style={thP}><EnteteColonne nom="clicLeadMagnet">Clics LM</EnteteColonne></th>}
@@ -8904,11 +8909,28 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                         ? <td style={{ ...tdP, ...filet }}><CelluleP n={info.clicsDesc} /></td>
                         : <>
                            <td style={tdP}><CelluleP n={l.commentairesLm} /></td>
-                           {/* Le prolongement de la colonne repliee : BLANC, borne par ses
-                               deux filets. Un vide encadre se lit comme une place reservee ;
-                               c'est le fond gris qui faisait « cases oubliees ». */}
+                           {/* Le prolongement de la bande. Vide par nature — elle ne cache
+                               pas une valeur, elle marque une place — mais teintee et
+                               bordee comme sa tete, sinon la colonne se lirait comme une
+                               suite de cases oubliees.
+
+                               TOUTE la bande deplie, pas seulement sa tete : c'est la cible
+                               que la souris rencontre en premier, et viser un en-tete de
+                               quelques pixels quand la colonne en fait des centaines est un
+                               cout sans raison. Meme infobulle partout, pour que survoler
+                               n'importe ou reponde a la meme question.
+
+                               L'accessibilite reste portee par le BOUTON de la tete : lui
+                               seul est focusable et annonce `aria-expanded`. Ces cellules
+                               sont un raccourci a la souris qui double une commande deja
+                               atteignable au clavier, jamais le seul chemin. */}
                            {!dm1Ouvert && (
-                             <td style={{ ...tdP, ...filet, padding: 0, borderRight: '1px solid var(--border)' }} />
+                             <td
+                               onClick={() => setDm1Ouvert(true)}
+                               title={AIDE_DM1_REPLIE}
+                               aria-hidden
+                               style={{ ...tdP, ...filet, padding: 0, background: 'var(--surface-2)', borderRight: '1px solid var(--border)', cursor: 'pointer' }}
+                             />
                            )}
                            {dm1Ouvert && (
                              <td style={{ ...tdP, ...filet }}>
