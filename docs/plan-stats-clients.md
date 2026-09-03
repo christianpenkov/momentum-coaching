@@ -1701,3 +1701,190 @@ Trois options avaient été ouvertes le temps d'une revue. Chris a tranché, ell
 parties le jour même, comme annoncé. Le fichier porte une note disant de ne pas les
 rouvrir « au cas où » : si une variante redevient utile, elle se remontre en dix minutes
 dans une fiche de revue — c'est comme ça que celle-ci a été tranchée.
+
+---
+
+## 26. Ce que la relecture de Chris a trouvé (2026-09-02 et 2026-09-03)
+
+Neuf décisions, toutes nées de la même chose : Chris a regardé l'écran et a demandé
+« pourquoi ». Aucune n'a été trouvée par un test.
+
+**Un fil rouge court à travers presque toutes.** Six des neuf sont la même faute sous des
+formes différentes : *un écran qui montre quelque chose de faux ou d'inerte sans jamais
+le dire*. Un bouton qui ne mène nulle part. Une étiquette qui change selon l'heure. Une
+pastille cliquable qui ne met rien en avant. Un élève qui disparaît d'un graphe ET du
+compte censé le signaler. Un avertissement rédigé dans un vocabulaire que le lecteur ne
+parle pas. Une photo qui n'apparaît jamais parce que personne ne l'a demandée à la base.
+
+Aucune ne plante. Aucune n'échoue à un test. Toutes érodent la confiance dans l'écran
+entier, et c'est pire qu'une erreur visible — **une erreur visible se corrige, une erreur
+silencieuse s'apprend**.
+
+### D77 — Un trou de collecte est enjambé par un pointillé
+
+Chris : « pour le vrai trou de collecte je relierais en pointillés léger les 2 points ».
+
+Un trait plein relierait deux jours éloignés en affirmant une pente qui n'a pas eu lieu —
+c'est pour ça qu'on coupait. Mais **une coupure sèche ne dit pas mieux** : elle se lit
+« la mesure s'est arrêtée », alors que le compte, lui, a continué d'exister. Le pointillé
+dit la seule chose vraie : on sait où on était avant, où on est après, pas ce qui s'est
+passé entre les deux.
+
+⚠️ Le raccord est **droit** même quand les courbes sont lissées, et **l'aplat ne le suit
+pas**. Une courbe demanderait au tracé d'inventer une forme pour un intervalle inconnu ;
+un aplat sous le raccord remplirait une surface qu'aucune valeur ne soutient. Le
+pointillé est un pont, pas une donnée.
+
+**Cas limite trouvé en écrivant le test** : un jour mesuré ISOLÉ entre deux trous ne
+dessinait rien du tout. Un tronçon d'un seul point n'a ni segment à tracer (il en faut
+deux) ni surface à remplir — la seule valeur connue de la fenêtre était donc invisible,
+et le graphe paraissait vide alors qu'il ne l'était pas. Ces points sont maintenant
+marqués.
+
+### D78 — La fraîcheur suit la DONNÉE, jamais le drapeau
+
+Chris : « pourquoi y a écrit màj plus de 10 j ? à cause de celui en installation ? »
+
+Ni l'un ni l'autre. Le calcul portait sur les élèves dont `integrations_ready_at` est
+posé — un drapeau qui décrit une **intention**, pas ce qui se passe. L'écart allait dans
+les deux sens :
+
+| Élève | Drapeau | Intégrations | Collecté | Compté ? |
+|---|---|---|---|---|
+| DRG | posé le 16/08 | **aucune** | **0** | ✅ à tort — datait toute la page |
+| Dolphin | absent | IG + Short.io `ok` | 36 jours, à jour | ❌ à tort |
+
+**Celui qui mesure vraiment était exclu, celui qui n'a jamais rien remonté était inclus.**
+Est désormais mesuré celui qui a au moins une donnée.
+
+Nouvelle vue `dernier_snapshot_par_profil` (`security_invoker`) au lieu d'une fenêtre de
+dix jours côté client. La fenêtre avait deux défauts : un élève collecté il y a quinze
+jours en était absent, donc **indiscernable d'un élève jamais collecté** ; et à 40 élèves
+sur un an, la même requête sans borne rapatrierait ~14 000 lignes pour n'en garder que 40.
+
+### D79 — Les cartes agrégées prennent la police des KPI de l'accueil
+
+`.kpi-label` et `.kpi-value`, les classes exactes de l'accueil, pour que les deux écrans
+se lisent comme le même produit. `tabular-nums` est conservé : sans lui, la largeur des
+chiffres change d'une période à l'autre et **les cartes tressautent à chaque clic sur la
+flèche**.
+
+La première carte s'intitule « Cash collecté » — le titre nomme ce que porte le grand
+chiffre — avec le contracté et son taux dessous, en repère.
+
+### D80 — L'écart se compte en jours CALENDAIRES
+
+Chris : « la dernière màj c'était hier, c'était hier ou aujourd'hui ? » Ni l'un ni
+l'autre : le dernier jour collecté était le 31 août, on était le 2 septembre.
+
+Le défaut n'était pas un décalage à rattraper par un `+1`, c'était **la méthode**. Le
+calcul divisait un écart en millisecondes depuis MIDI UTC par 86 400 000, donc le
+résultat dépendait de **l'heure à laquelle on ouvrait la page** : la même donnée
+s'affichait « aujourd'hui » le matin, « hier » l'après-midi, « il y a 2 j » le soir.
+**Un indicateur de fraîcheur qui change selon l'heure où on le regarde ne mesure rien.**
+
+La règle est extraite en fonctions pures testées (`ecartEnJours`, `libelleFraicheur`),
+avec la date **parisienne** du jour — passé minuit à Paris et avant minuit UTC, les deux
+diffèrent. Six tests, dont les deux changements d'heure : le 25 octobre fait 25 heures à
+Paris, et une division par 86 400 000 y perdait un jour.
+
+### D81 — Un bouton doit mener quelque part
+
+Le bouton « Voir » du bandeau remplissait la recherche du tableau. Mais le tableau est
+tout en bas de la page : **à l'écran, rien ne bougeait**. Il y amène maintenant (ancre +
+`scrollIntoView`, respectant `prefers-reduced-motion`) et s'intitule « Voir dans le
+tableau ».
+
+Un bouton qui ne fait rien de visible est pire qu'une absence de bouton.
+
+### D82 — Le bandeau nomme les élèves, et parle français
+
+Il disait « 1 élève est déclaré prêt mais n'a jamais rien remonté » : du **vocabulaire
+interne** (« déclaré prêt » ne veut rien dire pour un coach), aucun nom, et donc rien à
+faire de l'information. Un avertissement qu'on ne peut pas relier à quelqu'un est un
+avertissement qu'on apprend à ignorer.
+
+Il nomme désormais, avec la photo, et énonce la conséquence.
+
+⚠️ Les phrases sont écrites **en entier** pour le singulier et le pluriel, plutôt
+qu'assemblées mot à mot avec des ternaires. Une phrase française cousue de
+`{n > 1 ? 'sont' : 'est'}` finit toujours par produire un accord bancal que personne ne
+relit.
+
+### D83 — Une seule liste d'intégrations, et cinq plutôt que sept
+
+Chris : « Meta Review aussi n'a rien de branché, il devrait être dans la zone orange ? »
+Oui. Il n'a que `shortio` — ni Instagram ni YouTube — et produisait quand même 18 lignes
+de snapshots aux colonnes d'audience toutes nulles. Le critère demandait « a-t-il au
+moins une ligne en base », donc il passait à travers.
+
+**La bonne question n'est pas « y a-t-il des lignes » mais « y a-t-il une SOURCE ».**
+
+⚠️ Et j'avais écrit `provider === 'instagram' || provider === 'youtube'` **en dur dans un
+composant**, alors que `app/api/integrations/health/route.ts` l'interdit noir sur blanc :
+« Rien n'est recalculé ici — ni la liste des providers. Un écran qui les redéciderait
+serait la copie suivante d'une règle qui doit valoir partout pareil. » C'était exactement
+cette copie. La liste vit maintenant dans `lib/sourcesStatsClients.ts`, avec ce que
+chaque source apporte à CET écran, et douze tests.
+
+**Cinq et non sept**, tranché avec Chris : Fathom et Google Calendar sont obligatoires
+pour la plateforme, mais Stats Clients n'affiche rien qui en dépende. Les signaler
+enverrait le coach reconnecter un outil qui ne changerait pas un chiffre de la page.
+
+⚠️ Le bandeau **n'annonce jamais une panne**. AGENTS.md prévient qu'une intégration non
+connectée n'en est pas une, et que les traiter comme telles fait remonter 23 faux
+positifs. Il annonce **ce qui manquera à l'écran**, vérifiable en regardant la colonne.
+
+### D84 — Quatre lignes, parce qu'il y a quatre actions
+
+Les fondre en un seul avertissement obligerait le coach à deviner laquelle le concerne :
+
+1. **reconnecter un compte tombé** — ses chiffres sont figés et faussent les totaux ;
+2. **connecter Instagram ou YouTube** — sinon l'élève n'apparaît nulle part ;
+3. **relancer une collecte muette** — le compte est branché, rien n'arrive ;
+4. **connecter le reste** — l'élève apparaît, des colonnes sont vides.
+
+La quatrième nomme chaque élève AVEC ce qui lui manque : « 3 élèves ont des intégrations
+incomplètes » n'aide personne, il faut savoir qui et quoi connecter.
+
+### D85 — Rien ne disparaît en silence
+
+Chris : « pourquoi Dolphin et RDJ ont des traits au milieu mais pas depuis le début ? »
+
+La réponse est honnête — RDJ Test est arrivé le 30 juillet et n'a de données qu'en S4 et
+S5 : ce n'est pas un trou, c'est le moment où on a commencé à le mesurer. Le sous-titre
+le dit maintenant. Mais la question a découvert deux disparitions muettes :
+
+- Le graphe sortait de sa boucle par un `continue` **nu** quand la date d'arrivée
+  manquait. DRG n'a pas d'`onboarding_completed_at` : il disparaissait du graphe **et du
+  compte censé le signaler**. La note annonçait « 1 élève » là où deux ne figuraient
+  nulle part. **Un écran qui compte mal ce qu'il cache est pire qu'un écran qui ne compte
+  rien : on le croit.** La note groupe désormais par raison — « 2 aucune donnée, 1 trop
+  récent » dit lequel se réglera seul.
+- La pastille d'un élève non tracé était identique aux autres, et cliquable : le clic
+  mettait en avant une courbe inexistante. Elle est maintenant en pointillé, grisée, non
+  cliquable, et porte sa raison.
+
+⚠️ **Cas connexe assumé** : Dolphin est arrivé le 28 août mais porte 30 jours
+d'historique Instagram **récupéré au backfill à la connexion**, donc antérieur à son
+arrivée. Sur un axe en semaines d'accompagnement, ces semaines sont négatives et sont
+jetées. C'est justifié — elles ne font pas partie du programme — mais **rien ne le dit
+encore à l'écran**. À traiter si la question revient.
+
+### D86 — Les photos de profil viennent de `profiles`, pas de `clients`
+
+La page appelait `<Avatar initials={…} seed={…} />` **sans jamais passer `avatarUrl`**.
+Le composant sait afficher une photo depuis toujours ; personne ne lui en donnait.
+
+La cause est en amont : la photo vit sur `profiles`, et le chargeur ne lisait que
+`clients` — sept colonnes, aucune jointure. Il n'y avait donc aucune URL à passer, et
+l'avatar retombait **en silence** sur les initiales.
+
+La preuve que le mécanisme marchait déjà : le bandeau « à surveiller », juste au-dessus,
+affiche les vraies photos — il les tient du contexte partagé. **Deux sources de données
+sur le même écran, une seule allait chercher les visages.**
+
+Les photos sont désormais dans le tableau, les pastilles de légende et les noms du
+bandeau. Quand il n'y en a pas, c'est la couleur de la courbe de l'élève qui reste :
+`colorFromSeed(seedForPerson(nom))` est la même graine partout, donc un élève garde sa
+couleur d'un écran à l'autre.
