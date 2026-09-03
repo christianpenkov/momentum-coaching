@@ -19,6 +19,16 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import webpush from 'npm:web-push';
+// ⚠️ L'empreinte du code SOURCE de cette fonction, pour que `edge_sante_version` puisse
+// dire si la version en ligne est celle du depot. Une Edge Function ne part pas avec
+// `git push` : le 2026-09-03, `poll-leads` a tourne deux jours avec du code vieux de huit
+// commits, et rien ne pouvait le voir — `crons_passages` prouve qu'un cron TOURNE, jamais
+// qu'il tourne le BON code.
+//
+// Le fichier est genere par `scripts/empreintes-edge.mjs`, rejoue par
+// `npm run deployer-edge <nom>` juste avant l'envoi : la valeur figee dans le bundle est
+// donc celle du code reellement deploye.
+import { EMPREINTES_EDGE } from '../../../lib/empreintes-edge.generated.ts';
 
 const sb = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -115,7 +125,7 @@ Deno.serve(async (req) => {
   //
   // Strictement non bloquant : un filigrane muet vaut mieux qu'un cron qui tombe.
   try {
-    const { error: filigraneErr } = await sb.rpc('marquer_passage_cron', { p_nom: 'installment-reminders' });
+    const { error: filigraneErr } = await sb.rpc('marquer_passage_cron', { p_nom: 'installment-reminders', p_empreinte: EMPREINTES_EDGE['installment-reminders'] });
     if (filigraneErr) console.error('[installment-reminders] filigrane de passage:', filigraneErr.message);
   } catch (e) { console.error('[installment-reminders] filigrane de passage:', e); }
 

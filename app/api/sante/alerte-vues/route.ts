@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { EMPREINTES_EDGE } from '@/lib/empreintes-edge.generated';
 
 // GET /api/sante/alerte-vues
 //
@@ -97,6 +98,28 @@ const SURVEILLANCES: Surveillance[] = [
       'supabase/migrations/20260903170000_verrou_structurel_lecture_public.sql',
       'docs/security-notes.md',
       'AGENTS.md, section « Un `profile_id` est PUBLIC »',
+    ],
+  },
+  {
+    cle: 'sante_edge_version',
+    source: 'edge_sante_version',
+    titre: 'Une fonction en ligne n’exécute pas le code du dépôt',
+    detection: 'alerte',
+    surveille:
+      'Que chaque Edge Function tournant chez Supabase exécute bien le code présent dans le dépôt. Elle compare l’empreinte du code source (`index.ts` + tous ses imports locaux) à celle que la fonction remonte elle-même à chaque passage.',
+    signifie:
+      'Une correction validée et enregistrée dans le dépôt n’est PAS active en production, et rien d’autre ne peut le dire. Une Edge Function ne part pas avec `git push` : elle demande une commande à part, et l’oublier ne casse rien de visible. Le 3 septembre 2026, `poll-leads` a tourné deux jours avec du code vieux de huit commits, dont un correctif qui empêchait l’origine d’un lead (« Cold DM », « commentaire », « description YouTube ») d’être écrasée toutes les cinq minutes — un champ que six écrans lisent, dont toute l’attribution des paiements. ⚠️ `crons_sante` ne pouvait pas le voir : elle prouve qu’un cron TOURNE, jamais qu’il tourne le BON code. Et la date de mise à jour affichée par le tableau de bord Supabase MENT (prouvé sur `refresh-ig-posts` : date au 02/08, contenu du 20/08).',
+    quoiFaire: [
+      '`select * from edge_sante_version where etat like \'ALERTE%\';` — `empreinte_du_depot` contre `empreinte_en_ligne`.',
+      'Redéployer la fonction nommée : `npm run deployer-edge <nom>` (elle vérifie les types, régénère l’empreinte, puis déploie — dans cet ordre).',
+      '⚠️ Vérifier d’abord `git status` : le déploiement envoie la COPIE DE TRAVAIL. Si une autre session a du travail en cours dans ce fichier, déployer depuis un arbre propre — `git worktree add --detach /tmp/wt HEAD` puis `npm run deployer-edge <nom>` depuis là.',
+      'Si l’alerte persiste après un redéploiement réussi, c’est l’empreinte qui est périmée et non le code : `npm run empreintes-edge`, puis commiter et pousser (Vercel recalcule l’attendu à chaque construction).',
+      '« hors crons inscrits » et « non instrumentee » ne sont PAS des anomalies : la première désigne une fonction qui n’est pas un cron inscrit (`call-reminders` et `send-pending-dm3` tournent en pg_cron), la seconde une fonction qui ne remonte pas encore son empreinte.',
+    ],
+    docs: [
+      'scripts/empreintes-edge.mjs (le motif complet en en-tête)',
+      'AGENTS.md, section « Vérifier qu’une Edge Function tourne bien le code du dépôt »',
+      'docs/checklist-scalabilite.md',
     ],
   },
   {
@@ -347,6 +370,35 @@ export async function GET(request: Request) {
 
   const resultats: Record<string, string> = {};
   const aRearmer: string[] = [];
+
+  // ── L'empreinte du dépôt, inscrite en base AVANT toute lecture de vue ─────────
+  //
+  // `edge_sante_version` compare l'empreinte que chaque Edge Function remonte à celle
+  // du dépôt. La base ne peut pas lire le dépôt : c'est cette route qui fait le pont,
+  // et elle le fait ici plutôt qu'ailleurs pour une raison précise — Vercel la
+  // reconstruit à chaque push, et `npm run prebuild` recalcule les empreintes à chaque
+  // construction. La valeur inscrite est donc TOUJOURS celle du dépôt poussé, sans que
+  // personne ne l'entretienne.
+  //
+  // ⚠️ AVANT la boucle, pas après : la vue est lue quelques lignes plus bas. L'écrire
+  // ensuite ferait comparer, au premier passage suivant un déploiement, l'empreinte du
+  // jour à celle de la veille — une fausse alerte à chaque mise à jour de la
+  // plateforme, c'est-à-dire une alerte qu'on n'ouvre plus.
+  //
+  // ⚠️ Un échec d'écriture est SIGNALÉ, pas avalé. Sans ça, la table resterait sur ses
+  // anciennes valeurs et la vue dirait « ok » en comparant deux fois du périmé — le
+  // mode de panne exact que cette surveillance est censée fermer.
+  const { error: erreurEmpreintes } = await supabase
+    .from('edge_empreintes_attendues')
+    .upsert(
+      Object.entries(EMPREINTES_EDGE).map(([nom, empreinte]) => ({
+        nom, empreinte, mis_a_jour_le: new Date().toISOString(),
+      })),
+      { onConflict: 'nom' },
+    );
+  if (erreurEmpreintes) {
+    resultats['empreintes_edge'] = `inscription impossible: ${erreurEmpreintes.message}`;
+  }
 
   for (const s of SURVEILLANCES) {
     const { data, error } = await supabase.from(s.source).select('*').limit(2000);

@@ -7,6 +7,16 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { mapWithConcurrency } from '../_shared/rate-limit.ts';
+// ⚠️ L'empreinte du code SOURCE de cette fonction, pour que `edge_sante_version` puisse
+// dire si la version en ligne est celle du depot. Une Edge Function ne part pas avec
+// `git push` : le 2026-09-03, `poll-leads` a tourne deux jours avec du code vieux de huit
+// commits, et rien ne pouvait le voir — `crons_passages` prouve qu'un cron TOURNE, jamais
+// qu'il tourne le BON code.
+//
+// Le fichier est genere par `scripts/empreintes-edge.mjs`, rejoue par
+// `npm run deployer-edge <nom>` juste avant l'envoi : la valeur figee dans le bundle est
+// donc celle du code reellement deploye.
+import { EMPREINTES_EDGE } from '../../../lib/empreintes-edge.generated.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -316,7 +326,7 @@ Deno.serve(async (req: Request) => {
   //
   // Strictement non bloquant : un filigrane muet vaut mieux qu'un cron qui tombe.
   try {
-    const { error: filigraneErr } = await supa.rpc('marquer_passage_cron', { p_nom: 'poll-stories' });
+    const { error: filigraneErr } = await supa.rpc('marquer_passage_cron', { p_nom: 'poll-stories', p_empreinte: EMPREINTES_EDGE['poll-stories'] });
     if (filigraneErr) console.error('[poll-stories] filigrane de passage:', filigraneErr.message);
   } catch (e) { console.error('[poll-stories] filigrane de passage:', e); }
 

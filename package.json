@@ -4,9 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/empreintes-edge.mjs",
     "build": "next build",
     "start": "next start",
-    "test": "node --test lib/*.test.ts"
+    "test": "node --test lib/*.test.ts",
+    "empreintes-edge": "node scripts/empreintes-edge.mjs",
+    "deployer-edge": "node scripts/deployer-edge.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",

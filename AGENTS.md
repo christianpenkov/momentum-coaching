@@ -87,7 +87,79 @@ npx supabase functions deploy poll-leads --project-ref nvjgwtetyuatnkjihmtw --no
 
 Une Edge Function ne part **pas** avec `git push` — déploiement séparé obligatoire.
 
-## Vérifier qu'une Edge Function tourne bien le code du dépôt
+### Déployer : une seule commande
+
+```bash
+npm run deployer-edge poll-leads
+```
+
+Elle fait les trois gestes **dans le bon ordre** : `deno check`, régénération de
+l'empreinte du code source, puis envoi. Trois gestes à tenir, c'est un geste oublié.
+
+Elle déduit aussi `--no-verify-jwt` du code (présence de `CRON_SECRET`) au lieu de le
+supposer : l'ajouter « au cas où » ouvrirait un endpoint public, l'oublier ferait
+recevoir un 401 au planificateur et le cron mourrait en silence.
+
+⚠️ **Elle envoie la COPIE DE TRAVAIL.** Si une autre session a du travail en cours dans
+le fichier, ce travail part en production — la commande le dit avant d'envoyer. Pour ne
+déployer que le code commité :
+
+```bash
+git worktree add --detach /tmp/wt HEAD
+cd /tmp/wt && npm run deployer-edge poll-leads
+git worktree remove --force /tmp/wt
+```
+
+⚠️ `installment-reminders` ne passe pas `deno check`, et **pas à cause de son code** :
+`import 'jsr:@supabase/functions-js/edge-runtime.d.ts'` tire des types qui référencent
+`npm:openai@^4.52.5`, absent de `node_modules`. Mesuré le 2026-09-03 en rejouant la
+vérification sur la version HEAD du fichier, même dossier, même `node_modules` : erreur
+identique. La vérification imposée ci-dessus est donc **impossible pour cette fonction
+depuis un moment, et personne ne le savait**. Échappatoire explicite, qui nomme ce
+qu'elle désactive :
+
+```bash
+npm run deployer-edge installment-reminders -- --ignorer-deno-check
+```
+
+### Le retard d'un déploiement est désormais DÉTECTÉ
+
+```sql
+select * from edge_sante_version;   -- aucune ligne 'ALERTE%'
+```
+
+Chaque Edge Function remonte, à chaque passage, l'**empreinte de son code source**
+(`index.ts` + la clôture de ses imports locaux). `/api/sante/alerte-vues` inscrit
+l'empreinte du dépôt, et la vue compare. L'alerte part par le même e-mail quotidien que
+les autres.
+
+⚠️ **`crons_sante` ne pouvait pas voir ça** : elle prouve qu'un cron TOURNE, jamais qu'il
+tourne le BON code. Le 2026-09-03, `poll-leads` a tourné deux jours avec du code vieux de
+huit commits — dont le correctif qui empêche l'origine d'un lead d'être écrasée toutes
+les cinq minutes — avec `crons_sante` à `'ok'` tout du long.
+
+⚠️ **L'empreinte couvre les imports locaux, et c'est le point essentiel** : le mode de
+panne dominant du projet (voir plus bas) est qu'un déploiement fige sa propre copie des
+modules partagés, donc une fonction périme sans que son dossier bouge. Une empreinte du
+seul `index.ts` aurait laissé passer exactement ce cas.
+
+⚠️ **Ce n'est pas un identifiant de commit**, délibérément : un identifiant de commit
+changerait à chaque commit, même sans rapport, et l'alerte crierait en permanence.
+L'empreinte ne bouge que si le code de cette fonction bouge.
+
+⚠️ **Le sens du mode de panne est choisi** : déployer sans régénérer l'empreinte fait
+**crier** l'alerte alors que tout va bien. Jamais l'inverse. `'hors crons inscrits'`
+(`call-reminders` et `send-pending-dm3` tournent en pg_cron, `refresh-ig-posts` et
+`backfill-shortio` se déclenchent à la main) et `'non instrumentee'` ne sont pas des
+anomalies.
+
+⚠️ **`poll-leads`, `sync-calendly` et `sync-stripe-payments` ne remontent pas encore leur
+empreinte** : leurs fichiers portaient le travail en cours d'une autre session le
+2026-09-03, et on ne modifie pas le fichier d'autrui. À brancher quand ce chantier
+atterrit — une ligne, sur le modèle des quatre autres :
+`rpc('marquer_passage_cron', { p_nom: '<nom>', p_empreinte: EMPREINTES_EDGE['<nom>'] })`.
+
+## Vérifier à la main (enquête, ou fonction non instrumentée)
 
 Trois étapes, dans cet ordre. Aucune ne suffit seule (établi le 2026-08-29, après deux
 diagnostics faux dans les deux sens).
@@ -424,6 +496,7 @@ select * from base_sante_taille;                -- 'ok' = plafond de stockage lo
 select * from clics_sante_redirection;          -- 'ok' partout
 select * from crons_sante;                      -- aucun 'SILENCIEUX' = les crons inscrits tournent
 select * from acces_sante_lecture;              -- vide = aucune donnée lisible du navigateur sans RLS
+select * from edge_sante_version;               -- aucune ligne 'ALERTE%' = les fonctions en ligne sont celles du dépôt
 ```
 
 ## ⚠️ Un `revoke` ne se maintient pas — l'invariant, si
