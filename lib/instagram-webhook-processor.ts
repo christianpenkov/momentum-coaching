@@ -40,6 +40,28 @@ function debugLog(message: string, data?: any) {
 }
 
 /**
+ * Un refus Meta est-il TRANSITOIRE (rate limit, panne passagère) ?
+ *
+ * Transitoire → on LÈVE, pour que la file (process-webhook-queue) retente avec
+ * son backoff : la fenêtre private reply est de 7 jours, un 429 pendant une
+ * rafale se rattrape seul. Définitif (fenêtre refermée, permission, blocage) →
+ * on trace et on continue : réessayer ne changerait rien.
+ *
+ * Avant (audit du 2026-09-02), TOUT refus marquait l'item `done` : un 429
+ * pendant un post viral — précisément le moment où les leads affluent —
+ * perdait le DM1 pour toujours, alors qu'un retry aurait réussi.
+ *
+ * Codes Meta : 4 = app rate limit, 17 = user rate limit, 613 = calls limit,
+ * 2 = service temporairement indisponible ; `is_transient` quand Meta le dit
+ * lui-même. Réf. développeurs Meta « error codes ».
+ */
+function estErreurMetaTransitoire(err: { code?: number; is_transient?: boolean } | null | undefined): boolean {
+  if (!err) return false;
+  if (err.is_transient === true) return true;
+  return [2, 4, 17, 613].includes(Number(err.code));
+}
+
+/**
  * Trace en base un refus de Meta sur un envoi de DM.
  *
  * Le resultat de ces envois ne partait que dans `console.error` et `pushEvent`
@@ -569,20 +591,36 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
     // celui qui répond avec succès. Pour ne pas rescanner tous les tokens à CHAQUE
     // commentaire (coûteux à 20+ élèves), le mapping entry.id→ig_account_id trouvé une
     // fois est mis en cache (stable, ne change jamais) dans ig_entry_id_mapping.
+    // Sentinelle de cache NÉGATIF : « ce scan a déjà échoué récemment ». Sans
+    // elle (audit du 2026-09-02), un compte non résolu — ex-élève déconnecté de
+    // la plateforme mais toujours abonné au webhook côté Meta — relançait le
+    // scan de TOUS les tokens à CHAQUE événement : à 40 élèves, un contenu viral
+    // de cet ex-compte = 40 × N appels Graph inutiles, en boucle. Revalidé
+    // après 24 h : un compte qui se (re)connecte est retrouvé au plus tard le
+    // lendemain, et son premier commentaire chez nous force de toute façon un
+    // nouveau scan seulement s'il n'est plus dans la fenêtre négative.
+    const CACHE_NEGATIF = 'introuvable';
+    let scanBloqueParCacheNegatif = false;
     if (!resolvedMatch) {
       const { data: cached } = await serviceSupabase
         .from('ig_entry_id_mapping')
-        .select('ig_account_id')
+        .select('ig_account_id, created_at')
         .eq('entry_id', igAccountId)
         .maybeSingle();
-      if (cached?.ig_account_id) {
+      if (cached?.ig_account_id === CACHE_NEGATIF) {
+        const age = Date.now() - new Date(cached.created_at).getTime();
+        if (age < 24 * 60 * 60 * 1000) {
+          scanBloqueParCacheNegatif = true;
+          debugLog('entry.id en cache négatif — scan sauté', { igAccountId, age_h: Math.round(age / 3600_000) });
+        }
+      } else if (cached?.ig_account_id) {
         resolvedMatch = (allIg || []).find((r: any) =>
           String(r.metadata?.ig_account_id) === cached.ig_account_id
         ) || null;
         debugLog('résolution entry.id via cache', { igAccountId, ig_account_id: cached.ig_account_id, matched: !!resolvedMatch });
       }
     }
-    if (!resolvedMatch) {
+    if (!resolvedMatch && !scanBloqueParCacheNegatif) {
       const results = await Promise.allSettled((allIg || []).map(async (r: any) => {
         const resolveRes = await fetch(
           `https://graph.instagram.com/v21.0/${igAccountId}?fields=id&access_token=${r.access_token}`
@@ -598,6 +636,13 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
         serviceSupabase.from('ig_entry_id_mapping')
           .upsert({ entry_id: igAccountId, ig_account_id: resolvedMatch.metadata?.ig_account_id }, { onConflict: 'entry_id' })
           .then();
+      } else {
+        // Échec mémorisé — created_at rafraîchi pour dater la fenêtre de 24 h.
+        // L'erreur de CET upsert est lue : un cache négatif qui ne s'écrit pas en
+        // silence referait le scan à chaque événement, exactement le défaut fermé.
+        const { error: negErr } = await serviceSupabase.from('ig_entry_id_mapping')
+          .upsert({ entry_id: igAccountId, ig_account_id: CACHE_NEGATIF, created_at: new Date().toISOString() }, { onConflict: 'entry_id' });
+        if (negErr) debugLog('cache négatif NON écrit', { igAccountId, erreur: negErr.message });
       }
     }
     debugLog('resolvedMatch après résolution', {
@@ -759,6 +804,31 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
           .maybeSingle();
 
         if (leadForDm2 && resolvedMatch) {
+          // ── Verrou anti-double-DM2 (audit du 2026-09-02) ──────────────────────
+          // La file n'a pas de clé d'idempotence à l'enqueue : une redelivery Meta
+          // du postback = deux lignes, traitées par deux workers PARALLÈLES (les
+          // réveils rendent ce cas courant). `pending_dm2` n'est consommé qu'en
+          // fin de bloc, et le chemin content_links fabrique un lien même sans
+          // lui : rien n'empêchait le prospect de recevoir DEUX FOIS le message
+          // au lien. Même mécanisme atomique que le verrou commentaires — même
+          // table, même contrainte UNIQUE, media_id sentinelle.
+          {
+            const lockCutoff = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+            await serviceSupabase
+              .from('ig_comment_processing_lock')
+              .delete()
+              .eq('profile_id', pid)
+              .eq('ig_user_id', senderId)
+              .eq('media_id', 'postback:LM_LINK_CLICKED')
+              .lt('locked_at', lockCutoff);
+            const { error: lockError } = await serviceSupabase
+              .from('ig_comment_processing_lock')
+              .insert({ profile_id: pid, ig_user_id: senderId, media_id: 'postback:LM_LINK_CLICKED' });
+            if (lockError) {
+              pushEvent({ type: 'concurrent_postback_skip', senderId });
+              continue;
+            }
+          }
           // Le lead a RÉCLAMÉ son lead magnet. C'est ici, et pas à l'envoi du DM1,
           // que le contenu part réellement : `lead_magnet_sent` est posé dès le
           // DM1 alors que seuls 30 à 50 % cliquent ce bouton (voir plus bas).
@@ -929,6 +999,13 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
                 ig_username: leadForDm2.ig_username,
                 ig_lead_id: leadForDm2.id,
               });
+              // Transitoire → on lève AVANT la consommation de pending_dm2 en fin
+              // de bloc : la file retente avec backoff, le verrou postback (2 min)
+              // absorbe le retry trop rapproché, et le prospect finit par recevoir
+              // son lien au lieu d'attendre devant un DM qui ne viendra jamais.
+              if (estErreurMetaTransitoire(dm2Data.error)) {
+                throw new Error(`meta_transitoire dm2 (${dm2Data.error.code}): ${dm2Data.error.message || ''}`);
+              }
             } else {
               console.log(`[IG Webhook] DM2 (lien) envoyé après clic QR — message_id: ${dm2Data.message_id}`);
               pushEvent({ type: 'dm2_sent', message_id: dm2Data.message_id });
@@ -1450,6 +1527,12 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
           media_id: mediaId,
           keyword: matchedKeyword,
         });
+        // Transitoire → on lève : la file retente avec backoff. Les retraitements
+        // sont sûrs — le verrou expire à 2 min, et le cooldown lit
+        // instagram_lead_lm_history, écrite seulement en fin de traitement réussi.
+        if (estErreurMetaTransitoire(dm1Data.error)) {
+          throw new Error(`meta_transitoire dm1 (${dm1Data.error.code}): ${dm1Data.error.message || ''}`);
+        }
       } else {
         leadMagnetSent = true;
         console.log(`[IG Webhook] DM1 envoyé (avec QR button) — message_id: ${dm1Data.message_id}`);
