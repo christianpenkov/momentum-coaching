@@ -222,7 +222,10 @@ export async function POST(request: NextRequest) {
   if (igLeadId) {
     const { data: lead } = await supa
       .from('instagram_leads')
-      .select('ig_user_id, media_id, source')
+      // `media_id` n'est plus selectionne : plus rien ne le lit depuis que le repli
+      // a ete retire. Un champ ramene mais jamais utilise fait croire au prochain
+      // lecteur qu'il sert a quelque chose — exactement ce que la suppression visait.
+      .select('ig_user_id, source')
       .eq('id', igLeadId)
       .maybeSingle();
 
