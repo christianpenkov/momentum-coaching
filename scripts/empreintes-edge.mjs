@@ -96,7 +96,18 @@ function normaliserChemin(absolu) {
 //     `deployer-edge` juste avant l'envoi : la valeur figee dans le bundle doit decrire
 //     ce que le bundle contient.
 //   * `--depuis-head` (code commite) → « qu'est-ce que le DEPOT contient ? »  Utilise
-//     pour ecrire le fichier qu'on commite, et par la porte de `npm test`.
+//     pour ecrire le fichier qu'on commite, par la porte de `npm test`, et par
+//     `npm run prebuild`.
+//
+// ⚠️ `prebuild` a d'abord utilise le mode par defaut, et ca s'est retourne contre nous le
+// jour meme : un `npm run build` LOCAL, dans un depot ou trois Edge Functions portaient
+// du travail en cours, a reecrit leurs empreintes de WIP dans le fichier. La porte de
+// `npm test` l'a attrape — c'est le premier declenchement reel de ce garde-fou, et il
+// n'etait en place que depuis une heure.
+//
+// Sur Vercel, la copie de travail EST le depot pousse : les deux modes y donnent le meme
+// resultat, et si `git` n'y repond pas, le repli lit le disque, c'est-a-dire encore la
+// meme chose. `--depuis-head` est donc gratuit la-bas et evite le degat ici.
 //
 // Sans ce second mode, regenerer le fichier dans un depot ou une AUTRE session a du
 // travail non commite y inscrirait les empreintes de son travail en cours — et le

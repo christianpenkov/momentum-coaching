@@ -4,12 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "prebuild": "node scripts/empreintes-edge.mjs",
+    "prebuild": "node scripts/empreintes-edge.mjs --depuis-head && node scripts/manifeste-migrations.mjs",
     "build": "next build",
     "start": "next start",
     "test": "node --test lib/*.test.ts && node scripts/empreintes-edge.mjs --verifier --depuis-head",
     "empreintes-edge": "node scripts/empreintes-edge.mjs",
-    "deployer-edge": "node scripts/deployer-edge.mjs"
+    "deployer-edge": "node scripts/deployer-edge.mjs",
+    "manifeste-migrations": "node scripts/manifeste-migrations.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",

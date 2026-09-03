@@ -1,0 +1,40 @@
+-- ⚠️ FICHIER RECONSTITUÉ le 2026-09-03, SANS INSTRUCTION. Ce n'est pas un oubli.
+--
+-- Appliquée à la base le 2026-09-01, jamais versionnée — comme six autres migrations des
+-- 1ᵉʳ au 3 septembre, retrouvées en réconciliant `supabase_migrations.schema_migrations`
+-- avec les fichiers du dépôt.
+--
+-- ── Pourquoi il n'y a rien à exécuter : la correction est DÉJÀ dans le dépôt ───────
+--
+-- Elle corrigeait la fonction `stats_clients_series`, créée 29 minutes plus tôt par
+-- `20260901170000_stats_clients_series.sql` — un fichier qui, lui, existe. Vérifié le
+-- 2026-09-03 : ce fichier porte déjà la version CORRIGÉE.
+--
+-- L'auteur a donc modifié le fichier existant au lieu d'en écrire un nouveau, puis
+-- appliqué le changement sous un nouveau numéro. Le dépôt est juste, seule la trace
+-- manquait.
+--
+-- Preuve, et non déduction — comparaison de la définition en base (`pg_get_functiondef`)
+-- avec le corps du fichier :
+--   * aucun `avg(` dans le fichier, alors que le nom de cette migration annonce le
+--     remplacement d'une moyenne ;
+--   * deux occurrences de `array_agg(… order by s.date desc)`, c'est-à-dire la valeur de
+--     FIN de période, pour `ig_followers` et `yt_subscribers`.
+--
+-- ⚠️ Réécrire ici la définition complète créerait une seconde copie de 60 lignes de la
+-- même fonction dans le dépôt. Deux copies dérivent — c'est le mode de panne que ce
+-- projet traque partout ailleurs (la copie figée d'un module partagé, la colonne recopiée
+-- qui s'écarte de sa source). Une seule définition, dans `20260901170000`.
+--
+-- ── Ce que la correction dit, et qui vaut au-delà de cette fonction ────────────────
+--
+-- Un nombre d'abonnés est un NIVEAU, pas un flux. Sur une fenêtre de sept jours, la
+-- moyenne des sept photos quotidiennes ne répond à aucune question qu'on se pose : ce
+-- qu'on veut savoir, c'est combien d'abonnés à la fin. En moyenne, une croissance rapide
+-- se trouve minorée et une chute est amortie — l'indicateur ment doucement, dans le sens
+-- rassurant.
+--
+-- La règle des trois natures est écrite en tête de `20260901170000` : NIVEAU → dernière
+-- valeur, FLUX → somme, et les colonnes de cumul ne se lisent pas du tout.
+--
+-- (aucune instruction — voir 20260901170000_stats_clients_series.sql)

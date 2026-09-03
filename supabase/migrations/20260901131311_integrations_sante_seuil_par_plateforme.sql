@@ -1,0 +1,34 @@
+-- ⚠️ FICHIER RECONSTITUÉ le 2026-09-03, SANS INSTRUCTION. Ce n'est pas un oubli.
+--
+-- Cette migration a été appliquée à la base le 2026-09-01 sans qu'aucun fichier ne soit
+-- écrit dans le dépôt, comme six autres des 1ᵉʳ au 3 septembre. Retrouvée en réconciliant
+-- `supabase_migrations.schema_migrations` avec les fichiers du dépôt.
+--
+-- ── Pourquoi ce fichier ne contient rien à exécuter ────────────────────────────────
+--
+-- Elle modifiait la vue `integrations_sante`, que la migration précédente
+-- (`20260901130746_integrations_sante_detecte_collecte_arretee`, cinq minutes plus tôt)
+-- venait déjà de modifier. Seul l'ÉTAT FINAL des deux est récupérable : il a été lu en
+-- base (`pg_get_viewdef`) et placé dans le fichier précédent.
+--
+-- **L'état intermédiaire entre les deux n'existe nulle part.** Écrire ici une définition
+-- plausible reviendrait à inventer une étape qui n'a peut-être jamais eu cette forme —
+-- et un fichier de migration inventé est pire qu'un fichier absent : le suivant le croit.
+-- Le principe du projet vaut aussi pour l'histoire : « un 0 affirme quelque chose, un
+-- trou dit qu'on ne sait pas ».
+--
+-- Rejouer la chaîne complète produit donc le bon état final. Ce qui est perdu, et le
+-- reste, c'est le découpage en deux étapes.
+--
+-- ── Ce que son nom indique, et qui se retrouve dans la définition finale ───────────
+--
+-- Le seuil de retard de collecte n'est pas le même selon la plateforme : il ne s'applique
+-- qu'à `instagram` et `shortio`. YouTube en est exclu, parce que l'API YouTube Analytics
+-- accuse un retard normal de plusieurs jours — lui appliquer le même seuil ferait crier
+-- l'alerte en permanence, c'est-à-dire la rendrait inutile.
+--
+-- Cette exclusion est visible dans le fichier précédent :
+--   WHEN o.provider = ANY (ARRAY['instagram', 'shortio']) AND h.retard_jours >= 2
+--     THEN 'collecte_arretee'
+--
+-- (aucune instruction — voir 20260901130746_integrations_sante_detecte_collecte_arretee.sql)

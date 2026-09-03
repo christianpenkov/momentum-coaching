@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { EMPREINTES_EDGE } from '@/lib/empreintes-edge.generated';
+import { MIGRATIONS_DEPOT } from '@/lib/migrations-depot.generated';
 
 // GET /api/sante/alerte-vues
 //
@@ -78,6 +79,28 @@ type Surveillance = {
 };
 
 const SURVEILLANCES: Surveillance[] = [
+  {
+    cle: 'sante_migrations',
+    source: 'migrations_sante',
+    titre: 'Un changement de base de données n’existe que dans la base',
+    detection: 'toute_ligne',
+    surveille:
+      'Que chaque migration appliquée à la base ait bien son fichier dans le dépôt, et réciproquement. La clé de rapprochement est le NOM : celui passé à `apply_migration` doit être exactement celui du fichier, horodatage retiré.',
+    signifie:
+      'Un changement de schéma appliqué sans fichier n’existe QUE dans la base de production : invisible au dépôt, perdu à toute reconstruction, et impossible à comprendre plus tard puisque personne n’a écrit pourquoi. ⚠️ Il ne produit AUCUN symptôme — la base fonctionne, les écrans fonctionnent, les tests passent. Le 3 septembre 2026, sept migrations étaient dans ce cas, venues de quatre sessions différentes, dont celle qui crée toute la surveillance des crons ; deux migrations ultérieures agissaient sur une table qu’aucun fichier ne créait.',
+    quoiFaire: [
+      '`select * from migrations_sante;` — la colonne `nom` donne la migration concernée.',
+      '« appliquée sans fichier » : lire l’état réel en base (`pg_get_viewdef`, `pg_get_functiondef`, `information_schema.columns`) et écrire le fichier manquant dans `supabase/migrations/`, en le marquant comme reconstitution. Ne jamais inventer une étape intermédiaire qu’on ne peut pas retrouver.',
+      '« fichier jamais appliqué » : vérifier si l’objet existe déjà en base sous un autre nom de migration avant d’appliquer quoi que ce soit — un double `apply` peut casser.',
+      '⚠️ Cause la plus fréquente : un nom différent des deux côtés. Renommer le fichier pour qu’il corresponde au nom appliqué (ou l’inverse) suffit alors.',
+      '⚠️ Ne couvre que le récent : 185 migrations anciennes n’ont aucun fichier et il n’existe pas de clé fiable pour les rapprocher. Les deux bornes, et la mesure qui les justifie, sont dans `20260903200000_migrations_sante.sql`.',
+    ],
+    docs: [
+      'supabase/migrations/20260903200000_migrations_sante.sql',
+      'scripts/manifeste-migrations.mjs',
+      'AGENTS.md',
+    ],
+  },
   {
     cle: 'sante_acces_lecture',
     source: 'acces_sante_lecture',
@@ -398,6 +421,36 @@ export async function GET(request: Request) {
     );
   if (erreurEmpreintes) {
     resultats['empreintes_edge'] = `inscription impossible: ${erreurEmpreintes.message}`;
+  }
+
+  // ── La liste des migrations du dépôt, même pont et mêmes raisons ─────────────
+  //
+  // La base ne peut pas lire `supabase/migrations/`. `migrations_sante` compare ce
+  // qu'elle a enregistré à ce que le dépôt contient — encore faut-il le lui dire.
+  //
+  // ⚠️ Le `delete` compte autant que le `upsert` : sans lui, un fichier renommé ou
+  // supprimé laisserait sa ligne, et la vue le signalerait éternellement comme
+  // « fichier jamais appliqué ». Une alerte permanente est une alerte qu'on n'ouvre plus.
+  // Il vient APRÈS, pour qu'une panne au milieu laisse des lignes en trop plutôt qu'une
+  // table vide — trop de lignes fait crier à tort, une table vide ferait taire.
+  const nomsDepot = MIGRATIONS_DEPOT.map(m => m.nom);
+  const { error: erreurMigrations } = await supabase
+    .from('migrations_du_depot')
+    .upsert(
+      MIGRATIONS_DEPOT.map(m => ({ ...m, mis_a_jour_le: new Date().toISOString() })),
+      // ⚠️ Sur le NOM : cinq horodatages de fichiers sont en double dans le dépôt.
+      { onConflict: 'nom' },
+    );
+  if (erreurMigrations) {
+    resultats['migrations_depot'] = `inscription impossible: ${erreurMigrations.message}`;
+  } else if (nomsDepot.length) {
+    const { error: erreurMenage } = await supabase
+      .from('migrations_du_depot')
+      .delete()
+      .not('nom', 'in', `(${nomsDepot.join(',')})`);
+    if (erreurMenage) {
+      resultats['migrations_depot'] = `menage impossible: ${erreurMenage.message}`;
+    }
   }
 
   for (const s of SURVEILLANCES) {

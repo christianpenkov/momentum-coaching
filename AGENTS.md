@@ -542,7 +542,44 @@ select * from clics_sante_redirection;          -- 'ok' partout
 select * from crons_sante;                      -- aucun 'SILENCIEUX' = les crons inscrits tournent
 select * from acces_sante_lecture;              -- vide = aucune donnée lisible du navigateur sans RLS
 select * from edge_sante_version;               -- aucune ligne 'ALERTE%' = les fonctions en ligne sont celles du dépôt
+select * from migrations_sante;                 -- vide = dépôt et base racontent la même histoire récente
 ```
+
+## ⚠️ Une migration vit à DEUX endroits, et rien ne les rapprochait
+
+Appliquer un changement de schéma sans écrire le fichier **ne produit aucun symptôme** :
+la base fonctionne, les écrans fonctionnent, les tests passent. Mesuré le 2026-09-03 :
+**sept migrations des 1ᵉʳ au 3 septembre n'existaient que dans la base**, venues de quatre
+sessions différentes — dont celle qui crée `crons_passages`, `crons_sante` et
+`marquer_passage_cron`, c'est-à-dire toute la surveillance des crons. Deux migrations
+ultérieures agissaient sur une table qu'aucun fichier ne créait.
+
+**La règle, et c'est la seule clé qui reste** : le nom passé à `apply_migration` doit être
+**exactement** celui du fichier, horodatage retiré.
+
+```
+supabase/migrations/20260903200000_migrations_sante.sql   →   apply_migration(name: 'migrations_sante')
+```
+
+⚠️ **Le numéro de version ne peut PAS servir de clé** : celui de la base est généré par
+l'outil d'application, celui du fichier est choisi à la main, et les deux ne coïncident
+jamais (appliquée `20260903165006 inscrire_les_trois_crons_pg_cron`, fichier
+`20260903190000_inscrire_les_trois_crons_pg_cron.sql`). **Cinq horodatages de fichiers
+sont même en double** dans le dépôt.
+
+⚠️ **Le dépôt n'a JAMAIS permis de reconstruire la base, et ce n'est pas nouveau.**
+`supabase/migrations/` commence au 2026-07-18 et ne contient aucun schéma initial : les
+tables `profiles`, `deals`, `calls` ne sont créées par aucun fichier. Relevé du
+2026-09-03 : **282 migrations enregistrées en base, 114 fichiers, 185 sans fichier** — et
+16 fichiers sans ligne à leur nom, dont la moitié sont des divergences de nommage
+(`webhook_queue` contre `create_webhook_queue`, `purge_journaux_machine` contre
+`purge_journaux_machine_pg_cron`). Ne pas énoncer « une reconstruction échouerait » comme
+une conséquence des sept dernières : c'était déjà vrai.
+
+`migrations_sante` ne surveille donc que le récent, et **chaque borne est posée là où la
+mesure dit qu'elle ne produit aucun faux positif** — le détail et le motif sont dans
+`20260903200000_migrations_sante.sql`. Surveiller tout l'historique donnerait ~200 lignes
+permanentes, c'est-à-dire une alerte qu'on n'ouvre plus.
 
 ## ⚠️ Un `revoke` ne se maintient pas — l'invariant, si
 
