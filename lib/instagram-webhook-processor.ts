@@ -1079,9 +1079,13 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
             }
 
             const nowIso = new Date().toISOString();
+            // `source` et `hook_replied` sont relus pour la MEME raison que
+            // `detected_at` : cet upsert reecrit la ligne entiere, donc tout champ
+            // qu'on ne reporte pas explicitement est ecrase sur un lead qui existe
+            // deja.
             const { data: existingLead } = await serviceSupabase
               .from('instagram_leads')
-              .select('id, detected_at')
+              .select('id, detected_at, source, hook_replied')
               .eq('profile_id', pid)
               .eq('ig_user_id', senderId)
               .maybeSingle();
@@ -1090,7 +1094,19 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
               .from('instagram_leads')
               .upsert({
                 profile_id: pid,
-                source: 'story_reply',
+                // ── L'ORIGINE D'UNE PERSONNE NE CHANGE PAS ──────────────────
+                // Repondre a une story n'est pas une nouvelle provenance, c'est
+                // un evenement de plus dans un parcours. Ecraser `source`
+                // effacait d'ou la personne venait vraiment — un lead Cold DM
+                // devenait « story_reply ».
+                //
+                // Ce champ ne sert a RIEN dans ce webhook (verifie : il n'y est
+                // jamais lu), mais six ecrans le lisent, dont toute
+                // l'attribution des paiements : « cash par origine », la chaine
+                // d'attribution d'une vente, le sous-titre d'une personne dans
+                // Paiements. Le pipeline s'en sert aussi pour ranger une carte
+                // en « Cold DM ».
+                source: existingLead?.source ?? 'story_reply',
                 ig_username: senderUsername || null,
                 ig_user_id: senderId,
                 message: msgText.slice(0, 500),
@@ -1106,7 +1122,16 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
                 story_sequence_id: story.sequence_id,
                 story_id: story.id,
                 awaiting_story_followup: true,
-                hook_replied: false,
+                // ── NE PAS POSER `true` N'EST PAS EFFACER UN `true` ──────────
+                // L'intention, expliquee plus haut : ce premier message ne doit
+                // PAS marquer `hook_replied`, sinon la carte bascule
+                // prematurement en « En conversation ». C'est juste pour un lead
+                // NEUF.
+                //
+                // Sur un lead qui existe deja et avait REELLEMENT converse, le
+                // remettre a `false` faisait reculer sa carte — une conversation
+                // deja eue disparaissait parce qu'il avait repondu a une story.
+                hook_replied: existingLead?.hook_replied ?? false,
                 ig_account_id: canonicalIgAccountId,
               }, { onConflict: 'profile_id,ig_user_id', ignoreDuplicates: false })
               .select('id')
@@ -1441,7 +1466,7 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
       // Les commentaires répétés restent tracés via instagram_lead_lm_history plus bas.
       const { data: existingLead } = await serviceSupabase
         .from('instagram_leads')
-        .select('id, detected_at')
+        .select('id, detected_at, source')
         .eq('profile_id', profile_id)
         .eq('ig_user_id', commenterId)
         .maybeSingle();
@@ -1450,7 +1475,12 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
         .from('instagram_leads')
         .upsert({
           profile_id,
-          source: 'comment',
+          // Meme regle que le chemin story : l'origine d'une personne ne change
+          // pas. Un lead venu d'un Cold DM qui commente ensuite un post reste un
+          // lead Cold DM — c'est le premier contact qui compte, et c'est ce que
+          // l'attribution des paiements suppose (`links.ts` ne retient
+          // `cold_dm` que faute de premier contact plus ancien).
+          source: existingLead?.source ?? 'comment',
           ig_username: commenterUsername,
           ig_user_id: commenterId,
           message: commentText.slice(0, 500),

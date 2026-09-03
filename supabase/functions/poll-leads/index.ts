@@ -602,13 +602,19 @@ async function pollIgComments(profileId: string, token: string, igAccountId: str
         // le rend null alors que sa ligne existe bel et bien et va être mise à jour.
         const { data: ligneProspect } = await supa
           .from('instagram_leads')
-          .select('detected_at')
+          .select('detected_at, source')
           .eq('profile_id', profileId)
           .eq('ig_user_id', commenterId)
           .maybeSingle();
 
         await supa.from('instagram_leads').upsert({
-          profile_id: profileId, source: 'comment',
+          profile_id: profileId,
+          // L'origine d'une personne ne change pas : un lead venu d'un Cold DM
+          // qui commente ensuite un post reste un lead Cold DM. Cet upsert
+          // reecrit la ligne entiere, donc tout champ non reporte est ecrase —
+          // meme piege que `detected_at` juste en dessous. Six ecrans lisent
+          // `source`, dont toute l'attribution des paiements.
+          source: ligneProspect?.source ?? 'comment',
           ig_username: commenterUsername || null, ig_user_id: commenterId,
           message: comment.text.slice(0, 500), media_id: media.id,
           media_permalink: media.permalink || null, keyword_matched: cl.lm_keyword,
