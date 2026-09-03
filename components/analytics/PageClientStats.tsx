@@ -8818,7 +8818,11 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                             aria-label="Déplier l'engagement du DM1"
                             title={AIDE_DM1_REPLIE}
                             style={{ width: '100%', height: '100%', minHeight: 54, border: 'none', background: 'transparent', padding: '6px 0', cursor: 'pointer', color: 'var(--muted)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-                            <span style={{ fontSize: 8, lineHeight: 1 }}>▸</span>
+                            {/* Le triangle porte a lui seul le « il y a quelque chose a
+                                ouvrir ». A 8 px il se lisait comme une poussiere ; a 14 il
+                                se voit sans qu'on le cherche, et reste plus discret que le
+                                libelle qu'il annonce. */}
+                            <span aria-hidden style={{ fontSize: 14, lineHeight: 1, color: 'var(--ink-2)' }}>▸</span>
                             {/* `vertical-rl` + rotation : le texte se lit de bas en haut,
                                 sens attendu pour un libelle de colonne pivote. */}
                             <span style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>
