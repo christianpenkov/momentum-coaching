@@ -2805,11 +2805,33 @@ export default function PagePipeline() {
       );
       const nextDue = computeNextDue(state, call?.scheduled_at ?? null, lastMoveAt, new Date());
       const rdv = statsRdv(matchingCalls, new Date());
-      // Réclamés : une ligne d'historique LM par commentaire du mot-clé.
+      // ── RÉCLAMÉS : DES CONTENUS, PAS DES COMMENTAIRES ───────────────────
+      //
+      // Le journal porte UNE LIGNE PAR COMMENTAIRE du mot-clé. Les compter
+      // toutes répondait à « combien de fois a-t-il demandé », alors que le seul
+      // endroit qui lit ce nombre est le filtre « Lead magnets · à partir de N
+      // réclamés » — qui annonce des lead magnets, donc des contenus.
+      //
+      // Mesuré : `rdjdkzjd` a 8 lignes pour 2 contenus, dont quatre commentaires
+      // sur le même post en une heure. Il entrait donc dans « 2 et plus » sans
+      // avoir jamais réclamé deux lead magnets différents.
+      //
+      // Repli sur le mot-clé quand `media_id` manque : deux demandes du même
+      // mot-clé sans contenu identifié sont le même lead magnet, pas deux.
+      //
+      // ⚠️ La chronologie de la fiche, elle, garde bien UNE LIGNE PAR PRISE —
+      // elle raconte l'activité, elle ne compte pas des contenus.
+      //
       // Reçus : le clic sur le bouton du DM1, qui n'existe que depuis le
       // 2026-08-27 — l'écart reste donc à 0 sur tout l'historique antérieur.
+      // Pas de dédoublonnage de ce côté : `prospect_events` ne porte pas le
+      // contenu, et aucun lead n'a plus d'un événement en base aujourd'hui.
       const lmClaimed = lead
-        ? data.lmHistory.filter(h => h.ig_user_id === lead.ig_user_id).length
+        ? new Set(
+            data.lmHistory
+              .filter(h => h.ig_user_id === lead.ig_user_id)
+              .map(h => h.media_id ?? `mot-cle:${h.keyword_matched ?? ''}`),
+          ).size
         : 0;
       const lmReceived = lead
         ? events.filter(e => e.ig_lead_id === lead.id && e.event_type === 'lm_link_requested').length
