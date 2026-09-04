@@ -141,8 +141,10 @@ export const MIGRATIONS_DEPOT: { version: string; nom: string }[] = [
   { version: '20260904180000', nom: 'conversations_instagram' },
   { version: '20260904181000', nom: 'conversations_instagram_purges_sante' },
   { version: '20260904190000', nom: 'enregistrer_message_ig_signale_le_pseudo_manquant' },
+  { version: '20260904190000', nom: 'youtube_ctr_cache' },
   { version: '20260904200000', nom: 'base_sante_taille_compte_ig_messages' },
   { version: '20260904210000', nom: 'enregistrer_messages_ig_lot' },
   { version: '20260904220000', nom: 'ig_conversations_visibles' },
   { version: '20260904230000', nom: 'ig_suggestions' },
+  { version: '20260904240000', nom: 'supprimer_message_ig' },
 ];

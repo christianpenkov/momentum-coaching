@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  estLeCompte, estSortant, interlocuteur, typePieceJointe, lienDiscussion,
+  estLeCompte, estSortant, interlocuteur, typePieceJointe, lienDiscussion, estSuppression,
 } from './igConversations.ts';
 
 // Lancé par `npm test` (node --test, sans aucune dépendance à installer).
@@ -172,4 +172,27 @@ test('ni numéro décodable ni pseudo → aucun lien du tout', () => {
   assert.equal(lienDiscussion('AUTRE', null), null);
   assert.equal(lienDiscussion(null, null), null);
   assert.equal(lienDiscussion(null, undefined, true), null);
+});
+
+// ── Suppression (« unsend ») ────────────────────────────────────────────────
+//
+// Meta ne publie AUCUN champ d'abonnement dedie aux suppressions : il les livre
+// dans `messages`, avec is_deleted sur le message. Le plan de ce chantier a
+// affirme le contraire pendant des heures, sur la foi d'une page qui enumerait
+// les champs sans detailler leurs charges utiles.
+
+test('is_deleted a true annonce une suppression', () => {
+  assert.equal(estSuppression({ message: { is_deleted: true } }), true);
+});
+
+// ⚠️ Comparaison STRICTE. Meta envoie is_deleted: false sur des messages
+// ordinaires ; une comparaison souple ferait supprimer un message vivant.
+test('is_deleted a false n’est PAS une suppression', () => {
+  assert.equal(estSuppression({ message: { is_deleted: false } }), false);
+});
+
+test('un message ordinaire n’est pas une suppression', () => {
+  assert.equal(estSuppression({ message: { is_echo: true } }), false);
+  assert.equal(estSuppression({ sender: { id: '1' } }), false);
+  assert.equal(estSuppression({}), false);
 });

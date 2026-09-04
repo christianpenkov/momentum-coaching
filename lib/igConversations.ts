@@ -43,8 +43,29 @@ export function estLeCompte(id: string | null | undefined, formes: FormesDuCompt
 type EvenementMessaging = {
   sender?: { id?: string } | null;
   recipient?: { id?: string } | null;
-  message?: { is_echo?: boolean } | null;
+  message?: { is_echo?: boolean; is_deleted?: boolean } | null;
 };
+
+/**
+ * Cet événement annonce-t-il qu'un message a été RETIRÉ d'Instagram ?
+ *
+ * ⚠️ Il n'existe PAS de champ d'abonnement dédié aux suppressions. Meta les
+ * livre dans le champ `messages`, avec `is_deleted: true` sur le message. Le
+ * projet y est abonné depuis le début : l'événement arrivait déjà, il était
+ * simplement ignoré.
+ *
+ * ⚠️ Le plan de ce chantier a affirmé pendant plusieurs heures qu'« aucun
+ * webhook ne signale un message annulé », sur la foi d'une page qui énumérait
+ * les champs d'abonnement sans détailler leurs charges utiles. Une limitation
+ * crue sur une seule lecture ne produit aucun symptôme : on ne construit
+ * simplement pas la chose qu'elle interdit.
+ *
+ * Test strict à `true` : Meta envoie parfois `is_deleted: false` sur un message
+ * ordinaire, et une comparaison souple ferait alors supprimer un message vivant.
+ */
+export function estSuppression(ev: EvenementMessaging): boolean {
+  return ev?.message?.is_deleted === true;
+}
 
 /**
  * Le message part-il du compte de l'élève ?

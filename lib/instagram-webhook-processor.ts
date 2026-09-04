@@ -20,7 +20,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import { pushEvent } from '@/app/api/instagram/webhook-stream/route';
-import { estSortant, estLeCompte, typePieceJointe } from '@/lib/igConversations';
+import { estSortant, estLeCompte, typePieceJointe, estSuppression } from '@/lib/igConversations';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -250,6 +250,22 @@ async function enregistrerPourLeCoach(
     // pas de `mid`, rien à archiver.
     const mid: string | undefined = messaging?.message?.mid;
     if (!mid) return;
+
+    // ── Un message RETIRÉ d'Instagram est retiré d'ici ────────────────────
+    // Meta ne publie pas de champ d'abonnement dédié aux suppressions : il les
+    // livre dans `messages`, avec `is_deleted: true`. On y est abonné depuis le
+    // début, l'événement arrivait déjà.
+    //
+    // ⚠️ AUCUNE garde d'accord sur ce chemin, contrairement à l'écriture : une
+    // suppression doit aboutir même si l'accord a été retiré entre-temps.
+    // Refuser de supprimer faute d'accord serait le contraire du but.
+    if (estSuppression(messaging)) {
+      const { error } = await serviceSupabase.rpc('supprimer_message_ig', {
+        p_profile_id: profileId, p_mid: mid,
+      });
+      if (error) debugLog('suppression IG non appliquée', { erreur: error.message });
+      return;
+    }
 
     const formes = { igAccountId, entryId };
     const sortant = estSortant(messaging, formes);
