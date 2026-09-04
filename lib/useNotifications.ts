@@ -383,7 +383,25 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
   useEffect(() => {
     if (!profileId) return;
     refreshRef.current();
-    const interval = setInterval(() => refreshRef.current(), 60_000);
+    // ── Le FILET, pas le canal principal ────────────────────────────────────────
+    //
+    // Une notification n'attend pas ce minuteur : l'abonnement Realtime plus bas
+    // pousse tout changement de `client_notifications` et de `calls` en quelques
+    // millisecondes (les deux tables sont bien publiées dans `supabase_realtime`,
+    // vérifié le 2026-09-04), et un retour au premier plan rafraîchit tout de suite.
+    // Ce `setInterval` ne sert QUE si le WebSocket décroche en silence — veille du
+    // téléphone, changement de réseau, PWA suspendue par iOS.
+    //
+    // Porté de 60 s à 3 min : le filet tourne dans CHAQUE onglet ouvert, et l'egress
+    // du plan gratuit se paie au nombre de requêtes (5 Go/mois tous services
+    // confondus, voir AGENTS.md). À 20 élèves, ces sondages à vide pesaient à eux
+    // seuls ~29 000 requêtes par jour.
+    //
+    // Ce que ça coûte, précisément : rien tant que le Realtime tient. Et s'il tombe,
+    // la pastille peut avoir 3 minutes de retard au lieu d'1 — à condition que l'app
+    // soit restée au premier plan sans qu'on y touche, puisque le moindre
+    // retour d'arrière-plan force un rafraîchissement immédiat.
+    const interval = setInterval(() => refreshRef.current(), 180_000);
     const handler = () => refreshRef.current();
     window.addEventListener('notifs-refresh', handler);
 

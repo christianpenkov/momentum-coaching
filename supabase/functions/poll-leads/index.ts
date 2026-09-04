@@ -3090,8 +3090,38 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
     }
   }
 
-  // Short.io J-1 + click stream
-  const shioCreds = await getShortioLinkCreds(profileId);
+  // ── Short.io J-1 + flux de clics : une fois par QUART D'HEURE ────────────────────
+  //
+  // Ce bloc tournait a chaque passage — 288 fois par jour et par eleve, ~4 requetes
+  // chacune. Mesure du 2026-09-04 : c'est le plus gros poste par eleve du cron.
+  //
+  // Pourquoi ca compte : l'egress du plan gratuit vaut 5 Go/MOIS, tous services
+  // confondus, et il se paie au NOMBRE de requetes (voir AGENTS.md). A ce rythme le
+  // quota casse vers 15 eleves. La bascule en Pro (250 Go) n'etant prevue que
+  // plusieurs mois APRES la livraison, le plan gratuit doit tenir avec de vrais eleves.
+  //
+  // La fenetre de minutes est SANS ETAT : aucune colonne, aucune ecriture, aucune
+  // requete ajoutee pour se souvenir du dernier passage. Le cron tombe aux minutes
+  // 0, 5, 10... donc la condition n'est vraie qu'a 0, 15, 30 et 45. Elle tolere une
+  // derive du planificateur : une fenetre large d'un pas de cron, sur un cycle de trois
+  // pas, laisse passer exactement un passage sur trois quel que soit le decalage.
+  //
+  // ⚠️ Ce qui NE ralentit PAS — c'est le point important :
+  //   • la collecte des leads et des DM Instagram reste a CHAQUE passage (5 min) ;
+  //   • `send-pending-dm3` ne lit que `instagram_leads.pending_dm3` et
+  //     `dm3_scheduled_at` (verifie le 2026-09-04) : aucun envoi ne depend d'un
+  //     evenement de clic, donc aucun DM n'est retarde ;
+  //   • le bouton « Rafraichir » passe par `/api/shortio/refresh-today`, un chemin
+  //     SEPARE de cette fonction : qui veut ses clics tout de suite les a tout de suite.
+  //
+  // Ce qui change : un clic apparait dans le pipeline avec jusqu'a 15 minutes de
+  // decalage au lieu de 5. Aucune donnee n'est perdue — les compteurs Short.io sont
+  // cumulatifs et la fenetre de lecture couvre 48 h, donc le passage suivant rattrape
+  // integralement un passage saute.
+  const PAS_DU_CRON_MIN = 5;
+  const CADENCE_SHORTIO_MIN = 15;
+  const shortioDuCePassage = new Date().getUTCMinutes() % CADENCE_SHORTIO_MIN < PAS_DU_CRON_MIN;
+  const shioCreds = shortioDuCePassage ? await getShortioLinkCreds(profileId) : null;
   if (shioCreds) {
     try {
       const { errors: shioErrors, rawClicks, resolveLinkCategory, dateToday } = await snapshotShortioLinks(profileId, shioCreds, joursReparation);
