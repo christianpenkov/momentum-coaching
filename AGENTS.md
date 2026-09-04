@@ -310,6 +310,51 @@ même entre eux (version 16, chemin `_14`). Et un écart de quelques minutes ent
 et déploiement n'est jamais concluant — le schéma normal est « je déploie, puis je
 commite ».
 
+# L'egress se paie au NOMBRE de requêtes, pas au volume
+
+Le quota Supabase est de **5 Go par mois**, tous services confondus. Il a été dépassé en
+**une semaine** début septembre 2026, et la cause n'était pas celle qu'on cherche
+spontanément.
+
+**Mesure du 2026-09-04, sur 24 h : le corps de TOUTES les réponses pesait moins de 1 Mo.**
+Le corps moyen d'une réponse `prospect_links` faisait **1,4 octet**. Ce qui a consommé
+5 Go, c'est le **nombre** — 288 969 requêtes par jour — chacune traînant ses en-têtes et
+le surcoût de la passerelle, de l'ordre du kilo-octet, **invisible dans le corps**.
+
+⚠️ **Conséquence contre-intuitive : optimiser un `select` ne sert presque à rien, et
+regrouper N petites requêtes en une grosse est presque toujours gagnant.** Une session
+antérieure avait retiré un `select('*')` sur `calls` en croyant traiter le sujet ; le
+vrai poste — deux boucles qui faisaient *une requête par clic* — était juste à côté et
+représentait 66 % du trafic.
+
+**Le réflexe à avoir devant une facture d'egress : compter, pas peser.**
+
+```sql
+-- Dans les logs de la passerelle (ClickHouse, source `edge_logs`) :
+-- grouper par `request.path` et COMPTER. La colonne `content_length` ment sur le coût.
+```
+
+Trois causes trouvées ce jour-là, dans l'ordre de taille :
+
+| Cause | Coût mesuré | Nature |
+|---|---|---|
+| `poll-leads` : une requête **par clic**, sur une fenêtre de 48 h rejouée 288×/jour | 192 000 req/j | N+1 |
+| `sync-calendly` et `notify-rapport` réglés à **1 min au lieu de 30** | 33 000 req/j | réglage cron-job.org |
+| `poll-leads` : 4 lectures d'`integrations` **par profil et par passage** | 12 000 req/j (46 000 à 40 élèves) | lectures redondantes |
+
+⚠️ **Le cache d'`integrations` de `poll-leads` a des règles**, toutes écrites en tête du
+fichier : il est vidé à chaque invocation (un isolat Deno survit d'un passage à l'autre),
+tout rafraîchissement de jeton doit le mettre à jour, il se replie sur une lecture directe
+tant que la lecture groupée n'a pas réussi, et le type `FournisseurCache` interdit de
+l'interroger pour un fournisseur que la lecture groupée ne couvre pas. **Ne pas y ajouter
+un fournisseur sans l'ajouter aussi à `FOURNISSEURS_CACHE`** — la réponse serait
+« absent » sur une ligne bien présente en base.
+
+⚠️ **Un onglet ouvert coûte, lui aussi.** `useNotifications` interroge la base toutes les
+60 s dans **chaque onglet** : 5 requêtes par minute, 7 200 par jour et par onglet. À
+40 élèves c'est le poste dominant. Avant d'ajouter une requête dans un hook qui tourne en
+boucle, se demander combien de fois elle partira par jour — la réponse est rarement une.
+
 # Les crons vivent à DEUX endroits
 
 ⚠️ **Avant d'ajouter un cron, vérifier qu'il n'existe pas déjà dans l'autre
