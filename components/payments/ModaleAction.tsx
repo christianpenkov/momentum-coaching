@@ -5,6 +5,7 @@ import Icon from '@/components/ui/Icon';
 import Portal from './Portal';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { useHauteurClavier } from '@/lib/useHauteurClavier';
+import DebugClavier from './DebugClavier'; // ⚠️ TEMPORAIRE — diagnostic clavier iOS
 
 /**
  * La coquille commune à toutes les modales qui corrigent une vente.
@@ -80,6 +81,7 @@ export default function ModaleAction({
 
   return (
     <Portal>
+      {isMobile && <DebugClavier cible={feuilleRef} />}{/* ⚠️ TEMPORAIRE */}
       <div onClick={() => !bloque && onClose()}
         style={{ position: 'fixed', inset: 0, background: 'rgba(26,24,21,.42)', zIndex: 10008 }} />
       {/* ── La feuille se décolle du clavier ──────────────────────────────
