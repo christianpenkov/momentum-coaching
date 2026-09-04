@@ -465,6 +465,47 @@ sans quoi un rapport illisible figerait « rien » pendant tout le TTL.
 ne se sature que sur un défaut — l'augmenter rendrait le défaut invisible. Et la hausse
 exige un audit de conformité YouTube, soit des semaines.
 
+## ⚠️ Les rapports YouTube n'arrivent PAS dans l'ordre de leurs données
+
+Corollaire trouvé en creusant l'alerte ci-dessus, et il coûtait bien plus cher qu'elle.
+
+`syncYtCtr` retenait un identifiant, `last_report_id`, et reprenait « tout ce qui suit »
+dans une liste triée par `endTime`. **Ça suppose que les rapports apparaissent dans
+l'ordre de leurs données. YouTube ne le garantit pas et ne le fait pas** — mesuré sur
+l'API réelle le 2026-09-04 :
+
+```
+données jusqu'au 30/08 → rapport créé le 02/09 13:18
+données jusqu'au 31/08 → rapport créé le 01/09 22:16   ← créé AVANT
+```
+
+Le 31/08 est traité d'abord, le filigrane se pose dessus, puis le 30/08 apparaît et se
+range **avant** lui dans le tri. `slice(lastIdx + 1)` ne le voit jamais.
+
+⚠️ **Une garde écrite contre un mode de panne n'en couvre pas un autre.** Le code
+prévoyait déjà qu'un filigrane ne doit pas enjamber un rapport **en échec** — ce cas-ci
+n'est pas un échec, c'est un retard, et il passait à travers.
+
+**Mesuré, pas déduit** : l'algorithme est déterministe dès qu'on connaît l'ordre
+d'apparition, que `createTime` donne. Rejoué sur les 63 rapports réels, le rejeu
+reconstruit **exactement** le filigrane observé en base — ce qui valide le modèle — et
+révèle **7 rapports jamais comptés** entre juin et septembre 2026, soit ~11 % du CTR.
+Les deux chemins divergeaient : `/api/youtube/stats` relit les 30 derniers rapports chez
+Google, donc il les incluait.
+
+`youtube_ctr_sync_state.rapports_traites` porte désormais l'**ensemble** des identifiants
+comptés. « Ce rapport a-t-il déjà été compté ? » se répond exactement, sans dépendre d'un
+ordre que le fournisseur ne garantit pas.
+
+⚠️ **`upsert_yt_ctr` ADDITIONNE.** Toute décision douteuse doit donc pencher du côté
+« déjà traité » : une donnée manquante se voit et se rattrape, un double comptage est
+silencieux et définitif. C'est pourquoi on ne retire **jamais** un identifiant du
+registre, même expiré — purger supposerait de distinguer « expiré » de « absent d'une
+réponse partielle », ce que l'API ne permet pas.
+
+⚠️ **Ne jamais raisonner sur un filigrane positionnel avec une source qui publie dans le
+désordre.** Le même piège guette toute API à rapports différés.
+
 # Les crons vivent à DEUX endroits
 
 ⚠️ **Avant d'ajouter un cron, vérifier qu'il n'existe pas déjà dans l'autre
