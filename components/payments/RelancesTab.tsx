@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { jourCourantParis } from '@/lib/timezone';
 import Icon from '@/components/ui/Icon';
 import Avatar, { getInitials, seedForPerson } from '@/components/ui/Avatar';
 import { estEnvoye } from './etats';
@@ -255,7 +256,7 @@ function buildGroups(deals: DealRow[], details: Record<string, DealDetail>): Gro
   const waiting: Group['items'] = [];
   const sansLien: Group['items'] = [];
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = jourCourantParis();
 
   for (const d of deals) {
     // ⚠️ `ended` fait partie de la liste, et son oubli était un vrai défaut :

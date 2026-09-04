@@ -217,3 +217,28 @@ export function cityLabelOf(tz: string | null | undefined): string {
   const last = zone.split('/').pop() ?? zone;
   return last.replace(/_/g, ' ');
 }
+
+// "2026-09-05" — la date civile d'AUJOURD'HUI chez celui qui saisit.
+//
+// ⚠️ À utiliser partout où un formulaire propose « aujourd'hui » par défaut, ou
+// borne un champ date par `min`. Le réflexe `new Date().toISOString().slice(0,10)`
+// donne la date UTC : en France, entre minuit et 2 h du matin, il propose LA
+// VEILLE. Constaté le 2026-09-05 à 01h27 sur la déclaration d'un remboursement,
+// qui proposait le 04/09 — une pièce d'argent datée du mauvais jour.
+//
+// Suit la règle produit « la saisie suit le fuseau de qui saisit »
+// (docs/fuseaux-horaires.md). Réservé au navigateur : côté serveur, le fuseau
+// détecté est celui de la machine, pas celui du lecteur. Les six appels sont dans
+// des modales montées au clic, donc jamais rendues côté serveur.
+export function jourCourantIci(): string {
+  return dateKeyIn(new Date(), detectBrowserTimeZone());
+}
+
+// Idem, mais calé sur les journées Paris — pour les COMPARAISONS (une échéance
+// est-elle en retard ?) plutôt que pour la saisie. Même raison que les
+// statistiques, qui ne suivent pas le fuseau du lecteur : un « en retard » ne
+// doit pas dépendre de l'endroit d'où l'on regarde. Déterministe, donc sans
+// risque d'écart entre le rendu serveur et le rendu navigateur.
+export function jourCourantParis(): string {
+  return dateKeyIn(new Date(), DEFAULT_TIME_ZONE);
+}

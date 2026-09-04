@@ -11,7 +11,7 @@ import ConfirmCheckboxDialog from '@/components/ui/ConfirmCheckboxDialog';
 import celebrationAnimation from '@/public/animations/celebration.json';
 import { useRapportDraftWriter, type RapportDraft } from '@/lib/useRapportDraft';
 import { buildRapportPatch, estimateTotal, countAnswered, objectionsPour, EMPTY_ANSWERS, type RapportAnswers, type ObjectionChoice, type RapportExistant } from '@/lib/rapportPatch';
-import { wallClockToUtc, cityLabelOf, formatDateIn, formatTimeIn } from '@/lib/timezone';
+import { wallClockToUtc, cityLabelOf, formatDateIn, formatTimeIn, jourCourantIci } from '@/lib/timezone';
 import { useViewerTimeZone } from '@/lib/UserContext';
 
 // Convertit les valeurs brutes des champs <input type="date"> et <input type="time">
@@ -201,7 +201,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
   // `offlineReceived` vit dans `answers` et non en state local : c'est une question
   // du rapport, elle doit compter dans la progression et survivre à une fermeture.
   // `offlineDue` reste local — c'est un détail du deal, pas une question.
-  const [offlineDue, setOfflineDue] = useState(() => new Date().toISOString().slice(0, 10));
+  const [offlineDue, setOfflineDue] = useState(() => jourCourantIci());
   const [afterComment, setAfterComment] = useState<'close' | 'celebration' | 'second_call_done'>('close');
 
   const draft = useRapportDraftWriter(callId);
@@ -1015,7 +1015,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               <input
                 type="date"
                 value={answers.relanceAt ?? ''}
-                min={new Date().toISOString().slice(0, 10)}
+                min={jourCourantIci()}
                 onChange={e => setAnswers(a => ({ ...a, relanceAt: e.target.value }))}
                 disabled={saving}
                 style={{
@@ -1379,7 +1379,7 @@ function ManualDateForm({ date, setDate, timeStart, setTimeStart, timeEnd, setTi
       <div>
         <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Date</label>
         <input className="input" type="date" value={date} onChange={e => setDate(e.target.value)}
-          style={{ width: '100%' }} min={new Date().toISOString().slice(0, 10)} />
+          style={{ width: '100%' }} min={jourCourantIci()} />
       </div>
       <div style={{ display: 'flex', gap: 10 }}>
         <div style={{ flex: 1 }}>

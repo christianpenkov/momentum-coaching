@@ -21,7 +21,7 @@ import { isCallHonored } from '@/lib/callHonored';
 import { objectionsPour, type OutcomeChoice } from '@/lib/rapportPatch';
 import { resolveLeadState, ISSUE_KEYS, ISSUE_TO_OUTCOME, MAX_RELANCES, RELANCE_EXPIRY_DAYS, type StageKey, type IssueKey } from '@/lib/pipelineStage';
 import { useViewerTimeZone } from '@/lib/UserContext';
-import { wallClockToUtc, cityLabelOf, formatDayPartsIn } from '@/lib/timezone';
+import { wallClockToUtc, cityLabelOf, formatDayPartsIn, jourCourantIci } from '@/lib/timezone';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -2279,7 +2279,7 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
                 <input
                   type="date"
                   value={classRelanceAt}
-                  min={new Date().toISOString().slice(0, 10)}
+                  min={jourCourantIci()}
                   onChange={e => setClassRelanceAt(e.target.value)}
                   style={{
                     width: '100%', padding: '9px 11px', fontSize: 13, borderRadius: 8,

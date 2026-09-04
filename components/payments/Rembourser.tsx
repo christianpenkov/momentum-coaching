@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { jourCourantIci } from '@/lib/timezone';
 import Icon from '@/components/ui/Icon';
 import ModaleAction, {
   BoutonFin,
@@ -241,7 +242,7 @@ function DeclarerRemboursement({ deal, motif, aRembourser, onClose, onDone }: {
   onDone: () => void;
 }) {
   const [montant, setMontant] = useState(String(aRembourser));
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(jourCourantIci());
   const [coche, setCoche] = useState(false);
   const [envoi, setEnvoi] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
@@ -328,10 +329,14 @@ function DeclarerRemboursement({ deal, motif, aRembourser, onClose, onDone }: {
 
       <div style={{ marginTop: 14 }}>
         <Encart>
+          {/* L'état est composé en une seule expression, et non à cheval sur
+              plusieurs lignes de JSX : coupée après « en attente », l'espace qui
+              précédait le montant disparaissait au rendu et l'écran affichait
+              « 500,00 €à rembourser ». Le séparateur « · » est celui du plan. */}
           Tu n’es pas obligé de le faire maintenant. Si tu fermes, la vente
-          t’attendra en «&nbsp;annulation en attente&nbsp;
-          {fmtEurExact(aRembourser)} à rembourser&nbsp;», et tu reviendras quand ce
-          sera fait.
+          t’attendra en{' '}
+          <strong>{`« annulation en attente · ${fmtEurExact(aRembourser)} à rembourser »`}</strong>
+          , et tu reviendras quand ce sera fait.
         </Encart>
       </div>
 
