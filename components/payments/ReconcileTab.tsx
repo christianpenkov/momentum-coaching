@@ -66,8 +66,10 @@ function CauseDeLOrphelinat({ cause }: { cause: Orphan['cause'] }) {
     ? { ton: 'neutre' as const, titre: 'Encaissé hors des liens Momentum',
         texte: 'Lien créé directement dans Stripe, ou virement saisi à la main. Rattache-le à la bonne vente.' }
     : cause === 'deal_supprime'
-    ? { ton: 'attention' as const, titre: 'La vente visée n’existe plus',
-        texte: 'Ce paiement désignait une vente qui a été supprimée depuis. Avant de le rattacher ailleurs, vérifie ce qui a été supprimé — l’argent, lui, a bien été encaissé.' }
+    // « La vente visée n'existe plus » : « visée » est du jargon — on ne sait pas
+    // qui vise quoi. On raconte ce qui s'est passé, dans l'ordre où c'est arrivé.
+    ? { ton: 'attention' as const, titre: 'Sa vente a été supprimée',
+        texte: 'Quand cet argent est arrivé, il appartenait à une vente. Cette vente a été supprimée depuis, et le paiement s’est retrouvé sans propriétaire. Avant de le rattacher ailleurs, regarde ce qui a été supprimé — l’argent, lui, a bien été encaissé.' }
     : cause === 'abonnement_inconnu'
     ? { ton: 'grave' as const, titre: 'Prélèvement d’un abonnement sans vente',
         texte: 'Rattacher ce seul versement ne suffirait pas : l’abonnement n’appartient à aucune vente, donc la prochaine échéance reviendrait ici, et les suivantes aussi. Laisse la case « Relier aussi l’abonnement » cochée en rattachant, et c’est réglé pour de bon.' }
