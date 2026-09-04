@@ -391,6 +391,57 @@ un fournisseur sans l'ajouter aussi à `FOURNISSEURS_CACHE`** — la réponse se
 onglet. Avant d'ajouter une requête dans un hook qui tourne en boucle, se demander
 combien de fois elle partira par jour — la réponse est rarement une.
 
+## ⚠️ L'egress Realtime ne se paie PAS au message — il se paie à la CONNEXION
+
+Le 2026-09-04, le Realtime pesait **63,6 %** de la facture, devant PostgREST. Trois
+chiffres du même tableau de bord, le même jour :
+
+```
+egress Realtime            336 MB
+Realtime Messages          187
+connexions simultanées max   8
+```
+
+**336 MB pour 187 messages font 1,8 MB par message** — impossible pour de la donnée
+applicative. Le compteur « Realtime Messages » ne compte que les changements de base, les
+broadcasts et la présence ; l'**egress**, lui, compte *toute* trame envoyée sur une socket
+ouverte : `join`, `phx_reply`, état de présence, battements.
+
+⚠️ **Corollaire : optimiser les abonnements ne sert à rien si le coût vient des
+connexions.** J'ai perdu une demi-journée en attribuant le Realtime aux écritures sur
+`calls` — les messages sont bien tombés de 4 200 à 187 quand les crons ont été corrigés,
+**et l'egress n'a pas suivi**. C'est ce décalage entre les deux courbes qui donne la
+réponse.
+
+**Le réflexe** : comparer egress ÷ messages ÷ connexions. Un ratio absurde par message
+désigne le niveau connexion, pas l'applicatif. La FAQ Realtime de Supabase le dit
+elle-même : *« si vos chiffres semblent anormalement élevés au regard du nombre de
+connexions, écartez d'abord une boucle de reconnexion »*.
+
+### `CLOSED` n'est pas une panne
+
+C'est le statut normal émis après un `removeChannel()`, donc **à chaque nettoyage
+d'effet**. `GlobalPresenceContext` le traitait comme un échec et programmait une
+reconnexion :
+
+```
+nettoyage → removeChannel → CLOSED → on programme une reconnexion
+→ setRetryKey → l'effet se rejoue → nettoyage → CLOSED → …
+```
+
+Et comme le compteur de tentatives repart à zéro à chaque `SUBSCRIBED`, le délai
+retombait à **une seconde**. Le canal se réabonnait donc ~1 fois par seconde,
+indéfiniment, dans chaque onglet — et pour le coach, sur chaque canal d'élève.
+
+**La règle** : ne jamais reconnecter sur un `CLOSED` que l'on a soi-même provoqué. Un
+drapeau posé par le nettoyage **avant** `removeChannel` distingue le nôtre de celui du
+serveur. `CHANNEL_ERROR` et `TIMED_OUT` restent les vrais signaux d'échec.
+
+⚠️ **Un canal par instance de hook coûte double, même quand il ne se passe rien.**
+`useNotifications` en ouvrait un par montage alors que deux sont montés en permanence
+(`TopBar` + la page). Le motif d'état partagé avec abonnés de `useUnreadMessagesCount`
+est la référence — ne pas en réinventer un autre.
+
 ## Le plan GRATUIT doit tenir jusqu'à plusieurs mois APRÈS la livraison
 
 Décision de Chris, 2026-09-04 : **on ne passe pas en Pro à la livraison**, mais plusieurs
