@@ -95,6 +95,16 @@ export async function POST(request: Request) {
     const { error: purgeErr } = await supa.from('ig_conversations').delete().eq('profile_id', user.id);
     if (purgeErr) return NextResponse.json({ error: `purge échouée: ${purgeErr.message}` }, { status: 500 });
     await supa.from('ig_backfill_etat').delete().eq('profile_id', user.id);
+
+    // ⚠️ Les vocaux vivent dans le STOCKAGE, pas dans la base : la cascade des
+    // clés étrangères ne les emporte pas. Sans ce bloc, retirer l'accord
+    // laisserait les enregistrements audio du prospect sur le serveur — ce qui
+    // vide la promesse faite à l'élève de son sens.
+    const { data: vocaux } = await supa.storage.from('ig-vocaux').list(user.id, { limit: 1000 });
+    if (vocaux?.length) {
+      await supa.storage.from('ig-vocaux').remove(vocaux.map(f => `${user.id}/${f.name}`));
+    }
+
     return NextResponse.json({ ok: true, accorde: false, purge: true });
   }
 

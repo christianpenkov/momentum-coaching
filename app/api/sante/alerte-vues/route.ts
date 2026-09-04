@@ -326,6 +326,23 @@ const SURVEILLANCES: Surveillance[] = [
     docs: ['AGENTS.md, section Santé de la plateforme'],
   },
   {
+    cle: 'sante_stockage_fichiers',
+    source: 'stockage_fichiers_sante',
+    titre: 'Le stockage de fichiers approche du plafond',
+    detection: 'alerte',
+    surveille:
+      'Le quota de FICHIERS du plan Supabase — 1 Go sur le gratuit — partagé par tous les buckets : avatars, vignettes, ressources, dépôts, vocaux de la messagerie, et messages vocaux Instagram.',
+    signifie:
+      '⚠️ C’est un quota SÉPARÉ de celui de la base, que surveille `base_sante_taille`. Aucune vue ne le regardait jusqu’au 2026-09-04, date à laquelle les messages vocaux Instagram ont commencé à être stockés — Meta refuse de les resservir après coup, donc c’est stocker ou perdre. Quand le gigaoctet est plein, les envois de fichiers échouent, en silence comme tout plafond. Le seuil de 70 % laisse environ trois semaines de préavis, parce que la rétention de 30 jours met un mois à atteindre son équilibre.',
+    quoiFaire: [
+      '`select * from stockage_fichiers_sante;` — la colonne `principaux_buckets` dit qui pèse.',
+      'Si ce sont les vocaux Instagram (`ig-vocaux`) : soit passer Supabase en Pro (100 Go), soit raccourcir la rétention dans `app/api/instagram/purger-vocaux/route.ts` (RETENTION_JOURS).',
+      'Dimensionnement mesuré le 2026-09-04 : 88 Ko par vocal, donc le gigaoctet tient jusqu’à ~9 vocaux par élève et par jour à 40 élèves.',
+      '⚠️ Ne PAS purger en supprimant des lignes de `storage.objects` : ça vide l’index sans supprimer les octets, et le quota continue de monter pendant que la table dit le contraire. Seule l’API de stockage supprime réellement.',
+    ],
+    docs: ['docs/conversations-instagram.md', 'app/api/instagram/purger-vocaux/route.ts'],
+  },
+  {
     cle: 'sante_ig_dm',
     source: 'ig_dm_sante',
     titre: 'Les conversations Instagram ne se collectent plus, ou ne se purgent plus',

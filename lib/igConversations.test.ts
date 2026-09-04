@@ -196,3 +196,28 @@ test('un message ordinaire n’est pas une suppression', () => {
   assert.equal(estSuppression({ sender: { id: '1' } }), false);
   assert.equal(estSuppression({}), false);
 });
+
+// ── L'empreinte d'un mid, partagee par TROIS implementations ────────────────
+//
+// Le nom de fichier d'un vocal est l'empreinte de son `mid`. Elle est calculee
+// a trois endroits : en SQL (`substring(digest(mid,'sha256') from 1 for 16)`),
+// dans le worker de webhook (webcrypto), et dans la route de lecture (node
+// crypto). Si l'une derive, les vocaux deviennent INTROUVABLES — et rien ne le
+// signale : la route ne trouve pas le fichier, retombe sur Meta, et Meta dit
+// « type non supporte ». Le symptome ressemble a une limite de Meta, pas a un
+// bug de nommage.
+//
+// La valeur ci-dessous a ete relevee sur la base REELLE le 2026-09-04.
+test('l’empreinte d’un mid est la même en SQL, dans le worker et dans la route', async () => {
+  const mid = 'ZZ_EMPREINTE_TEMOIN';
+  const attenduSql = '3f194488b40295ae188dbe6266931bf2';
+
+  const { createHash, webcrypto } = await import('node:crypto');
+  const route = createHash('sha256').update(mid).digest('hex').slice(0, 32);
+  const brut = await webcrypto.subtle.digest('SHA-256', new TextEncoder().encode(mid));
+  const worker = Array.from(new Uint8Array(brut).slice(0, 16))
+    .map(b => b.toString(16).padStart(2, '0')).join('');
+
+  assert.equal(route, attenduSql, 'la route a divergé du SQL');
+  assert.equal(worker, attenduSql, 'le worker a divergé du SQL');
+});

@@ -3733,6 +3733,18 @@ Deno.serve(async (req: Request) => {
             headers: { authorization: `Bearer ${CRON_SECRET}` },
             signal: controleur.signal,
           }),
+          // Purge des vocaux Instagram de plus de 30 jours.
+          //
+          // ⚠️ Pourquoi ici et pas en SQL comme les sept autres purges :
+          // supprimer une ligne de `storage.objects` ne supprime PAS le fichier
+          // sous-jacent. Seule l'API de stockage le fait. Un job SQL viderait
+          // l'index en laissant les octets, et le quota monterait pendant que la
+          // table dirait le contraire.
+          fetch(`${PLATFORM_URL}/api/instagram/purger-vocaux`, {
+            method: 'POST',
+            headers: { authorization: `Bearer ${CRON_SECRET}` },
+            signal: controleur.signal,
+          }),
         ]);
       } finally { clearTimeout(minuteur); }
     }

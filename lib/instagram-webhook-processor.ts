@@ -222,6 +222,21 @@ async function fetchAndStoreAvatar(igUserId: string, accessToken: string): Promi
 }
 
 /**
+ * La même empreinte que celle posée par `enregistrer_message_ig` en base :
+ * sha256 tronqué à 16 octets, en hexadécimal. Elle sert de nom de fichier, ce
+ * qui évite une colonne de plus — le chemin se déduit du message.
+ *
+ * ⚠️ Doit rester IDENTIQUE à la formule SQL
+ * `substring(digest(mid,'sha256') from 1 for 16)`. Si l'une des deux change,
+ * les fichiers deviennent introuvables sans qu'aucune erreur ne le dise.
+ */
+async function empreinteMid(mid: string): Promise<string> {
+  const octets = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(mid));
+  return Array.from(new Uint8Array(octets).slice(0, 16))
+    .map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
  * Archive un message Instagram pour que le coach puisse le relire et l'annoter.
  *
  * ⚠️ N'ÉCRIT RIEN tant que l'élève n'a pas accordé la lecture à son coach. La
@@ -293,6 +308,46 @@ async function enregistrerPourLeCoach(
     if (error) {
       debugLog('enregistrer_message_ig a échoué', { erreur: error.message, peerId });
       return;
+    }
+
+    // ── Le vocal se capture MAINTENANT, ou jamais ────────────────────────────
+    //
+    // ⚠️ Meta ne ressert PAS un message vocal. Vérifié le 2026-09-04 par
+    // introspection champ par champ : `attachments`, `shares` et `story`
+    // reviennent tous vides, et `is_unsupported` vaut `true`. L'URL n'existe
+    // qu'ici, dans la charge utile du webhook, et elle expire.
+    //
+    // C'est la SEULE exception à la règle « on ne stocke aucun média » : pour
+    // tout le reste, on redemande à Meta au moment où quelqu'un regarde. Ici
+    // c'est stocker ou perdre.
+    //
+    // Rétention 30 jours (décision de Chris, 2026-09-04), purgée par
+    // `/api/instagram/purger-vocaux`. Dimensionnement : 88 Ko par vocal mesuré
+    // sur le bucket `voice-messages` du projet ; le gigaoctet gratuit tient
+    // jusqu'à ~9 vocaux par élève et par jour à 40 élèves, et
+    // `stockage_fichiers_sante` alerte à 70 %.
+    //
+    // Volontairement non bloquant : un vocal manquant est un manque à l'écran,
+    // une exception ici ferait échouer l'événement et donc le DM1 qui suit.
+    if (args.p_type_piece_jointe === 'audio') {
+      const urlAudio = messaging.message?.attachments?.[0]?.payload?.url;
+      if (urlAudio) {
+        try {
+          const rep = await fetch(urlAudio);
+          if (rep.ok) {
+            const octets = await rep.arrayBuffer();
+            const { error: envoiErr } = await serviceSupabase.storage
+              .from('ig-vocaux')
+              .upload(`${profileId}/${await empreinteMid(mid)}.m4a`, octets, {
+                contentType: rep.headers.get('content-type') || 'audio/mp4',
+                upsert: true,
+              });
+            if (envoiErr) debugLog('vocal non stocké', { erreur: envoiErr.message });
+          }
+        } catch (e: any) {
+          debugLog('vocal non téléchargé', { erreur: e?.message || String(e) });
+        }
+      }
     }
 
     const retour = Array.isArray(data) ? data[0] : data;

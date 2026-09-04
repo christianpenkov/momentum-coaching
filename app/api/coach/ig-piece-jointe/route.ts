@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
+import { createHash } from 'node:crypto';
 
 /**
  * Le contenu d'une pièce jointe, redemandé à Meta au moment où quelqu'un regarde.
@@ -23,6 +24,17 @@ import { createClient as createServerClient } from '@/lib/supabase/server';
  * faux dans le cas le plus fréquent. Meta rend leur titre et le libellé du
  * bouton, on les rend tels quels.
  */
+
+/**
+ * Même empreinte que `enregistrer_message_ig` en base et que le worker de
+ * webhook : sha256 tronqué à 16 octets, en hexadécimal.
+ *
+ * ⚠️ Les TROIS implémentations doivent rester identiques. Si l'une dérive, les
+ * vocaux deviennent introuvables sans qu'aucune erreur ne le signale.
+ */
+function empreinte(mid: string): string {
+  return createHash('sha256').update(mid).digest('hex').slice(0, 32);
+}
 
 const supa = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -91,6 +103,33 @@ export async function GET(request: Request) {
     } as Contenu);
   }
 
+  // ── Un vocal : on l'a stocké à la réception, Meta ne le resservira pas ────
+  //
+  // C'est la seule exception à « on ne stocke aucun média ». Le fichier porte
+  // l'empreinte du `mid`, la même qu'en base : le chemin se déduit du message,
+  // sans colonne supplémentaire.
+  const chemin = `${msg.profile_id}/${empreinte(msg.mid)}.m4a`;
+  const { data: fichier } = await supa.storage.from('ig-vocaux')
+    .createSignedUrl(chemin, 600);
+
+  if (fichier?.signedUrl) {
+    if (!enOctets) {
+      return NextResponse.json({
+        forme: 'media', type: 'audio',
+        url: `/api/coach/ig-piece-jointe?message_id=${encodeURIComponent(id)}&media=1`,
+      } as Contenu);
+    }
+    const amont = await fetch(fichier.signedUrl);
+    if (amont.ok && amont.body) {
+      return new Response(amont.body, {
+        headers: {
+          'content-type': amont.headers.get('content-type') || 'audio/mp4',
+          'cache-control': 'private, max-age=600',
+        },
+      });
+    }
+  }
+
   // ⚠️ META LE DIT LUI-MÊME. Certains types de message ne sont pas exposés par
   // l'API — les messages vocaux en font partie — et Meta le déclare par un champ
   // dédié plutôt que par une réponse vide. Mesuré le 2026-09-04 : sur un vocal,
@@ -104,7 +143,10 @@ export async function GET(request: Request) {
   if (brut?.is_unsupported === true) {
     return NextResponse.json({
       forme: 'indisponible',
-      motif: 'Instagram ne rend pas ce type de message par son API',
+      // Un vocal reçu AVANT la mise en place de la capture, ou plus vieux que
+      // les 30 jours de rétention, n'existe nulle part : Meta ne le ressert pas.
+      // On le DIT, plutôt que de laisser croire à une panne.
+      motif: 'Instagram ne rend pas ce type de message, et ce vocal n’a pas été conservé',
     } as Contenu);
   }
 
