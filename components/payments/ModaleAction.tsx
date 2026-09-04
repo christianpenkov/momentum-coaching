@@ -34,7 +34,7 @@ export default function ModaleAction({
   largeur?: number;
 }) {
   const isMobile = useIsMobile();
-  const { hauteur: clavier, dessus, visible, ouvert } = useHauteurClavier();
+  const { hauteur: clavier, dessus, visible } = useHauteurClavier();
 
   // ── Remonter le champ, sur le FOCUS et non sur le clavier ─────────────────
   // Pourquoi le champ montant remontait tout seul et pas la raison de clôture :
@@ -69,13 +69,12 @@ export default function ModaleAction({
     }
 
     feuille.addEventListener('focusin', remonter);
-    if (ouvert) remonter();
+    if (clavier > 0) remonter();
     return () => feuille.removeEventListener('focusin', remonter);
-    // `clavier` reste dans les dépendances alors que la décision vient de
-    // `ouvert` : la feuille se redimensionne APRÈS le focus, quand le clavier
-    // finit de monter. Sans cette seconde passe, on aurait fait défiler dans
-    // l'ancienne hauteur.
-  }, [ouvert, clavier]);
+    // `clavier` en dépendance : la feuille se redimensionne APRÈS le focus,
+    // quand le clavier finit de monter. Sans cette seconde passe, on aurait fait
+    // défiler dans l'ancienne hauteur.
+  }, [clavier]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !bloque) onClose(); };
@@ -97,7 +96,7 @@ export default function ModaleAction({
         position: 'fixed', left: 0, right: 0, zIndex: 10009,
         // Clavier fermé : ancrée en bas. Ouvert : la position vient du bloc
         // conditionnel plus bas, qui pose `top` et `height` sur la zone visible.
-        ...(ouvert ? null : { bottom: 0 }),
+        ...(clavier > 0 ? null : { bottom: 0 }),
         // ── Clavier ouvert : PLEIN ÉCRAN, comme le rapport de vente ──────────
         // Une hauteur MAXIMALE ne suffisait pas. La feuille restait ancrée en bas
         // et se contentait de la hauteur de son contenu : sur un écran long, le
@@ -113,14 +112,14 @@ export default function ModaleAction({
         // et c'est le seul montage éprouvé sur ce projet.
         background: 'var(--surface)', boxShadow: 'var(--shadow-modal)',
         // Plein écran : plus de coins arrondis, il n'y a plus rien derrière.
-        borderTopLeftRadius: ouvert ? 0 : 18,
-        borderTopRightRadius: ouvert ? 0 : 18,
+        borderTopLeftRadius: clavier > 0 ? 0 : 18,
+        borderTopRightRadius: clavier > 0 ? 0 : 18,
         // ⚠️ `top: dessus`, pas `top: 0`. iOS DÉCALE la zone visible quand le
         // clavier s'ouvre, en plus de la rétrécir : à `top: 0` la feuille se
         // posait au haut du viewport de mise en page, donc au-dessus de
         // l'écran — son titre était coupé. `height: visible` la borne
         // exactement à ce qui reste, sans passer par `vh` ni `dvh`.
-        ...(ouvert
+        ...(clavier > 0
           ? { top: dessus, height: visible }
           : { maxHeight: '90vh' }),
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
@@ -166,7 +165,7 @@ export default function ModaleAction({
             n'appuie pas sur « Clôturer la vente » en même temps qu'on écrit la
             raison. Ils reviennent dès que le clavier se ferme, et la place gagnée
             va au champ. */}
-        {pied && !ouvert && (
+        {pied && clavier === 0 && (
           <div style={{
             padding: isMobile ? '12px 20px' : '14px 24px', background: 'var(--surface-2)',
             borderTop: '1px solid var(--border)', display: 'flex', gap: 10, alignItems: 'center', flexShrink: 0,

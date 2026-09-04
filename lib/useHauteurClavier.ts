@@ -72,10 +72,17 @@ export interface Clavier {
   /** La hauteur réellement visible — `visualViewport.height`. */
   visible: number;
   /**
-   * Un champ de saisie est focalisé. C'est le signal à utiliser pour décider
-   * qu'une feuille passe en plein écran, PAS `hauteur > 0` : il répond à la
-   * question posée, il n'a pas de seuil, et il est vrai dès le focus — avant
-   * même que le clavier ait fini de monter.
+   * Un champ de saisie est focalisé. C'est ce qui garde `hauteur` juste (voir
+   * ci-dessus) et ce qui distingue un vrai clavier du bruit.
+   *
+   * ⚠️ Pour redimensionner une feuille, se servir de `hauteur > 0`, PAS de
+   * `ouvert`. Il est vrai dès le focus, alors que la zone visible n'a pas encore
+   * rétréci : la feuille prend d'abord toute la hauteur de l'écran, puis retombe
+   * quand le clavier arrive. Deux sauts au lieu d'un — mesuré le 2026-09-04
+   * (`top0 h797` à 1955 ms, `top0 h394` à 2136 ms), et vu comme un défaut :
+   * « ça fait le flash en plein écran ensuite ça revient comme normal ».
+   * `hauteur > 0` n'est vrai qu'une fois le clavier réellement mesuré, et
+   * implique `ouvert` — c'est le même signal, mais au bon moment.
    */
   ouvert: boolean;
 }
