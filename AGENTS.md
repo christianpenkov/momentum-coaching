@@ -55,6 +55,19 @@ This version has breaking changes — APIs, conventions, and file structure may 
   volontairement contre-intuitives : le grain du no-show, les deux dates sur le même
   écran, et les deux tableaux qui affichent des nombres différents pour ce qui ressemble
   à la même chose.
+- **Toucher les conversations Instagram** (stockage des DM, écrans coach/élève,
+  reprise d'historique, notes, suggestions) → `docs/conversations-instagram.md`.
+  Trois règles y sont porteuses et se cassent en silence si on les défait : la
+  visibilité d'un fil n'est **jamais stockée** (elle se dérive d'`instagram_leads`,
+  ce qui fait basculer un fil de 30 jours à 12 mois tout seul le jour où la
+  personne devient un lead) ; le prédicat de visibilité n'est écrit **qu'une
+  fois**, sur `ig_conversations`, et `ig_messages` s'y délègue — cinq témoins RLS
+  le prouvent, à rejouer si l'une des deux politiques bouge ; et l'écriture passe
+  par **une seule** fonction Postgres, parce que quatre requêtes par message
+  auraient ajouté 24 000 requêtes/jour à 40 élèves sur un budget de 66 000.
+  ⚠️ La plateforme **n'envoie aucun message de coach**, et c'est une décision
+  produit, pas une limite technique : elle est ce qui dispense de demander
+  `human_agent` à Meta. La rouvrir demande de rouvrir cette décision d'abord.
 - **Auditer des chiffres affichés** → skill `audit-metrique-bout-en-bout`
   (`~/.claude/skills/`). La méthode API → base → écran, et les six pièges
   récurrents.
