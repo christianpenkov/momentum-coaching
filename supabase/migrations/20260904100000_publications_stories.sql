@@ -1,31 +1,23 @@
 -- « Publications » compte aussi les STORIES, comme Mes Stats.
 --
 -- Relevé par Chris le 2026-09-04 : `PageClientStats` compte
--- `posts + reels + vidéos YouTube + stories` dans son KPI « Publications »
--- (`totalPosts`, ligne ~1674, et `postsInPeriod`, ligne ~2281). Stats Clients n'en
--- comptait que les deux premiers. Deux écrans, le même mot, deux nombres.
+-- `posts + reels + vidéos YouTube + stories` dans son KPI « Publications ».
+-- Stats Clients n'en comptait que les deux premiers. Deux écrans, le même mot, deux
+-- nombres.
 --
 -- ⚠️ C'est exactement la classe de défaut que le projet a déjà payée : « les onze écarts
 -- entre écrans du 2026-08-19 venaient tous d'une règle de périmètre recopiée ». Mes Stats
 -- est l'écran en place, Stats Clients le nouvel arrivant : c'est à lui de s'aligner, pas
 -- d'imposer une troisième définition.
 --
--- J'avais objecté la veille qu'une story n'a pas de date de publication en base. C'était
--- FAUX, et c'est ce qui rendait l'objection recevable : elle n'en a pas dans
--- `analytics_ig_stories_history` (la table de métriques), mais elle en a une, exacte et
--- jamais nulle, dans `ig_stories.posted_at` — celle que Mes Stats utilise déjà.
---
 -- ⚠️ CE QU'IL FAUT SAVOIR SUR LES STORIES : elles expirent en 24 h et ne se rattrapent
--- pas. Seules celles qu'un passage du cron a vues existent (depuis le 2026-07-25 sur le
--- compte de test). Une fenêtre antérieure en compte donc zéro, LÉGITIMEMENT — contrairement
--- aux posts et aux vidéos, que le backfill récupère rétroactivement. Sur le graphe des
--- semaines d'accompagnement, qui remonte à l'arrivée de l'élève, les premières semaines
--- sous-comptent donc les stories. `PageClientStats` porte déjà la même mise en garde.
+-- pas. Seules celles qu'un passage du cron a vues existent. Une fenêtre antérieure en
+-- compte donc zéro, LÉGITIMEMENT — contrairement aux posts et aux vidéos, que le backfill
+-- récupère rétroactivement. Sur le graphe des semaines d'accompagnement, qui remonte à
+-- l'arrivée de l'élève, les premières semaines sous-comptent donc les stories.
 --
--- Les identifiants sont PRÉFIXÉS (`ig:`, `yt:`, `st:`) avant le `count(distinct)`. Les
--- trois espaces de noms de Meta et de YouTube ne se télescopent pas aujourd'hui, mais
--- rien ne le garantit : le préfixe rend le dédoublonnage correct par construction plutôt
--- que par chance.
+-- La date d'une story vient de `ig_stories.posted_at`, PAS de
+-- `analytics_ig_stories_history` qui n'en porte aucune. Même source que Mes Stats.
 
 create or replace function public.stats_clients_series(
   p_profile_ids uuid[],
@@ -76,6 +68,10 @@ as $$
   -- Les deux tables d'historique portent une ligne par contenu ET PAR JOUR, d'où le
   -- `distinct` : sans lui, un post publié il y a trois mois serait compté une fois par
   -- jour de son historique.
+  --
+  -- Les identifiants sont PRÉFIXÉS avant le `count(distinct)`. Les trois espaces de noms
+  -- ne se télescopent pas aujourd'hui, mais rien ne le garantit : le préfixe rend le
+  -- dédoublonnage correct par construction plutôt que par chance.
   contenus as (
     select
       p.profile_id,
@@ -89,6 +85,11 @@ as $$
       and p.archived_at is null
       and (p.published_at at time zone 'Europe/Paris')::date between p_debut and p_fin
     union all
+    -- ⚠️ `analytics_yt_videos_history` n'a NI `deleted_at` NI `archived_at`, contrairement
+    -- à son équivalent Instagram : une vidéo supprimée sur YouTube reste comptée tant que
+    -- la table la porte, et l'isolation par archivage lors d'une bascule de compte ne s'y
+    -- applique pas. Non corrigé ici — ce serait une migration de schéma sur une table
+    -- alimentée par un cron.
     select
       v.profile_id,
       date_trunc((select unite from borne),
@@ -99,8 +100,6 @@ as $$
       and v.published_at is not null
       and (v.published_at at time zone 'Europe/Paris')::date between p_debut and p_fin
     union all
-    -- ⚠️ La date vient de `ig_stories.posted_at`, PAS de `analytics_ig_stories_history`
-    -- qui n'en porte aucune. C'est la même source que `PageClientStats`.
     select
       st.profile_id,
       date_trunc((select unite from borne),
@@ -145,6 +144,6 @@ comment on function public.stats_clients_series(uuid[], date, date, text) is
   'écrans. ⚠️ Une story expire en 24 h et ne se rattrape pas, donc une fenêtre antérieure '
   'au premier passage du cron en compte zéro, légitimement.';
 
--- L''agrégat balaie `ig_stories` sur une fenêtre de dates, à chaque chargement de page.
+-- L'agrégat balaie `ig_stories` sur une fenêtre de dates, à chaque chargement de page.
 create index if not exists idx_ig_stories_profil_poste
   on public.ig_stories (profile_id, posted_at) where archived_at is null;

@@ -798,6 +798,18 @@ tables `profiles`, `deals`, `calls` ne sont créées par aucun fichier. Relevé 
 `purge_journaux_machine_pg_cron`). Ne pas énoncer « une reconstruction échouerait » comme
 une conséquence des sept dernières : c'était déjà vrai.
 
+⚠️ **Le plancher de la branche « fichier jamais appliqué » est `20260903200000`**, la
+date de mise en place de la surveillance. Un fichier écrit AVANT cette date et jamais
+appliqué sous son nom **ne sera jamais signalé** — constaté le 2026-09-04 sur
+`20260902100000_dernier_snapshot_par_profil.sql`, créé la veille du plancher, absent du
+registre, et invisible pour la vue. Ce n'est pas un défaut de la vue : sans ce plancher
+elle crierait dès le premier jour sur les 16 fichiers historiques. **Mais une session qui
+travaille sur des fichiers d'avant le 3 septembre doit vérifier à la main :**
+
+```sql
+select name from supabase_migrations.schema_migrations where name = '<nom du fichier sans horodatage>';
+```
+
 `migrations_sante` ne surveille donc que le récent, et **chaque borne est posée là où la
 mesure dit qu'elle ne produit aucun faux positif** — le détail et le motif sont dans
 `20260903200000_migrations_sante.sql`. Surveiller tout l'historique donnerait ~200 lignes
