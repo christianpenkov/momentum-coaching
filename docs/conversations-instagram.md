@@ -696,6 +696,111 @@ identifiant : c'est un piège déjà payé sur l'attribution.
 
 ---
 
+## Les vocaux — la seule chose qu'on stocke, et pourquoi
+
+Toutes les autres pièces jointes sont relues à la demande chez Meta, sans rien garder :
+`/api/coach/ig-piece-jointe` redemande le contenu au moment où quelqu'un clique, et sert
+les octets lui-même pour garder la CSP fermée. C'est le bon choix, il ne coûte rien et
+rien ne périme.
+
+**Les vocaux sont l'exception, et elle est forcée.** Mesuré le 2026-09-04 sur un message
+vocal envoyé **le jour même à 20 h 29** :
+
+```
+GET /v23.0/<mid>?fields=is_unsupported,attachments
+→ { "is_unsupported": true, "id": "…" }     ← aucune pièce jointe, aucune URL
+```
+
+Meta ne ressert **jamais** un vocal, même quelques heures après. Il n'y a donc que deux
+états possibles : capturé au passage du webhook, ou perdu pour toujours.
+
+⚠️ **Corollaire qui ferme une question avant qu'elle ne se pose : le backfill n'a rien à
+capturer.** Reprendre l'historique ne peut ramener aucun vocal, puisque même le message
+d'il y a trois heures est déjà muet. Ajouter une capture au backfill serait du code mort
+qui donnerait l'illusion d'une reprise.
+
+Décision de Chris, 2026-09-04 : **on stocke, 30 jours, et on passe au plan supérieur le
+jour où le gigaoctet est plein.**
+
+### Le dimensionnement, mesuré et pas estimé
+
+| Grandeur | Valeur | Source |
+|---|---|---|
+| Poids d'un vocal | **88 Ko** | 31 fichiers réels du bucket `voice-messages` du projet, 2 728 Ko |
+| Quota de fichiers du plan gratuit | 1 Go | distinct des 500 Mo de la **base** |
+| Occupation avant les vocaux | 27 Mo, 111 fichiers, 9 buckets | relevé du 2026-09-04 |
+| Point de bascule à 30 jours de rétention | ~368 vocaux/jour, soit **~9 par élève et par jour à 40 élèves** | 1 Go ÷ 88 Ko ÷ 30 |
+
+⚠️ **Ce quota n'était surveillé par rien.** `base_sante_taille` mesure la base, qui est un
+plafond séparé — le confondre avec celui des fichiers a failli laisser passer le sujet
+entier. `stockage_fichiers_sante` alerte à 70 %, 90 % et 100 %, par le même e-mail
+quotidien que les autres vues. Le seuil de 70 % laisse environ trois semaines de préavis,
+parce qu'une rétention de 30 jours met un mois à atteindre son équilibre : le stock ne
+cesse de croître qu'au moment où les premières purges compensent les nouvelles arrivées.
+
+### Le nom du fichier
+
+`ig-vocaux/<profile_id de l'élève>/<sha256(mid) tronqué à 16 octets>.m4a`
+
+⚠️ **L'empreinte se calcule à TROIS endroits** — le SQL, le worker de webhook (webcrypto),
+la route de lecture (`node:crypto`). Si l'une dérive, la route cherche un fichier que le
+worker a écrit sous un autre nom : **le vocal devient muet sans qu'aucune erreur ne
+parte.** Un test gèle la valeur témoin (`ZZ_EMPREINTE_TEMOIN` →
+`3f194488b40295ae188dbe6266931bf2`) et les trois implémentations sont comparées entre
+elles ; le rompre fait échouer `npm test`.
+
+Le `mid` brut ne peut pas servir de nom : il fait 164 caractères et contient des
+caractères que le stockage refuse.
+
+Le premier segment est le `profile_id`, et il n'est pas décoratif : c'est lui qui permet à
+la **révocation d'accord** de supprimer les fichiers d'un seul élève. ⚠️ La cascade des
+clés étrangères n'atteint pas le stockage — sans ce geste explicite
+(`app/api/client/ig-dm-consentement/route.ts`), retirer l'accord laisserait les
+enregistrements du prospect sur le serveur, ce qui viderait la promesse de son sens.
+
+### La purge des 30 jours n'est PAS un job SQL
+
+C'est la seule des huit purges du projet qui vit dans une route
+(`app/api/instagram/purger-vocaux/route.ts`), appelée par `poll-leads` dans la tranche de
+8 h Paris comme les alertes.
+
+⚠️ **Motif : supprimer une ligne de `storage.objects` ne supprime pas le fichier.** Seule
+l'API de stockage le fait. Un job SQL viderait l'index en laissant les octets, et le quota
+continuerait de monter **pendant que la table dirait le contraire** — le pire des deux
+mondes, puisque la surveillance elle-même deviendrait fausse.
+
+### Aucune politique RLS sur le bucket, délibérément
+
+Sans politique, `anon` et `authenticated` ne peuvent rien y lire : **seul le rôle de
+service y accède**, donc uniquement `/api/coach/ig-piece-jointe`, qui vérifie d'abord que
+le demandeur est l'élève ou son coach avec accord, puis rend une URL signée de 10 minutes.
+
+Une politique de lecture ouverte au coach aurait dupliqué la règle d'accès à un deuxième
+endroit — et deux copies d'une règle d'autorisation finissent toujours par diverger.
+
+### L'ordre des branches dans la route de lecture
+
+⚠️ Le bloc vocal passe **avant** l'appel à Meta, et il est réservé au type `audio`. Les
+deux points ont été des défauts avant d'être des règles :
+
+- **Avant l'appel à Meta**, parce que notre copie ne dépend de personne. Placé après, une
+  simple erreur de Meta rendait « indisponible » sans jamais ouvrir le fichier qu'on avait
+  sous la main. Au passage, ça épargne un appel à Meta dont on connaît déjà la réponse.
+- **Réservé à `audio`**, parce que sinon chaque photo et chaque DM à bouton payait une
+  requête de stockage pour un fichier inexistant. Sur ce projet l'egress se compte en
+  **nombre** de requêtes, pas en volume : c'est le motif exact qui a consommé 5 Go en une
+  semaine (`AGENTS.md`).
+
+### Preuve d'aller-retour, jouée le 2026-09-04
+
+Un vrai fichier `audio/mp4` de 72 634 octets écrit sous le chemin calculé par
+l'implémentation de la route, puis relu par URL signée : **72 634 octets identiques**. Ce
+que ça prouve et qu'aucun test unitaire ne prouve : le nom que le worker écrit est celui
+que la route cherche, le bucket accepte le type MIME que Meta enverra, et l'URL signée
+rend bien les octets.
+
+---
+
 ## Vue de santé
 
 Sans elle, une collecte qui s'arrête est indiscernable d'un élève qui n'a pas de
