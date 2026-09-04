@@ -60,7 +60,7 @@ export async function POST(
 
   const { data: deal } = await supa
     .from('deals')
-    .select('id, profile_id, status, amount_total, buyer_name, call_id, deal_payments(amount, status)')
+    .select('id, profile_id, status, amount_total, buyer_name, call_id, refund_explique, deal_payments(amount, status)')
     .eq('id', dealId)
     .maybeSingle();
 
@@ -125,6 +125,20 @@ export async function POST(
       await supa.from('deals').update({ status: suivant }).eq('id', dealId);
     }
   }
+
+  // ── Un remboursement passé par ICI est déjà expliqué ──────────────────────
+  // `refund_explique` sert au bandeau « Pourquoi X € sont-ils repartis ? », qui
+  // existe pour les remboursements faits DIRECTEMENT dans Stripe : Momentum les
+  // constate sans savoir pourquoi, et sans la raison on ignore si le client doit
+  // encore la somme. Ceux qui passent par ce parcours, eux, ont une cause connue
+  // — c'est l'élève qui vient de la poser, en annulant ou en baissant le montant.
+  //
+  // Sans ce crédit, la plateforme posait une question dont elle avait elle-même
+  // la réponse, et collait un badge « À EXPLIQUER » sur une vente qu'on venait
+  // d'annuler par le parcours guidé (constaté sur TestStory le 2026-09-05).
+  await supa.from('deals')
+    .update({ refund_explique: Math.round((Number(deal.refund_explique ?? 0) + montant) * 100) / 100 })
+    .eq('id', dealId);
 
   await supa.from('deal_events').insert({
     deal_id: dealId,

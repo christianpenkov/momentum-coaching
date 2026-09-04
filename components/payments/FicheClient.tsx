@@ -158,6 +158,10 @@ export default function FicheClient({
         {actives.map(d => (
           <BlocVente key={d.id} deal={d} detail={details[d.id]} isMobile={isMobile}
             onAction={(quoi) => setAction({ quoi, dealId: d.id } as Action)}
+                onRendreTropPercu={() => setAction({
+                  quoi: 'rembourser', dealId: d.id, motif: 'surplus',
+                  montant: d.aRendre, arret: false,
+                })}
             onChange={onChange} />
         ))}
 
@@ -179,6 +183,10 @@ export default function FicheClient({
             {terminéesOuvertes && terminees.map(d => (
               <BlocVente key={d.id} deal={d} detail={details[d.id]} isMobile={isMobile}
                 onAction={(quoi) => setAction({ quoi, dealId: d.id } as Action)}
+                onRendreTropPercu={() => setAction({
+                  quoi: 'rembourser', dealId: d.id, motif: 'surplus',
+                  montant: d.aRendre, arret: false,
+                })}
                 onChange={onChange} />
             ))}
           </>
@@ -262,11 +270,18 @@ export default function FicheClient({
    UN BLOC DE VENTE
    ══════════════════════════════════════════════════════════════════════════ */
 
-function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
+function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onChange }: {
   deal: DealRow;
   detail?: DealDetail;
   isMobile: boolean;
   onAction: (quoi: Action['quoi']) => void;
+  /**
+   * Ouvre le parcours de remboursement sur le trop-perçu de CETTE vente.
+   *
+   * Séparé d'`onAction`, qui ne transporte qu'un `quoi` : « rembourser » a besoin
+   * d'un motif et d'un montant, que seul le parent sait composer.
+   */
+  onRendreTropPercu: () => void;
   onChange: () => Promise<unknown> | void;
 }) {
   // Sur téléphone, Origine et Journal sont repliés : ils sont utiles quand on
@@ -417,9 +432,30 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
             {/* Le ruban du haut plafonne le cash encaissé au montant de chaque vente :
                 sans cette ligne, l'argent versé en trop ne serait nulle part. Il est ici
                 parce que c'est ici qu'on le rend. */}
+            {/* ⚠️ Cette ligne portait un constat SANS porte de sortie : elle
+                annonçait une somme à rendre, et rien ne permettait de la rendre.
+                Les deux seuls chemins vers le parcours de remboursement étaient
+                « baisser le montant » et « annuler la vente » — donc un client
+                qui paie deux fois le même lien laissait l'élève devant un montant
+                dû, sans bouton. Relevé par Chris le 2026-09-05.
+                Même règle que le bandeau « Dire pourquoi » juste au-dessus : ce
+                qui appelle une action doit RESSEMBLER à une action. */}
             {deal.aRendre > 0.005 && (
-              <div style={{ color: 'var(--amber, #b58025)' }}>
-                {fmtEurExact(deal.aRendre)} versés en trop — à rendre, non comptés dans le cash encaissé.
+              <div style={{
+                marginTop: 6, background: 'var(--amber-soft)',
+                border: '1px solid rgba(181,128,37,.28)', borderRadius: 10, padding: '10px 12px',
+              }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--amber-ink)', marginBottom: 3 }}>
+                  {fmtEurExact(deal.aRendre)} versés en trop
+                </div>
+                <div style={{ fontSize: 11.5, color: 'var(--ink-2)', lineHeight: 1.55 }}>
+                  À rendre à {deal.buyerName.split(' ')[0]}, et non comptés dans le
+                  cash encaissé — le ruban plafonne au montant de la vente.
+                </div>
+                <button onClick={onRendreTropPercu} className="btn-primary-brand"
+                  style={{ fontSize: 12.5, marginTop: 9 }}>
+                  Rembourser le trop-perçu
+                </button>
               </div>
             )}
             {deal.disputed > 0.005 && (

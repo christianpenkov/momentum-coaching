@@ -280,7 +280,12 @@ function DeclarerRemboursement({ deal, motif, aRembourser, onClose, onDone }: {
       <ModaleAction titre="Remboursement enregistré" onClose={onDone}
         pied={<BoutonFin onDone={onDone} />}>
         <Encart ton="bien" titre="C’est noté">
-          {fmtEurExact(valeur)} déduits du cash encaissé.
+          {/* ⚠️ Ne PAS annoncer un effet sur les compteurs. La somme rendue et la
+              somme retirée du cash encaissé peuvent différer : un trop-perçu n'y
+              a jamais été compté, donc rendre 500 € sur une vente de 300 € n'en
+              retire que 300. L'écran d'annulation portait le même défaut, corrigé
+              le 2026-09-05. On énonce le fait enregistré, qui lui est exact. */}
+          {fmtEurExact(valeur)} enregistrés comme rendus à {prenom}.
           {fait.annulee && <div style={{ marginTop: 6 }}>La vente est annulée.</div>}
           {!fait.annulee && fait.resteARembourser > 0.005 && (
             <div style={{ marginTop: 6 }}>
