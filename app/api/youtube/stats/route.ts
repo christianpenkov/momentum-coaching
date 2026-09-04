@@ -42,36 +42,133 @@ function getStartDate(daysAgo: number) {
   return parisDateStr(d);
 }
 
-// Récupère les CTR par vidéo depuis la Reporting API (channel_reach_basic_a1)
-// Agrège tous les rapports disponibles (30 derniers jours max) pour avoir des données complètes
-async function fetchCtrByVideo(accessToken: string): Promise<Record<string, number | null>> {
+// ─────────────────────────────────────────────────────────────────────────────────
+// CTR par vidéo — Reporting API (channel_reach_basic_a1)
+// ─────────────────────────────────────────────────────────────────────────────────
+//
+// ⚠️ CETTE FONCTION EST LE SEUL CONSOMMATEUR D'UN QUOTA TENDU. À lire avant d'y toucher.
+//
+// `youtubereporting.googleapis.com` est plafonné à **60 requêtes par minute, PAR PROJET
+// Google Cloud** — donc partagé entre TOUS les élèves. C'est le seul quota serré de la
+// pile YouTube : la Data API (10 000/jour) et l'Analytics API (100 000/jour) sont sous
+// les 1 %.
+//
+// Ce que coûtait un affichage de l'écran de statistiques :
+//
+//     1 appel   /v1/jobs
+//     1 appel   /v1/jobs/{id}/reports
+//    30 téléchargements EN PARALLÈLE
+//   ──────────────────────────────────
+//    32 requêtes Reporting
+//
+// Deux chargements dans la même minute = 64, au-dessus du plafond. Constaté en vrai :
+// alerte Google Cloud du 2026-09-04 à 18:42 UTC, observée à 1,0667 — soit 64/min. La
+// valeur tombait au chiffre près.
+//
+// ⚠️ Le bornage du 2026-09-02 (6 rapports par passage, 2 téléchargements simultanés)
+// avait été posé sur les deux chemins d'ÉCRITURE — `poll-leads` et sa jumelle
+// `lib/yt-fetch.ts` — et jamais ici. Un garde-fou posé sur les chemins d'écriture ne
+// couvre pas les chemins de LECTURE, et rien ne le signalait.
+//
+// ── Ce qui n'a PAS changé, volontairement ────────────────────────────────────────
+//
+// Le calcul est intact : toujours les 30 rapports les plus récents, même agrégation,
+// même valeur affichée. Appliquer ici la borne des chemins d'écriture (6 rapports)
+// aurait corrigé le quota en FAUSSANT la métrique — les impressions sont sommées sur la
+// fenêtre, donc moins de rapports donne moins d'impressions. On corrige le nombre
+// d'appels, jamais le résultat.
+//
+// ── Deux protections, qui ne font pas la même chose ──────────────────────────────
+//
+// 1. Un cache PARTAGÉ en base (`youtube_ctr_cache`), TTL 6 h. Le cache mémoire de cette
+//    route (`cacheParProfil`, plus bas) ne pouvait pas empêcher ça et son propre
+//    commentaire le dit : « le cache est PAR INSTANCE serverless, il ne garantit rien ».
+//    Deux chargements servis par deux instances Vercel paient chacun leurs 32 appels, et
+//    un démarrage à froid aussi. Pour un quota exprimé par minute ET par projet, un cache
+//    local ne borne rien.
+//
+//    6 h ne coûte aucune fraîcheur : les rapports sont JOURNALIERS et arrivent à ~J-2.
+//    Recalculer 4 fois par jour est déjà huit fois plus fin que la donnée elle-même ; un
+//    TTL plus court repaierait 32 appels pour relire le rapport de la veille.
+//
+// 2. Une borne de CONCURRENCE (3 au lieu de 30 en parallèle). Le cache supprime les
+//    calculs RÉPÉTÉS ; il ne peut rien contre un premier calcul. La borne étale celui-ci
+//    au lieu de le tirer en une rafale.
+//
+// ⚠️ Risque résiduel assumé : un coach qui ouvre à froid les statistiques de K élèves
+// dans la même minute paie K × 32 appels. Aller plus loin supposerait un agrégat
+// incrémental, qui ferait glisser la fenêtre des « 30 derniers rapports » vers « tout
+// l'historique » et changerait donc la valeur affichée. Ne pas s'y lancer sans une mesure
+// qui le justifie — le cas réellement observé était le rechargement répété du MÊME écran,
+// que le cache supprime entièrement.
+const TTL_CTR_MS = 6 * 60 * 60 * 1000;
+// Au-delà, on préfère « on ne sait pas » à une valeur dont on ignore l'âge.
+const PEREMPTION_CTR_MS = 7 * 24 * 60 * 60 * 1000;
+const TELECHARGEMENTS_SIMULTANES = 3;
+
+async function fetchCtrByVideo(
+  profileId: string,
+  accessToken: string,
+): Promise<Record<string, number | null>> {
+  type Ctr = Record<string, number | null>;
+
+  // Lecture du cache partagé. Une panne de lecture ne doit rien empêcher : on recalcule.
+  let enCache: { payload: Ctr; calcule_a: string } | null = null;
+  try {
+    const { data } = await serviceSupabase
+      .from('youtube_ctr_cache')
+      .select('payload, calcule_a')
+      .eq('profile_id', profileId)
+      .maybeSingle();
+    if (data) enCache = data as { payload: Ctr; calcule_a: string };
+  } catch { /* cache injoignable : on recalcule, c'est le comportement d'avant */ }
+
+  const ageCache = enCache ? Date.now() - new Date(enCache.calcule_a).getTime() : Infinity;
+  if (enCache && ageCache < TTL_CTR_MS) return enCache.payload;
+
+  // ⚠️ Repli sur l'entrée PÉRIMÉE en cas d'échec, jamais sur `{}`.
+  //
+  // Rendre `{}` afficherait « aucun CTR » — une affirmation, alors qu'un appel raté ne
+  // dit rien du CTR. C'est la règle du projet : un `0` affirme quelque chose, un trou dit
+  // « on ne sait pas ». Une valeur de la veille est plus juste qu'un vide.
+  //
+  // Mais pas indéfiniment : passé une semaine, on rend le vide, parce qu'une valeur dont
+  // on ignore l'âge finirait par être lue comme actuelle.
+  const repli = (): Ctr => (enCache && ageCache < PEREMPTION_CTR_MS ? enCache.payload : {});
+
   const auth = { Authorization: `Bearer ${accessToken}` };
   try {
     const jobsRes = await fetch('https://youtubereporting.googleapis.com/v1/jobs', { headers: auth });
-    if (!jobsRes.ok) return {};
+    if (!jobsRes.ok) return repli();
     const jobsData = await jobsRes.json();
     const reachJob = (jobsData.jobs || []).find((j: any) => j.reportTypeId === 'channel_reach_basic_a1');
-    if (!reachJob) return {};
+    if (!reachJob) return repli();
 
     const reportsRes = await fetch(
       `https://youtubereporting.googleapis.com/v1/jobs/${reachJob.id}/reports`,
       { headers: auth }
     );
-    if (!reportsRes.ok) return {};
+    if (!reportsRes.ok) return repli();
     const reportsData = await reportsRes.json();
     const reports: any[] = (reportsData.reports || [])
       .sort((a: any, b: any) => new Date(b.endTime).getTime() - new Date(a.endTime).getTime())
       .slice(0, 30); // 30 derniers rapports journaliers = ~30 jours
 
-    // Télécharger tous les rapports en parallèle
-    const csvTexts = await Promise.all(reports.map(async (report: any) => {
-      try {
-        const dlRes = await fetch(report.downloadUrl, { headers: auth });
-        if (!dlRes.ok) return '';
-        const buffer = Buffer.from(await dlRes.arrayBuffer());
-        try { return gunzipSync(buffer).toString('utf-8'); } catch { return buffer.toString('utf-8'); }
-      } catch { return ''; }
-    }));
+    // Téléchargement par tranches — même motif que `lib/yt-fetch.ts`. Le `Promise.all`
+    // sur les 30 rapports tirait 30 requêtes simultanées sur un quota exprimé PAR MINUTE.
+    const csvTexts: string[] = [];
+    for (let i = 0; i < reports.length; i += TELECHARGEMENTS_SIMULTANES) {
+      const tranche = reports.slice(i, i + TELECHARGEMENTS_SIMULTANES);
+      const textes = await Promise.all(tranche.map(async (report: any) => {
+        try {
+          const dlRes = await fetch(report.downloadUrl, { headers: auth });
+          if (!dlRes.ok) return '';
+          const buffer = Buffer.from(await dlRes.arrayBuffer());
+          try { return gunzipSync(buffer).toString('utf-8'); } catch { return buffer.toString('utf-8'); }
+        } catch { return ''; }
+      }));
+      csvTexts.push(...textes);
+    }
 
     // Agréger impressions et CTR par video_id sur tous les rapports
     const byVideo: Record<string, { impressions: number; ctrSum: number; ctrCount: number }> = {};
@@ -98,12 +195,29 @@ async function fetchCtrByVideo(accessToken: string): Promise<Record<string, numb
     }
 
     // Convertir en CTR moyen en % par vidéo
-    const result: Record<string, number | null> = {};
+    const result: Ctr = {};
     for (const [videoId, s] of Object.entries(byVideo)) {
       result[videoId] = s.ctrCount > 0 ? parseFloat((s.ctrSum / s.ctrCount * 100).toFixed(2)) : null;
     }
+
+    // ⚠️ On ne mémorise QUE un calcul réussi ET non vide.
+    //
+    // Écrire un `{}` — rapports illisibles, chaîne sans vidéo, réponse tronquée — le
+    // figerait pendant 6 h en le faisant passer pour une mesure, et l'écran afficherait
+    // « aucun CTR » alors que la bonne réponse est « on n'a pas pu lire ». Un cache ne
+    // doit jamais mémoriser une ignorance.
+    if (Object.keys(result).length > 0) {
+      try {
+        await serviceSupabase
+          .from('youtube_ctr_cache')
+          .upsert(
+            { profile_id: profileId, payload: result, calcule_a: new Date().toISOString() },
+            { onConflict: 'profile_id' },
+          );
+      } catch { /* le cache est une optimisation : son échec ne prive l'écran de rien */ }
+    }
     return result;
-  } catch { return {}; }
+  } catch { return repli(); }
 }
 
 /**
@@ -452,8 +566,11 @@ export async function GET(request: Request) {
         `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=2020-01-01&endDate=${getToday()}&metrics=views,subscribersGained,subscribersLost&dimensions=video&maxResults=500`,
         { headers: authHeader }
       ),
-      // CTR par vidéo depuis la Reporting API (channel_reach_basic_a1)
-      fetchCtrByVideo(accessToken),
+      // CTR par vidéo depuis la Reporting API (channel_reach_basic_a1).
+      // ⚠️ `targetProfileId` et non `user.id` : c'est l'élève CONSULTÉ qui porte le
+      // cache. Passer l'identifiant du coach ferait servir le CTR d'un élève pour un
+      // autre — une fuite entre comptes, pas une simple imprécision.
+      fetchCtrByVideo(targetProfileId, accessToken),
     ]);
 
     // `maxResults` passe de 50 a 500 sur les TROIS requetes Analytics ci-dessus : il
