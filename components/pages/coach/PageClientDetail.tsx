@@ -805,7 +805,12 @@ export default function PageClientDetail({ id }: Props) {
               )}
             </div>
             <div className="card kpi-card" style={{ padding: '16px 20px' }}>
-              <div className="kpi-label">Publications</div>
+              {/* « sur le compte » n'est pas decoratif : cette carte compte TOUT ce que
+                  le compte a publie (igRaw.posts.length, sans borne de periode), alors
+                  que la carte « Publications » de Mes stats compte, elle, ce qui a ete
+                  publie DEPUIS LA MISE EN ROUTE. Deux chiffres differents sous le meme
+                  mot : le libelle est ce qui empeche de les rapprocher. */}
+              <div className="kpi-label">Publications sur le compte</div>
               {kpiLoading ? <KpiSkeleton /> : (
                 <>
                   <div className="kpi-value">{publicationsTotal}</div>

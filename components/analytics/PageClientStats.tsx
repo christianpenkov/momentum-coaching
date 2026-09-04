@@ -1649,19 +1649,21 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   });
   const visibleContent = showAllContent ? sortedContent : sortedContent.slice(0, 5);
 
-  // ⚠️ « Publications » est un INVENTAIRE, pas une mesure de periode — decision de
-  // Chris le 2026-09-04, apres avoir vu la carte afficher « 0 » a cote d'une grille
-  // de 14 contenus.
+  // ⚠️ En All-Time, la borne est la MISE EN ROUTE, pas l'origine du compte.
   //
-  // Le compte de test n'a rien publie depuis son inscription (derniere publication le
-  // 23 fevrier, inscription le 9 juin) : borner l'All-Time a la date d'inscription
-  // rendait donc « 0 », ce qui est exact mais se lit comme une panne.
+  // Le detour vaut d'etre raconte : la carte a d'abord affiche « 0 » sur un compte
+  // dont la grille montre 14 contenus — parce qu'il n'a rien publie depuis son
+  // inscription (derniere publication le 23 fevrier, inscription le 9 juin). Le
+  // chiffre etait exact, il se lisait comme une panne, et on a d'abord bascule la
+  // carte en inventaire du compte.
   //
-  // Consequence assumee, et c'est pour cela que le sous-titre dit « sur le compte » :
-  // en All-Time ce chiffre ne se compare PAS avec la vue 30 jours, contrairement au
-  // reach ou aux calls qui, eux, comptent l'activite depuis l'inscription.
+  // Retour en arriere, decide par Chris le 2026-09-04 : un inventaire se serait
+  // compare, ligne a ligne, avec un reach et des calls qui comptent l'activite
+  // DEPUIS L'INSCRIPTION. Deux natures cote a cote sous le meme selecteur, c'est la
+  // classe de defaut que ce fichier passe son temps a corriger. Un « 0 » surprenant
+  // mais coherent vaut mieux qu'un chiffre plein qui ne se compare a rien.
   const dansLaFenetrePub = (t: number) =>
-    sinceConnection || (t >= ovPeriodStart.getTime() && (_ovPIdx === 0 || t <= ovPeriodEnd.getTime()));
+    t >= ovPeriodStart.getTime() && (_ovPIdx === 0 || t <= ovPeriodEnd.getTime());
   const igPostsInPeriod = ig?.posts.filter(p => dansLaFenetrePub(new Date(p.timestamp).getTime())).length || 0;
   const ytVideosInPeriodOv = yt?.videos.filter(v => dansLaFenetrePub(new Date(v.publishedAt).getTime())).length || 0;
   // Les stories ne sont connues QUE depuis le premier passage du cron qui les a vues
@@ -1704,7 +1706,7 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
             <div key="publications" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
               <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8 }}>
                 <span>Publications</span>
-                <span style={{ fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{sinceConnection ? 'sur le compte' : ovEtiquettePeriode}</span>
+                <span style={{ fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{ovEtiquettePeriode}</span>
               </div>
               <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--ink)', lineHeight: 1, marginBottom: 8 }}>{fmt(totalPosts)}</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'nowrap' }}>
@@ -2217,12 +2219,16 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
   // contient les posts qui ont un INSTANTANÉ dans la fenêtre, pas ceux qui y ont été
   // PUBLIÉS. Un post de février est encore photographié chaque jour, il y figure donc.
   // La borne reste donc une date de publication, celle de la mise en route.
-  // Voir le commentaire de `dansLaFenetrePub` en Vue generale : en All-Time la carte
-  // est un INVENTAIRE du compte, sans borne basse. Sur une periode datee, la borne
-  // reste une date de PUBLICATION — `ig.posts` contient les posts qui ont un
-  // instantane dans la fenetre, pas ceux qui y ont ete publies, et un post de fevrier
-  // est encore photographie chaque jour.
-  const dansLaFenetrePubIg = (t: number) => sinceConnection || t >= cutoffIg.getTime();
+  // Meme regle qu'en Vue generale : en All-Time la borne est la MISE EN ROUTE, pour
+  // rester alignee sur les cartes voisines (reach, interactions) qui comptent toutes
+  // l'activite depuis l'inscription.
+  //
+  // La borne est une date de PUBLICATION, jamais la simple presence dans `ig.posts` :
+  // cette liste contient les posts qui ont un INSTANTANE dans la fenetre, pas ceux
+  // qui y ont ete publies. Un post de fevrier est encore photographie chaque jour, il
+  // y figure donc — sans avoir ete publie sur la periode.
+  const debutPublicationsIg = sinceConnection && allTimeStart ? new Date(allTimeStart) : cutoffIg;
+  const dansLaFenetrePubIg = (t: number) => t >= debutPublicationsIg.getTime();
   const estReel = (p: any) => p.type === 'REEL' || p.type === 'REELS' || p.type === 'VIDEO';
   const publicationsIg = ig.posts.filter(p => dansLaFenetrePubIg(new Date(p.timestamp).getTime()));
   const nbReels = publicationsIg.filter(estReel).length;
