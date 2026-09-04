@@ -1165,16 +1165,25 @@ code d'autrui.
    et aucun ne couvre la suppression. Un message annulé sur Instagram reste chez nous.
    **La rétention est la seule borne** : 30 jours en quarantaine, 12 mois pour un lead.
    Écart assumé, pas un oubli.
-2. **L'App Review.** L'usage déclaré au 2026-08-13 était l'automatisation de leads. Rendre
-   des conversations lisibles par un tiers est un usage nouveau. À arbitrer : mettre à
-   jour la description de l'app, ou tenir que le coach est un collaborateur du même
-   compte. Le risque, s'il se matérialise, n'est pas la fonctionnalité mais les quatre
-   permissions.
+2. **La politique de confidentialité, pas l'App Review.**
 
-   ⚠️ **C'est désormais le SEUL risque Meta du chantier**, et il porte uniquement sur la
-   lecture. Le retrait de l'écriture a fermé l'autre : aucune permission nouvelle à
-   demander, aucun tag à poser, donc aucun moyen de perdre les quatre permissions par une
-   erreur d'implémentation.
+   ⚠️ **Correction du 2026-09-04.** Ce document annonçait un risque d'App Review, au motif
+   que l'usage déclaré était l'automatisation de leads. **C'est faux** : les quatre
+   permissions sont obtenues en **accès avancé** (confirmé par Chris), donc la capacité de
+   lire les messages est autorisée. Il n'y a rien à redemander à Meta.
+
+   Ce qui reste dû est la contrepartie du grant : Meta exige que le traitement soit décrit
+   **tel qu'il est fait** dans la politique de confidentialité. Relevé sur
+   `ubizenai.com/privacy.html` le 2026-09-04, deux écarts précis :
+
+   | Ce que dit la politique | Ce que fait la plateforme |
+   |---|---|
+   | messages directs « nécessaires à **l'automatisation des envois de ressources** » | ils sont aussi conservés pour être **relus** |
+   | partage : uniquement des sous-traitants techniques (Supabase, Vercel, Stripe, Meta) | **le coach y accède en lecture**, sur autorisation de l'élève |
+
+   Deux paragraphes à ajouter, dont le contenu est déjà vrai dans le code (consentement
+   explicite, purge à la révocation, rétentions 12 mois / 30 jours) — rédaction proposée
+   dans la session du 2026-09-04. **Rien à changer côté plateforme.**
 3. **`human_agent` — écarté, et pas seulement reporté.** La question ne se pose plus : sans
    écriture, il n'y a pas de fenêtre à étendre. Elle ne reviendrait que si l'on rouvrait la
    décision produit de la section « Pourquoi la plateforme n'envoie AUCUN message de
