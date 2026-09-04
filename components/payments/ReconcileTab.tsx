@@ -243,6 +243,29 @@ function OrphanCard({ orphan, onDone }: { orphan: Orphan; onDone: () => void }) 
           </div>
         ))}
 
+        {/* ── L'abonnement quand AUCUNE vente ne correspond ────────────────────
+            La case « Relier aussi l'abonnement » vit dans le bloc des candidats,
+            donc elle disparaît quand il n'y en a aucun — c'est-à-dire au moment
+            où le seul geste offert devient « Ignorer ».
+            Or ignorer n'arrête rien : l'abonnement continue de prélever, et la
+            prochaine échéance revient ici le mois suivant. Sans cet
+            avertissement, on écarte chaque mois le même argent en croyant
+            traiter un cas isolé. Constaté le 2026-09-04, sur ce bloc précis. */}
+        {candidates && candidates.length === 0 && orphan.subscriptionId && (
+          <div style={{
+            marginTop: 4, marginBottom: 4, padding: '12px 14px', borderRadius: 9,
+            background: 'var(--red-soft)', border: '1px solid rgba(205,91,63,.28)',
+            fontSize: 12.5, lineHeight: 1.6, color: 'var(--ink-2)',
+          }}>
+            <span style={{ fontWeight: 600, color: 'var(--red)' }}>
+              Ce prélèvement vient d’un abonnement toujours actif.
+            </span>{' '}
+            L’ignorer ne l’arrêtera pas : la prochaine échéance reviendra ici, et
+            les suivantes aussi. Pour que ça cesse, crée la vente correspondante
+            puis rattache-la, ou arrête l’abonnement dans Stripe.
+          </div>
+        )}
+
         {candidates && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 0', borderTop: '1px solid var(--border-soft)' }}>
             <span style={{ flex: 1, fontSize: 12.5, color: 'var(--ink-2)' }}>
