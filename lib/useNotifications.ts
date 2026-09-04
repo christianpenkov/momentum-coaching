@@ -26,6 +26,28 @@ let instanceCounter = 0;
 let cachedNotifs: AppNotif[] = [];
 let cachedKey: string | null = null;
 
+// `clients.integrations_ready_at` est posée UNE fois puis jamais réécrite : le trigger
+// `recalc_integrations_ready_at` ne l'écrit que tant qu'elle est nulle — vérifié dans
+// la définition de la fonction le 2026-09-04, pas seulement dans un commentaire. Une
+// fois connue, elle ne peut plus changer, donc la relire toutes les 60 s dans chaque
+// onglet ouvert est une requête pure perte.
+//
+// ⚠️ On ne mémorise QUE la valeur non nulle. Tant qu'elle est nulle, l'élève n'a pas
+// fini de connecter ses intégrations et la valeur est encore à venir : mémoriser
+// « null » figerait le hook sur un état périmé jusqu'au rechargement de la page.
+const cacheIntegrationsReadyAt = new Map<string, string>();
+
+// ⚠️ Piste ÉCARTÉE, pour qu'elle ne soit pas retentée sans mesure : mutualiser les
+// instances du hook. `TopBar` le monte en permanence, `PageToday` ou `PageClientView`
+// une seconde fois, et chacune porte son `setInterval` et son canal Realtime.
+//
+// Fusionner leurs rafraîchissements ne se réduit PAS à sauter le tour de la seconde
+// instance : chacune a son propre `useState`, donc celle qui saute resterait figée sur
+// une liste périmée au lieu de coûter moins cher. Il faudrait un état partagé avec
+// abonnés — un vrai changement de structure, pour un gain que la mesure ne montre pas :
+// un onglet ouvert émet 5 requêtes par minute, soit UNE passe de `refresh`, pas deux.
+// À reprendre seulement si une mesure montre le double.
+
 export type NotifType = 'rapport_call' | 'session_rapport' | 'call_request' | 'call_canceled' | 'call_rescheduled' | 'call_accepted' | 'call_declined' | 'rapport_ready';
 
 export interface AppNotif {
@@ -228,12 +250,16 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
     // ── Référence stable "toutes les intégrations obligatoires connectées pour la 1ère
     // fois" (trigger DB, jamais réécrite) — cutoff pour ignorer les calls pré-Momentum,
     // voir docs/integrations-ready-at-vs-onboarding-completed-at.md. ──
-    const { data: clientRow } = await supabase
-      .from('clients')
-      .select('integrations_ready_at')
-      .eq('profile_id', profileId)
-      .maybeSingle();
-    const integrationsReadyAt: string | null = clientRow?.integrations_ready_at ?? null;
+    let integrationsReadyAt: string | null = cacheIntegrationsReadyAt.get(profileId) ?? null;
+    if (!integrationsReadyAt) {
+      const { data: clientRow } = await supabase
+        .from('clients')
+        .select('integrations_ready_at')
+        .eq('profile_id', profileId)
+        .maybeSingle();
+      integrationsReadyAt = clientRow?.integrations_ready_at ?? null;
+      if (integrationsReadyAt) cacheIntegrationsReadyAt.set(profileId, integrationsReadyAt);
+    }
 
     // ── Rapports de call en attente ──
     let callsQuery = supabase
@@ -293,13 +319,29 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       duration: c.duration,
     }));
 
-    // ── Annulations de call non lues (persistées en DB jusqu'au clic OK) ──
-    const { data: canceledRows, error: errCanceled } = await supabase
+    // ── Annulations et reports de call non lus (persistés en DB jusqu'au clic OK) ──
+    //
+    // UNE requête pour les deux types, au lieu de deux qui ne différaient que par
+    // `type`. Ce hook tourne toutes les 60 s dans chaque onglet ouvert : chaque
+    // requête épargnée ici l'est 1 440 fois par jour et par onglet. Mesure du
+    // 2026-09-04 : le navigateur émettait 5 requêtes par minute et par onglet, soit
+    // 7 200 par jour — et l'egress de ce projet se paie au NOMBRE de requêtes, pas
+    // au volume (corps moyen mesuré : 2 octets).
+    //
+    // La partition ci-dessous est exhaustive et disjointe : chaque ligne lue porte
+    // l'un des deux types demandés, et un seul. ⚠️ Ajouter un type au `in` sans
+    // ajouter la branche qui le consomme le ferait disparaître en silence.
+    const { data: notifRows, error: errNotifRows } = await supabase
       .from('client_notifications')
-      .select('id, payload, created_at, call_id')
-      .eq('type', 'call_canceled')
+      .select('id, type, payload, created_at, call_id')
+      .in('type', ['call_canceled', 'call_rescheduled'])
       .is('read_at', null);
-    if (errCanceled) return;
+    // Requête en échec : on garde l'état précédent au lieu de conclure « rien en
+    // attente ». Voir le commentaire de `refresh` plus haut.
+    if (errNotifRows) return;
+
+    const canceledRows = (notifRows ?? []).filter(r => r.type === 'call_canceled');
+    const rescheduledRows = (notifRows ?? []).filter(r => r.type === 'call_rescheduled');
 
     const callCanceledNotifs: AppNotif[] = (canceledRows ?? []).map(row => ({
       id: `call_canceled_${row.id}`,
@@ -312,14 +354,7 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       dbId: row.id,
     }));
 
-    // ── Calls reportés non lus (persistées en DB jusqu'au clic OK) ──
-    const { data: rescheduledRows, error: errResched } = await supabase
-      .from('client_notifications')
-      .select('id, payload, created_at, call_id')
-      .eq('type', 'call_rescheduled')
-      .is('read_at', null);
-    if (errResched) return;
-
+    // ── Calls reportés non lus — lus par la même requête que les annulations ──
     const callRescheduledNotifs: AppNotif[] = (rescheduledRows ?? []).map(row => {
       const d = row.payload?.scheduled_at ? new Date(row.payload.scheduled_at) : null;
       const dateStr = d ? formatDateIn(d, viewerTz) : '';
