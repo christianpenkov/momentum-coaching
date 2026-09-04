@@ -55,20 +55,21 @@ export default function PageConversationsIg() {
   const coach = etat?.coachPrenom || 'Ton coach';
 
   return (
-    <div className="page-content" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <header style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <h1 style={{
-          fontFamily: 'var(--font-display, inherit)', fontSize: 26, fontWeight: 700,
-          letterSpacing: '-0.5px', lineHeight: 1.1, margin: 0,
-        }}>
-          Conversations DM
-        </h1>
-        <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: 0, maxWidth: '68ch' }}>
-          {etat?.accorde
-            ? `Tes échanges Instagram avec des prospects identifiés. ${coach} les voit aussi, et peut y laisser des notes.`
-            : 'Tes échanges Instagram avec des prospects identifiés.'}
-        </p>
-      </header>
+    <div className="page-content">
+      {/* Convention du projet : `page-header` / `page-title` / `page-sub`, comme
+          toutes les autres pages élève. Des styles en ligne auraient donné un
+          titre proche mais jamais identique — et c'est ce genre d'écart qui fait
+          qu'une application « sent » le patchwork. */}
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Conversations DM</h1>
+          <p className="page-sub" style={{ maxWidth: '68ch' }}>
+            {etat?.accorde
+              ? `Tes échanges Instagram avec des prospects identifiés. ${coach} les voit aussi et peut y laisser des notes.`
+              : 'Tes échanges Instagram avec des prospects identifiés.'}
+          </p>
+        </div>
+      </div>
 
       {echec && (
         <div role="alert" className="card" style={{ padding: '16px 18px', fontSize: 13, maxWidth: 620 }}>

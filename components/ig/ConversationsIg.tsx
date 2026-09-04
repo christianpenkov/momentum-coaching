@@ -222,6 +222,7 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [brouillon, setBrouillon] = useState('');
   const [envoi, setEnvoi] = useState(false);
+  const [erreurNote, setErreurNote] = useState<string | null>(null);
   const zoneRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -306,24 +307,41 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
     };
   }, [menu]);
 
+  /**
+   * ⚠️ Passe par une ROUTE, jamais par un `update` direct.
+   *
+   * Postgres ne sait pas borner les colonnes qu'un `update` peut toucher : une
+   * politique qui ouvrirait `note` au coach ouvrirait aussi `texte`, donc le
+   * pouvoir de réécrire ce qu'un prospect a dit. L'audit du 2026-09-04 a trouvé
+   * les deux faces du défaut en production — l'élève réécrivait les notes de son
+   * coach, et le coach n'en écrivait aucune. Plus personne n'écrit en direct.
+   */
+  async function ecrireNote(cible: 'message' | 'fil', id: string, valeur: string) {
+    const r = await fetch('/api/coach/ig-note', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ cible, id, note: valeur }),
+    });
+    // fetch ne lève pas sur un 4xx : sans ce test, une note perdue passerait
+    // pour une note enregistrée.
+    if (!r.ok) {
+      setErreurNote((await r.json().catch(() => ({})))?.error || 'Note non enregistrée');
+      return null;
+    }
+    setErreurNote(null);
+    return ((await r.json()) as { note: string | null }).note;
+  }
+
   async function enregistrerNote(messageId: string, valeur: string) {
-    const note = valeur.trim() || null;
-    // ⚠️ fetch/postgrest ne lèvent pas sur un refus : sans lire `error`, une
-    // note perdue passerait pour une note enregistrée.
-    const { error } = await supabase.from('ig_messages').update({
-      note, note_le: note ? new Date().toISOString() : null,
-    }).eq('id', messageId);
-    if (error) { alert(`Note non enregistrée : ${error.message}`); return; }
+    const note = await ecrireNote('message', messageId, valeur);
+    if (note === null && erreurNote) return;
     setMessages(ms => (ms ?? []).map(m => (m.id === messageId ? { ...m, note } : m)));
     setEdite(null);
   }
 
   async function enregistrerNoteFil(valeur: string) {
-    const note = valeur.trim() || null;
-    const { error } = await supabase.from('ig_conversations').update({
-      note, note_le: note ? new Date().toISOString() : null,
-    }).eq('id', fil.id);
-    if (error) { alert(`Note non enregistrée : ${error.message}`); return; }
+    const note = await ecrireNote('fil', fil.id, valeur);
+    if (note === null && erreurNote) return;
     onNoteFil(note);
     setEditeNoteFil(null);
   }
@@ -455,8 +473,8 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
               >
                 {/* grise = LE PROSPECT, dégradé = L'ÉLÈVE. Inverse de PageLiens. */}
                 {m.sortant
-                  ? <IgEnvoye sc={1}>{contenu}</IgEnvoye>
-                  : <IgRecu sc={1} avatar={dernierDuGroupe}
+                  ? <IgEnvoye sc={1} largeurMax="100%">{contenu}</IgEnvoye>
+                  : <IgRecu sc={1} avatar={dernierDuGroupe} largeurMax="100%"
                       avatarNode={<IgAvatarSimple url={fil.peer_avatar_url} pseudo={fil.peer_username} taille={30} />}>
                       {contenu}
                     </IgRecu>}

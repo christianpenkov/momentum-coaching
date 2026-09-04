@@ -97,17 +97,32 @@ function couleurStable(graine: string): string {
  * L'avatar n'apparaît que sur la DERNIÈRE bulle d'un groupe, aligné sur le bas —
  * c'est ce que fait Instagram, et l'oublier trahit immédiatement la maquette.
  */
-export function IgRecu({ children, avatar, avatarUrl, hint, sc, avatarNode }: {
+export function IgRecu({ children, avatar, avatarUrl, hint, sc, avatarNode, largeurMax = '84%' }: {
   children: ReactNode; avatar: boolean; avatarUrl?: string | null; hint?: boolean; sc: number;
   /** Remplace l'avatar par défaut — utilisé par le fil réel, qui n'a pas d'anneau. */
   avatarNode?: ReactNode;
+  /**
+   * ⚠️ Le plafond de largeur DOIT avoir une référence définie.
+   *
+   * Le défaut `84%` suppose que la bulle est fille directe du conteneur de
+   * défilement, dont la largeur est connue — c'est le cas dans l'aperçu de
+   * PageLiens. Dès qu'on l'enveloppe dans un bloc en `shrink-to-fit` (par
+   * exemple pour ancrer une pastille sur la bulle), le pourcentage n'a plus de
+   * référence : le navigateur résout au plus petit et la bulle s'écrase, avec
+   * un texte de deux mots qui passe à la ligne. Mesuré le 2026-09-04 : une
+   * bulle « Pièce jointe » ramenée à 107 px.
+   *
+   * L'appelant qui enveloppe passe donc `100%` et porte lui-même le plafond
+   * réel, contre une largeur définie.
+   */
+  largeurMax?: string;
 }) {
   const a = Math.round(34 * sc);
   // flexShrink:0 — sans lui, le conteneur du fil comprime les bulles au lieu de les
   // laisser déborder, et le fil ne défile jamais (mesuré : 515px de contenu écrasés
   // dans 410px, scrollHeight bloqué à la hauteur du conteneur).
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: Math.round(7 * sc), maxWidth: '84%', flexShrink: 0 }}>
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: Math.round(7 * sc), maxWidth: largeurMax, flexShrink: 0 }}>
       {avatar
         ? (avatarNode ?? <IgAvatar url={avatarUrl ?? null} taille={a} />)
         : <span style={{ width: a, flexShrink: 0 }} />}
@@ -150,10 +165,14 @@ export function IgTemplate({ texte, bouton, avatar, avatarUrl, sc, hint }: {
 }
 
 /** Une bulle À DROITE — dégradé diagonal, pas un aplat. */
-export function IgEnvoye({ texte, sc, children }: { texte?: string; sc: number; children?: ReactNode }) {
+export function IgEnvoye({ texte, sc, children, largeurMax = '80%' }: {
+  texte?: string; sc: number; children?: ReactNode;
+  /** Même piège que dans `IgRecu` : un pourcentage sans référence définie écrase la bulle. */
+  largeurMax?: string;
+}) {
   return (
     <div style={{
-      alignSelf: 'flex-end', maxWidth: '80%', flexShrink: 0,
+      alignSelf: 'flex-end', maxWidth: largeurMax, flexShrink: 0,
       background: `linear-gradient(135deg, ${IG.violet1}, ${IG.violet2})`,
       borderRadius: Math.round(20 * sc),
       padding: `${Math.round(9 * sc)}px ${Math.round(14 * sc)}px`,
