@@ -395,7 +395,31 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   }
 
-  const { data: dejaEnvoyees } = await supabase.from('alertes_plateforme').select('cle');
+  // ── Mode « manifeste seulement » ────────────────────────────────────────────
+  //
+  // `?manifeste=1` recopie les deux inventaires du dépôt en base et s'arrête là :
+  // aucune lecture de vue, aucun e-mail.
+  //
+  // ⚠️ POURQUOI IL EXISTE. Les deux surveillances de cohérence dépôt ↔ base comparent
+  // un état VIVANT (ce qui tourne, ce qui est appliqué) à un INSTANTANÉ du dépôt. Tant
+  // que cet instantané n'était réécrit qu'une fois par jour, tout ce qui bougeait après
+  // ce passage — un déploiement d'Edge Function, une migration — faisait crier les vues
+  // jusqu'au lendemain matin. Mesuré le 2026-09-04 : cinq lignes en alerte, **toutes
+  // fausses**, alors que la fonction en ligne et les cinq fichiers correspondaient
+  // exactement au dépôt.
+  //
+  // L'e-mail, lui, ne se trompait pas : il réécrit l'instantané avant de lire. Mais une
+  // vue qui ment en journée finit par ne plus être ouverte, et c'est précisément le mode
+  // de panne que ces surveillances existent pour fermer.
+  //
+  // `poll-leads` l'appelle une fois par heure. La fenêtre de mensonge passe de 24 heures
+  // à une heure, pour 24 appels très légers par jour au lieu d'un — pas de lecture de
+  // vue, pas de Resend, pas de table d'alertes.
+  const manifesteSeulement = new URL(request.url).searchParams.get('manifeste') === '1';
+
+  const { data: dejaEnvoyees } = manifesteSeulement
+    ? { data: [] as { cle: string }[] }
+    : await supabase.from('alertes_plateforme').select('cle');
   const envoyees = new Set((dejaEnvoyees ?? []).map((a: any) => a.cle));
 
   const resultats: Record<string, string> = {};
@@ -458,6 +482,16 @@ export async function GET(request: Request) {
     if (erreurMenage) {
       resultats['migrations_depot'] = `menage impossible: ${erreurMenage.message}`;
     }
+  }
+
+  // Le pont est fait : en mode manifeste on s'arrête avant toute lecture de vue.
+  if (manifesteSeulement) {
+    return NextResponse.json({
+      manifeste: true,
+      empreintes: Object.keys(EMPREINTES_EDGE).length,
+      migrations: MIGRATIONS_DEPOT.length,
+      ...resultats,
+    });
   }
 
   for (const s of SURVEILLANCES) {

@@ -246,9 +246,32 @@ Juste après un déploiement, l'état attendu est `'non instrumentee'`, pas `'ok
 pas un échec. La preuve immédiate est ailleurs : `npm run deployer-edge` affiche
 l'empreinte qu'il envoie, et `get_edge_function` permet de la retrouver dans le bundle.
 
-⚠️ Une ALERTE juste après un déploiement, elle, est significative : elle veut dire que la
-fonction remonte une empreinte que le dépôt ne connaît pas — donc qu'on a déployé sans
-régénérer, ou depuis une copie de travail non poussée.
+⚠️ **CETTE PHRASE ÉTAIT FAUSSE, corrigée le 2026-09-04.** Elle disait qu'une ALERTE juste
+après un déploiement est significative. Non : c'est au contraire le cas bénin le plus
+fréquent.
+
+`empreinte_du_depot` n'est pas le dépôt, c'est un **instantané** du dépôt, réécrit par la
+route. Une fonction déployée après la dernière prise remonte donc une valeur que
+l'instantané ne connaît pas encore — et la vue crie alors que tout est juste. Mesuré ce
+jour-là : `poll-leads` en ALERTE, alors que la fonction en ligne et le dépôt portaient la
+même valeur au caractère près.
+
+`poll-leads` rafraîchit désormais l'instantané **toutes les heures**
+(`/api/sante/alerte-vues?manifeste=1` : aucune lecture de vue, aucun e-mail). La fenêtre
+d'erreur passe de 24 heures à une heure — mais elle ne disparaît pas.
+
+**La seule vérification qui tranche, à toute heure :**
+
+```bash
+git show HEAD:lib/empreintes-edge.generated.ts | grep '<nom>'
+```
+
+Si cette valeur égale `empreinte_en_ligne`, la fonction exécute le code du dépôt, quoi
+qu'affiche `empreinte_du_depot`. Comparer à la colonne, c'est comparer à une photo datée.
+
+⚠️ Une ALERTE n'est significative que si `empreinte_en_ligne` diffère AUSSI du fichier au
+HEAD — alors seulement on a déployé sans régénérer, ou depuis une copie de travail non
+poussée.
 
 ### Le retard d'un déploiement est désormais DÉTECTÉ
 

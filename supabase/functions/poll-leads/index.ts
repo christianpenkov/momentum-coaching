@@ -3681,6 +3681,37 @@ Deno.serve(async (req: Request) => {
     }
   } catch { /* non bloquant — retentee au prochain passage de la tranche */ }
 
+  // ── Rafraichir l'inventaire du depot, une fois par heure ────────────────────────
+  //
+  // ⚠️ AJOUT CHIRURGICAL du 2026-09-04, dans un fichier qu'un autre chantier optimise
+  // pour l'egress : un `fetch` d'une reponse JSON de quelques centaines d'octets,
+  // 24 fois par jour, sans lecture de vue ni e-mail cote route.
+  //
+  // POURQUOI. `edge_sante_version` et `migrations_sante` comparent un etat VIVANT (la
+  // fonction qui tourne, la migration appliquee) a un INSTANTANE du depot, que seule la
+  // route sait ecrire — la base ne peut pas lire le depot. Tant que cet instantane
+  // n'etait rafraichi qu'a 8h, tout ce qui bougeait ensuite faisait crier les vues
+  // jusqu'au lendemain. Mesure ce jour : cinq lignes en alerte, TOUTES fausses.
+  //
+  // Une vue qui ment en journee finit par ne plus etre ouverte. C'est exactement le mode
+  // de panne que ces deux surveillances existent pour fermer.
+  //
+  // ⚠️ `minutes < 5` et non `=== 0` : ce cron passe toutes les 5 minutes, et un
+  // planificateur externe derive de quelques secondes. Une egalite stricte raterait des
+  // heures entieres sans que rien ne le dise.
+  try {
+    if (new Date().getUTCMinutes() < 5) {
+      const controleur = new AbortController();
+      const minuteur = setTimeout(() => controleur.abort(), 10_000);
+      try {
+        await fetch(`${PLATFORM_URL}/api/sante/alerte-vues?manifeste=1`, {
+          headers: { authorization: `Bearer ${CRON_SECRET}` },
+          signal: controleur.signal,
+        });
+      } finally { clearTimeout(minuteur); }
+    }
+  } catch { /* non bloquant — l'instantane sera rafraichi a l'heure suivante */ }
+
   const erreursActionnables: Record<string, string[]> = {};
   for (const [pid, errs] of Object.entries(allErrors)) {
     const restant = errs.filter(e => !estIncidentPassager(e));
