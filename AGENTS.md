@@ -350,10 +350,43 @@ l'interroger pour un fournisseur que la lecture groupée ne couvre pas. **Ne pas
 un fournisseur sans l'ajouter aussi à `FOURNISSEURS_CACHE`** — la réponse serait
 « absent » sur une ligne bien présente en base.
 
-⚠️ **Un onglet ouvert coûte, lui aussi.** `useNotifications` interroge la base toutes les
-60 s dans **chaque onglet** : 5 requêtes par minute, 7 200 par jour et par onglet. À
-40 élèves c'est le poste dominant. Avant d'ajouter une requête dans un hook qui tourne en
-boucle, se demander combien de fois elle partira par jour — la réponse est rarement une.
+⚠️ **Un onglet ouvert coûte, lui aussi.** `useNotifications` interroge la base dans
+**chaque onglet ouvert** : à 60 s c'était 5 requêtes par minute, 7 200 par jour et par
+onglet. Avant d'ajouter une requête dans un hook qui tourne en boucle, se demander
+combien de fois elle partira par jour — la réponse est rarement une.
+
+## Le plan GRATUIT doit tenir jusqu'à plusieurs mois APRÈS la livraison
+
+Décision de Chris, 2026-09-04 : **on ne passe pas en Pro à la livraison**, mais plusieurs
+mois plus tard. Le quota qui compte n'est donc pas les 250 Go du Pro, c'est **les 5 Go du
+gratuit, avec de vrais élèves**.
+
+Mesure du 2026-09-04, sur 8 passages : **~11 requêtes par élève et par passage**, plus
+~25 fixes. Le budget est d'environ 66 000 requêtes/jour pour rester sous 5 Go.
+
+| Élèves | Serveur | Navigateurs | Total/jour |
+|---|---|---|---|
+| 5 | ~32 000 | variable | tient largement |
+| 20 | ~70 000 | ~29 000 | **~99 000 — ne tenait pas** |
+
+D'où deux cadences espacées, **choisies après chiffrage, pas au jugé** :
+
+- **Flux Short.io : un quart d'heure** au lieu de chaque passage. Fenêtre de minutes
+  sans état (`getUTCMinutes() % 15 < 5`) : aucune colonne, aucune écriture, aucune requête
+  ajoutée pour se souvenir du dernier passage, et exactement 4 passages/heure quelle que
+  soit la dérive du planificateur.
+- **Filet des notifications : 3 min** au lieu de 60 s.
+
+⚠️ **Ce qui ne ralentit PAS, et qu'il ne faut pas « re-corriger » par erreur** : la
+collecte des leads et des DM Instagram reste à chaque passage ; `send-pending-dm3` ne lit
+que `instagram_leads.pending_dm3` et `dm3_scheduled_at`, donc **aucun DM ne dépend d'un
+événement de clic** ; le bouton « Rafraîchir » passe par `/api/shortio/refresh-today`, un
+chemin séparé de l'Edge Function ; et une notification arrive toujours instantanément par
+le Realtime — le minuteur n'est qu'un filet pour le cas où le WebSocket décroche.
+
+**Le jour du passage en Pro, ces deux cadences peuvent être remises comme avant** : elles
+n'existent que pour le quota du plan gratuit, et le dire ici évite qu'on les prenne un
+jour pour des choix de conception.
 
 # Les crons vivent à DEUX endroits
 
