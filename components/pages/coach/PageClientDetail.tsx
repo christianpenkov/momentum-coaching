@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { parisDateStr } from '@/lib/period';
 import {
@@ -573,8 +573,20 @@ export default function PageClientDetail({ id }: Props) {
    * ⚠️ On ne parcourt que les candidats déjà chargés — aucune requête de plus. Les trois
    * listes sont rendues triées par les routes, mais `laPlusRecente` les recompare quand
    * même : dépendre d'un tri fait ailleurs, c'est dépendre d'un détail que personne ne
-   * garantit. */
-  const dernierePub = useMemo(() => {
+   * garantit.
+   *
+   * ⚠️ CALCUL SIMPLE, PAS DE `useMemo` — et ce n'est pas une négligence.
+   *
+   * Ce bloc est situé APRÈS deux `return` anticipés (chargement en cours, client
+   * introuvable, plus haut dans ce fichier). Un hook posé ici n'est donc pas appelé au
+   * premier rendu et l'est au suivant : React voit le nombre de hooks changer et refuse
+   * de rendre toute la page. C'est arrivé le 2026-09-04, en production, et ni `tsc` ni
+   * `npm run build` ne peuvent l'attraper — seul un rendu réel le montre.
+   *
+   * Le calcul porte sur quelques dizaines d'éléments déjà en mémoire : le mémoïser ne
+   * gagnerait rien et rouvrirait le piège. **Ne pas « optimiser » ceci en `useMemo`
+   * sans le remonter avant la ligne du premier `return`.** */
+  const dernierePub = (() => {
     const candidats: ContenuPublie[] = [];
     for (const post of (igRaw?.posts ?? []) as any[]) {
       candidats.push({ format: formatInstagram(post?.type), publieLe: post?.timestamp });
@@ -584,7 +596,7 @@ export default function PageClientDetail({ id }: Props) {
     }
     if (stories?.derniere) candidats.push({ format: 'story', publieLe: stories.derniere });
     return laPlusRecente(candidats);
-  }, [igRaw, ytRaw, stories]);
+  })();
 
   const dernierePubQuand = dernierePub ? formaterQuand(dernierePub.publieLe, parisDateStr(new Date())) : null;
   const followersTotal = (igRaw?.followers ?? 0) + (ytRaw?.subscribers ?? 0);
