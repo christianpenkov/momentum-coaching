@@ -77,23 +77,70 @@ export async function GET(request: NextRequest) {
   const like = `%${q}%`;
 
   // ── Clients existants (upsell) ──────────────────────────────────────────────
+  // ⚠️ DEUX sources, et la seconde est la principale.
+  //
+  // `clients` liste les élèves d'un COACH. Un élève n'en a aucun : l'onglet était
+  // donc structurellement vide pour l'usage principal de cet écran, et
+  // `attribution_source = 'client_existant'` — écrit uniquement sur ce chemin —
+  // était de fait impossible à produire. L'upsell n'était pas « déjà déclaré », il
+  // était indéclarable.
+  //
+  // Un client existant, c'est quelqu'un à qui on a DÉJÀ VENDU. Cette définition
+  // vaut pour les deux rôles, et c'est littéralement ce qu'est un upsell.
   if (kind === 'client') {
-    let query = supa
-      .from('clients')
-      .select('id, name, email, created_at, profiles(avatar_url)')
-      .eq('coach_id', profileId)
-      .is('archived_at', null)
-      .order('created_at', { ascending: false })
-      .limit(LIMIT);
-    if (q) query = query.ilike('name', like);
+    const [eleves, ventes] = await Promise.all([
+      (() => {
+        let r = supa
+          .from('clients')
+          .select('id, name, email, created_at, profiles(avatar_url)')
+          .eq('coach_id', profileId)
+          .is('archived_at', null)
+          .order('created_at', { ascending: false })
+          .limit(LIMIT);
+        if (q) r = r.ilike('name', like);
+        return r;
+      })(),
+      (() => {
+        let r = supa
+          .from('deals')
+          .select('id, buyer_name, buyer_email, client_id, signed_at')
+          .eq('profile_id', profileId)
+          .neq('status', 'canceled')
+          .not('buyer_name', 'is', null)
+          .order('signed_at', { ascending: false })
+          .limit(LIMIT * 3);
+        if (q) r = r.ilike('buyer_name', like);
+        return r;
+      })(),
+    ]);
 
-    const { data } = await query;
-    return NextResponse.json({
-      people: (data ?? []).map((c: any) => ({
-        id: c.id, name: c.name, subtitle: c.email ?? 'client de la plateforme',
-        kind: 'client', avatarUrl: c.profiles?.avatar_url ?? null,
-      })),
-    });
+    const gens: Person[] = (eleves.data ?? []).map((c: any) => ({
+      id: c.id, name: c.name, subtitle: c.email ?? 'client de la plateforme',
+      kind: 'client', avatarUrl: c.profiles?.avatar_url ?? null, clientId: c.id,
+      at: c.created_at,
+    }));
+
+    // Une personne par NOM, la vente la plus récente gagnant. Le nom est aussi la
+    // clé de regroupement de la page Paiements quand aucun identifiant n'existe
+    // (`payments/route.ts`) : s'en servir ici garantit que l'upsell rejoindra la
+    // fiche existante, et n'en ouvrira pas une seconde.
+    const vus = new Set(gens.map(g => g.name.trim().toLowerCase()));
+    for (const d of (ventes.data ?? []) as any[]) {
+      const cle = String(d.buyer_name).trim().toLowerCase();
+      if (!cle || vus.has(cle)) continue;
+      vus.add(cle);
+      gens.push({
+        id: d.client_id ?? `d:${d.id}`,
+        name: d.buyer_name,
+        subtitle: d.buyer_email
+          ?? `déjà acheté le ${new Date(d.signed_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}`,
+        kind: 'client',
+        clientId: d.client_id ?? null,
+        at: d.signed_at,
+      });
+    }
+
+    return NextResponse.json({ people: gens.slice(0, LIMIT), tronque: gens.length > LIMIT });
   }
 
   // ── Prospects : les trois sources en parallèle ──────────────────────────────
