@@ -237,6 +237,28 @@ async function empreinteMid(mid: string): Promise<string> {
 }
 
 /**
+ * Le type d'un message vocal, corrigé de ce que Meta en dit.
+ *
+ * ⚠️ MESURE DU 2026-09-04, sur un vrai vocal reçu : Meta le sert avec
+ * `content-type: video/mp4`. Le bucket l'a refusé — `mime type video/mp4 is not
+ * supported` — et le vocal a été perdu, puisque Meta ne le ressert jamais.
+ *
+ * Ce n'est pas vraiment une erreur de leur part : un `.m4a` EST un conteneur
+ * MPEG-4, et `audio/mp4` ne se distingue de `video/mp4` que par l'absence de
+ * piste vidéo. Mais c'est nous qui savons que la pièce jointe est un vocal —
+ * Meta l'a déclaré `type: 'audio'` dans la charge utile. **La déclaration de
+ * la pièce jointe fait autorité, pas l'en-tête de transport.**
+ *
+ * ⚠️ On ne force pas `audio/mp4` aveuglément pour autant : le jour où Meta
+ * servira de l'Opus, l'étiqueter en MPEG-4 serait un mensonge à notre tour. On
+ * ne corrige donc QUE ce qui n'est pas déjà un type audio.
+ */
+function typeAudio(entete: string | null): string {
+  const brut = (entete || '').split(';')[0].trim().toLowerCase();
+  return brut.startsWith('audio/') ? brut : 'audio/mp4';
+}
+
+/**
  * Archive un message Instagram pour que le coach puisse le relire et l'annoter.
  *
  * ⚠️ N'ÉCRIT RIEN tant que l'élève n'a pas accordé la lecture à son coach. La
@@ -339,7 +361,7 @@ async function enregistrerPourLeCoach(
             const { error: envoiErr } = await serviceSupabase.storage
               .from('ig-vocaux')
               .upload(`${profileId}/${await empreinteMid(mid)}.m4a`, octets, {
-                contentType: rep.headers.get('content-type') || 'audio/mp4',
+                contentType: typeAudio(rep.headers.get('content-type')),
                 upsert: true,
               });
             if (envoiErr) debugLog('vocal non stocké', { erreur: envoiErr.message });

@@ -326,6 +326,24 @@ const SURVEILLANCES: Surveillance[] = [
     docs: ['AGENTS.md, section Santé de la plateforme'],
   },
   {
+    cle: 'sante_ig_vocaux',
+    source: 'ig_vocaux_sante',
+    titre: 'Un message vocal Instagram n’a pas été conservé',
+    detection: 'toute_ligne',
+    surveille:
+      'Que chaque message vocal reçu dans les 48 dernières heures ait bien son fichier dans le bucket `ig-vocaux`. Le chemin est recalculé à partir du message, il n’y a aucune colonne à tenir à jour.',
+    signifie:
+      '⚠️ C’est une perte DÉFINITIVE, pas un retard. Meta ne ressert JAMAIS un message vocal : mesuré le 2026-09-04 sur un message vieux de trois heures, `is_unsupported: true` et zéro pièce jointe. Un vocal non capturé à la seconde où le webhook arrive est perdu pour toujours, et le coach verra « ce vocal n’a pas été conservé » à sa place. La capture est volontairement non bloquante — une exception ferait échouer l’événement, donc le DM1 qui suit — et le prix de ce choix est qu’elle peut échouer en silence : cette vue est ce qui le rend audible.',
+    quoiFaire: [
+      "La cause exacte est journalisée : `select created_at, message, data from webhook_debug_log where message ilike '%vocal%' order by created_at desc;` (14 jours de rétention).",
+      "⚠️ Cause déjà rencontrée le 2026-09-04 : Meta sert un vocal avec `content-type: video/mp4`, que le bucket refusait (`mime type video/mp4 is not supported`). Corrigé par `typeAudio()` dans `lib/instagram-webhook-processor.ts`, qui ne fait confiance qu’à la déclaration `type: 'audio'` de la pièce jointe, pas à l’en-tête de transport.",
+      'Autre piste : le plafond de 25 Mo du bucket, ou le quota de fichiers — voir `sante_stockage_fichiers`.',
+      '⚠️ Le vocal déjà perdu ne se rattrape pas. Corriger la cause protège les suivants, rien d’autre. La vérification est donc d’envoyer un NOUVEAU vocal au compte et de regarder si le fichier apparaît.',
+      'La fenêtre est de 48 h : un défaut réparé fait taire l’alerte tout seul le surlendemain, sans date à écrire nulle part.',
+    ],
+    docs: ['docs/conversations-instagram.md', 'lib/instagram-webhook-processor.ts'],
+  },
+  {
     cle: 'sante_stockage_fichiers',
     source: 'stockage_fichiers_sante',
     titre: 'Le stockage de fichiers approche du plafond',
