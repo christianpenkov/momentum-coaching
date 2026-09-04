@@ -1135,7 +1135,7 @@ async function syncYtCtr(profileId: string, accessToken: string): Promise<{ sync
   if (!reachJob) return { synced: 0, errors: [] };
 
   const { data: syncState } = await supa.from('youtube_ctr_sync_state')
-    .select('last_report_id, reports_processed, job_created_at').eq('profile_id', profileId).single();
+    .select('last_report_id, reports_processed, job_created_at, rapports_traites').eq('profile_id', profileId).single();
 
   if (!syncState?.job_created_at && reachJob.createTime) {
     await supa.from('youtube_ctr_sync_state').upsert({ profile_id: profileId, job_created_at: reachJob.createTime }, { onConflict: 'profile_id', ignoreDuplicates: false });
@@ -1145,9 +1145,51 @@ async function syncYtCtr(profileId: string, accessToken: string): Promise<{ sync
   const reportsData = await safeJson(reportsRes);
   const allReports: any[] = (reportsData.reports || []).sort((a: any, b: any) => new Date(a.endTime).getTime() - new Date(b.endTime).getTime());
 
-  const lastReportId = syncState?.last_report_id ?? null;
-  const lastIdx = lastReportId ? allReports.findIndex(r => r.id === lastReportId) : -1;
-  const enRetard = lastIdx >= 0 ? allReports.slice(lastIdx + 1) : allReports;
+  // ── UN REGISTRE des rapports comptés, et non un filigrane positionnel ──────
+  //
+  // Le code retenait `last_report_id` et reprenait « tout ce qui suit » dans la liste
+  // triée par `endTime`. Ça suppose que les rapports APPARAISSENT dans l'ordre de leurs
+  // données. **YouTube ne le garantit pas, et ne le fait pas.** Mesuré sur l'API réelle
+  // le 2026-09-04 :
+  //
+  //     données jusqu'au 30/08 → rapport créé le 02/09 13:18
+  //     données jusqu'au 31/08 → rapport créé le 01/09 22:16   ← créé AVANT
+  //
+  // Le 31/08 est donc traité d'abord, le filigrane se pose dessus, puis le 30/08
+  // apparaît — et se range AVANT lui dans le tri. `slice(lastIdx + 1)` ne le voit
+  // jamais : perdu définitivement.
+  //
+  // ⚠️ La garde écrite plus bas (« le filigrane ne saute jamais un rapport EN ÉCHEC »)
+  // ne couvrait pas ce cas : ici le rapport n'a pas échoué, il est arrivé en retard.
+  // Une garde écrite contre un mode de panne n'en couvre pas un autre.
+  //
+  // Rejeu de l'ancien algorithme sur les 63 rapports réels (déterministe dès qu'on
+  // connaît `createTime`) : il reconstruit EXACTEMENT le filigrane observé en base, ce
+  // qui valide le modèle — et révèle **7 rapports jamais comptés** entre juin et
+  // septembre 2026, soit ~11 % du CTR. Les deux chemins divergeaient d'ailleurs :
+  // `/api/youtube/stats` relit les 30 derniers rapports chez Google, donc les incluait.
+  //
+  // Avec un ensemble, « ce rapport a-t-il déjà été compté ? » se répond exactement, sans
+  // dépendre d'un ordre que le fournisseur ne garantit pas.
+  //
+  // ⚠️ Il corrige un SECOND défaut du même genre : filigrane introuvable (job recréé,
+  // ligne perdue) donnait `enRetard = tous les rapports`, donc jusqu'à 60 rapports
+  // **recomptés** — et `upsert_yt_ctr` ADDITIONNE. L'ensemble rend ce cas inoffensif.
+  const dejaTraites = new Set<string>((syncState?.rapports_traites as string[] | null) ?? []);
+
+  // Transition depuis l'ancien modèle, pour toute ligne que la migration n'a pas amorcée.
+  //
+  // ⚠️ En cas de doute, on marque TOUT comme traité. Une donnée manquante se voit et se
+  // rattrape ; un double comptage est silencieux et définitif. Ne jamais inverser ce
+  // choix.
+  if (dejaTraites.size === 0 && syncState?.last_report_id) {
+    const ancre = allReports.find(r => r.id === syncState.last_report_id);
+    for (const r of allReports) {
+      if (!ancre || r.endTime <= ancre.endTime) dejaTraites.add(r.id);
+    }
+  }
+
+  const enRetard = allReports.filter(r => !dejaTraites.has(r.id));
   if (enRetard.length === 0) return { synced: 0, errors: [] };
 
   // ── Le seul quota REELLEMENT tendu de toute la pile YouTube ────────────────
@@ -1253,8 +1295,23 @@ async function syncYtCtr(profileId: string, accessToken: string): Promise<{ sync
     }
   }
 
+  // On n'inscrit au registre QUE le préfixe contigu de succès, celui qui vient d'être
+  // additionné. Les rapports qui suivent un trou n'y entrent pas : ils seront repris au
+  // passage suivant, ce qui est le comportement voulu.
+  //
+  // ⚠️ On n'en RETIRE jamais rien, même pour les rapports que YouTube ne sert plus
+  // (rétention 60 jours). Un identifiant retiré à tort ferait recompter son rapport, et
+  // `upsert_yt_ctr` ADDITIONNE : on échangerait une croissance négligeable contre une
+  // erreur silencieuse et permanente. Le registre gagne ~365 entrées par an, soit
+  // ~4 ko — une ligne par élève, relue une fois par heure. Purger supposerait de
+  // distinguer « expiré » de « absent d'une réponse partielle », ce que l'API ne permet
+  // pas.
+  const registre = [...dejaTraites];
+  for (const r of newReports.slice(0, traites)) registre.push(r.id);
+
   await supa.from('youtube_ctr_sync_state').upsert({
     profile_id: profileId, last_report_id: latestReport.id,
+    rapports_traites: [...new Set(registre)],
     last_synced_at: new Date().toISOString(),
     reports_processed: (syncState?.reports_processed ?? 0) + traites,
   }, { onConflict: 'profile_id' });

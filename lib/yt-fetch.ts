@@ -283,6 +283,22 @@ function parseReachCsv(text: string): Array<{ video_id: string; impressions: num
   }).filter(r => r.video_id);
 }
 
+/**
+ * Le registre apres ce passage : l'existant, plus le PREFIXE CONTIGU de succes.
+ *
+ * ⚠️ On n'en RETIRE jamais rien, meme pour les rapports que YouTube ne sert plus
+ * (retention 60 jours). Un identifiant retire a tort ferait recompter son rapport, et
+ * `upsert_yt_ctr` ADDITIONNE : on echangerait une croissance negligeable (~365 entrees
+ * par an, ~4 ko, une ligne par eleve) contre une erreur silencieuse et permanente.
+ * Purger supposerait de distinguer « expire » de « absent d'une reponse partielle », ce
+ * que l'API ne permet pas.
+ */
+function registreApres(dejaTraites: Set<string>, newReports: any[], traites: number): string[] {
+  const registre = [...dejaTraites];
+  for (const r of newReports.slice(0, traites)) registre.push(r.id);
+  return [...new Set(registre)];
+}
+
 export async function syncYtCtr(profileId: string, accessToken: string): Promise<{ synced: number; errors: string[] }> {
   const errors: string[] = [];
   const auth = { Authorization: `Bearer ${accessToken}` };
@@ -296,7 +312,7 @@ export async function syncYtCtr(profileId: string, accessToken: string): Promise
   // 2. Récupère le dernier report_id traité + job_created_at
   const { data: syncState } = await serviceSupabase
     .from('youtube_ctr_sync_state')
-    .select('last_report_id, reports_processed, job_created_at')
+    .select('last_report_id, reports_processed, job_created_at, rapports_traites')
     .eq('profile_id', profileId)
     .single();
 
@@ -308,7 +324,25 @@ export async function syncYtCtr(profileId: string, accessToken: string): Promise
     }, { onConflict: 'profile_id', ignoreDuplicates: false });
   }
 
-  const lastReportId = syncState?.last_report_id ?? null;
+  // ── UN REGISTRE des rapports comptes, et non un filigrane positionnel ──────
+  //
+  // ⚠️ Meme correction que dans la jumelle Deno (supabase/functions/poll-leads), et pour
+  // le meme defaut : reprendre « tout ce qui suit `last_report_id` » dans une liste
+  // triee par `endTime` suppose que les rapports APPARAISSENT dans l'ordre de leurs
+  // donnees. YouTube ne le garantit pas, et ne le fait pas — mesure du 2026-09-04 sur
+  // l'API reelle :
+  //
+  //     donnees jusqu'au 30/08 → rapport cree le 02/09 13:18
+  //     donnees jusqu'au 31/08 → rapport cree le 01/09 22:16   ← cree AVANT
+  //
+  // Le rapport arrive en retard se range AVANT le filigrane et n'est jamais vu. Rejeu de
+  // l'ancien algorithme sur les 63 rapports reels : 7 rapports jamais comptes entre juin
+  // et septembre 2026, soit ~11 % du CTR.
+  //
+  // L'ensemble repond exactement a « ce rapport a-t-il deja ete compte ? », sans dependre
+  // d'un ordre que le fournisseur ne garantit pas. Il neutralise aussi le cas « filigrane
+  // introuvable », qui donnait `enRetard = tous les rapports` — donc jusqu'a 60 rapports
+  // RECOMPTES, alors que `upsert_yt_ctr` ADDITIONNE.
 
   // 3. Liste tous les rapports disponibles
   const reportsRes = await fetch(
@@ -320,9 +354,21 @@ export async function syncYtCtr(profileId: string, accessToken: string): Promise
     (a: any, b: any) => new Date(a.endTime).getTime() - new Date(b.endTime).getTime()
   );
 
-  // 4. Filtre uniquement les nouveaux rapports (après le dernier traité)
-  const lastIdx = lastReportId ? allReports.findIndex(r => r.id === lastReportId) : -1;
-  const enRetard = lastIdx >= 0 ? allReports.slice(lastIdx + 1) : allReports;
+  // 4. Ne garde que les rapports jamais comptes
+  const dejaTraites = new Set<string>((syncState?.rapports_traites as string[] | null) ?? []);
+
+  // Transition depuis l'ancien modele, pour toute ligne que la migration n'a pas amorcee.
+  //
+  // ⚠️ En cas de doute, on marque TOUT comme traite. Une donnee manquante se voit et se
+  // rattrape ; un double comptage est silencieux et definitif.
+  if (dejaTraites.size === 0 && syncState?.last_report_id) {
+    const ancre = allReports.find(r => r.id === syncState.last_report_id);
+    for (const r of allReports) {
+      if (!ancre || r.endTime <= ancre.endTime) dejaTraites.add(r.id);
+    }
+  }
+
+  const enRetard = allReports.filter(r => !dejaTraites.has(r.id));
 
   if (enRetard.length === 0) return { synced: 0, errors: [] };
 
@@ -389,6 +435,7 @@ export async function syncYtCtr(profileId: string, accessToken: string): Promise
     await serviceSupabase.from('youtube_ctr_sync_state').upsert({
       profile_id:        profileId,
       last_report_id:    newReports[traites - 1].id,
+      rapports_traites:  registreApres(dejaTraites, newReports, traites),
       last_synced_at:    new Date().toISOString(),
       reports_processed: (syncState?.reports_processed ?? 0) + traites,
     }, { onConflict: 'profile_id' });
@@ -418,10 +465,11 @@ export async function syncYtCtr(profileId: string, accessToken: string): Promise
     return { synced: 0, errors };
   }
 
-  // 7. Filigrane sur le dernier rapport REELLEMENT traite
+  // 7. Registre + filigrane sur le dernier rapport REELLEMENT traite
   await serviceSupabase.from('youtube_ctr_sync_state').upsert({
     profile_id:        profileId,
     last_report_id:    newReports[traites - 1].id,
+    rapports_traites:  registreApres(dejaTraites, newReports, traites),
     last_synced_at:    new Date().toISOString(),
     reports_processed: (syncState?.reports_processed ?? 0) + traites,
   }, { onConflict: 'profile_id' });
