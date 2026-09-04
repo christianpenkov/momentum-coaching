@@ -1426,6 +1426,12 @@ const AIDE_ACCOMPAGNEMENT = (
       rapport au premier jour mesuré, ce qui rend comparables un élève parti de 300
       abonnés et un autre parti de 30 000.</p>
 
+    <p><b>Ce qui compte comme une publication.</b> Un post ou un reel Instagram, une vidéo
+      YouTube, une story. C'est la même définition que le KPI « Publications » de la page
+      Mes&nbsp;Stats de l'élève, pour que le même mot donne le même nombre des deux
+      côtés. <i>Réserve</i> : une story expire en 24&nbsp;h et ne se rattrape pas, donc les
+      semaines antérieures au démarrage de sa collecte n'en comptent aucune.</p>
+
     <p><b>Si une courbe démarre après S1</b>, c'est que la collecte a commencé plus tard
       que l'arrivée. Un élève arrivé en juillet dont le compte n'a été branché qu'en août
       n'a rien à tracer avant. Sa pastille de légende le dit — « depuis S5 ».</p>

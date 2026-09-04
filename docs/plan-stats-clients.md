@@ -2042,3 +2042,40 @@ ce graphe ignore volontairement le sélecteur en haut de page, puisqu'il remonte
 
 Le supprimer aurait perdu un fait réel — que ce graphe est le seul de la page à ne pas
 suivre le sélecteur.
+
+### D93 — Les stories comptent, parce que Mes Stats les compte (2026-09-04)
+
+Chris : « dans page stat client on a mis le nombre de stories qui comptent, donc il faut
+aussi le mettre dans le nombre de publications totales ? »
+
+Oui. `PageClientStats` compte **posts + reels + vidéos YouTube + stories** dans son KPI
+« Publications ». Stats Clients n'en comptait que les deux premiers. **Deux écrans, le
+même mot, deux nombres.**
+
+⚠️ C'est exactement la classe de défaut que le projet a déjà payée — *« les onze écarts
+entre écrans du 2026-08-19 venaient tous d'une règle de périmètre recopiée »*. Mes Stats
+est l'écran en place, Stats Clients le nouvel arrivant : **c'est à lui de s'aligner, pas
+d'imposer une troisième définition.**
+
+**Correction d'une affirmation fausse de la veille (D89).** J'avais écrit qu'une story n'a
+pas de date de publication en base, et c'est ce qui rendait mon objection recevable. Elle
+n'en a pas dans `analytics_ig_stories_history`, la table de **métriques** — mais elle en a
+une, exacte et jamais nulle, dans **`ig_stories.posted_at`**, celle que Mes Stats utilise
+déjà. L'objection tombe avec le fait sur lequel elle reposait.
+
+L'autre argument — « éphémère et bien plus fréquent, donc le mélange rend le nombre
+ininterprétable » — reste une préférence défendable, mais elle ne pèse pas contre la
+cohérence entre écrans, et elle n'était pas la mienne à imposer sur un second écran.
+
+⚠️ **Réserve à porter, et elle est réelle.** Une story expire en 24 h et **ne se rattrape
+pas** : seules celles qu'un passage du cron a vues existent. Une fenêtre antérieure au
+démarrage de cette collecte en compte donc zéro, légitimement — contrairement aux posts
+et aux vidéos, que le backfill récupère rétroactivement. **Sur le graphe des semaines
+d'accompagnement, qui remonte à l'arrivée, les premières semaines sous-comptent donc les
+stories.** `PageClientStats` porte déjà la même mise en garde ; l'aide du titre la porte
+maintenant aussi.
+
+**Détail technique qui vaut d'être gardé** : les identifiants sont **préfixés**
+(`ig:`, `yt:`, `st:`) avant le `count(distinct)`. Les trois espaces de noms ne se
+télescopent pas aujourd'hui, mais rien ne le garantit — le préfixe rend le dédoublonnage
+correct **par construction** plutôt que par chance.
