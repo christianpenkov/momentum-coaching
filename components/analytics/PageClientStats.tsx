@@ -2063,7 +2063,31 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
     const t = new Date(d.date + 'T12:00:00Z').getTime();
     return t >= igPeriodStart.getTime() && t <= igPeriodEnd.getTime();
   });
-  const igReachP = igDaysSlice.reduce((s, d) => s + d.reach, 0);
+  // ⚠️ « Reach · personnes » lisait la SOMME DES JOURNEES. Une personne vue trois
+  // jours y comptait trois fois — sous un libelle qui annonce des PERSONNES.
+  //
+  // Mesure du 2026-09-04 sur le compte de test, en All-Time : somme des journees 506,
+  // portee reellement dedupliquee 207. Deux fois et demie trop haut, et surtout en
+  // contradiction avec la carte « Composition de ton reach » du MEME ecran, qui
+  // affiche 207 — deux chiffres pour la meme chose a quelques centimetres.
+  //
+  // La justification qui figurait dans app/api/instagram/stats/route.ts — « reach30d
+  // (somme quotidienne) reste utilise pour le KPI Reach · personnes […] non concerne
+  // par ce biais » — reposait sur une premisse fausse : ce KPI est precisement celui
+  // qui parle en personnes.
+  //
+  // On lit donc la MEME source que la carte de composition : la mesure stockee par
+  // periode, ecrite par le cron. Une portee dedupliquee ne se reconstitue pas par
+  // calcul (juillet 143 + aout 122 = 385 contre 207 mesures sur la fenetre complete).
+  //
+  // ⚠️ AUCUN repli sur la somme en cas d'absence — c'est la regle du module
+  // lib/porteeIg.ts, ecrite pour ce cas exact : « un repli sur la somme des jours
+  // reintroduirait exactement l'erreur qu'on corrige, en silence ». Periode non
+  // mesuree = trou affiche.
+  const typePorteeKpi = typePeriodePour(period, sinceConnection);
+  const { data: periodesKpiData } = usePeriodesIg(typePorteeKpi, profileId);
+  const porteeKpi = porteeDeLaPeriode(periodesKpiData?.periodes, typePorteeKpi, parisDateStr(igPeriodStart));
+  const igReachP: number | null = porteeKpi?.reachTotal ?? null;
   // Bornes qui portent RÉELLEMENT un nombre d'abonnés, pas les bornes de la période.
   // `ig_followers` n'est plus écrit que sur la ligne du jour depuis le 2026-08-30 : une
   // journée comblée par le seul rattrapage n'en porte pas. Avec `?? 0` sur les bornes,
@@ -2106,7 +2130,11 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
   const igProfileViewsP = igDaysSlice.reduce((s, d) => s + ((d as any).profileViews ?? 0), 0);
 
 
-  const engRate = igReachP > 0 ? pct(igInteractionsP, igReachP) : 0;
+  // Interactions rapportees aux PERSONNES touchees, pas au cumul des journees : c'est
+  // la definition usuelle du taux d'engagement, et elle devient juste du seul fait que
+  // le denominateur l'est. Sans portee mesuree, la division n'a pas de sens — `null`
+  // plutot qu'un 0 qui affirmerait « aucun engagement ».
+  const engRate: number | null = igReachP && igReachP > 0 ? pct(igInteractionsP, igReachP) : null;
   // Nombre RÉEL de comptes abonnés uniques touchés (pas un ratio recalculé depuis un
   // total de reach mêlé abonnés+non-abonnés) — confirmé via test direct API Meta :
   // period=days_28 + metric_type=total_value + breakdown=follow_type renvoie le vrai
@@ -2318,7 +2346,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
     // toujours 0, la condition `>= 0` etait toujours vraie, et la courbe restait VERTE
     // meme sur une periode ou le compte perdait des abonnes (constate le 2026-08-22).
     })(), color: igFollowerDeltaP >= 0 ? GREEN : RED },
-    "Taux d'engagement": { data: igDays.map(d => ({ date: d.date, v: igDaysNoDataSet.has(d.date) ? (null as any) : (d.reach > 0 ? Math.round((d.totalInteractions ?? 0) / d.reach * 100 * 10) / 10 : 0) })), color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, unit: '%' },
+    "Taux d'engagement": { data: igDays.map(d => ({ date: d.date, v: igDaysNoDataSet.has(d.date) ? (null as any) : (d.reach > 0 ? Math.round((d.totalInteractions ?? 0) / d.reach * 100 * 10) / 10 : 0) })), color: (engRate ?? 0) > 5 ? GREEN : (engRate ?? 0) > 2 ? AMBER : RED, unit: '%' },
     // Pas d'entrée "Followers reach rate" ici : Meta n'expose aucun équivalent
     // dédupliqué PAR JOUR (seulement sur la fenêtre glissante totale de 28 jours) —
     // un calcul reach_du_jour/abonnés_totaux serait une approximation non fiable,
@@ -2376,7 +2404,10 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
           { label: 'Publications', value: fmt(postsInPeriod),
             sub: `Posts ${fmt(nbPosts)} · Reels ${fmt(nbReels)} · Stories ${fmt(nbStoriesIg)}`,
             color: IG_COLOR, key: 'Publications' },
-          { label: 'Reach · personnes', value: fmt(igReachP), sub: igEtiquettePeriode, color: 'var(--ink)', key: 'Reach' },
+          { label: 'Reach · personnes',
+            value: igReachP !== null ? fmt(igReachP) : '—',
+            sub: igReachP !== null ? `${igEtiquettePeriode} · comptées une fois` : 'période non mesurée',
+            color: (igReachP !== null ? 'var(--ink)' : 'var(--faint)') as string, key: 'Reach' },
           { label: 'Interactions posts', value: fmt(igInteractionsP), sub: igEtiquettePeriode, color: 'var(--ink)', key: 'Interactions posts' },
         ].map(s => (
           <div key={s.key} onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: s.key ? 'pointer' : 'default', transition: 'background .15s' }}
@@ -2411,7 +2442,11 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
         {[
           // Remplace « Abonnés nets », desormais en badge sur la carte Abonnés.
           { label: 'Visites de profil', value: fmt(igProfileViewsP), sub: igEtiquettePeriode, color: 'var(--ink)', key: 'Visites de profil' },
-          { label: "Taux d'engagement", value: fmtPct(engRate), sub: 'interactions / reach', color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, key: "Taux d'engagement" },
+          { label: "Taux d'engagement",
+            value: engRate !== null ? fmtPct(engRate) : '—',
+            sub: engRate !== null ? 'interactions / personnes touchées' : 'portée non mesurée',
+            color: (engRate === null ? 'var(--faint)' : engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED) as string,
+            key: "Taux d'engagement" },
           // « / total » etait ambigu : on ne savait pas si le denominateur etait le
           // reach ou le nombre d'abonnes. C'est le nombre d'ABONNES, la ou la carte
           // voisine divise par le REACH — d'ou l'impression que les deux
