@@ -181,7 +181,11 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
           saisie, dont une recherche — tous sous le clavier sans ça. */}
       <div style={isMobile ? {
         position: 'fixed', left: 0, right: 0, bottom: clavier, zIndex: 9999,
-        maxHeight: clavier > 0 ? `calc(100vh - ${clavier + 24}px)` : '88vh',
+        // ⚠️ `100dvh` et non `100vh`. Sur iOS, `100vh` vaut la hauteur LARGE du
+        // viewport — barre d'URL rétractée comprise — donc plus que ce qui est
+        // réellement visible. La feuille se croyait plus haute qu'elle ne l'est,
+        // et son bas repassait sous le clavier. Même leçon que ModalShell.
+        maxHeight: clavier > 0 ? `calc(100dvh - ${clavier + 24}px)` : '88vh',
         background: 'var(--surface)', boxShadow: 'var(--shadow-modal)',
         borderTopLeftRadius: 18, borderTopRightRadius: 18,
         display: 'flex', flexDirection: 'column', overflow: 'hidden',

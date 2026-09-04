@@ -35,6 +35,29 @@ export default function ModaleAction({
   const isMobile = useIsMobile();
   const clavier = useHauteurClavier();
 
+  // ── Remonter le champ actif quand le clavier s'ouvre ──────────────────────
+  // Décoller la feuille du clavier ne suffit PAS : elle se contracte, mais le
+  // champ reste à la même place dans une zone défilante devenue plus courte —
+  // donc sous la ligne de flottaison. C'est ce que Chris a constaté le
+  // 2026-09-04 sur la raison de clôture : la feuille avait bien bougé, le champ
+  // restait invisible.
+  //
+  // `ModalShell` porte cet effet depuis la correction du rapport de vente ;
+  // `ModaleAction` ne l'avait jamais eu. Les six modales de paiement étaient donc
+  // à moitié corrigées — la moitié visible.
+  //
+  // Déclenché sur l'OUVERTURE du clavier, pas à chaque frappe : un défilement
+  // lisse relancé à chaque caractère lutte contre celui qui écrit. Et après le
+  // rendu qui contracte la feuille, sinon le contenu n'a encore rien à défiler.
+  useEffect(() => {
+    if (clavier === 0) return;
+    const actif = document.activeElement;
+    if (!(actif instanceof HTMLElement)) return;
+    if (actif.tagName !== 'INPUT' && actif.tagName !== 'TEXTAREA') return;
+    const t = setTimeout(() => actif.scrollIntoView({ block: 'center', behavior: 'smooth' }), 0);
+    return () => clearTimeout(t);
+  }, [clavier]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !bloque) onClose(); };
     window.addEventListener('keydown', onKey);
@@ -52,7 +75,11 @@ export default function ModaleAction({
           clavier, et se contente de la hauteur qui reste. */}
       <div style={isMobile ? {
         position: 'fixed', left: 0, right: 0, bottom: clavier, zIndex: 10009,
-        maxHeight: clavier > 0 ? `calc(100vh - ${clavier + 24}px)` : '90vh',
+        // ⚠️ `100dvh` et non `100vh`. Sur iOS, `100vh` vaut la hauteur LARGE du
+        // viewport — barre d'URL rétractée comprise — donc plus que ce qui est
+        // réellement visible. La feuille se croyait plus haute qu'elle ne l'est,
+        // et son bas repassait sous le clavier. Même leçon que ModalShell.
+        maxHeight: clavier > 0 ? `calc(100dvh - ${clavier + 24}px)` : '90vh',
         background: 'var(--surface)', boxShadow: 'var(--shadow-modal)',
         borderTopLeftRadius: 18, borderTopRightRadius: 18,
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
