@@ -247,18 +247,23 @@ const SURVEILLANCES: Surveillance[] = [
   {
     cle: 'sante_crons',
     source: 'crons_sante',
-    titre: 'Un cron s’est tu',
+    titre: 'Un cron s’est tu, ou tourne beaucoup trop souvent',
     detection: 'alerte',
     surveille:
-      'Que chaque cron inscrit laisse une trace de passage, succès OU échec, dans le délai qui lui est propre.',
+      'Que chaque cron inscrit laisse une trace de passage, succès OU échec, dans le délai qui lui est propre — et qu’il n’en laisse pas quatre fois trop. Deux états possibles : `SILENCIEUX` et `ALERTE cadence trop rapide`.',
     signifie:
-      'Un cron qui ne tourne plus n’échoue pas : il se tait, et un silence ne se distingue pas d’un succès. C’est la panne la plus coûteuse de la plateforme parce qu’elle est la plus discrète — les données cessent simplement d’arriver, et personne ne le voit avant des semaines.',
+      'SILENCIEUX : un cron qui ne tourne plus n’échoue pas, il se tait, et un silence ne se distingue pas d’un succès. C’est la panne la plus coûteuse de la plateforme parce qu’elle est la plus discrète — les données cessent simplement d’arriver, et personne ne le voit avant des semaines. — CADENCE TROP RAPIDE : le planificateur appelle le cron bien plus souvent que prévu. Ça ne casse rien de visible, et c’est justement le problème : un cron trop rapide passe tous les autres contrôles, sa trace est fraîche, ses données sont à jour, `cron_runs` reste vide puisqu’il ne rate rien. Il a l’air PLUS sain que la normale. Le 4 septembre 2026, `sync-calendly` et `notify-rapport` tournaient toutes les minutes au lieu de toutes les 30 minutes — 30× la cadence prévue, depuis une date inconnue — et ça n’a été découvert qu’en cherchant d’où venaient 5 Go d’egress consommés en une semaine sur un quota MENSUEL de 5 Go. Ça consomme aussi le quota d’appels Calendly (60/min par jeton), qui devient la contrainte réelle à 40 élèves.',
     quoiFaire: [
-      '`select * from crons_sante;`',
-      'Ouvrir le job correspondant sur cron-job.org et regarder ses derniers passages et son URL.',
+      '`select nom, etat, passages_du_jour, cadence_attendue from crons_sante;` — `passages_du_jour` contre `cadence_attendue` dit l’ampleur de l’écart.',
+      'SILENCIEUX : ouvrir le job correspondant sur cron-job.org et regarder ses derniers passages et son URL.',
+      'CADENCE TROP RAPIDE : ouvrir le job sur cron-job.org et corriger son INTERVALLE. ⚠️ La correction est là-bas, pas dans le dépôt — ni l’URL ni la cadence d’un job cron-job.org ne se lisent dans le code.',
       '⚠️ Les crons vivent à DEUX endroits : pg_cron dans la base (`select jobname, schedule, active from cron.job;`) et cron-job.org. Le tableau de correspondance est dans AGENTS.md.',
+      '⚠️ `cadence_attendue` est la cadence NOMINALE, saisie à la main depuis cron-job.org — jamais déduite de l’observation. Si un job a légitimement changé de fréquence, c’est cette colonne qu’il faut mettre à jour, sinon l’alerte criera en permanence.',
     ],
-    docs: ['AGENTS.md, section « Les crons vivent à DEUX endroits »'],
+    docs: [
+      'AGENTS.md, section « Les crons vivent à DEUX endroits »',
+      'supabase/migrations/20260904120000_crons_sante_cadence_trop_rapide.sql',
+    ],
   },
   {
     cle: 'sante_ig_periodes',

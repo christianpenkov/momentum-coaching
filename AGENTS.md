@@ -409,15 +409,53 @@ tient toujours. Corrigé dans le fichier pour ne pas laisser une justification f
 `momentum-plateforme.vercel.app/api/<chemin>` désigne la route Next.js. **Reporter la
 réponse dans ce tableau** — c'est la seule trace que la session suivante pourra lire.
 
-### Un cron est « zéro maintenance » quand son SILENCE est détectable
+### Un cron est « zéro maintenance » quand son SILENCE **et son EXCÈS** sont détectables
 
 Pas quand il tourne au bon endroit. `cron_runs` ne journalise que les **échecs**,
 volontairement — mais un cron qui ne tourne plus n'échoue pas, il se tait, et un silence
 ne se distingue pas d'un succès.
 
 ```sql
-select * from crons_sante;   -- aucune ligne 'SILENCIEUX' = les crons inscrits tournent
+select nom, etat, passages_du_jour, cadence_attendue from crons_sante;
+-- aucune ligne 'SILENCIEUX' ni 'ALERTE cadence trop rapide'
 ```
+
+⚠️ **Le sens inverse était tout aussi invisible, et il a coûté cher.** Le 2026-09-04,
+`sync-calendly` et `notify-rapport` tournaient **toutes les minutes au lieu de toutes les
+30 minutes** — 30× la cadence prévue, depuis une date inconnue. Découvert par hasard, en
+cherchant d'où venaient 5 Go d'egress consommés en une semaine sur un quota **mensuel**
+de 5 Go : 23 requêtes par minute mesurées dans les logs de la passerelle, ~33 000 par
+jour, pour un travail que 48 passages faisaient.
+
+**Aucun contrôle ne pouvait le voir, et c'est structurel** : un cron trop rapide laisse
+une trace fraîche, ses données sont à jour, `cron_runs` reste vide puisqu'il ne rate
+rien. **Il a l'air plus sain que la normale.** `cron.job` ne le montrait pas davantage —
+ces deux jobs vivent chez cron-job.org, dont ni l'URL ni la cadence ne se lisent dans le
+dépôt.
+
+`crons_passages` porte donc `cadence_attendue` (la cadence **nominale**, saisie à la main
+depuis cron-job.org — jamais déduite de l'observation) et `passages_du_jour`, un compteur
+remis à zéro à minuit UTC par `marquer_passage_cron`.
+
+⚠️ **On compte les passages du jour, on ne mesure pas le dernier intervalle.** Mesurer
+l'écart entre deux passages serait plus simple et donnerait un faux positif garanti : les
+boutons « Rafraîchir » appellent les mêmes traitements que les crons, donc un clic juste
+après un passage automatique produirait un intervalle d'une seconde. Un compteur
+journalier encaisse quelques clics sans broncher, là où un cron déréglé multiplie le
+total par trente.
+
+⚠️ **Le seuil est de quatre fois la cadence prévue, avec un plancher de 4 passages.** Le
+plancher n'est pas décoratif : sans lui, `cron-refresh-tokens` (hebdomadaire) aurait un
+seuil de 1 et alerterait dès sa deuxième exécution du jour — une simple reprise. Même
+piège que le `silence_max` de 2 jours posé au jugé sur ce même cron, qui garantissait une
+fausse alerte chaque jeudi soir.
+
+⚠️ **Une `cadence_attendue` nulle n'alerte JAMAIS** : « on ne sait pas » ne doit pas se
+transformer en seuil au jugé. Corollaire de la règle déjà posée pour `silence_max` —
+lire la fréquence dans cron-job.org **avant** d'inscrire un cron, c'est la seule source.
+
+**Si un job change légitimement de fréquence, c'est `cadence_attendue` qu'il faut mettre
+à jour**, sinon l'alerte crie en permanence.
 
 `crons_passages` porte une ligne par cron, écrasée à chaque passage, **succès ou échec** :
 la table ne grossit jamais, aucune purge à prévoir. Le seuil de silence est porté par la
