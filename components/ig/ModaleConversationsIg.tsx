@@ -215,7 +215,29 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
     const { data } = await q;
     const page = ((data ?? []) as Message[]).reverse();
     setReste((data ?? []).length === PAGE);
-    setMessages(m => (avant ? [...page, ...(m ?? [])] : page));
+
+    if (avant) {
+      // ⚠️ Charger PLUS ANCIEN doit garder le regard où il est. Sans mémoriser
+      // la hauteur avant l'ajout, le contenu inséré en tête pousse la vue vers
+      // le bas et l'utilisateur perd sa place — le défaut classique d'un
+      // « charger plus » en haut d'une liste.
+      const z = zoneRef.current;
+      const avantH = z?.scrollHeight ?? 0;
+      const avantY = z?.scrollTop ?? 0;
+      setMessages(m => [...page, ...(m ?? [])]);
+      requestAnimationFrame(() => {
+        if (z) z.scrollTop = avantY + (z.scrollHeight - avantH);
+      });
+    } else {
+      setMessages(page);
+      // Une messagerie s'ouvre sur le DERNIER message, pas sur le premier.
+      // requestAnimationFrame : avant la peinture, scrollHeight vaut encore la
+      // hauteur du conteneur vide et l'appel serait sans effet.
+      requestAnimationFrame(() => {
+        const z = zoneRef.current;
+        if (z) z.scrollTop = z.scrollHeight;
+      });
+    }
   }, [fil.id, supabase]);
 
   useEffect(() => { charger(); }, [charger]);
@@ -344,6 +366,10 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
                 </div>
               )}
 
+              {/* ⚠️ `alignSelf` + `maxWidth` plutôt qu'un conteneur pleine
+                  largeur : la pastille est positionnée par rapport à CE bloc, et
+                  un bloc pleine largeur la collait au bord de la modale au lieu
+                  de la poser sur la bulle. */}
               <div
                 onContextMenu={annotable ? (e) => {
                   // Sans preventDefault, le menu du navigateur se superpose au nôtre.
@@ -354,7 +380,8 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
                 style={{
                   display: 'flex', flexDirection: 'column',
                   alignItems: m.sortant ? 'flex-end' : 'flex-start',
-                  position: 'relative',
+                  alignSelf: m.sortant ? 'flex-end' : 'flex-start',
+                  maxWidth: '88%', position: 'relative',
                 }}
                 className={annotable ? 'ig-bulle-annotable' : undefined}
               >

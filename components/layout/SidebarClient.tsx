@@ -15,6 +15,9 @@ const NAV: { href: string; icon: IconName; label: string; highlight?: boolean }[
   { href: '/client', icon: 'activity', label: 'Mon espace' },
   { href: '/client/stats', icon: 'bar-chart', label: 'Mes stats' },
   { href: '/client/pipeline', icon: 'trending-up', label: 'Pipeline Leads' },
+  // Juste après Pipeline Leads : c'est le même entonnoir, et ce voisinage est
+  // ce qui rend l'entrée compréhensible sans explication.
+  { href: '/client/conversations', icon: 'instagram', label: 'Conversations DM' },
   { href: '/client/paiements', icon: 'circle-dollar-sign', label: 'Paiements' },
   { href: '/client/messages', icon: 'message-circle', label: 'Messages' },
   { href: '/client/taches', icon: 'task-check', label: 'Tâches' },
