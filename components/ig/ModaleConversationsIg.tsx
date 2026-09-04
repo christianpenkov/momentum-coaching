@@ -28,6 +28,7 @@ import { lienDiscussion } from '@/lib/igConversations';
 
 export type Fil = {
   id: string;
+  profile_id: string;
   peer_id: string;
   peer_username: string | null;
   peer_avatar_url: string | null;
@@ -40,6 +41,14 @@ export type Fil = {
   dernier_type: string | null;
   lead_depuis: string | null;
   lead_source: string | null;
+};
+
+type Suggestion = {
+  id: string;
+  texte: string;
+  cree_le: string;
+  copie_le: string | null;
+  traite_le: string | null;
 };
 
 type Message = {
@@ -203,7 +212,56 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [edite, setEdite] = useState<{ id: string; valeur: string } | null>(null);
   const [editeNoteFil, setEditeNoteFil] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [brouillon, setBrouillon] = useState('');
+  const [envoi, setEnvoi] = useState(false);
   const zoneRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let vivant = true;
+    supabase.from('ig_suggestions')
+      .select('id, texte, cree_le, copie_le, traite_le')
+      .eq('conversation_id', fil.id)
+      .order('cree_le', { ascending: false })
+      .then(({ data }) => { if (vivant) setSuggestions((data ?? []) as Suggestion[]); });
+    return () => { vivant = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fil.id]);
+
+  async function envoyerSuggestion() {
+    const texte = brouillon.trim();
+    if (!texte) return;
+    setEnvoi(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    const { data, error } = await supabase.from('ig_suggestions').insert({
+      conversation_id: fil.id, profile_id: fil.profile_id,
+      auteur_id: user?.id, texte,
+    }).select('id, texte, cree_le, copie_le, traite_le').single();
+    setEnvoi(false);
+    // Sans lire `error`, une suggestion perdue passerait pour envoyée.
+    if (error) { alert(`Suggestion non envoyée : ${error.message}`); return; }
+    setSuggestions(s => [data as Suggestion, ...s]);
+    setBrouillon('');
+  }
+
+  /** ⚠️ L'élève n'écrit PAS en direct : la RLS ne sait pas borner les colonnes
+   *  qu'un update peut toucher, et une écriture directe le laisserait réécrire
+   *  le texte de la suggestion. La route n'accepte que `copie_le`/`traite_le`. */
+  async function marquer(s: Suggestion, champ: 'copie_le' | 'traite_le') {
+    const r = await fetch('/api/client/ig-suggestion', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: s.id, champ }),
+    });
+    if (!r.ok) return;
+    setSuggestions(list => list.map(x =>
+      x.id === s.id ? { ...x, [champ]: new Date().toISOString() } : x));
+  }
+
+  async function copier(s: Suggestion) {
+    try { await navigator.clipboard.writeText(s.texte); } catch { /* presse-papier refusé */ }
+    marquer(s, 'copie_le');
+  }
 
   const charger = useCallback(async (avant?: string) => {
     let q = supabase.from('ig_messages')
@@ -216,28 +274,11 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
     const page = ((data ?? []) as Message[]).reverse();
     setReste((data ?? []).length === PAGE);
 
-    if (avant) {
-      // ⚠️ Charger PLUS ANCIEN doit garder le regard où il est. Sans mémoriser
-      // la hauteur avant l'ajout, le contenu inséré en tête pousse la vue vers
-      // le bas et l'utilisateur perd sa place — le défaut classique d'un
-      // « charger plus » en haut d'une liste.
-      const z = zoneRef.current;
-      const avantH = z?.scrollHeight ?? 0;
-      const avantY = z?.scrollTop ?? 0;
-      setMessages(m => [...page, ...(m ?? [])]);
-      requestAnimationFrame(() => {
-        if (z) z.scrollTop = avantY + (z.scrollHeight - avantH);
-      });
-    } else {
-      setMessages(page);
-      // Une messagerie s'ouvre sur le DERNIER message, pas sur le premier.
-      // requestAnimationFrame : avant la peinture, scrollHeight vaut encore la
-      // hauteur du conteneur vide et l'appel serait sans effet.
-      requestAnimationFrame(() => {
-        const z = zoneRef.current;
-        if (z) z.scrollTop = z.scrollHeight;
-      });
-    }
+    // ⚠️ Aucun défilement programmé, ni à l'ouverture ni au chargement des
+    // messages plus anciens : la zone est en `column-reverse` (voir plus bas).
+    // Le navigateur ancre en bas tout seul, et le contenu ajouté en tête part
+    // hors-champ vers le haut sans déplacer la vue.
+    setMessages(m => (avant ? [...page, ...(m ?? [])] : page));
   }, [fil.id, supabase]);
 
   useEffect(() => { charger(); }, [charger]);
@@ -331,26 +372,30 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
         </div>
       )}
 
-      {/* Le fil */}
+      {/* ── Le fil, en `column-reverse` ──────────────────────────────────────
+          Ce n'est pas un détail de style, c'est le correctif du projet.
+          `app/layout.tsx` charge les polices en `display: 'swap'` : le texte
+          s'affiche d'abord en police système puis grandit quand Inter arrive,
+          APRÈS le premier rendu. Avec un défilement classique, ce grossissement
+          décale la vue — c'est le « saut de scroll au premier tap après un
+          démarrage à froid », invisible à toute instrumentation, qui a coûté
+          plusieurs sessions dans la messagerie.
+          `column-reverse` l'annule : le navigateur ancre en bas nativement, donc
+          le contenu qui grandit pousse vers le haut, hors-champ.
+          Conséquences ici : aucun scrollTop à écrire à l'ouverture, et charger
+          les messages plus anciens ne déplace pas la vue.
+          ⚠️ Le DOM va donc du PLUS RÉCENT au plus ancien : d'où le `.reverse()`
+          ci-dessous, et le bouton « plus anciens » placé APRÈS, qui apparaît
+          visuellement en HAUT. */}
       <div ref={zoneRef} style={{
         flex: 1, minHeight: 0, overflowY: 'auto', padding: 16,
-        display: 'flex', flexDirection: 'column', gap: 10,
+        display: 'flex', flexDirection: 'column-reverse', gap: 10,
       }}>
         {messages === null && (
           <div style={{ margin: 'auto', fontSize: 12, color: 'var(--muted)' }}>Chargement du fil…</div>
         )}
-        {reste && (
-          <button type="button" onClick={() => charger(messages?.[0]?.envoye_a)}
-            style={{
-              alignSelf: 'center', background: 'var(--surface-2)', border: '1px solid var(--border)',
-              borderRadius: 999, padding: '5px 14px', fontSize: 11.5, cursor: 'pointer',
-              color: 'var(--ink-2)', fontFamily: 'inherit', flexShrink: 0,
-            }}>
-            Charger les messages plus anciens
-          </button>
-        )}
 
-        {(messages ?? []).map((m, i, tous) => {
+        {[...(messages ?? [])].map((m, i, tous) => {
           const suivant = tous[i + 1];
           const dernierDuGroupe = !suivant || suivant.sortant !== m.sortant;
           const jour = i === 0 || new Date(m.envoye_a).toDateString() !== new Date(tous[i - 1].envoye_a).toDateString();
@@ -426,7 +471,20 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
               ) : null}
             </div>
           );
-        })}
+        }).reverse()}
+
+        {/* Placé APRÈS les messages dans le DOM, donc visuellement au-dessus
+            d'eux : c'est l'effet de `column-reverse`. */}
+        {reste && (
+          <button type="button" onClick={() => charger(messages?.[0]?.envoye_a)}
+            style={{
+              alignSelf: 'center', background: 'var(--surface-2)', border: '1px solid var(--border)',
+              borderRadius: 999, padding: '5px 14px', fontSize: 11.5, cursor: 'pointer',
+              color: 'var(--ink-2)', fontFamily: 'inherit', flexShrink: 0,
+            }}>
+            Charger les messages plus anciens
+          </button>
+        )}
       </div>
 
       {/* Menu contextuel — clic droit. Deux entrées : une suggestion répond à la
@@ -462,6 +520,82 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
           ))}
         </div>
       )}
+
+      {/* ── Suggestions ──────────────────────────────────────────────────────
+          La plateforme n'envoie AUCUN message de coach : il rédige, l'élève
+          envoie depuis Instagram. Ce n'est pas une limite technique — un coach
+          qui répond à la place engage l'élève sans avoir tout le contexte, et
+          plus personne ne peut dire qui a dit quoi.
+          Effet de bord bienvenu : aucune fenêtre de 24 h à gérer, aucune
+          permission `human_agent` à demander à Meta. */}
+      <div style={{
+        borderTop: '1px solid var(--border)', padding: '12px 16px',
+        display: 'flex', flexDirection: 'column', gap: 10, flexShrink: 0,
+      }}>
+        {suggestions.filter(s => !s.traite_le).map(s => (
+          <div key={s.id} style={{
+            border: '1px dashed color-mix(in srgb, var(--accent-brand) 45%, transparent)',
+            background: 'var(--accent-brand-soft, #eef2f4)', borderRadius: 10,
+            padding: '11px 13px', display: 'flex', flexDirection: 'column', gap: 9,
+          }}>
+            <div style={{
+              fontSize: 10, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase',
+              color: 'var(--accent-brand)',
+            }}>
+              ✻ Suggestion · pas encore envoyée
+            </div>
+            <div style={{ fontSize: 13, lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>{s.texte}</div>
+            {!annotable && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <button type="button" className="btn-primary" style={{ fontSize: 12 }}
+                  onClick={() => copier(s)}>
+                  {s.copie_le ? 'Copié ✓' : 'Copier le texte'}
+                </button>
+                {lien && (
+                  <a href={lien} target="_blank" rel="noopener noreferrer" className="btn-ghost"
+                     style={{ fontSize: 12, textDecoration: 'none' }} onClick={() => marquer(s, 'traite_le')}>
+                    Ouvrir la discussion
+                  </a>
+                )}
+                <button type="button" onClick={() => marquer(s, 'traite_le')}
+                  style={{
+                    background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                    fontSize: 11, color: 'var(--muted)', fontFamily: 'inherit',
+                  }}>C’est fait</button>
+              </div>
+            )}
+            {/* ⚠️ Ce marqueur ne prouve PAS qu'un message est parti : l'envoi a
+                lieu dans Instagram, hors de notre portée. La seule preuve arrive
+                toute seule — si le texte part, Instagram nous le renvoie en
+                `is_echo` et il apparaît dans le fil. */}
+            {annotable && s.copie_le && (
+              <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>
+                Copiée par l’élève le {new Date(s.copie_le).toLocaleDateString('fr-FR')}
+              </div>
+            )}
+          </div>
+        ))}
+
+        {annotable && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+            <textarea
+              value={brouillon}
+              onChange={e => setBrouillon(e.target.value)}
+              placeholder={`Rédiger une suggestion pour ${prenomEleve}…`}
+              rows={2}
+              style={{
+                flex: 1, resize: 'vertical', padding: '9px 12px', borderRadius: 10,
+                border: '1px solid var(--border)', background: 'var(--bg)', fontSize: 12.5,
+                fontFamily: 'inherit', color: 'var(--ink)', lineHeight: 1.45,
+              }}
+            />
+            <button type="button" className="btn-primary" disabled={!brouillon.trim() || envoi}
+              onClick={envoyerSuggestion} style={{ fontSize: 12.5, flexShrink: 0 }}>
+              {envoi ? 'Envoi…' : 'Envoyer'}
+            </button>
+          </div>
+        )}
+      </div>
 
       <style jsx global>{`
         .ig-pastille-note { opacity: 0; transition: opacity 120ms ease; }

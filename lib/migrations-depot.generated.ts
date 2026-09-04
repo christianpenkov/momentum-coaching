@@ -144,4 +144,5 @@ export const MIGRATIONS_DEPOT: { version: string; nom: string }[] = [
   { version: '20260904200000', nom: 'base_sante_taille_compte_ig_messages' },
   { version: '20260904210000', nom: 'enregistrer_messages_ig_lot' },
   { version: '20260904220000', nom: 'ig_conversations_visibles' },
+  { version: '20260904230000', nom: 'ig_suggestions' },
 ];
