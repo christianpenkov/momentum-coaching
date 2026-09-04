@@ -14,6 +14,7 @@ import { refusSequence } from '@/lib/sequenceDm';
 import { personnesParContenu } from '@/lib/attribution-roles';
 import { SOURCE_DM_ENTRANT, SOURCE_DM_SORTANT } from '@/lib/canalDm';
 
+import { IG, IgAvatar, IgRecu, IgTemplate, IgEnvoye } from '@/components/ig/primitivesInstagram';
 // ─── Garde de navigation — bloque un changement de post/onglet si des DMs ne sont pas sauvegardés ──
 interface UnsavedGuardApi {
   setHasUnsaved: (v: boolean) => void;
@@ -870,105 +871,14 @@ function ChatBubble({ tag, tagLabel, children }: { tag: string; tagLabel: string
 // DM1 = accroche seule, pas de lien dedans — simple textarea sans token
 // ─── Aperçu du fil Instagram ──────────────────────────────────────────────────
 //
-// Cotes relevées sur la capture réelle fournie par le client (référentiel 390pt).
-// Ce sont les couleurs de la MARQUE Instagram, pas celles de Momentum : elles
-// restent en dur, les tokens du design system n'ont rien à y faire.
-const IG = {
-  bulle: '#F0F0F2',      // bulle reçue, gris très légèrement bleuté
-  gris: '#8E8E93',       // pseudo, horodatage, « appuyez deux fois »
-  violet1: '#C427E8',    // dégradé sortant, extrémité magenta
-  violet2: '#7A3FE4',    // dégradé sortant, extrémité violet-bleuté
-  appareil: '#5A4BE8',   // rond du bouton appareil photo, barre de saisie
-} as const;
-
-/** Avatar avec l'anneau story — dégradé jaune → rose → violet. */
-function IgAvatar({ url, taille }: { url: string | null; taille: number }) {
-  return (
-    <span style={{
-      width: taille, height: taille, borderRadius: '50%', flexShrink: 0, boxSizing: 'border-box',
-      background: 'conic-gradient(from 200deg,#F9CE34,#EE2A7B,#6228D7,#F9CE34)', padding: 2,
-    }}>
-      <span style={{
-        display: 'block', width: '100%', height: '100%', borderRadius: '50%', overflow: 'hidden',
-        background: '#d8cfc4', border: '1.5px solid #fff', boxSizing: 'border-box',
-      }}>
-        {url && <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
-      </span>
-    </span>
-  );
-}
-
-/**
- * Une bulle reçue (message du coach).
- *
- * L'avatar n'apparaît que sur la DERNIÈRE bulle d'un groupe, aligné sur le bas —
- * c'est ce que fait Instagram, et l'oublier trahit immédiatement la maquette.
- */
-function IgRecu({ children, avatar, avatarUrl, hint, sc }: {
-  children: ReactNode; avatar: boolean; avatarUrl: string | null; hint?: boolean; sc: number;
-}) {
-  const a = Math.round(34 * sc);
-  // flexShrink:0 — sans lui, le conteneur du fil comprime les bulles au lieu de les
-  // laisser déborder, et le fil ne défile jamais (mesuré : 515px de contenu écrasés
-  // dans 410px, scrollHeight bloqué à la hauteur du conteneur).
-  return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: Math.round(7 * sc), maxWidth: '84%', flexShrink: 0 }}>
-      {avatar ? <IgAvatar url={avatarUrl} taille={a} /> : <span style={{ width: a, flexShrink: 0 }} />}
-      <div>
-        <div style={{
-          background: IG.bulle, borderRadius: Math.round(20 * sc),
-          padding: `${Math.round(9 * sc)}px ${Math.round(14 * sc)}px`,
-          fontSize: +(15 * sc).toFixed(1), lineHeight: 1.34, color: '#000',
-        }}>{children}</div>
-        {hint && (
-          <div style={{ fontSize: +(13 * sc).toFixed(1), color: IG.gris, margin: `${Math.round(4 * sc)}px 0 0 ${Math.round(5 * sc)}px` }}>
-            Appuyez deux fois pour ❤️
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Gabarit à bouton : première ligne en gras, puis un rectangle blanc.
- * C'est ce rectangle qui masque l'URL — d'où son rayon plus faible que la bulle,
- * et sa marge intérieure : il ne touche pas les bords.
- */
-function IgTemplate({ texte, bouton, avatar, avatarUrl, sc, hint }: {
-  texte: string; bouton: string; avatar: boolean; avatarUrl: string | null; sc: number; hint?: boolean;
-}) {
-  return (
-    <IgRecu avatar={avatar} avatarUrl={avatarUrl} sc={sc} hint={hint}>
-      <div style={{ fontWeight: 700, marginBottom: Math.round(7 * sc) }}>{texte}</div>
-      <div style={{
-        background: '#fff', borderRadius: Math.round(14 * sc),
-        padding: `${Math.round(9 * sc)}px ${Math.round(12 * sc)}px`,
-        margin: `0 ${Math.round(12 * sc)}px`,
-        textAlign: 'center', fontWeight: 700, fontSize: +(15 * sc).toFixed(1),
-      }}>{bouton}</div>
-    </IgRecu>
-  );
-}
-
-/**
- * Bulle envoyée par le prospect — dégradé diagonal, pas un aplat.
- *
- * Appuyer sur le bouton envoie LITTÉRALEMENT son libellé : c'est un message
- * sortant, à droite. C'est le point que le handoff souligne le plus, parce qu'il
- * explique pourquoi la séquence fonctionne.
- */
-function IgEnvoye({ texte, sc }: { texte: string; sc: number }) {
-  return (
-    <div style={{
-      alignSelf: 'flex-end', maxWidth: '80%', flexShrink: 0,
-      background: `linear-gradient(135deg, ${IG.violet1}, ${IG.violet2})`,
-      borderRadius: Math.round(20 * sc),
-      padding: `${Math.round(9 * sc)}px ${Math.round(14 * sc)}px`,
-      fontSize: +(15 * sc).toFixed(1), lineHeight: 1.34, color: '#fff', fontWeight: 600,
-    }}>{texte}</div>
-  );
-}
+// Les primitives (palette de marque, avatar, bulles, gabarit à bouton) vivent
+// désormais dans `components/ig/primitivesInstagram.tsx` : l'écran des
+// conversations Instagram du coach les réutilise telles quelles.
+//
+// ⚠️ Le SENS est inversé entre les deux écrans. Ici la bulle grise est le
+// message du COACH et le dégradé la réponse du prospect ; dans le fil réel de
+// l'élève, la grise est le prospect et le dégradé l'élève. Ce sont des
+// primitives gauche/droite : l'appelant décide qui est qui.
 
 /**
  * Le fil complet, tel que le prospect le voit.
