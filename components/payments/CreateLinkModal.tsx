@@ -44,6 +44,11 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
   const [options, setOptions] = useState<LeadOption[]>([]);
   const [loadingOptions, setLoadingOptions] = useState(true);
   const [tronque, setTronque] = useState(false);
+  const [echecListe, setEchecListe] = useState(false);
+  // ⚠️ Un compteur, et non `setQuery(q => q)` : réécrire une valeur identique ne
+  // réveille pas l'effet — React s'arrête là. Le bouton « Réessayer » n'aurait
+  // rien relancé, ce qui est pire qu'une absence de bouton.
+  const [essai, setEssai] = useState(0);
   const [selected, setSelected] = useState<LeadOption | null>(null);
   const [freeName, setFreeName] = useState('');
   const [amount, setAmount] = useState('');
@@ -75,15 +80,36 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
   useEffect(() => {
     if (who === 'free') { setOptions([]); setLoadingOptions(false); return; }
     setLoadingOptions(true);
+    setEchecListe(false);
+
+    // ⚠️ `vivant` protège de la REPONSE PERIMEE. Le nettoyage annulait le
+    // minuteur mais pas la requête déjà partie : en changeant d'onglet, la
+    // réponse de l'onglet précédent pouvait arriver en dernier et écraser la
+    // bonne. C'est ce qui rendait la liste « instable » d'un clic à l'autre.
+    let vivant = true;
+
     const t = setTimeout(() => {
       fetch(`/api/payments/people?q=${encodeURIComponent(query.trim())}&kind=${who}`)
-        .then(r => r.ok ? r.json() : { people: [] })
-        .then(d => { setOptions(d.people ?? []); setTronque(!!d.tronque); })
-        .catch(() => setOptions([]))
-        .finally(() => setLoadingOptions(false));
+        .then(async r => {
+          // ⚠️ `r.ok ? … : { people: [] }` transformait une PANNE en « aucun
+          // résultat ». Un 500, une session expirée, une coupure : la liste
+          // s'affichait vide et on en concluait qu'il n'y avait personne — puis
+          // on ressaisissait la personne à la main en « hors pipeline », ce qui
+          // lui fabrique une seconde fiche. Un trou doit dire « on ne sait pas ».
+          if (!r.ok) throw new Error(String(r.status));
+          return r.json();
+        })
+        .then(d => {
+          if (!vivant) return;
+          setOptions(d.people ?? []);
+          setTronque(!!d.tronque);
+        })
+        .catch(() => { if (vivant) { setOptions([]); setEchecListe(true); } })
+        .finally(() => { if (vivant) setLoadingOptions(false); });
     }, query ? 250 : 0);
-    return () => clearTimeout(t);
-  }, [query, who]);
+
+    return () => { vivant = false; clearTimeout(t); };
+  }, [query, who, essai]);
 
   const amountNum = Number(amount.replace(',', '.'));
   const valid = (who === 'free' ? freeName.trim().length > 1 : !!selected)
@@ -244,6 +270,16 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
                             </span>
                           </div>
                         ))
+                      ) : echecListe ? (
+                        // Une panne se dit, et se rejoue. Sans ce cas, elle se
+                        // confondait avec une liste réellement vide.
+                        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center', justifyContent: 'center', fontSize: 12, color: 'var(--muted)', padding: '0 16px', textAlign: 'center' }}>
+                          <span>La liste n’a pas pu être chargée.</span>
+                          <button className="btn-ghost" style={{ fontSize: 12 }}
+                            onClick={() => setEssai(n => n + 1)}>
+                            Réessayer
+                          </button>
+                        </div>
                       ) : options.length === 0 ? (
                         <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: 'var(--muted)', padding: '0 16px', textAlign: 'center' }}>
                           {/* « Aucun client » sans autre mot laissait croire à une
