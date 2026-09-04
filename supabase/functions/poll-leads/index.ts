@@ -3712,6 +3712,46 @@ Deno.serve(async (req: Request) => {
     }
   } catch { /* non bloquant — l'instantane sera rafraichi a l'heure suivante */ }
 
+  // ── Filet de rattrapage du backfill des conversations Instagram ────────────
+  //
+  // ⚠️ UNE lecture, jamais la boucle. Le backfill lui-meme vit dans sa propre
+  // route (`/api/instagram/backfill-conversations`), qui traite une page puis
+  // se rappelle via after(). Ce bloc ne fait que reveiller un backfill dont le
+  // reveil s'est perdu — meme role que `reveillerLeWorker()` pour la file de
+  // webhooks.
+  //
+  // ⚠️ NE JAMAIS y remonter la boucle de backfill. Cette fonction consomme deja
+  // 112 a 144 s sur les 150 s du Edge Runtime a 40 eleves (mesure du
+  // 2026-08-31, en tete de ce fichier). Le depassement ne produit AUCUN signal :
+  // le runtime coupe, et comme l'ordre de la requete est stable, ce sont
+  // TOUJOURS LES MEMES eleves qui sont sacrifies, silencieusement.
+  //
+  // Cout : une lecture par passage, sur une table qui porte une ligne par eleve
+  // et ne grossit jamais. La requete ne rend une ligne que s'il reste vraiment
+  // du travail.
+  try {
+    const { data: backfillEnAttente } = await supa
+      .from('ig_backfill_etat')
+      .select('profile_id')
+      .is('termine_le', null)
+      .order('demarre_le', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (backfillEnAttente?.profile_id) {
+      const controleur = new AbortController();
+      const minuteur = setTimeout(() => controleur.abort(), 5_000);
+      try {
+        await fetch(`${PLATFORM_URL}/api/instagram/backfill-conversations`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${CRON_SECRET}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ profile_id: backfillEnAttente.profile_id }),
+          signal: controleur.signal,
+        });
+      } finally { clearTimeout(minuteur); }
+    }
+  } catch { /* non bloquant — le passage suivant reessaiera, et ig_dm_sante alerte a 24 h */ }
+
   const erreursActionnables: Record<string, string[]> = {};
   for (const [pid, errs] of Object.entries(allErrors)) {
     const restant = errs.filter(e => !estIncidentPassager(e));

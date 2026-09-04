@@ -11,6 +11,7 @@ import { messageErreurOAuth } from '@/lib/oauth-errors';
 import LegalFooter from '@/components/ui/LegalFooter';
 import ShortioDomainPicker from '@/components/settings/ShortioDomainPicker';
 import FathomSetupHint from '@/components/ui/FathomSetupHint';
+import AccordDmInstagram from '@/components/settings/AccordDmInstagram';
 import type { Provider } from '@/lib/supabase/types';
 import { CLIENT_WIZARD_INTEGRATIONS } from '@/lib/onboarding/integrationConfig';
 
@@ -436,6 +437,10 @@ export default function PageClientSettings() {
                     <a href="https://ubizenai.com/data-deletion.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--muted)', textDecoration: 'underline' }}>Politique de suppression</a>.
                   </div>
                 )}
+
+                {/* L'accord n'a de sens qu'une fois Instagram connecté : sans compte,
+                    il n'y a aucune conversation à partager. */}
+                {cfg.provider === 'instagram' && integrations[cfg.provider] && <AccordDmInstagram />}
 
                 {/* Parcours Google (YouTube, Google Calendar) : tant que l'application
                     n'est pas validee par Google, la connexion passe par un ecran
