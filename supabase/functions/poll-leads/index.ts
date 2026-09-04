@@ -1764,11 +1764,77 @@ async function syncLmClickStream(profileId: string, rawClicks: { path: string; d
       // Si pas de ligne today, elle sera créée par snapshotShortioLinks (period=today) au prochain cron
     }));
 
+    // ── UNE lecture par PROFIL, au lieu d'une par CLIC ──────────────────────────
+    //
+    // Mesure du 2026-09-04 dans les logs de la passerelle : `/rest/v1/prospect_links`
+    // recevait 192 326 requetes par JOUR — 66 % de tout le trafic de la base, a 8 040
+    // par heure sans jamais varier. La cause etait dans les deux boucles ci-dessous :
+    // UNE REQUETE PAR CLIC, en serie. Et `humanClicks` couvre une fenetre glissante de
+    // plusieurs jours, donc les MEMES clics etaient reinterroges a chaque passage —
+    // 288 fois par jour — alors que le traitement est idempotent et deja fait.
+    //
+    // ⚠️ Le corps des reponses ne pesait RIEN : 1 octet en moyenne, un `maybeSingle`
+    // qui ne trouve pas. Ce qui coutait, c'est le NOMBRE. Chaque requete traine ses
+    // en-tetes, sa poignee de main TLS et le surcout de la passerelle — de l'ordre du
+    // kilo-octet, invisible dans le corps. C'est ce qui a consomme 5 Go d'egress en une
+    // semaine, sur un quota MENSUEL de 5 Go.
+    //
+    // On charge donc les liens et les leads du profil UNE fois, puis on apparie en
+    // memoire : ~1 500 requetes par jour au lieu de 192 000.
+
+    // Traduit FIDELEMENT un motif SQL `LIKE` en expression reguliere ancree a la fin.
+    //
+    // ⚠️ Un simple `endsWith` aurait ete PLUS STRICT que le SQL remplace : dans un
+    // `LIKE`, `_` est un joker d'un caractere et `%` un joker de longueur libre. Le cas
+    // existe vraiment en base — `lm-beau-christian_penkov`, l'underscore venant du
+    // pseudo Instagram. L'ecart serait infime, mais « infime » n'est pas « nul » : le
+    // but ici est de changer le COUT, pas le comportement.
+    const finLike = (suffixe: string): RegExp =>
+      new RegExp(suffixe.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+                        .replace(/%/g, '.*')
+                        .replace(/_/g, '.') + '$');
+
+    // `maybeSingle()` rend `null` sur ZERO ligne COMME SUR PLUSIEURS — elle leve dans
+    // ce dernier cas une erreur que l'appelant ignorait, laissant `data` a null. On
+    // reproduit exactement : seule une correspondance UNIQUE compte.
+    const unSeul = <T,>(liste: T[]): T | null => (liste.length === 1 ? liste[0] : null);
+
+    // ⚠️ PAGINEE — PostgREST tronque a 1000 lignes SANS erreur. Meme piege que celui
+    // documente pour `etatExistant` plus haut : a 40 eleves, un profil actif depasse le
+    // millier de liens et l'appariement deviendrait silencieusement partiel.
+    const lireToutDuProfil = async (table: string, colonnes: string): Promise<any[]> => {
+      const PAGE = 1000;
+      const out: any[] = [];
+      for (let depuis = 0; ; depuis += PAGE) {
+        const { data, error } = await supa.from(table).select(colonnes)
+          .eq('profile_id', profileId)
+          .order('id', { ascending: true })
+          .range(depuis, depuis + PAGE - 1);
+        if (error) { errors.push(`lecture_${table}: ${error.message}`); break; }
+        out.push(...(data ?? []));
+        if ((data?.length ?? 0) < PAGE) break;
+      }
+      return out;
+    };
+
+    const clicsLm = humanClicks.filter(c => c.path.replace(/^\//, '').startsWith('lm-'));
+    const clicsCalendly = humanClicks.filter(c => !c.path.replace(/^\//, '').startsWith('lm-'));
+
+    // Aucun clic, aucune lecture : la propriete « pas de travail, pas de requete » du
+    // code precedent est conservee telle quelle.
+    const leadsDuProfil = clicsLm.length
+      ? await lireToutDuProfil('instagram_leads', 'id, ig_username, detected_at, tracking_link')
+      : [];
+    const liensDuProfil = clicsCalendly.length
+      ? await lireToutDuProfil('prospect_links', 'id, ig_username, ig_lead_id, calendly_link_sent, calendly_link_sent_at, last_calendly_link_sent_at, first_click_at, short_url')
+      : [];
+
     // LM clicks
-    for (const click of humanClicks.filter(c => c.path.replace(/^\//, '').startsWith('lm-'))) {
+    for (const click of clicsLm) {
       const clickedAt = click.dt ? new Date(click.dt).toISOString() : new Date().toISOString();
       const cleanPath = click.path.replace(/^\//, '');
-      const { data: igLead } = await supa.from('instagram_leads').select('id, ig_username, detected_at').eq('profile_id', profileId).filter('tracking_link', 'like', `%/${cleanPath}`).maybeSingle();
+      const motifLm = finLike(`/${cleanPath}`);
+      const igLead = unSeul(leadsDuProfil.filter(l => l.tracking_link && motifLm.test(l.tracking_link)));
       if (!igLead) continue;
       if (new Date(clickedAt) < new Date(igLead.detected_at)) continue;
       const { data: existing } = await supa.from('prospect_events').select('id, occurred_at').eq('ig_lead_id', igLead.id).eq('event_type', 'lm_clicked').maybeSingle();
@@ -1781,15 +1847,23 @@ async function syncLmClickStream(profileId: string, rawClicks: { path: string; d
     }
 
     // Calendly link clicks
-    for (const click of humanClicks.filter(c => !c.path.replace(/^\//, '').startsWith('lm-'))) {
+    for (const click of clicsCalendly) {
       const clickedAt = click.dt ? new Date(click.dt).toISOString() : new Date().toISOString();
       const cleanPath = click.path.replace(/^\//, '');
-      const { data: pl } = await supa.from('prospect_links').select('id, ig_username, ig_lead_id, calendly_link_sent, calendly_link_sent_at, last_calendly_link_sent_at, first_click_at').eq('profile_id', profileId).filter('short_url', 'like', `%/${cleanPath}`).maybeSingle();
+      const motifCal = finLike(`/${cleanPath}`);
+      const pl = unSeul(liensDuProfil.filter(l => l.short_url && motifCal.test(l.short_url)));
       if (!pl) continue;
       const sentRefAt = pl.last_calendly_link_sent_at ?? pl.calendly_link_sent_at;
       if (!pl.calendly_link_sent || !sentRefAt) continue;
       if (new Date(clickedAt) <= new Date(sentRefAt)) continue;
-      if (!pl.first_click_at) await supa.from('prospect_links').update({ first_click_at: clickedAt }).eq('id', pl.id);
+      // ⚠️ La ligne etait RELUE en base a chaque clic : un second clic sur le MEME lien
+      // voyait donc `first_click_at` deja pose et ne le rejouait pas. En memoire,
+      // l'objet est partage entre les iterations — il faut le tenir a jour ici, sinon
+      // chaque clic suivant du meme lien ecraserait la premiere date par la sienne.
+      if (!pl.first_click_at) {
+        await supa.from('prospect_links').update({ first_click_at: clickedAt }).eq('id', pl.id);
+        pl.first_click_at = clickedAt;
+      }
       const { data: existingEvt } = await supa.from('prospect_events').select('id').eq('prospect_link_id', pl.id).eq('event_type', 'link_clicked').maybeSingle();
       if (!existingEvt) {
         const { error: evtErr } = await supa.from('prospect_events').insert({ profile_id: profileId, prospect_key: pl.ig_username.toLowerCase(), platform: 'ig', event_type: 'link_clicked', occurred_at: clickedAt, ig_lead_id: pl.ig_lead_id, prospect_link_id: pl.id });
