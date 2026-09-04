@@ -1097,6 +1097,21 @@ attendu, pas seulement à l'absence d'erreur.
 réels, sens des bulles correct. Backfill : 4 fils importés = **exactement** les 4 leads
 visibles, zéro lead exclu, zéro alerte de santé.
 
+### ✅ Atterrissage 3 — LIVRÉ le 2026-09-04
+
+Table `ig_suggestions`, composeur côté coach, bloc dans le fil, boutons côté élève,
+pastille sur l'entrée de menu.
+
+**Vérifié en conditions réelles** : suggestion rédigée et envoyée depuis l'interface du
+coach, écrite en base, affichée dans le fil.
+
+⚠️ **Trois faux négatifs pendant la vérification, tous dus à la SONDE et non au code.**
+`innerText` ignore les `placeholder` et rend le texte **après** `text-transform` : chercher
+« Rédiger une suggestion » (un placeholder) ou « pas encore envoyée » (rendu en majuscules)
+rendait « absent » sur une interface parfaitement fonctionnelle. **Une sonde qui peut
+rapporter une absence doit rendre, dans la même mesure, la preuve qu'elle aurait su voir la
+présence** — un extrait du contenu observé, jamais un simple booléen.
+
 Reste de l'atterrissage 1, à faire :
 
 ### Atterrissage 1 — la plomberie, invisible (~6 fichiers)
