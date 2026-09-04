@@ -72,7 +72,18 @@ export default function PageClients() {
     list.sort((a, b) => {
       if (sort === 'cash') return (b.currentStats?.cashContracted || 0) - (a.currentStats?.cashContracted || 0);
       if (sort === 'followers') return (b.currentStats?.followersIg || 0) - (a.currentStats?.followersIg || 0);
-      if (sort === 'week') return getClientWeek(b.onboarding_completed_at) - getClientWeek(a.onboarding_completed_at);
+      if (sort === 'week') {
+        /* ⚠️ Les élèves sans date d'arrivée vont EN BAS, dans les deux sens. « On ne sait
+         * pas » n'est pas « le plus ancien » : les laisser remonter mettrait en tête de
+         * liste ceux dont on ignore tout. Même règle que `trierLignes` dans
+         * lib/statsClients.ts. */
+        const sa = getClientWeek(a.onboarding_completed_at);
+        const sb = getClientWeek(b.onboarding_completed_at);
+        if (sa === null && sb === null) return 0;
+        if (sa === null) return 1;
+        if (sb === null) return -1;
+        return sb - sa;
+      }
       return a.name.localeCompare(b.name);
     });
     return list;
@@ -212,7 +223,8 @@ export default function PageClients() {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--accent)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
                     <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                      {c.niche || 'Infopreneur'} · S{getClientWeek(c.onboarding_completed_at)}
+                      {c.niche || 'Infopreneur'}
+                      {getClientWeek(c.onboarding_completed_at) !== null && ` · S${getClientWeek(c.onboarding_completed_at)}`}
                     </div>
                   </div>
                   <Icon name="chevR" size={14} color="var(--faint)" />
@@ -285,7 +297,11 @@ export default function PageClients() {
                       <td onClick={e => e.stopPropagation()}>
                         <SignalsCell client={c} signals={signalsByClient.get(c.id)} onResolved={refetch} />
                       </td>
-                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>S{getClientWeek(c.onboarding_completed_at)}</td>
+                      {/* Un tiret, jamais « S1 » : la colonne dirait sinon que l'élève
+                          en est à sa première semaine alors qu'on ignore sa date d'arrivée. */}
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                        {getClientWeek(c.onboarding_completed_at) !== null ? `S${getClientWeek(c.onboarding_completed_at)}` : '—'}
+                      </td>
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600 }}>
                         {(m?.followersIg || 0).toLocaleString('fr-FR')}
                       </td>

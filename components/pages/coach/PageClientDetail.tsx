@@ -724,7 +724,9 @@ export default function PageClientDetail({ id }: Props) {
             <h1 className="page-title" style={{ marginBottom: 4 }}>{client.name}</h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 13, color: 'var(--muted)' }}>{client.niche || 'Niche non définie'}</span>
-              <span style={{ fontSize: 12, color: 'var(--muted)' }}>· Semaine {getClientWeek(client.onboarding_completed_at)}</span>
+              {getClientWeek(client.onboarding_completed_at) !== null && (
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>· Semaine {getClientWeek(client.onboarding_completed_at)}</span>
+              )}
             </div>
           </div>
         </div>

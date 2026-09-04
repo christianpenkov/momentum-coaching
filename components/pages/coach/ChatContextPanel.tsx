@@ -35,9 +35,9 @@ import type { Call } from '@/lib/supabase/types';
  * 3. « Semaine N » affichait « Semaine 1 » pour un élève sans date d'arrivée. Un trou
  *    n'est pas une valeur : la semaine ne s'affiche plus dans ce cas.
  *
- * ⚠️ Le point 3 n'est corrigé QUE dans ce panneau. `getClientWeek` rend toujours 1 sur
- * une date absente, et trois autres écrans l'affichent — dont deux côté élève. À traiter
- * à part : changer la fonction touche ce que voient les élèves.
+ * ⚠️ Le point 3 a été corrigé DANS `getClientWeek` elle-même le 2026-09-04, donc pour
+ * les quatre écrans qui l'appellent. `SidebarClient` écrivait déjà `week ? … : ''` : sa
+ * garde était juste, simplement désamorcée par une fonction qui ne rendait jamais `null`.
  */
 
 interface ChatContextPanelProps {
@@ -78,7 +78,8 @@ export default function ChatContextPanel({ client, calls, open, onClose }: ChatC
   const tachesOuvertes = (client.tasks ?? []).filter(t => !t.done);
   const tachesMontrees = tachesOuvertes.slice(0, 3);
 
-  const semaine = client.onboarding_completed_at ? getClientWeek(client.onboarding_completed_at) : null;
+  // `getClientWeek` rend `null` sans date d'arrivée : plus besoin de le garder ici.
+  const semaine = getClientWeek(client.onboarding_completed_at);
 
   const collecte = client.cashCollectedAllTime ?? 0;
   const contracte = client.currentStats?.cashContracted ?? 0;

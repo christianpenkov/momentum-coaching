@@ -2295,7 +2295,14 @@ export default function PageChat() {
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cl.name}</div>
                     <div style={{ fontSize: 11, color: isOnline ? 'var(--accent-brand)' : 'var(--muted)' }}>
-                      {isOnline ? 'En ligne' : `Semaine ${getClientWeek(cl.onboarding_completed_at)}`}
+                      {/* Sans date d'arrivée on le DIT, au lieu d'afficher « Semaine 1 » :
+                          c'est le cas d'un élève invité dont l'inscription n'est pas
+                          allée au bout, et le coach a besoin de le voir. */}
+                      {isOnline
+                        ? 'En ligne'
+                        : getClientWeek(cl.onboarding_completed_at) !== null
+                          ? `Semaine ${getClientWeek(cl.onboarding_completed_at)}`
+                          : 'Arrivée inconnue'}
                     </div>
                   </div>
                   {unread > 0 && (

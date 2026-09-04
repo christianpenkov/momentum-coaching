@@ -474,7 +474,9 @@ export default function PageToday() {
                           : <span style={{ fontSize: 12, color: 'var(--muted)' }}>—</span>;
                       })()}
                     </td>
-                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>S{getClientWeek(client.onboarding_completed_at)}</td>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                      {getClientWeek(client.onboarding_completed_at) !== null ? `S${getClientWeek(client.onboarding_completed_at)}` : '—'}
+                    </td>
                     <td>
                       <Link href={`/clients/${client.id}`} transitionTypes={['nav-forward']} className="btn-ghost" style={{ fontSize: 11, padding: '4px 8px' }}>
                         <Icon name="chevR" size={12} />
@@ -498,7 +500,8 @@ export default function PageToday() {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--accent)' }}>{client.name}</div>
                     <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
-                      {client.niche || 'Infopreneur'} · S{getClientWeek(client.onboarding_completed_at)}
+                      {client.niche || 'Infopreneur'}
+                      {getClientWeek(client.onboarding_completed_at) !== null && ` · S${getClientWeek(client.onboarding_completed_at)}`}
                     </div>
                   </div>
                   {s.total > 0 ? (

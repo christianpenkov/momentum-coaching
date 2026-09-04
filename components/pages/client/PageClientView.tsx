@@ -371,7 +371,12 @@ export default function PageClientView() {
               Bonjour, {client.name}
             </h1>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
-              {client.niche || 'Infopreneur'} · Sem. <strong style={{ color: 'var(--accent)' }}>{getClientWeek(client.onboarding_completed_at)}</strong>
+              {/* La semaine ne s'affiche que si on la connaît : `getClientWeek` rend
+                  `null` sans date d'arrivée, plutôt que « Sem. 1 » inventée. */}
+              {client.niche || 'Infopreneur'}
+              {getClientWeek(client.onboarding_completed_at) !== null && (
+                <> · Sem. <strong style={{ color: 'var(--accent)' }}>{getClientWeek(client.onboarding_completed_at)}</strong></>
+              )}
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 11, color: 'var(--accent)', background: 'var(--surface)', border: '1px solid var(--border)', padding: '4px 10px', borderRadius: 20, fontWeight: 600, whiteSpace: 'nowrap' }}>
