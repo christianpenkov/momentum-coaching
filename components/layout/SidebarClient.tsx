@@ -37,6 +37,7 @@ export default function SidebarClient() {
   const [week, setWeek] = useState<number | null>(null);
   const [coachName, setCoachName] = useState<string | null>(null);
   const unreadCount = useUnreadMessagesCount();
+  const [suggestionsEnAttente, setSuggestionsEnAttente] = useState(0);
   const { openWizard } = useOnboardingWizard();
 
   useEffect(() => {
@@ -52,6 +53,19 @@ export default function SidebarClient() {
           }
         }
       });
+
+    // Suggestions non traitees — UNE lecture au montage, jamais un minuteur.
+    //
+    // ⚠️ Pas de notification push non plus, et c'est delibere : l'ecran des
+    // conversations est reserve a l'ordinateur, donc une push arrivant sur le
+    // telephone menerait a « Disponible sur ordinateur ». Une notification qui
+    // derange sans permettre d'agir est le debut d'une notification qu'on
+    // n'ouvre plus. La pastille apparait la ou l'action est possible.
+    supabase.from('ig_suggestions')
+      .select('id', { count: 'exact', head: true })
+      .eq('profile_id', user.id)
+      .is('traite_le', null)
+      .then(({ count }) => setSuggestionsEnAttente(count ?? 0));
   }, [user?.id]);
 
   return (
@@ -64,6 +78,11 @@ export default function SidebarClient() {
               <Icon name={icon} size={16} />
               <span>{label}</span>
               {highlight && !active && <span style={{ fontSize: 9, fontWeight: 700, background: 'var(--accent)', color: 'var(--bg)', borderRadius: 4, padding: '1px 5px', marginLeft: 'auto' }}>IA</span>}
+              {href === '/client/conversations' && suggestionsEnAttente > 0 && (
+                <span style={{ fontSize: 10, fontWeight: 700, background: 'var(--accent-brand)', color: '#fff', borderRadius: 999, minWidth: 16, height: 16, padding: '0 4px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginLeft: 'auto' }}>
+                  {suggestionsEnAttente > 9 ? '9+' : suggestionsEnAttente}
+                </span>
+              )}
               {href === '/client/messages' && unreadCount > 0 && (
                 <span style={{ fontSize: 10, fontWeight: 700, background: 'var(--red)', color: '#fff', borderRadius: 999, minWidth: 16, height: 16, padding: '0 4px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginLeft: 'auto' }}>
                   {unreadCount > 9 ? '9+' : unreadCount}
