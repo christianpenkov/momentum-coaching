@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Icon from '@/components/ui/Icon';
 import Portal from './Portal';
 import { useIsMobile } from '@/lib/useIsMobile';
@@ -35,27 +35,41 @@ export default function ModaleAction({
   const isMobile = useIsMobile();
   const { hauteur: clavier, dessus, visible } = useHauteurClavier();
 
-  // ── Remonter le champ actif quand le clavier s'ouvre ──────────────────────
-  // Décoller la feuille du clavier ne suffit PAS : elle se contracte, mais le
-  // champ reste à la même place dans une zone défilante devenue plus courte —
-  // donc sous la ligne de flottaison. C'est ce que Chris a constaté le
-  // 2026-09-04 sur la raison de clôture : la feuille avait bien bougé, le champ
-  // restait invisible.
+  // ── Remonter le champ, sur le FOCUS et non sur le clavier ─────────────────
+  // Pourquoi le champ montant remontait tout seul et pas la raison de clôture :
+  // le premier porte `autoFocus`, donc le navigateur le place lui-même à
+  // l'ouverture. Le second est focalisé par un TAP, dans une feuille déjà ouverte
+  // et longue — et rien ne le remontait.
   //
-  // `ModalShell` porte cet effet depuis la correction du rapport de vente ;
-  // `ModaleAction` ne l'avait jamais eu. Les six modales de paiement étaient donc
-  // à moitié corrigées — la moitié visible.
+  // Une première version écoutait le changement de hauteur du clavier. Elle
+  // ratait deux cas : toucher un champ alors que le clavier est DÉJÀ ouvert
+  // (passer d'un champ à l'autre ne change aucune hauteur), et le champ placé
+  // bas dans un contenu long, où le seul rétrécissement ne suffit pas.
   //
-  // Déclenché sur l'OUVERTURE du clavier, pas à chaque frappe : un défilement
-  // lisse relancé à chaque caractère lutte contre celui qui écrit. Et après le
-  // rendu qui contracte la feuille, sinon le contenu n'a encore rien à défiler.
+  // Écouter `focusin` répond exactement à la question posée — « quel champ
+  // l'utilisateur vient-il de toucher ? » — au lieu de la déduire d'un effet de
+  // bord. Et `clavier` reste dans les dépendances : la feuille change de taille
+  // juste après le focus, il faut refaire le geste une fois la nouvelle hauteur
+  // posée, sinon on aurait fait défiler dans l'ancienne.
+  const feuilleRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
-    if (clavier === 0) return;
-    const actif = document.activeElement;
-    if (!(actif instanceof HTMLElement)) return;
-    if (actif.tagName !== 'INPUT' && actif.tagName !== 'TEXTAREA') return;
-    const t = setTimeout(() => actif.scrollIntoView({ block: 'center', behavior: 'smooth' }), 0);
-    return () => clearTimeout(t);
+    const feuille = feuilleRef.current;
+    if (!feuille) return;
+
+    function remonter() {
+      const actif = document.activeElement;
+      if (!(actif instanceof HTMLElement)) return;
+      if (actif.tagName !== 'INPUT' && actif.tagName !== 'TEXTAREA') return;
+      // Deux passages : tout de suite pour le cas où la hauteur ne bouge plus,
+      // et après l'animation du clavier, qui déplace le sol sous nos pieds.
+      actif.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      setTimeout(() => actif.scrollIntoView({ block: 'center', behavior: 'smooth' }), 300);
+    }
+
+    feuille.addEventListener('focusin', remonter);
+    if (clavier > 0) remonter();
+    return () => feuille.removeEventListener('focusin', remonter);
   }, [clavier]);
 
   useEffect(() => {
@@ -73,7 +87,7 @@ export default function ModaleAction({
           que le clavier recouvre : le champ qu'on vient de toucher et les
           boutons de validation passaient dessous. Elle se pose donc sur le
           clavier, et se contente de la hauteur qui reste. */}
-      <div style={isMobile ? {
+      <div ref={feuilleRef} style={isMobile ? {
         position: 'fixed', left: 0, right: 0, zIndex: 10009,
         // Clavier fermé : ancrée en bas. Ouvert : la position vient du bloc
         // conditionnel plus bas, qui pose `top` et `height` sur la zone visible.
