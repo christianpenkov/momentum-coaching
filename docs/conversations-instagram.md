@@ -719,6 +719,32 @@ capturer.** Reprendre l'historique ne peut ramener aucun vocal, puisque même le
 d'il y a trois heures est déjà muet. Ajouter une capture au backfill serait du code mort
 qui donnerait l'illusion d'une reprise.
 
+### Et la transcription qu'Instagram affiche dans l'app ?
+
+Question posée le 2026-09-04, et la réponse est **non**. Testé champ par champ sur un
+vocal réel de trois minutes, parce qu'un champ inconnu fait échouer la requête entière et
+qu'il fallait donc les interroger un par un :
+
+```
+transcript · transcription · audio_transcript · voice_transcript ·
+speech_to_text · text        → tous « Tried accessing nonexisting field »
+```
+
+⚠️ **Le motif compte plus que la liste** : Meta déclare le message entier
+`is_unsupported: true`, c'est-à-dire « je n'expose pas cet objet ». Il n'existe donc aucun
+objet auquel une transcription pourrait être rattachée, et essayer un septième nom de
+champ ne changera rien. La transcription visible dans l'application est produite pour le
+titulaire du compte, dans l'application, et ne sort pas par l'API.
+
+**Ce qui reste possible, si le sujet revient** : transcrire nous-mêmes le fichier qu'on
+vient justement de capturer. Chiffré le 2026-09-04 — un vocal Instagram pèse **5,6 Ko par
+seconde** (mesuré : 15 636 octets pour 2,77 s), donc à 40 élèves × 5 vocaux/jour × 20 s, on
+est autour de 2 000 minutes par mois, soit ~10 $/mois chez OpenAI et ~1,5 $ chez Groq.
+⚠️ Deux conséquences à ne pas oublier ce jour-là : **aucune clé d'IA n'existe sur le
+projet** (ni `.env.local`, ni Vercel, vérifié), et ça ajoute un sous-traitant qui reçoit la
+voix des prospects, donc une ligne au §6 de `ubizenai.com/privacy.html`. Écarté pour
+l'instant, sans objection de principe.
+
 Décision de Chris, 2026-09-04 : **on stocke, 30 jours, et on passe au plan supérieur le
 jour où le gigaoctet est plein.**
 
