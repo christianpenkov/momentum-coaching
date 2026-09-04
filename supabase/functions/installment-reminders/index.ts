@@ -155,7 +155,16 @@ Deno.serve(async (req) => {
     // Aucun risque de notifier un prélèvement automatique : en mode auto c'est
     // Stripe qui porte l'échéancier, deal_installments reste vide.
     .neq('deals.payment_plan', 'installments_auto')
+    // ⚠️ `ended` AUTANT que `canceled`, et son oubli envoyait de vraies
+    // notifications : une vente clôturée ou arrêtée gardait ses échéances
+    // `pending`, donc continuait de produire des rappels « à payer » — pour un
+    // argent qu'on a décidé de ne plus réclamer, avec un lien que la clôture
+    // venait de désactiver chez Stripe. Le client aurait reçu une relance et
+    // serait tombé sur une page de refus.
+    //
+    // Deux `.neq` chaînés valent un ET. Ne relancer que ce qu'on attend encore.
     .neq('deals.status', 'canceled')
+    .neq('deals.status', 'ended')
     .neq('status', 'paid')
     .lte('due_on', inTwoDays)
     .gte('due_on', new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10));

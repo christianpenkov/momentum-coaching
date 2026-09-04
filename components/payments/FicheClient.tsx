@@ -450,6 +450,8 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
           {echeances.length > 0
             ? echeances.map(i => (
                 <LigneEcheance key={i.id} inst={i} total={echeances.length} mode={mode}
+                  finDeVie={deal.status === 'ended' ? 'ended'
+                    : deal.status === 'canceled' ? 'canceled' : null}
                   payeLe={dateDePaiement.get(i.id) ?? null} onChange={onChange} />
               ))
             /* ── Prélèvement automatique ──────────────────────────────────
@@ -512,7 +514,8 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
                 </div>
               )}
               <LigneLien url={deal.shortUrl!} clics={detail?.clicks ?? 0} envoye={false}
-                premierClic={detail?.firstClickAt} suivi={detail?.tracked !== false} />
+                premierClic={detail?.firstClickAt} suivi={detail?.tracked !== false}
+                mort={deal.status === 'ended' || deal.status === 'canceled'} />
             </>
           )}
 
@@ -685,10 +688,20 @@ function Repliable({ titre, ouvert, onToggle, children }: {
  * illisibles, et c'est justement en mode « un lien par échéance » qu'il y en a
  * plusieurs à distinguer.
  */
-function LigneEcheance({ inst, total, mode, payeLe, onChange }: {
+function LigneEcheance({ inst, total, mode, finDeVie, payeLe, onChange }: {
   inst: DealDetail['installments'][number];
   total: number;
   mode: ReturnType<typeof modeDe>;
+  /**
+   * La vente ne sera plus encaissée : clôturée/arrêtée (`ended`) ou annulée
+   * (`canceled`). Ses liens ont été désactivés chez Stripe dans le même geste.
+   *
+   * ⚠️ Sans ça, la fiche continuait d'annoncer « en retard depuis le 18 août »,
+   * « pas encore envoyé » et de proposer « Marquer envoyé » sur une vente qu'on
+   * venait de clôturer — soit une invitation à envoyer un lien mort, et une
+   * réclamation d'argent qu'on a justement décidé de ne plus réclamer.
+   */
+  finDeVie: 'ended' | 'canceled' | null;
   /** Date réelle du paiement, quand elle est connue. */
   payeLe: string | null;
   onChange: () => Promise<unknown> | void;
@@ -696,10 +709,14 @@ function LigneEcheance({ inst, total, mode, payeLe, onChange }: {
   const [marque, setMarque] = useState(false);
   const payee = inst.status === 'paid';
 
+  // Une échéance non payée sur une vente terminée n'est plus attendue : ni en
+  // retard, ni à payer. Le retard est une dette ; ici il n'y en a plus.
+  const abandonnee = !payee && finDeVie !== null;
+
   // Une échéance non payée dont la date est passée n'est pas « à payer
   // jusqu'au », c'est en retard. La formulation au futur sur une date dépassée
   // laissait croire qu'il restait du temps.
-  const enRetard = !payee && !!inst.due_on
+  const enRetard = !payee && !abandonnee && !!inst.due_on
     && new Date(inst.due_on).getTime() < Date.now() - 86400_000;
 
   async function declarerRecu() {
@@ -719,7 +736,8 @@ function LigneEcheance({ inst, total, mode, payeLe, onChange }: {
       <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
         <span style={{
           width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
-          background: payee ? 'var(--green)' : enRetard ? 'var(--red)'
+          background: payee ? 'var(--green)' : abandonnee ? '#d8d2c5'
+            : enRetard ? 'var(--red)'
             : inst.sent_at ? 'var(--amber)' : '#d8d2c5',
         }} />
         <span style={{ flex: 1, minWidth: 0 }}>
@@ -735,6 +753,13 @@ function LigneEcheance({ inst, total, mode, payeLe, onChange }: {
                   d'inventer. */}
               {payee
                 ? (payeLe ? `payée le ${fmtDateLong(payeLe)}` : 'payée')
+                // Une vente terminée dit ce qu'il advient de l'échéance, pas une
+                // date d'exigibilité qui n'existe plus. Les deux mots diffèrent
+                // parce que les deux situations diffèrent : sur une clôture
+                // l'argent déjà versé reste dû à l'élève, sur une annulation la
+                // vente entière est retirée des compteurs.
+                : abandonnee
+                ? (finDeVie === 'canceled' ? 'annulée' : 'ne sera pas réclamée')
                 : mode === 'installments_auto' ? `sera prélevée le ${fmtDateLong(inst.due_on)}`
                 : enRetard ? `en retard depuis le ${fmtDateLong(inst.due_on)}`
                 // « jusqu'au » et non « le » : le client peut payer avant, et
@@ -746,8 +771,11 @@ function LigneEcheance({ inst, total, mode, payeLe, onChange }: {
         <span className="tabular" style={{ fontSize: 12.5, fontWeight: 600, color: payee ? 'var(--ink)' : 'var(--muted)' }}>
           {fmtEurExact(Number(inst.amount))}
         </span>
-        {/* Hors Stripe : aucun webhook ne confirmera jamais ce virement. */}
-        {!payee && !inst.short_url && (
+        {/* Hors Stripe : aucun webhook ne confirmera jamais ce virement.
+            Retiré sur une vente terminée : on n'attend plus ce versement, et le
+            déclarer ici le ferait rentrer comme un encaissement normal alors
+            qu'un paiement sur une vente close relève du « paiement inattendu ». */}
+        {!payee && !abandonnee && !inst.short_url && (
           <button onClick={declarerRecu} disabled={marque} style={{
             fontSize: 11.5, flexShrink: 0, border: '1px solid var(--border)', borderRadius: 7,
             padding: '4px 9px', background: 'var(--surface)', cursor: marque ? 'default' : 'pointer',
@@ -759,6 +787,7 @@ function LigneEcheance({ inst, total, mode, payeLe, onChange }: {
       {!payee && inst.short_url && (
         <LigneLien url={inst.short_url} clics={inst.clicks ?? 0} envoye={!!inst.sent_at}
           premierClic={inst.firstClickAt} suivi={inst.tracked !== false}
+          mort={abandonnee}
           installmentId={inst.id} onChange={onChange} />
       )}
     </div>
@@ -772,7 +801,7 @@ function LigneEcheance({ inst, total, mode, payeLe, onChange }: {
  * Momentum peut constater, il le constate et ne le demande jamais. Un lien
  * ouvert est forcément un lien reçu — inutile de faire cocher « envoyé ».
  */
-function LigneLien({ url, clics, envoye, premierClic, suivi = true, installmentId, onChange }: {
+function LigneLien({ url, clics, envoye, premierClic, suivi = true, mort = false, installmentId, onChange }: {
   url: string;
   clics: number;
   envoye: boolean;
@@ -780,6 +809,15 @@ function LigneLien({ url, clics, envoye, premierClic, suivi = true, installmentI
   premierClic?: string | null;
   /** Faux = le lien ne passe pas par Short.io, aucune ouverture n'est mesurable. */
   suivi?: boolean;
+  /**
+   * Le lien a été désactivé chez Stripe — la vente est clôturée ou annulée.
+   *
+   * L'affichage normal (« pas encore envoyé », bouton copier, « Marquer
+   * envoyé ») invitait à envoyer un lien mort : le client aurait ouvert une page
+   * de refus, sur une vente que l'élève croyait réglée. Copier n'a plus de sens
+   * non plus — le seul usage d'un lien est de l'envoyer.
+   */
+  mort?: boolean;
   installmentId?: string;
   onChange?: () => Promise<unknown> | void;
 }) {
@@ -790,7 +828,9 @@ function LigneLien({ url, clics, envoye, premierClic, suivi = true, installmentI
   // ⚠️ Sans suivi, zéro clic ne veut PAS dire « jamais ouvert » : il veut dire
   // qu'on ne sait pas. Le dire évite de conclure qu'un client ignore un lien
   // qu'il a peut-être déjà lu.
-  const etiquette = ouvert
+  const etiquette = mort
+    ? { texte: 'ne fonctionne plus', couleur: 'var(--muted)', fond: 'var(--surface-2)' }
+    : ouvert
     ? {
         texte: premierClic ? `ouvert le ${fmtDateLong(premierClic)}, pas payé` : 'ouvert, pas payé',
         couleur: 'var(--amber-ink)', fond: 'var(--amber-soft)',
@@ -812,7 +852,13 @@ function LigneLien({ url, clics, envoye, premierClic, suivi = true, installmentI
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingLeft: 18, marginTop: 3, flexWrap: 'wrap' }}>
-      <span style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--font-mono, monospace)' }}>
+      {/* Barré et estompé : l'adresse reste lisible comme trace de ce qui a été
+          envoyé, sans se donner pour un lien encore utilisable. */}
+      <span style={{
+        fontSize: 11.5, color: mort ? 'var(--faint)' : 'var(--muted)',
+        fontFamily: 'var(--font-mono, monospace)',
+        textDecoration: mort ? 'line-through' : undefined,
+      }}>
         {url.replace(/^https?:\/\//, '')}
       </span>
       <span style={{
@@ -820,18 +866,20 @@ function LigneLien({ url, clics, envoye, premierClic, suivi = true, installmentI
         background: etiquette.fond, color: etiquette.couleur, whiteSpace: 'nowrap',
       }}>{etiquette.texte}</span>
 
-      <button onClick={async () => {
-        await navigator.clipboard.writeText(url);
-        setCopie(true);
-        setTimeout(() => setCopie(false), 2000);
-      }} aria-label="Copier ce lien"
-        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, display: 'flex', flexShrink: 0 }}>
-        <Icon name={copie ? 'check' : 'copy'} size={13} color={copie ? 'var(--green)' : 'var(--faint)'} />
-      </button>
+      {!mort && (
+        <button onClick={async () => {
+          await navigator.clipboard.writeText(url);
+          setCopie(true);
+          setTimeout(() => setCopie(false), 2000);
+        }} aria-label="Copier ce lien"
+          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, display: 'flex', flexShrink: 0 }}>
+          <Icon name={copie ? 'check' : 'copy'} size={13} color={copie ? 'var(--green)' : 'var(--faint)'} />
+        </button>
+      )}
 
       {/* Proposé seulement quand Momentum ne peut PAS le déduire : un lien déjà
           ouvert a forcément été envoyé, le demander serait du bruit. */}
-      {!ouvert && !marque && installmentId && (
+      {!mort && !ouvert && !marque && installmentId && (
         <button onClick={marquerEnvoye} style={{
           fontSize: 10.5, border: 'none', background: 'none', cursor: 'pointer',
           fontFamily: 'inherit', color: 'var(--accent-brand)', padding: '2px 0',

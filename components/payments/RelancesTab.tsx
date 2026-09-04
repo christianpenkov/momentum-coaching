@@ -258,7 +258,17 @@ function buildGroups(deals: DealRow[], details: Record<string, DealDetail>): Gro
   const today = new Date().toISOString().slice(0, 10);
 
   for (const d of deals) {
-    if (d.status === 'paid' || d.status === 'canceled') continue;
+    // ⚠️ `ended` fait partie de la liste, et son oubli était un vrai défaut :
+    // une vente clôturée ou arrêtée continuait d'apparaître en relance, avec son
+    // lien à envoyer — alors que l'écran de clôture promet noir sur blanc la
+    // « sortie des relances », et que les liens ont été désactivés chez Stripe
+    // dans le même geste. On relançait donc sur un lien mort, pour un argent
+    // qu'on venait de décider de ne plus réclamer.
+    //
+    // La règle : ne relancer que ce qu'on attend encore. Les trois états qui
+    // n'attendent plus rien sont `paid` (tout est versé), `ended` (on ne réclame
+    // plus) et `canceled` (la vente n'existe plus).
+    if (d.status === 'paid' || d.status === 'ended' || d.status === 'canceled') continue;
     const detail = details[d.id];
     const remaining = d.amountTotal - d.collected;
 
