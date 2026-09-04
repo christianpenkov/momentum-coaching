@@ -58,6 +58,10 @@ export function GlobalPresenceClientProvider({ children }: { children: ReactNode
   useEffect(() => {
     if (!user || !clientId) return;
 
+    // Passé à true par le nettoyage, AVANT `removeChannel` : le `CLOSED` qui suit est
+    // alors reconnu comme le nôtre, et ne déclenche aucune reconnexion.
+    let enDemontage = false;
+
     const ch = supabase.channel(`global-presence-${clientId}`, {
       config: { presence: { key: user.id } },
     });
@@ -99,7 +103,31 @@ export function GlobalPresenceClientProvider({ children }: { children: ReactNode
         retryAttemptRef.current = 0;
         if (document.visibilityState === 'visible') track();
         setChannel(ch);
-      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+      // ⚠️ `CLOSED` n'est PAS une panne : c'est le statut normal que Supabase émet
+      // après un `removeChannel()`, donc à CHAQUE nettoyage de cet effet.
+      //
+      // Le traiter comme un échec créait une boucle de reconnexion qui s'auto-entretenait :
+      //   nettoyage → removeChannel → CLOSED → on programme une reconnexion
+      //   → `setRetryKey` → l'effet se rejoue → nettoyage → CLOSED → …
+      //
+      // Et comme `retryAttemptRef` repart à zéro à chaque `SUBSCRIBED`, le délai
+      // retombait à 1 SECONDE. Le canal se réabonnait donc environ une fois par
+      // seconde, indéfiniment, dans chaque onglet ouvert.
+      //
+      // Mesure du 2026-09-04 : l'egress Realtime valait 336 MB en une journée pour
+      // **187 messages** et 8 connexions simultanées — soit 1,8 MB par message, ce qui
+      // est impossible pour de la donnée applicative. Le coût ne venait pas des
+      // messages mais des trames de reconnexion (`join`, `phx_reply`, état de présence
+      // complet renvoyé à chaque abonnement), que le compteur « Realtime Messages » ne
+      // compte pas. La FAQ Realtime de Supabase nomme précisément ce cas : « si vos
+      // chiffres semblent anormalement élevés au regard du nombre de connexions,
+      // écartez d'abord une boucle de reconnexion ».
+      //
+      // On garde la reconnexion sur une VRAIE panne (`CHANNEL_ERROR`, `TIMED_OUT`) et
+      // sur un `CLOSED` venu du serveur — mais jamais sur celui que provoque notre
+      // propre démontage, d'où le drapeau posé avant `removeChannel`.
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT'
+                 || (status === 'CLOSED' && !enDemontage)) {
         isSubscribedRef.current = false;
         setChannel(null);
         if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
@@ -139,6 +167,7 @@ export function GlobalPresenceClientProvider({ children }: { children: ReactNode
     document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
+      enDemontage = true;
       isSubscribedRef.current = false;
       setChannel(null);
       clearInterval(heartbeatId);
@@ -228,6 +257,9 @@ export function GlobalPresenceCoachProvider({ children }: { children: ReactNode 
       const lastSeenRef = { current: null as number | null };
       const retryAttemptRef = { current: 0 };
       let retryTimer: ReturnType<typeof setTimeout> | null = null;
+      // Posé par le nettoyage AVANT `removeChannel` : le `CLOSED` qui suit est alors
+      // reconnu comme le nôtre. Voir le commentaire du gestionnaire de statut.
+      let enDemontage = false;
 
       ch.on('presence', { event: 'sync' }, () => {
         const state = ch.presenceState<PresenceEntry>();
@@ -257,7 +289,31 @@ export function GlobalPresenceCoachProvider({ children }: { children: ReactNode 
           retryAttemptRef.current = 0;
           if (document.visibilityState === 'visible') track();
           setChannelMap(prev => ({ ...prev, [clientId]: ch }));
-        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+      // ⚠️ `CLOSED` n'est PAS une panne : c'est le statut normal que Supabase émet
+        // après un `removeChannel()`, donc à CHAQUE nettoyage de cet effet.
+        //
+        // Le traiter comme un échec créait une boucle de reconnexion qui s'auto-entretenait :
+        //   nettoyage → removeChannel → CLOSED → on programme une reconnexion
+        //   → `setRetryKey` → l'effet se rejoue → nettoyage → CLOSED → …
+        //
+        // Et comme `retryAttemptRef` repart à zéro à chaque `SUBSCRIBED`, le délai
+        // retombait à 1 SECONDE. Le canal se réabonnait donc environ une fois par
+        // seconde, indéfiniment, dans chaque onglet ouvert.
+        //
+        // Mesure du 2026-09-04 : l'egress Realtime valait 336 MB en une journée pour
+        // **187 messages** et 8 connexions simultanées — soit 1,8 MB par message, ce qui
+        // est impossible pour de la donnée applicative. Le coût ne venait pas des
+        // messages mais des trames de reconnexion (`join`, `phx_reply`, état de présence
+        // complet renvoyé à chaque abonnement), que le compteur « Realtime Messages » ne
+        // compte pas. La FAQ Realtime de Supabase nomme précisément ce cas : « si vos
+        // chiffres semblent anormalement élevés au regard du nombre de connexions,
+        // écartez d'abord une boucle de reconnexion ».
+        //
+        // On garde la reconnexion sur une VRAIE panne (`CHANNEL_ERROR`, `TIMED_OUT`) et
+        // sur un `CLOSED` venu du serveur — mais jamais sur celui que provoque notre
+        // propre démontage, d'où le drapeau posé avant `removeChannel`.
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT'
+                   || (status === 'CLOSED' && !enDemontage)) {
           isSubscribedRef.current = false;
           // Renvoie prev tel quel si la clé est déjà absente : sinon un canal qui
           // échoue en boucle produisait un objet neuf à chaque tentative, donc un
@@ -299,6 +355,7 @@ export function GlobalPresenceCoachProvider({ children }: { children: ReactNode 
       document.addEventListener('visibilitychange', handleVisibility);
 
       cleanups.push(() => {
+        enDemontage = true;
         isSubscribedRef.current = false;
         trackFns.delete(clientId);
         staleFns.delete(clientId);
