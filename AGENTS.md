@@ -424,6 +424,47 @@ le Realtime — le minuteur n'est qu'un filet pour le cas où le WebSocket décr
 n'existent que pour le quota du plan gratuit, et le dire ici évite qu'on les prenne un
 jour pour des choix de conception.
 
+# Une borne posée sur les chemins d'ÉCRITURE ne couvre pas les chemins de LECTURE
+
+Le 2026-09-02, le quota YouTube Reporting (**60 requêtes/minute, PAR PROJET Google** —
+donc partagé par tous les élèves, et le seul quota tendu de la pile) a été borné à
+6 rapports par passage et 2 téléchargements simultanés. La borne a été posée dans
+`supabase/functions/poll-leads/index.ts` **et** dans sa jumelle `lib/yt-fetch.ts` : les
+deux chemins d'écriture. Le sujet semblait clos.
+
+**Le 2026-09-04 à 18:42 UTC, l'alerte Google Cloud est partie quand même** — observée à
+1,0667, soit **64 requêtes/minute**. La cause était `fetchCtrByVideo` dans
+`app/api/youtube/stats/route.ts`, c'est-à-dire **l'affichage de l'écran de statistiques** :
+1 appel `jobs` + 1 appel `reports` + **30 téléchargements en parallèle** = 32 requêtes par
+chargement de page. Deux chargements dans la même minute donnent 64.
+
+**Personne n'avait pensé à ce chemin parce qu'il ne « collecte » rien.** Onze routes
+appellent cette API ; seules celles qui portent le mot « sync » avaient été regardées.
+
+⚠️ **Avant de déclarer un quota borné, chercher TOUS les appelants de l'API, pas les
+crons.** `grep -rn "<domaine de l'api>" --include=*.ts .` — et lire ce que fait chaque
+résultat, y compris les routes d'affichage et les routes de test.
+
+⚠️ **Un cache mémoire ne borne pas un quota par minute.** La route portait déjà un cache
+de 5 minutes, dont le commentaire disait lui-même « le cache est PAR INSTANCE serverless,
+il ne garantit rien, il écrête ». Deux chargements servis par deux instances Vercel
+paient chacun leur addition, un démarrage à froid aussi. Pour un quota **par projet**, il
+faut un cache **partagé** — d'où `youtube_ctr_cache`.
+
+⚠️ **Ne jamais corriger un quota en réduisant une fenêtre d'agrégation.** Appliquer ici la
+borne des chemins d'écriture (6 rapports au lieu de 30) aurait divisé les appels par cinq
+— et faussé le CTR affiché, puisque les impressions sont **sommées** sur la fenêtre. On
+corrige le nombre d'appels, jamais le résultat. Le calcul est resté strictement identique.
+
+⚠️ **Un cache ne mémorise jamais une ignorance.** Sur échec, on rend l'entrée périmée
+(bornée à 7 jours), pas `{}` : rendre `{}` afficherait « aucun CTR », une affirmation,
+alors qu'un appel raté ne dit rien du CTR. Et on n'écrit au cache qu'un résultat non vide,
+sans quoi un rapport illisible figerait « rien » pendant tout le TTL.
+
+**Ce qui n'est PAS la solution** : demander une augmentation de quota à Google. Ce plafond
+ne se sature que sur un défaut — l'augmenter rendrait le défaut invisible. Et la hausse
+exige un audit de conformité YouTube, soit des semaines.
+
 # Les crons vivent à DEUX endroits
 
 ⚠️ **Avant d'ajouter un cron, vérifier qu'il n'existe pas déjà dans l'autre
