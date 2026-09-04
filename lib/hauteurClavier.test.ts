@@ -1,47 +1,54 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hauteurClavier, SEUIL_CLAVIER } from './hauteurClavier.ts';
+import { hauteurClavier, SEUIL_BRUIT } from './hauteurClavier.ts';
 
-// Les trois moments d'un seul tap sur un champ, sur iPhone. Le viewport de mise
-// en page ne bouge pas (745 px) ; seuls la hauteur visible et le décalage
-// changent. C'est la séquence qui a produit le symptôme du 2026-09-04 :
-// « ça flash en plein écran et revient comme avant, et quand je scroll vers le
-// haut, là ça le fait en plein écran ».
-const INNER = 745;
-const VISIBLE_AVEC_CLAVIER = 409; // clavier + barre « Préremplir le contact »
+// Les valeurs sont celles relevées sur l'iPhone de Chris le 2026-09-04, par
+// l'instrument posé dans la modale — pas des valeurs plausibles.
+//
+//     15 ms   iH797  vvH797  → clavier ferme
+//   3482 ms   iH394  vvH394  → iOS ecrase innerHeight PENDANT l'animation
+//   3498 ms   iH797  vvH394  → il le restaure, sans declencher d'evenement
+const PLEIN = 797;
+const VISIBLE_AVEC_CLAVIER = 394;
 
-test('1. le clavier s’ouvre : la zone visible rétrécit, rien n’est encore décalé', () => {
-  const h = hauteurClavier({ innerHeight: INNER, hauteurVisible: VISIBLE_AVEC_CLAVIER, decalage: 0 });
-  assert.equal(h, 336);
+test('clavier ferme : zero', () => {
+  assert.equal(hauteurClavier({ plein: PLEIN, hauteurVisible: PLEIN, ouvert: false }), 0);
 });
 
-test('2. iOS décale la vue sur le champ : la hauteur du clavier NE bouge PAS', () => {
-  // Le moment qui faisait retomber la feuille. L'ancien calcul retranchait le
-  // décalage et tombait à 86 px, sous le seuil, donc à zéro : la feuille sortait
-  // du plein écran alors que le clavier n'avait pas bougé d'un pixel.
-  const h = hauteurClavier({ innerHeight: INNER, hauteurVisible: VISIBLE_AVEC_CLAVIER, decalage: 250 });
-  assert.equal(h, 336, 'le décalage du viewport ne doit rien retrancher à la hauteur du clavier');
-  assert.ok(h > SEUIL_CLAVIER, 'la feuille doit RESTER en plein écran pendant que iOS décale la vue');
+test('clavier ouvert : ce qui manque a la hauteur pleine', () => {
+  assert.equal(hauteurClavier({ plein: PLEIN, hauteurVisible: VISIBLE_AVEC_CLAVIER, ouvert: true }), 403);
 });
 
-test('3. on remonte le défilement : le décalage repart à zéro, toujours le même clavier', () => {
-  const h = hauteurClavier({ innerHeight: INNER, hauteurVisible: VISIBLE_AVEC_CLAVIER, decalage: 0 });
-  assert.equal(h, 336);
+// LE test de non-regression. L'ancien calcul faisait `innerHeight - vv.height`.
+// A 3482 ms les deux valaient 394 : il rendait 0, la feuille sortait du plein
+// ecran, et comme la restauration d'innerHeight n'emet aucun evenement il n'y
+// avait plus jamais de nouvelle mesure. Ici `plein` est etalonne clavier FERME,
+// donc l'ecrasement momentane d'innerHeight ne peut plus rien fausser.
+test('l’écrasement momentané d’innerHeight par iOS ne fait plus retomber la feuille', () => {
+  const pendantAnimation = hauteurClavier({ plein: PLEIN, hauteurVisible: VISIBLE_AVEC_CLAVIER, ouvert: true });
+  const apresAnimation = hauteurClavier({ plein: PLEIN, hauteurVisible: VISIBLE_AVEC_CLAVIER, ouvert: true });
+  assert.equal(pendantAnimation, 403);
+  assert.equal(apresAnimation, 403);
+  assert.equal(pendantAnimation, apresAnimation, 'la hauteur ne doit pas dependre de innerHeight');
 });
 
-test('les trois moments donnent la même hauteur — c’est tout l’enjeu', () => {
-  const mesures = [0, 120, 250, 310].map(decalage =>
-    hauteurClavier({ innerHeight: INNER, hauteurVisible: VISIBLE_AVEC_CLAVIER, decalage })
-  );
-  assert.deepEqual(mesures, [336, 336, 336, 336]);
+test('passer d’un champ à l’autre garde le clavier ouvert', () => {
+  // Aucune hauteur ne change à ce moment-là : un calcul fondé sur les pixels
+  // seuls ne verrait rien. Le focus, lui, répond.
+  assert.equal(hauteurClavier({ plein: PLEIN, hauteurVisible: VISIBLE_AVEC_CLAVIER, ouvert: true }), 403);
 });
 
-test('clavier fermé : zéro, quel que soit le décalage', () => {
-  assert.equal(hauteurClavier({ innerHeight: INNER, hauteurVisible: INNER, decalage: 0 }), 0);
-  assert.equal(hauteurClavier({ innerHeight: INNER, hauteurVisible: INNER, decalage: 40 }), 0);
+test('un champ focalisé sans clavier (clavier externe) ne fait pas de fausse hauteur', () => {
+  assert.equal(hauteurClavier({ plein: PLEIN, hauteurVisible: PLEIN, ouvert: true }), 0);
 });
 
 test('la barre d’URL qui se rétracte ne passe pas pour un clavier', () => {
-  // ~60 px d'écart au défilement : sous le seuil, sinon la feuille sautillerait.
-  assert.equal(hauteurClavier({ innerHeight: INNER, hauteurVisible: INNER - 60, decalage: 0 }), 0);
+  assert.equal(hauteurClavier({ plein: PLEIN, hauteurVisible: PLEIN - SEUIL_BRUIT, ouvert: true }), 0);
+});
+
+test('le calcul ne suppose aucune taille d’écran', () => {
+  // Un petit téléphone : mêmes proportions, même résultat, sans nombre en dur.
+  assert.equal(hauteurClavier({ plein: 560, hauteurVisible: 280, ouvert: true }), 280);
+  // Une tablette.
+  assert.equal(hauteurClavier({ plein: 1180, hauteurVisible: 800, ouvert: true }), 380);
 });

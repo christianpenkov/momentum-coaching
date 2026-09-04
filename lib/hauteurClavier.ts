@@ -1,46 +1,47 @@
 /**
  * Le calcul de la hauteur du clavier, isolé du hook React pour être éprouvable.
  *
- * Le hook `useHauteurClavier` se contente de brancher les écouteurs de
- * `visualViewport` et d'appeler cette fonction. Tout ce qui peut se tromper est
- * ici, et `hauteurClavier.test.ts` rejoue les mesures réelles d'un iPhone.
+ * `useHauteurClavier` branche les écouteurs et tient l'étalonnage ; tout ce qui
+ * peut se tromper est ici, et `hauteurClavier.test.ts` rejoue les mesures
+ * relevées sur l'iPhone de Chris le 2026-09-04.
  */
 
-/** Au-dessous de ce nombre de pixels, on ne considère pas qu'un clavier est ouvert. */
-export const SEUIL_CLAVIER = 100;
+/** En dessous, c'est du bruit (barre d'URL, barre d'outils), pas un clavier. */
+export const SEUIL_BRUIT = 60;
 
 export interface MesureViewport {
-  /** `window.innerHeight` — la hauteur du viewport de MISE EN PAGE. */
-  innerHeight: number;
-  /** `visualViewport.height` — la hauteur réellement visible. */
+  /**
+   * La hauteur visible relevée pendant qu'AUCUN champ n'était focalisé.
+   * Auto-étalonnée par le hook, jamais un nombre en dur : c'est ce qui rend le
+   * calcul valable sur n'importe quelle taille d'écran.
+   */
+  plein: number;
+  /** `visualViewport.height` maintenant. */
   hauteurVisible: number;
-  /** `visualViewport.offsetTop` — le décalage de la zone visible. */
-  decalage: number;
+  /** Un champ de saisie est focalisé. */
+  ouvert: boolean;
 }
 
 /**
  * La hauteur occupée par le clavier. Zéro s'il est fermé.
  *
- * ⚠️ `decalage` n'entre PAS dans ce calcul, et c'est tout le piège de ce fichier.
+ * ⚠️ `window.innerHeight` n'entre PAS dans ce calcul, et c'est tout l'enjeu du
+ * fichier. Mesuré sur iPhone à 16 ms d'écart :
  *
- * iOS fait deux choses distinctes quand le clavier s'ouvre : il RÉTRÉCIT la zone
- * visible (le clavier occupe le bas), puis il la DÉCALE vers le bas pour amener
- * le champ touché sous les yeux. La première dit la hauteur du clavier, la
- * seconde dit seulement OÙ regarder — elle appartient au positionnement
- * (`dessus`), jamais à la hauteur.
+ *     3482 ms   innerHeight 394   visible 394   ← iOS l'écrase pendant l'animation
+ *     3498 ms   innerHeight 797   visible 394   ← il le restaure, SANS evenement
  *
- * Les avoir confondues (`innerHeight - hauteurVisible - decalage`, commit
- * `f7c9956`) donnait exactement le symptôme rapporté par Chris le 2026-09-04 :
- * la feuille passait en plein écran à l'ouverture du clavier (décalage encore
- * nul), puis retombait dès qu'iOS décalait la vue — le décalage soustrait
- * faisait passer le résultat sous le seuil — et ne revenait en plein écran que
- * si on remontait le défilement à la main, ce qui ramène le décalage à zéro.
+ * Sa restauration ne déclenche rien — `visualViewport` n'a pas bougé — donc un
+ * calcul qui s'appuie dessus reste figé sur le zéro mesuré pendant l'animation,
+ * pour toujours. Toute valeur qui entre dans un calcul réactif doit avoir un
+ * événement qui annonce son changement ; celle-ci n'en a aucun.
  *
- * Un défaut de cette famille ne se voit pas à la lecture : le calcul faux et le
- * calcul juste donnent le même nombre au premier instant. Il faut le rejouer sur
- * les trois moments, ce que fait le test.
+ * L'ouverture vient du focus et non d'un écart de pixels : c'est la question
+ * qu'on se pose vraiment, elle n'a pas de seuil à deviner, et elle reste vraie
+ * quand on passe d'un champ à l'autre — moment où aucune hauteur ne change.
  */
-export function hauteurClavier({ innerHeight, hauteurVisible }: MesureViewport): number {
-  const occupe = innerHeight - hauteurVisible;
-  return occupe > SEUIL_CLAVIER ? Math.round(occupe) : 0;
+export function hauteurClavier({ plein, hauteurVisible, ouvert }: MesureViewport): number {
+  if (!ouvert) return 0;
+  const manque = plein - hauteurVisible;
+  return manque > SEUIL_BRUIT ? Math.round(manque) : 0;
 }
