@@ -196,16 +196,138 @@ async function gunzip(buf: ArrayBuffer): Promise<string> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Les integrations du passage, lues UNE fois
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Chaque profil relisait `integrations` quatre fois par passage : le jeton Instagram,
+// le jeton YouTube, la cle Short.io, et deux fois `last_synced_at` pour decider s'il y
+// avait quelque chose a faire — le plus souvent pour repondre « non ».
+//
+// Mesure du 2026-09-04 : `/rest/v1/integrations` representait 40,8 lectures par passage
+// pour 5 profils, soit un TIERS de tout ce que la base recevait encore apres le
+// correctif du flux de clics. A 40 eleves c'etait 160 lectures par passage, 46 000 par
+// jour, pour une information qui ne change pas d'une seconde a l'autre.
+//
+// ⚠️ Aucune requete n'est AJOUTEE ici : le passage lisait DEJA `integrations` en bloc
+// pour construire `profileMap` (voir le handler). On elargit simplement les colonnes de
+// cette lecture-la et on s'en sert. Remplacer quatre petites requetes par une grosse
+// aurait ete un contresens — c'est le NOMBRE qui coute — mais le poids mesure de toutes
+// les colonnes utiles est de 5,7 ko pour l'ensemble de la base, ~35 ko a 40 eleves.
+//
+// ⚠️ `(profile_id, provider)` porte un index UNIQUE (`integrations_profile_id_provider_key`,
+// verifie le 2026-09-04). Une `Map` est donc rigoureusement equivalente au `.single()`
+// qu'elle remplace : celui-ci ne pouvait de toute facon jamais voir deux lignes.
+type LigneIntegration = {
+  profile_id: string;
+  provider: string;
+  access_token: string | null;
+  refresh_token: string | null;
+  expires_at: string | null;
+  api_key: string | null;
+  metadata: Record<string, unknown> | null;
+  last_synced_at: string | null;
+  last_ig_poll: string | null;
+};
+
+const CACHE_INTEGRATIONS = new Map<string, LigneIntegration>();
+
+// ⚠️ Le type ferme la porte au seul vrai piege de ce cache : la lecture groupee ne
+// couvre QUE ces trois fournisseurs. Demander 'calendly' ou 'stripe' au cache
+// obtiendrait « absent » alors que la ligne existe — un faux negatif silencieux. Le
+// compilateur le refuse maintenant, plutot qu'un commentaire qu'on ne relit pas.
+type FournisseurCache = 'instagram' | 'youtube' | 'shortio';
+const FOURNISSEURS_CACHE: FournisseurCache[] = ['instagram', 'youtube', 'shortio'];
+
+// Le cache a-t-il ete rempli par une lecture groupee REUSSIE de ce passage ?
+//
+// C'est ce drapeau qui autorise a conclure d'une absence. Sans lui, chaque profil
+// depourvu d'un fournisseur repartirait interroger la base a chaque passage — on aurait
+// deplace le cout au lieu de le supprimer.
+let cacheIntegrationsFiable = false;
+
+/**
+ * ⚠️ Vide le cache. A appeler au tout debut de CHAQUE invocation, comme les caches
+ * Short.io juste a cote : un isolat Deno survit d'une invocation a l'autre, et un cache
+ * qui traverserait deux passages servirait un jeton deja rafraichi ailleurs — la panne
+ * serait un 401 Meta inexplicable, une heure sur deux.
+ */
+function viderCacheIntegrations(): void {
+  CACHE_INTEGRATIONS.clear();
+  cacheIntegrationsFiable = false;
+}
+
+function memoriserIntegrations(lignes: LigneIntegration[]): void {
+  for (const l of lignes) CACHE_INTEGRATIONS.set(`${l.profile_id}:${l.provider}`, l);
+  cacheIntegrationsFiable = true;
+}
+
+/**
+ * La ligne d'integration du passage, ou `null` si le profil n'a pas ce fournisseur.
+ *
+ * ⚠️ Repli sur une lecture directe tant que le cache n'est pas fiable. Sans lui, un
+ * echec de la lecture groupee priverait TOUS les profils de leurs identifiants d'un
+ * coup, la ou le code precedent n'aurait perdu qu'un profil : on remplacerait une panne
+ * locale par une panne globale, ce qui n'est pas un compromis acceptable pour une
+ * optimisation.
+ */
+async function ligneIntegration(profileId: string, provider: FournisseurCache): Promise<LigneIntegration | null> {
+  const enCache = CACHE_INTEGRATIONS.get(`${profileId}:${provider}`);
+  if (enCache) return enCache;
+  // La lecture groupee a reussi et ne contient pas cette cle : la ligne n'existe pas.
+  // Une absence connue est une reponse, pas une ignorance — inutile de redemander.
+  if (cacheIntegrationsFiable) return null;
+  const { data } = await supa
+    .from('integrations')
+    .select('profile_id, provider, access_token, refresh_token, expires_at, api_key, metadata, last_synced_at, last_ig_poll')
+    .eq('profile_id', profileId)
+    .eq('provider', provider)
+    .maybeSingle();
+  if (data) CACHE_INTEGRATIONS.set(`${profileId}:${provider}`, data as LigneIntegration);
+  return (data as LigneIntegration) ?? null;
+}
+
+/**
+ * Repercute en memoire une ecriture qu'on vient de faire en base.
+ *
+ * ⚠️ Indispensable, pas cosmetique : `getIgCreds` est appele DEUX fois par profil et par
+ * passage — une fois par la collecte de leads, une fois par le bloc Instagram. Avant, le
+ * second appel relisait la base et voyait le jeton fraichement rafraichi par le premier.
+ * Sans cette mise a jour, il verrait l'ancien, le croirait encore expirant, et
+ * redemanderait un rafraichissement a Meta a chaque passage.
+ */
+function majCacheIntegration(profileId: string, provider: string, champs: Partial<LigneIntegration>): void {
+  const ligne = CACHE_INTEGRATIONS.get(`${profileId}:${provider}`);
+  if (ligne) Object.assign(ligne, champs);
+}
+
+/**
+ * Horodate `last_synced_at` en base ET dans le cache du passage.
+ *
+ * ⚠️ Les deux portails horaires (Instagram et YouTube) lisent desormais cette valeur
+ * dans le cache. Aujourd'hui ils la lisent AVANT toute ecriture du passage, donc une
+ * mise a jour du cache ne change rien — mais s'en remettre a cet ordre serait une regle
+ * tacite qu'une modification future casserait sans bruit, et la panne serait un profil
+ * qui saute une heure de collecte, invisible. On passe donc par ici pour que
+ * l'invariant tienne tout seul.
+ */
+async function horodaterSync(
+  profileId: string,
+  provider: 'instagram' | 'youtube',
+  quand: string = new Date().toISOString(),
+): Promise<void> {
+  await supa.from('integrations')
+    .update({ last_synced_at: quand })
+    .eq('profile_id', profileId)
+    .eq('provider', provider);
+  majCacheIntegration(profileId, provider, { last_synced_at: quand });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // IG
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function getIgCreds(profileId: string): Promise<{ token: string; igAccountId: string } | null> {
-  const { data: integ } = await supa
-    .from('integrations')
-    .select('access_token, expires_at, metadata')
-    .eq('profile_id', profileId)
-    .eq('provider', 'instagram')
-    .single();
+  const integ = await ligneIntegration(profileId, 'instagram');
 
   if (!integ?.access_token) return null;
 
@@ -243,6 +365,10 @@ async function getIgCreds(profileId: string): Promise<{ token: string; igAccount
       // toutes les heures. L'effacement appartient au succes d'une LECTURE.
       await supa.from('integrations').update({ access_token: token, expires_at: expiresAt })
         .eq('profile_id', profileId).eq('provider', 'instagram');
+      // Le second appel de ce passage doit voir le jeton NEUF, comme quand il relisait
+      // la base. Sinon il le croirait encore expirant et redemanderait un
+      // rafraichissement a Meta a chaque passage.
+      majCacheIntegration(profileId, 'instagram', { access_token: token, expires_at: expiresAt });
     } else {
       // Un refus de rafraichissement signifie presque toujours un jeton revoque ou
       // expire : l'utilisateur doit reconnecter son compte. Sans cette trace, l'echec
@@ -791,9 +917,7 @@ async function pollIgHookReplied(profileId: string, token: string, igAccountId: 
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function getYtToken(profileId: string): Promise<string | null> {
-  const { data: integ } = await supa.from('integrations')
-    .select('access_token, refresh_token, expires_at')
-    .eq('profile_id', profileId).eq('provider', 'youtube').single();
+  const integ = await ligneIntegration(profileId, 'youtube');
   if (!integ?.access_token) return null;
 
   // `!integ.expires_at ||` et non `integ.expires_at &&` : un expires_at NULL
@@ -827,6 +951,9 @@ async function getYtToken(profileId: string): Promise<string | null> {
   const expiresAt = data.expires_in ? new Date(Date.now() + data.expires_in * 1000).toISOString() : null;
   await supa.from('integrations').update({ access_token: data.access_token, expires_at: expiresAt })
     .eq('profile_id', profileId).eq('provider', 'youtube');
+  // Meme raison que cote Instagram : tout appel ulterieur du meme passage doit voir le
+  // jeton neuf, exactement comme quand il relisait la base.
+  majCacheIntegration(profileId, 'youtube', { access_token: data.access_token, expires_at: expiresAt });
   // Auto-guerison, meme regle que cote Instagram : un refresh qui repasse remet le
   // statut a « ok ». Zero ligne touchee dans le cas nominal grace au .eq('status').
   await supa.from('integrations')
@@ -1140,8 +1267,7 @@ async function syncYtCtr(profileId: string, accessToken: string): Promise<{ sync
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function getShortioLinkCreds(profileId: string): Promise<{ apiKey: string; domain: string; domainId: string; allDomains: { id: number | string; hostname: string }[] } | null> {
-  const { data: integ } = await supa.from('integrations')
-    .select('api_key, metadata').eq('profile_id', profileId).eq('provider', 'shortio').single();
+  const integ = await ligneIntegration(profileId, 'shortio');
   if (!integ?.api_key) return null;
   const domain = (integ.metadata as any)?.domain || null;
   const domainId = (integ.metadata as any)?.domain_id || null;
@@ -2773,12 +2899,7 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
   // Le collecteur de leads et de DM, lui, n'est PAS ralenti : il reste a chaque
   // passage, c'est lui qui doit reagir vite.
   const IG_INTERVALLE_MS = 60 * 60 * 1000;
-  const { data: igIntegration } = await supa
-    .from('integrations')
-    .select('last_synced_at')
-    .eq('profile_id', profileId)
-    .eq('provider', 'instagram')
-    .maybeSingle();
+  const igIntegration = await ligneIntegration(profileId, 'instagram');
   const igDernierSync = igIntegration?.last_synced_at ? new Date(igIntegration.last_synced_at).getTime() : 0;
   const igDoitSync = Date.now() - igDernierSync >= IG_INTERVALLE_MS;
 
@@ -2813,10 +2934,7 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
   // commentaire de l'horodatage plus bas disait deja vouloir eviter ce scenario ; il
   // etait simplement place du mauvais cote de la condition.
   if (igDoitSync && !igCreds) {
-    await supa.from('integrations')
-      .update({ last_synced_at: new Date().toISOString() })
-      .eq('profile_id', profileId)
-      .eq('provider', 'instagram');
+    await horodaterSync(profileId, 'instagram');
   }
 
   if (igCreds) {
@@ -2932,12 +3050,16 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
       // grandit, l'appel du lendemain passe, et le rythme horaire reprend sans aucune
       // intervention. Rien a surveiller, rien a reparametrer.
       if (msg.includes('ig_quota_epuise')) {
+        const reprise = new Date(Date.now() + 23 * 60 * 60 * 1000).toISOString();
         await supa.from('integrations')
           .update({
-            last_synced_at: new Date(Date.now() + 23 * 60 * 60 * 1000).toISOString(),
+            last_synced_at: reprise,
             last_snapshot_error: 'ig_quota: quota Instagram epuise, prochaine tentative dans 24 h',
           })
           .eq('profile_id', profileId).eq('provider', 'instagram');
+        // Le repli a 24 h doit valoir dans le cache aussi, sinon un lecteur ulterieur du
+        // meme passage croirait le profil pret a retenter tout de suite.
+        majCacheIntegration(profileId, 'instagram', { last_synced_at: reprise });
         console.warn(`[poll-leads] ig_quota_epuise profile=${profileId} — cadence repoussee a 24 h`);
         // ⚠️ Sans ce drapeau, l'horodatage inconditionnel de fin de bloc reecrivait
         // last_synced_at a « maintenant » 15 lignes plus bas : le repli a 24 h ne
@@ -2964,10 +3086,7 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
     // futur (+23 h), et le reecrire a « maintenant » l'annulerait — c'etait le cas
     // jusqu'au 2026-09-02.
     if (!backoffQuotaApplique) {
-      await supa.from('integrations')
-        .update({ last_synced_at: new Date().toISOString() })
-        .eq('profile_id', profileId)
-        .eq('provider', 'instagram');
+      await horodaterSync(profileId, 'instagram');
     }
   }
 
@@ -3017,12 +3136,7 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
   // Le premier passage apres connexion n'est jamais retarde : last_synced_at est null,
   // donc la condition laisse passer. La recuperation initiale complete reste intacte.
   const YT_INTERVALLE_MS = 60 * 60 * 1000;
-  const { data: ytIntegration } = await supa
-    .from('integrations')
-    .select('last_synced_at')
-    .eq('profile_id', profileId)
-    .eq('provider', 'youtube')
-    .maybeSingle();
+  const ytIntegration = await ligneIntegration(profileId, 'youtube');
   const ytDernierSync = ytIntegration?.last_synced_at ? new Date(ytIntegration.last_synced_at).getTime() : 0;
   const ytDoitSync = Date.now() - ytDernierSync >= YT_INTERVALLE_MS;
   // Les quatre repartitions (sources de trafic, appareils, demographie, mots-cles)
@@ -3043,10 +3157,7 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
   // aussi. Le commentaire de l'horodatage disait vouloir eviter exactement ce scenario,
   // mais se trouvait du mauvais cote de la condition dans les deux cas.
   if (ytDoitSync && !ytToken) {
-    await supa.from('integrations')
-      .update({ last_synced_at: new Date().toISOString() })
-      .eq('profile_id', profileId)
-      .eq('provider', 'youtube');
+    await horodaterSync(profileId, 'youtube');
   }
 
   if (ytToken) {
@@ -3125,10 +3236,7 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
     // brulant le quota pour rien et empechant les autres profils de se synchroniser.
     // Une heure de retard sur un profil en panne est preferable a un quota epuise pour
     // tout le monde. L'erreur reste tracee dans last_snapshot_error.
-    await supa.from('integrations')
-      .update({ last_synced_at: new Date().toISOString() })
-      .eq('profile_id', profileId)
-      .eq('provider', 'youtube');
+    await horodaterSync(profileId, 'youtube');
   }
 
   // Calls stats J-1 — exclut les calls réservés avant que toutes les intégrations
@@ -3249,6 +3357,10 @@ Deno.serve(async (req: Request) => {
   // vieux de plusieurs minutes en croyant les avoir demandes.
   cacheLiensShortio.clear();
   cacheClicsShortio.clear();
+  // Meme raison, et le risque est plus grave ici : un cache d'integrations qui
+  // traverserait deux passages servirait un jeton deja rafraichi ailleurs, et la panne
+  // ressemblerait a un 401 Meta inexplicable, une heure sur deux.
+  viderCacheIntegrations();
   const authHeader = req.headers.get('authorization');
   if (authHeader !== `Bearer ${CRON_SECRET}`) {
     return new Response(JSON.stringify({ error: 'Non autorisé' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
@@ -3314,8 +3426,25 @@ Deno.serve(async (req: Request) => {
     ? Math.min(Math.floor(joursDemandes), FENETRE_REPARATION_MAX)
     : FENETRE_REPARATION_DEFAUT;
 
-  const { data: integrations } = await supa.from('integrations').select('profile_id, provider, last_ig_poll').in('provider', ['instagram', 'youtube', 'shortio']);
+  // ⚠️ Cette lecture existait deja pour construire `profileMap` ; on ne fait qu'elargir
+  // ses colonnes. Elle sert desormais AUSSI de cache d'identifiants pour tout le
+  // passage — voir `ligneIntegration` : quatre lectures par profil disparaissent sans
+  // qu'une seule requete soit ajoutee.
+  const { data: integrations } = await supa
+    .from('integrations')
+    .select('profile_id, provider, access_token, refresh_token, expires_at, api_key, metadata, last_synced_at, last_ig_poll')
+    // La MEME liste que celle du cache, pas une copie : une divergence ferait conclure
+    // « ce profil n'a pas ce fournisseur » sur une ligne bien presente en base.
+    .in('provider', FOURNISSEURS_CACHE);
   if (!integrations?.length) return new Response(JSON.stringify({ polled: 0, snapshots: 0 }), { headers: { 'Content-Type': 'application/json' } });
+  // ⚠️ PostgREST tronque a 1000 lignes SANS erreur. Trois fournisseurs par eleve laissent
+  // de la marge jusqu'a ~333 eleves, tres au-dela de la cible de 40 — mais une troncature
+  // silencieuse ferait disparaitre des profils de la collecte sans le moindre signe, donc
+  // on la rend bruyante plutot que de s'en remettre au calcul.
+  if (integrations.length >= 1000) {
+    console.error('[poll-leads] integrations tronquee a 1000 lignes — des profils sont ignores, paginer cette lecture');
+  }
+  memoriserIntegrations(integrations as LigneIntegration[]);
 
   // Répondre immédiatement 202 pour éviter le timeout 30s de cron-job.org
   // Le traitement continue via EdgeRuntime.waitUntil (jusqu'à 150s)
