@@ -7,11 +7,12 @@
     "prebuild": "node scripts/empreintes-edge.mjs --depuis-head && node scripts/manifeste-migrations.mjs",
     "build": "next build",
     "start": "next start",
-    "test": "node --test lib/*.test.ts && node scripts/empreintes-edge.mjs --verifier --depuis-head && node scripts/verifier-cible.mjs",
+    "test": "node --test lib/*.test.ts && node scripts/empreintes-edge.mjs --verifier --depuis-head && node scripts/verifier-cible.mjs && node scripts/verifier-migrations.mjs",
     "verifier-cible": "node scripts/verifier-cible.mjs",
     "empreintes-edge": "node scripts/empreintes-edge.mjs",
     "deployer-edge": "node scripts/deployer-edge.mjs",
-    "manifeste-migrations": "node scripts/manifeste-migrations.mjs"
+    "manifeste-migrations": "node scripts/manifeste-migrations.mjs",
+    "verifier-migrations": "node scripts/verifier-migrations.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",
