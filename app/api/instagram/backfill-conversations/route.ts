@@ -191,7 +191,16 @@ export async function POST(request: Request) {
   }, { onConflict: 'profile_id' });
 
   if (!balayageComplet) reveillerLaSuite(profileId);
-  return NextResponse.json({ ok: true, fils_traites: filsTraites, termine: balayageComplet });
+  return NextResponse.json({
+    ok: true, fils_traites: filsTraites, termine: balayageComplet,
+    // ⚠️ Marqueur de version, et il n'est pas décoratif. Cette route s'éprouve
+    // forcément contre l'environnement déployé, où un test mesure DEUX choses à
+    // la fois : le code, et le fait qu'il soit en ligne. Sans marqueur, un
+    // résultat obtenu avant la fin du déploiement ressemble à un défaut du code
+    // et fait chercher un bug qui n'existe pas — c'est arrivé deux fois le
+    // 2026-09-04. Changer cette valeur à chaque modification de la règle.
+    regle: 'leads_12_mois_sans_curseur',
+  });
 }
 
 /**
