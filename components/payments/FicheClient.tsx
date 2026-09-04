@@ -79,7 +79,11 @@ export default function FicheClient({
   const terminéesOuvertes = ouvertureChoisie ?? actives.length === 0;
 
   const contracte = deals.filter(compteDansLesTotaux).reduce((s, d) => s + d.amountTotal, 0);
-  const encaisse = deals.filter(compteDansLesTotaux).reduce((s, d) => s + d.collected, 0);
+  // `collectedRetenu` et non `collected` : le trop-perçu d'une vente ne doit pas
+  // venir combler la dette d'une autre dans le total de la personne. C'est déjà
+  // la règle des totaux de la liste (`payments/route.ts:395`) — la fiche était le
+  // seul écran à ne pas la suivre.
+  const encaisse = deals.filter(compteDansLesTotaux).reduce((s, d) => s + d.collectedRetenu, 0);
   const pct = contracte > 0 ? Math.min(100, Math.round((encaisse / contracte) * 100)) : 0;
 
   const dealDeLaction = action ? deals.find(d => d.id === action.dealId) : undefined;
@@ -364,7 +368,7 @@ function BlocVente({ deal, detail, isMobile, onAction, onChange }: {
 
         <div style={{ marginTop: 11 }}>
           <Barre pct={pct} etat={etat}
-            legende={`${fmtEurExact(deal.collected)} encaissés sur ${fmtEurExact(deal.amountTotal)} · ${pct} %`} />
+            legende={`${fmtEurExact(deal.collectedRetenu)} encaissés sur ${fmtEurExact(deal.amountTotal)} · ${pct} %`} />
         </div>
 
         {/* ── La question en attente ─────────────────────────────────────

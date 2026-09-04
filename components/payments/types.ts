@@ -10,7 +10,19 @@ export interface DealRow {
   /** Photo Instagram du lead, ou avatar de l'élève côté coach. */
   avatarUrl: string | null;
   amountTotal: number;
+  /** Ce que la personne a VERSÉ, net des remboursements. Peut dépasser amountTotal. */
   collected: number;
+  /**
+   * Ce qui compte comme RECOUVREMENT de cette vente : `collected` plafonné au
+   * montant contracté (`encaisseRetenu`, lib/dealCash.ts).
+   *
+   * ⚠️ C'est LUI qu'un écran doit afficher, jamais `collected`. La fiche montrait
+   * « 500,00 € encaissés sur 300,00 € · 100 % » — un numérateur non plafonné, un
+   * pourcentage plafonné — et affirmait quatre lignes plus bas que ces 200 € en
+   * trop n'étaient « pas comptés dans le cash encaissé ». Les deux ne pouvaient
+   * pas être vrais en même temps.
+   */
+  collectedRetenu: number;
   status: string;
   paymentPlan: string;
   installmentsCount: number | null;

@@ -345,7 +345,10 @@ export async function GET(request: NextRequest) {
         // Une vente annulée est sortie des chiffres : elle reste consultable
         // dans la fiche, mais ne compte plus dans les totaux de la ligne.
         contracted: r.status === 'canceled' ? 0 : r.amountTotal,
-        collected: r.status === 'canceled' ? 0 : r.collected,
+        // `collectedRetenu` : le trop-perçu d'une vente ne doit pas venir
+        // combler la dette d'une autre dans le total de la personne. Même règle
+        // que les KPI de la page (`collected` plus bas), qui l'appliquaient déjà.
+        collected: r.status === 'canceled' ? 0 : r.collectedRetenu,
         status: etat,
         since: source?.signed_at ?? r.signedAt,
       });
@@ -355,7 +358,7 @@ export async function GET(request: NextRequest) {
     existant.dealIds.push(r.id);
     if (r.status !== 'canceled') {
       existant.contracted += r.amountTotal;
-      existant.collected += r.collected;
+      existant.collected += r.collectedRetenu;
     }
     existant.avatarUrl ??= r.avatarUrl;
     if (URGENCE.indexOf(etat) < URGENCE.indexOf(existant.status)) existant.status = etat;
