@@ -798,17 +798,36 @@ tables `profiles`, `deals`, `calls` ne sont créées par aucun fichier. Relevé 
 `purge_journaux_machine_pg_cron`). Ne pas énoncer « une reconstruction échouerait » comme
 une conséquence des sept dernières : c'était déjà vrai.
 
-⚠️ **Le plancher de la branche « fichier jamais appliqué » est `20260903200000`**, la
-date de mise en place de la surveillance. Un fichier écrit AVANT cette date et jamais
-appliqué sous son nom **ne sera jamais signalé** — constaté le 2026-09-04 sur
-`20260902100000_dernier_snapshot_par_profil.sql`, créé la veille du plancher, absent du
-registre, et invisible pour la vue. Ce n'est pas un défaut de la vue : sans ce plancher
-elle crierait dès le premier jour sur les 16 fichiers historiques. **Mais une session qui
-travaille sur des fichiers d'avant le 3 septembre doit vérifier à la main :**
+⚠️ **CE PLANCHER DE DATE A ÉTÉ SUPPRIMÉ le 2026-09-04, et la vérification manuelle
+ci-dessous n'est plus nécessaire.** Il portait sur `f.version`, l'horodatage du NOM DE
+FICHIER — une valeur saisie à la main. `20260902100000_dernier_snapshot_par_profil.sql`,
+écrit le 4 mais daté du 2, passait donc dessous : la vue ne pouvait pas le voir alors
+qu'il faisait partie du même travail. Trouvé par la session Stats Clients, à la main.
 
-```sql
-select name from supabase_migrations.schema_migrations where name = '<nom du fichier sans horodatage>';
-```
+**On ne borne pas une surveillance avec une valeur que son auteur choisit librement.**
+Deux mécanismes le remplacent, aucun n'étant une date tapée par quelqu'un :
+
+- **`migrations_du_depot.vu_le`** — le jour où le dépôt a montré le fichier pour la
+  première fois. Posée à l'insertion, jamais mise à jour (la route ne l'envoie pas dans
+  son `upsert`). Elle donne **4 heures de grâce** : écrire le fichier puis appliquer la
+  migration est un ordre légitime, et sans grâce la vue crierait dans l'intervalle.
+- **`migrations_ecarts_historiques`** — les quinze exceptions antérieures, **nommées une
+  par une avec leur preuve**. Une liste fermée qui ne grandit jamais toute seule vaut
+  mieux qu'une date qui laisse passer tout ce qui se présente avec le bon costume.
+
+⚠️ **Les quinze ont été vérifiées présentes en base avant d'être gelées** : six sont
+appliquées sous un nom voisin, six par la présence de la colonne qu'elles créent, trois —
+des migrations de DONNÉES, sans empreinte de schéma — par leur **conséquence** (0
+remboursement sans `paid_at`, 0 séquence portant encore un gabarit `{{…}}`, 0 call dont
+l'`utm_medium` contredit sa source). Geler sans vérifier aurait transformé un angle mort
+en angle mort *documenté*, ce qui est pire : on cesse de chercher.
+
+⚠️ **Cette liste ne doit jamais grandir.** Une ligne de plus signifie qu'on a renoncé à
+comprendre un écart, pas qu'on l'a résolu.
+
+⚠️ Leçon de méthode payée en route : trois de ces quinze avaient d'abord été déclarées
+« absentes » parce que le nom de leur colonne avait été **deviné** au lieu d'être lu dans
+le fichier. Une sonde inventée produit un faux négatif indiscernable d'un vrai.
 
 `migrations_sante` ne surveille donc que le récent, et **chaque borne est posée là où la
 mesure dit qu'elle ne produit aucun faux positif** — le détail et le motif sont dans

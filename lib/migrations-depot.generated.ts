@@ -135,4 +135,5 @@ export const MIGRATIONS_DEPOT: { version: string; nom: string }[] = [
   { version: '20260904130000', nom: 'figer_search_path_figer_detected_at' },
   { version: '20260904140000', nom: 'migrations_sante_tolere_le_delai_de_l_instantane' },
   { version: '20260904140000', nom: 'supprimer_index_duplique_deal_installments' },
+  { version: '20260904150000', nom: 'migrations_sante_plancher_sur_la_premiere_vue' },
 ];
