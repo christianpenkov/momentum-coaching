@@ -141,7 +141,18 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
     const datesInconnues = moyen === 'auto' && !deal.stripeSubscriptionId;
 
     return Array.from({ length: aCreer }, (_, i) => ({
-      rang: dejaPayees + i + 1,
+      // ⚠️ Le RANG RÉEL de l'échéance, pas un numéro recalculé.
+      //
+      // `dejaPayees + i + 1` supposait que les échéances payées sont les
+      // PREMIÈRES. Elles ne le sont pas toujours : sur « Test Description », la
+      // 2/3 était payée et les 1 et 3 ne l'étaient pas. L'aperçu annonçait alors
+      // « 1/3 supprimée » (une échéance bien vivante) et « 2/3 nouvelle » (le
+      // numéro de celle qui était déjà payée) — il décrivait une opération que
+      // la validation n'aurait pas faite, sur l'écran dont c'est tout le rôle.
+      //
+      // `echeancierAvant` porte déjà le rang réel ; on ne calcule un numéro que
+      // pour les lignes réellement AJOUTÉES, qui n'en ont pas encore.
+      rang: echeancierAvant[i]?.rang ?? (dejaPayees + i + 1),
       date: (!changeRythme && echeancierAvant[i]?.date)
         ? echeancierAvant[i].date
         : datesInconnues

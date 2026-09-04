@@ -123,7 +123,18 @@ export default function ModifierMontant({ deal, detail, onClose, onDone, onRembo
     // le total, sinon la vente ne se solderait jamais.
     const premiere = arrondi(reste - apresParEcheance * (nbApres - 1));
     return Array.from({ length: nbApres }, (_, i) => ({
-      rang: dejaPayees + i + 1,
+      // ⚠️ Le RANG RÉEL de l'échéance, pas un numéro recalculé.
+      //
+      // `dejaPayees + i + 1` supposait que les échéances payées sont les
+      // PREMIÈRES. Elles ne le sont pas toujours : sur « Test Description », la
+      // 2/3 était payée et les 1 et 3 ne l'étaient pas. L'aperçu annonçait alors
+      // « 1/3 supprimée » (une échéance bien vivante) et « 2/3 nouvelle » (le
+      // numéro de celle qui était déjà payée) — il décrivait une opération que
+      // la validation n'aurait pas faite, sur l'écran dont c'est tout le rôle.
+      //
+      // `echeancierAvant` porte déjà le rang réel ; on ne calcule un numéro que
+      // pour les lignes réellement AJOUTÉES, qui n'en ont pas encore.
+      rang: echeancierAvant[i]?.rang ?? (dejaPayees + i + 1),
       // Les échéances existantes gardent leur date — c'est la promesse faite au
       // client. Seules celles qu'on ajoute en reçoivent une nouvelle.
       // Même décalage qu'en modalités : sans échéance existante, la première
@@ -551,7 +562,11 @@ function PreviewHausse({
   if (nbRestantes > 1) {
     return (
       <Encart titre={`${nbRestantes} nouveaux liens de ${fmtEurExact(apresParEcheance)}`}>
-        {payees > 0 && <>Les {payees} échéance{payees > 1 ? 's' : ''} déjà payée{payees > 1 ? 's' : ''} ne {payees > 1 ? 'sont' : 'est'} pas touchée{payees > 1 ? 's' : ''}. </>}
+        {/* « Les 1 échéance … ne est pas touchée » : l'article et l'élision étaient
+            fixes alors que le nombre varie. Sur un écran qui manipule de l'argent,
+            une phrase bancale fait douter du calcul juste à côté. */}
+        {payees === 1 && <>L’échéance déjà payée n’est pas touchée. </>}
+        {payees > 1 && <>Les {payees} échéances déjà payées ne sont pas touchées. </>}
         Les échéances à venir gardent leurs dates, {rythme}, et passent au nouveau montant.
         <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
           Leurs anciens liens cesseront de fonctionner — tu recevras les nouveaux
