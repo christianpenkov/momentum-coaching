@@ -2176,10 +2176,36 @@ export default function PageChat() {
   const { isClientOnline, getChannel } = useGlobalCoachPresence();
   const supabase = useRef(createClient()).current;
   const unreadCounts = useUnreadCountsByClient(clients.map(c => c.id));
-  // Panneau "Infos" repliable — ouvert par défaut (préserve le comportement d'avant), state au
-  // niveau de PageChat (pas de ConversationThread, démonté/remonté à chaque changement de
-  // conversation via key={activeId}) pour que le choix survive au changement d'élève actif.
-  const [showInfo, setShowInfo] = useState(false);
+  /* Panneau « Infos » repliable. Le state vit ici et non dans `ConversationThread`, qui
+   * est démonté/remonté à chaque changement de conversation via `key={activeId}` : le
+   * choix survit donc au passage d'un élève à l'autre.
+   *
+   * ⚠️ OUVERT PAR DÉFAUT depuis le 2026-09-04. Le commentaire précédent affirmait déjà
+   * « ouvert par défaut » alors que la valeur était `false` — quelqu'un a changé le code
+   * sans toucher au commentaire, et personne ne pouvait le voir sans lire les deux.
+   *
+   * Un panneau de contexte fermé ne sert qu'à celui qui pense à l'ouvrir, donc au moment
+   * où il a déjà la question en tête. Ouvert d'emblée, il répond avant qu'on la pose —
+   * c'est tout son rôle. Il n'existe pas sur mobile (`!isMobile` sur le rendu ET sur le
+   * bouton), donc cette valeur n'y change rien.
+   *
+   * La préférence est relue APRÈS le montage, jamais dans l'initialisation : `localStorage`
+   * n'existe pas au rendu serveur, et l'y lire produirait un écart d'hydratation. Celui
+   * qui a fermé le panneau le voit donc brièvement s'ouvrir puis se replier — le prix de
+   * ne pas casser l'hydratation, et il ne concerne que ceux qui l'ont fermé. */
+  const [showInfo, setShowInfo] = useState(true);
+
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('chat-panneau-infos') === 'ferme') setShowInfo(false);
+    } catch { /* navigation privée, stockage bloqué : on garde le défaut ouvert */ }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('chat-panneau-infos', showInfo ? 'ouvert' : 'ferme');
+    } catch { /* rien à faire : la préférence ne survivra pas, le panneau fonctionne */ }
+  }, [showInfo]);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id || null));

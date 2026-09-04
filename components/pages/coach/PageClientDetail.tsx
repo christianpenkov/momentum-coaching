@@ -1228,9 +1228,13 @@ export default function PageClientDetail({ id }: Props) {
         </div>
       </div>
 
-      {/* Ressources débloquées */}
+      {/* Ressources débloquées.
+          ⚠️ `id="ressources"` est la CIBLE du lien « Ressources partagées » du panneau de
+          la messagerie (ChatContextPanel). Il n'existait pas jusqu'au 2026-09-04 : le lien
+          ouvrait la page et ne descendait nulle part. Ne pas le renommer sans changer
+          l'autre côté. */}
       {client.profile_id && (
-        <div className="card" style={{ marginTop: 24 }}>
+        <div id="ressources" className="card" style={{ marginTop: 24, scrollMarginTop: 20 }}>
           <div className="card-head">
             <div>
               <div className="card-title">Ressources</div>
@@ -1276,7 +1280,9 @@ export default function PageClientDetail({ id }: Props) {
           plutôt que deux blocs empilés qui reléguaient les calls récents sans rapport
           tout en bas, hors de l'ordre chronologique attendu. Style visuel de chaque
           entrée inchangé (ambre pour "en attente", neutre pour rempli). */}
-      <div className="card" style={{ marginTop: 24 }}>
+      {/* ⚠️ `id="calls"` : cible du lien « Rapports de calls » du panneau de la messagerie.
+          Même remarque que pour `#ressources` — les deux côtés se renomment ensemble. */}
+      <div id="calls" className="card" style={{ marginTop: 24, scrollMarginTop: 20 }}>
         <div className="card-head">
           <div className="card-title">Rapports de fin d'appel de Coaching</div>
         </div>
