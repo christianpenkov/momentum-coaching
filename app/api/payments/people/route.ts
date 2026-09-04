@@ -61,6 +61,14 @@ interface Person {
   avatarUrl?: string | null;
   /** Sert à trier toutes les sources ensemble par fraîcheur. */
   at: string;
+  /**
+   * La dernière vente de cette personne, quand on la connaît déjà.
+   *
+   * Renseignée ici pour l'onglet « Client existant », qui répond AVANT le
+   * croisement fait plus bas pour les prospects : sans elle, la seule liste où
+   * chaque ligne a forcément une vente était la seule à ne pas l'afficher.
+   */
+  lastDeal?: { amount: number; signedAt: string; status: string } | null;
 }
 
 export async function GET(request: NextRequest) {
@@ -103,7 +111,7 @@ export async function GET(request: NextRequest) {
       (() => {
         let r = supa
           .from('deals')
-          .select('id, buyer_name, buyer_email, client_id, signed_at')
+          .select('id, buyer_name, buyer_email, client_id, signed_at, amount_total, status')
           .eq('profile_id', profileId)
           .neq('status', 'canceled')
           .not('buyer_name', 'is', null)
@@ -132,11 +140,20 @@ export async function GET(request: NextRequest) {
       gens.push({
         id: d.client_id ?? `d:${d.id}`,
         name: d.buyer_name,
-        subtitle: d.buyer_email
-          ?? `déjà acheté le ${new Date(d.signed_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}`,
+        // L'e-mail seul : la vente précédente est portée par la pastille de
+        // droite, comme dans l'onglet Prospect. La mettre AUSSI en sous-titre
+        // donnait deux libellés différents selon qu'une personne avait un e-mail
+        // ou non — « déjà acheté le 19 août » pour l'une, son adresse pour les
+        // autres, alors que toutes ont acheté.
+        subtitle: d.buyer_email ?? null,
         kind: 'client',
         clientId: d.client_id ?? null,
         at: d.signed_at,
+        lastDeal: {
+          amount: Number(d.amount_total),
+          signedAt: d.signed_at,
+          status: d.status,
+        },
       });
     }
 

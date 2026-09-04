@@ -411,7 +411,10 @@ function Done({ result, copied, onCopy, onDone }: { result: { url: string; mode:
           : 'Envoie-le à ton client. Le paiement se rattachera automatiquement à ce deal.'}
       </div>
 
-      <BoutonFin onDone={onDone} discret />
+      {/* Bleu comme partout ailleurs : c'est le bouton principal de cet écran,
+          le seul qu'on ait à cliquer une fois le lien copié. En discret il se
+          confondait avec un lien secondaire. */}
+      <BoutonFin onDone={onDone} />
     </div>
   );
 }
