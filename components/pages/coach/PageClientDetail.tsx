@@ -1,7 +1,11 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { parisDateStr } from '@/lib/period';
+import {
+  LIBELLE_FORMAT, formatInstagram, laPlusRecente, formaterQuand, type ContenuPublie,
+} from '@/lib/dernierePublication';
 import { AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -62,16 +66,23 @@ async function fetchSalesCalls(clientId: string): Promise<Call[]> {
   return data.calls || [];
 }
 
-async function fetchStoriesCount(profileId: string, since: string | null): Promise<number> {
+/** Le nombre de stories ET la date de la plus récente.
+ *
+ *  ⚠️ `head: true` a disparu : il demande à Postgres de ne rendre AUCUNE ligne, donc il
+ *  interdisait de connaître la date. On lit désormais la seule ligne qui nous intéresse
+ *  (`order desc limit 1`) tout en gardant le comptage exact — une requête, pas deux. */
+async function fetchStories(profileId: string, since: string | null): Promise<{ nombre: number; derniere: string | null }> {
   const supabase = createSupabase();
   // archived_at : sans ce filtre, le coach voit un nombre de stories que l'élève ne
   // voit nulle part — tous les autres compteurs de stories (story-sequences/route.ts,
   // stories/route.ts, story-sequences-stats/route.ts) filtrent les comptes archivés.
-  let query = supabase.from('ig_stories').select('id', { count: 'exact', head: true })
-    .eq('profile_id', profileId).is('archived_at', null);
+  let query = supabase.from('ig_stories').select('posted_at', { count: 'exact' })
+    .eq('profile_id', profileId).is('archived_at', null)
+    .order('posted_at', { ascending: false, nullsFirst: false })
+    .limit(1);
   if (since) query = query.gte('posted_at', since);
-  const { count } = await query;
-  return count ?? 0;
+  const { data, count } = await query;
+  return { nombre: count ?? 0, derniere: data?.[0]?.posted_at ?? null };
 }
 
 // fetchAllLeadsCount (lib/salesCallStats.ts) fait ce calcul — voir
@@ -460,9 +471,9 @@ export default function PageClientDetail({ id }: Props) {
     enabled: !!profileId,
     staleTime: 5 * 60 * 1000,
   });
-  const { data: storiesCount, isLoading: storiesLoading } = useQuery({
+  const { data: stories, isLoading: storiesLoading } = useQuery({
     queryKey: ['client-stories-count', profileId, sinceIntegrationsReady],
-    queryFn: () => fetchStoriesCount(profileId!, sinceIntegrationsReady),
+    queryFn: () => fetchStories(profileId!, sinceIntegrationsReady),
     enabled: !!profileId,
     staleTime: 5 * 60 * 1000,
   });
@@ -550,7 +561,32 @@ export default function PageClientDetail({ id }: Props) {
 
   const postsIg = igRaw?.posts?.length ?? null;
   const postsYt = ytRaw?.videos?.length ?? null;
+  const storiesCount = stories?.nombre ?? null;
   const publicationsTotal = (postsIg ?? 0) + (postsYt ?? 0) + (storiesCount ?? 0);
+
+  /* La dernière publication, toutes plateformes confondues.
+   *
+   * Le compteur au-dessus dit COMBIEN, jamais QUAND ni QUOI : un élève à 49 publications
+   * dont la dernière remonte à six mois se lit comme un élève actif. Demandé par Chris
+   * le 2026-09-04.
+   *
+   * ⚠️ On ne parcourt que les candidats déjà chargés — aucune requête de plus. Les trois
+   * listes sont rendues triées par les routes, mais `laPlusRecente` les recompare quand
+   * même : dépendre d'un tri fait ailleurs, c'est dépendre d'un détail que personne ne
+   * garantit. */
+  const dernierePub = useMemo(() => {
+    const candidats: ContenuPublie[] = [];
+    for (const post of (igRaw?.posts ?? []) as any[]) {
+      candidats.push({ format: formatInstagram(post?.type), publieLe: post?.timestamp });
+    }
+    for (const v of (ytRaw?.videos ?? []) as any[]) {
+      candidats.push({ format: v?.isShort ? 'short' : 'video', publieLe: v?.publishedAt });
+    }
+    if (stories?.derniere) candidats.push({ format: 'story', publieLe: stories.derniere });
+    return laPlusRecente(candidats);
+  }, [igRaw, ytRaw, stories]);
+
+  const dernierePubQuand = dernierePub ? formaterQuand(dernierePub.publieLe, parisDateStr(new Date())) : null;
   const followersTotal = (igRaw?.followers ?? 0) + (ytRaw?.subscribers ?? 0);
 
 
@@ -815,6 +851,29 @@ export default function PageClientDetail({ id }: Props) {
                 <>
                   <div className="kpi-value">{publicationsTotal}</div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>IG {postsIg ?? 0} · YT {postsYt ?? 0} · Stories {storiesCount ?? 0}</div>
+                  {/* ⚠️ Trois états, pas deux. « Aucune publication connue » et « date
+                      inconnue » ne se confondent pas : le second arrive quand l'API
+                      Instagram se replie sur la date d'OBSERVATION faute de date de
+                      publication — afficher cette date-là comme exacte serait un
+                      mensonge, et l'afficher comme rien effacerait une publication qui
+                      existe. */}
+                  <div style={{
+                    marginTop: 10, paddingTop: 9, borderTop: '1px solid var(--border)',
+                    fontSize: 11.5, color: 'var(--muted)',
+                    display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap',
+                  }}>
+                    {dernierePub && dernierePubQuand ? (
+                      <>
+                        <span>Dernière :</span>
+                        <span style={{ color: 'var(--ink-2)', fontWeight: 600 }}>{LIBELLE_FORMAT[dernierePub.format]}</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' }}>{dernierePubQuand}</span>
+                      </>
+                    ) : publicationsTotal > 0 ? (
+                      <span style={{ color: 'var(--faint)' }}>Dernière publication à une date inconnue</span>
+                    ) : (
+                      <span style={{ color: 'var(--faint)' }}>Aucune publication connue</span>
+                    )}
+                  </div>
                 </>
               )}
             </div>
