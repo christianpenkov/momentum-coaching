@@ -32,7 +32,8 @@ const supa = createClient(
 type Contenu =
   | { forme: 'template'; titre: string; bouton: string | null; url: string | null }
   | { forme: 'media'; type: 'image' | 'video' | 'audio' | 'fichier'; url: string }
-  | { forme: 'story'; url: string | null }
+  | { forme: 'partage'; lien: string }
+  | { forme: 'story'; url: string }
   | { forme: 'indisponible'; motif: string };
 
 export async function GET(request: Request) {
@@ -40,7 +41,10 @@ export async function GET(request: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
-  const id = new URL(request.url).searchParams.get('message_id');
+  const params = new URL(request.url).searchParams;
+  const id = params.get('message_id');
+  // `media=1` renvoie les OCTETS au lieu de la description. Voir plus bas.
+  const enOctets = params.get('media') === '1';
   if (!id) return NextResponse.json({ error: 'message_id requis' }, { status: 400 });
 
   const { data: msg } = await supa
@@ -71,7 +75,7 @@ export async function GET(request: Request) {
   try {
     brut = await (await fetch(
       `https://graph.instagram.com/v23.0/${encodeURIComponent(msg.mid)}` +
-      `?fields=attachments,story&access_token=${integ.access_token}`
+      `?fields=attachments,shares,story,is_unsupported&access_token=${integ.access_token}`
     )).json();
   } catch {
     return NextResponse.json({ forme: 'indisponible', motif: 'Instagram n’a pas répondu' } as Contenu);
@@ -84,6 +88,23 @@ export async function GET(request: Request) {
     return NextResponse.json({
       forme: 'indisponible',
       motif: 'Instagram ne rend plus ce contenu',
+    } as Contenu);
+  }
+
+  // ⚠️ META LE DIT LUI-MÊME. Certains types de message ne sont pas exposés par
+  // l'API — les messages vocaux en font partie — et Meta le déclare par un champ
+  // dédié plutôt que par une réponse vide. Mesuré le 2026-09-04 : sur un vocal,
+  // `attachments`, `shares` et `story` reviennent tous vides, et
+  // `is_unsupported` vaut `true`.
+  //
+  // Sans ce champ, l'écran affichait « Contenu non lisible », ce qui laissait
+  // croire à une panne de la plateforme. La différence entre « je n'ai pas su
+  // lire » et « Instagram refuse de le donner » compte : la première invite à
+  // chercher un bug, la seconde clôt la question.
+  if (brut?.is_unsupported === true) {
+    return NextResponse.json({
+      forme: 'indisponible',
+      motif: 'Instagram ne rend pas ce type de message par son API',
     } as Contenu);
   }
 
@@ -106,8 +127,60 @@ export async function GET(request: Request) {
     (att?.audio_data?.url && { type: 'audio' as const, url: att.audio_data.url }) ||
     (att?.file_url && { type: 'fichier' as const, url: att.file_url });
 
-  if (media) return NextResponse.json({ forme: 'media', ...media } as Contenu);
-  if (brut?.story) return NextResponse.json({ forme: 'story', url: brut.story?.link ?? null } as Contenu);
+  const source = media?.url ?? brut?.story?.reply_to?.link ?? null;
+
+  if (enOctets && source) {
+    const amont = await fetch(source);
+    if (!amont.ok || !amont.body) {
+      return NextResponse.json({ error: 'Média indisponible' }, { status: 404 });
+    }
+    return new Response(amont.body, {
+      headers: {
+        'content-type': amont.headers.get('content-type') || 'application/octet-stream',
+        // Privé : le média appartient à une conversation, il ne doit pas
+        // atterrir dans un cache partagé. Court, parce que l'URL amont expire.
+        'cache-control': 'private, max-age=600',
+      },
+    });
+  }
+
+  if (media) {
+    // ┌───────────────────────────────────────────────────────────────────────┐
+    // │ POURQUOI LES OCTETS PASSENT PAR ICI, ET PAS L'URL PAR LE NAVIGATEUR   │
+    // │                                                                       │
+    // │ Meta sert ces médias depuis `lookaside.fbsbx.com`. La CSP du projet   │
+    // │ (next.config.ts) autorise `*.cdninstagram.com` et `*.fbcdn.net` —     │
+    // │ pas `fbsbx.com`. Le navigateur bloquait donc l'image, et l'écran      │
+    // │ affichait un cadre cassé. Mesuré le 2026-09-04 : l'URL répond 200     │
+    // │ image/jpeg côté serveur, c'était bien la CSP.                          │
+    // │                                                                       │
+    // │ Élargir la CSP aurait été une ligne, mais : l'URL SIGNÉE se retrouve  │
+    // │ dans le DOM, elle EXPIRE (donc l'écran recasse plus tard, sans que    │
+    // │ rien ne le dise), et on ouvre le domaine bac à sable de Meta à toute  │
+    // │ la plateforme. Servir les octets nous-mêmes garde la CSP fermée,      │
+    // │ n'expose aucune URL signée, et permet de DIRE qu'un média a expiré.   │
+    // └───────────────────────────────────────────────────────────────────────┘
+    return NextResponse.json({
+      forme: 'media', type: media.type,
+      url: `/api/coach/ig-piece-jointe?message_id=${encodeURIComponent(id)}&media=1`,
+    } as Contenu);
+  }
+
+  // Un contenu PARTAGÉ (reel, publication) : Meta rend son lien public, qui
+  // n'expire pas. On l'ouvre chez Instagram plutôt que de le rapatrier.
+  const partage = brut?.shares?.data?.[0]?.link;
+  if (partage) return NextResponse.json({ forme: 'partage', lien: partage } as Contenu);
+
+  // ⚠️ Le lien d'une story est sous `story.reply_to.link`, PAS `story.link` —
+  // la première version lisait le mauvais chemin et rendait donc toujours null.
+  // Et il pointe sur `lookaside.fbsbx.com`, que la CSP bloque : il passe par
+  // notre route comme les autres médias.
+  if (brut?.story?.reply_to?.link) {
+    return NextResponse.json({
+      forme: 'story',
+      url: `/api/coach/ig-piece-jointe?message_id=${encodeURIComponent(id)}&media=1`,
+    } as Contenu);
+  }
 
   return NextResponse.json({ forme: 'indisponible', motif: 'Contenu non lisible' } as Contenu);
 }

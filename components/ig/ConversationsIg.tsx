@@ -818,15 +818,48 @@ function PieceJointe({ messageId, type }: { messageId: string; type: string }) {
   }
 
   if (contenu?.forme === 'media' && contenu.type === 'image') {
+    // ⚠️ `onError` n'est pas une precaution de style. Une URL qui repond 200 au
+    // moment ou on la demande peut echouer au chargement — expiration, reseau,
+    // politique de securite. Sans ce repli, l'ecran affiche l'icone de fichier
+    // casse du navigateur, qui ressemble a un bug de la plateforme.
     return <img src={contenu.url} alt="Photo envoyée dans la conversation"
-                style={{ display: 'block', maxWidth: 240, borderRadius: 12 }} />;
+                loading="lazy" decoding="async"
+                onError={() => setContenu({ forme: 'indisponible', motif: 'Cette photo n’est plus disponible' })}
+                style={{ display: 'block', maxWidth: 260, maxHeight: 320, objectFit: 'cover', borderRadius: 12 }} />;
   }
 
-  if (contenu?.forme === 'media' || contenu?.forme === 'story') {
-    return contenu.url
-      ? <a href={contenu.url} target="_blank" rel="noopener noreferrer"
-           style={{ color: 'inherit', textDecoration: 'underline' }}>Ouvrir le contenu</a>
-      : <MarqueurPieceJointe type={type} />;
+  // L'image d'une story, servie par notre route comme les autres médias.
+  if (contenu?.forme === 'story') {
+    return <img src={contenu.url} alt="Story à laquelle ce message répond"
+                loading="lazy" decoding="async"
+                onError={() => setContenu({ forme: 'indisponible', motif: 'Cette story n’est plus disponible' })}
+                style={{ display: 'block', maxWidth: 200, maxHeight: 300, objectFit: 'cover', borderRadius: 12 }} />;
+  }
+
+  // Un reel ou une publication partagée : Meta rend un lien PUBLIC, qui n'expire
+  // pas. On l'ouvre chez Instagram au lieu de rapatrier une vidéo.
+  if (contenu?.forme === 'partage') {
+    return (
+      <a href={contenu.lien} target="_blank" rel="noopener noreferrer"
+         style={{ display: 'inline-flex', alignItems: 'center', gap: 7, color: 'inherit' }}>
+        <Icon name="external" size={14} color="currentColor" />
+        <span style={{ textDecoration: 'underline' }}>Voir la publication partagée</span>
+      </a>
+    );
+  }
+
+  if (contenu?.forme === 'media') {
+    // Un vocal ou une vidéo : lecteur natif plutôt qu'un lien. Les octets
+    // passent par notre route, donc la CSP reste fermée.
+    if (contenu.type === 'audio' || contenu.type === 'video') {
+      const Lecteur = contenu.type === 'audio' ? 'audio' : 'video';
+      return <Lecteur src={contenu.url} controls preload="none"
+                      style={{ display: 'block', maxWidth: 260, borderRadius: 10 }} />;
+    }
+    return (
+      <a href={contenu.url} target="_blank" rel="noopener noreferrer"
+         style={{ color: 'inherit', textDecoration: 'underline' }}>Ouvrir le fichier</a>
+    );
   }
 
   if (contenu?.forme === 'indisponible') {
