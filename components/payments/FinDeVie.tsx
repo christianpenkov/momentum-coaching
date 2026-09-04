@@ -7,6 +7,7 @@ import ModaleAction, {
   CaseResponsabilite, Encart, Ligne, Section, VersStripe, champStyle,
 } from './ModaleAction';
 import { modeDe, libelleRythme } from './etats';
+import { useEcheancesAVenir } from './useEcheances';
 import { fmtEurExact, fmtDateLong, type DealRow, type DealDetail } from './types';
 
 /**
@@ -329,7 +330,20 @@ export function ArreterPrelevements({ deal, detail, onClose, onDone }: {
     ? arrondi((deal.amountTotal - deal.collected) / restantes)
     : 0;
 
+  // ⚠️ `detail.installments` est VIDE en prélèvement automatique — l'échéancier
+  // vit chez Stripe, pas en base. Or c'est le seul mode où cet écran existe : la
+  // date n'apparaissait donc jamais, et les deux options disaient « l'échéance
+  // suivante » là où le plan demandait « l'échéance du 20 septembre ».
+  //
+  // Traduire les deux choix en DATES et en MONTANTS réels est toute la raison
+  // d'être de cet écran : sans la date, on doit aller la chercher ailleurs pour
+  // décider, c'est-à-dire au moment où l'on est le moins disposé à chercher.
+  //
+  // `useEcheancesAVenir` est la source que la fiche utilise déjà, et elle sait
+  // interroger Stripe pour ce mode.
+  const { lignes: aVenirReel } = useEcheancesAVenir(deal, detail);
   const prochaine = (detail?.installments ?? []).find(e => e.status !== 'paid');
+  const dateProchaine = prochaine?.due_on ?? aVenirReel[0]?.date ?? null;
 
   return (
     <ModaleAction
@@ -351,7 +365,7 @@ export function ArreterPrelevements({ deal, detail, onClose, onDone }: {
         <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px' }}>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 5 }}>Immédiatement</div>
           <div style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.6 }}>
-            L’échéance {prochaine ? `du ${fmtDateLong(prochaine.due_on)}` : 'suivante'}
+            L’échéance {dateProchaine ? `du ${fmtDateLong(dateProchaine)}` : 'suivante'}
             {' '}<strong>ne sera pas prélevée</strong>.
             {' '}{prenom} aura versé {fmtEurExact(deal.collected)} en tout.
           </div>
@@ -360,7 +374,7 @@ export function ArreterPrelevements({ deal, detail, onClose, onDone }: {
         <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px' }}>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 5 }}>À la fin de la période</div>
           <div style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.6 }}>
-            L’échéance {prochaine ? `du ${fmtDateLong(prochaine.due_on)}` : 'suivante'}
+            L’échéance {dateProchaine ? `du ${fmtDateLong(dateProchaine)}` : 'suivante'}
             {' '}<strong>sera prélevée</strong>, puis plus rien.
             {' '}{prenom} aura versé {fmtEurExact(arrondi(deal.collected + parEcheance))} en tout.
           </div>
