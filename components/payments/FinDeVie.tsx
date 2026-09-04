@@ -386,7 +386,18 @@ export function ArreterPrelevements({ deal, detail, onClose, onDone }: {
           <>Ouvre la page de {prenom} dans Stripe.</>,
           <>Le bouton s’appelle <strong>« Annuler l’abonnement »</strong> — c’est le bon,
             même si le mot ne correspond pas à ce que tu vends.</>,
-          <>Choisis l’une des deux options ci-dessus.</>,
+          // ⚠️ « ci-dessus » obligeait à remonter. Sur téléphone les deux blocs
+          // sont à un écran d'écart : on redescend, on a oublié lequel donnait
+          // quoi, on remonte. La marche répète donc les deux choix et leur
+          // conséquence, au lieu d'y renvoyer.
+          //
+          // C'est aussi pourquoi les options RESTENT avant le mode d'emploi : on
+          // décide d'abord — c'est là que l'argent se joue — on exécute ensuite.
+          // Inverser ferait lire la manipulation avant d'avoir choisi.
+          <>Stripe te demande quand : <strong>immédiatement</strong>
+            {dateProchaine ? <> — l’échéance du {fmtDateLong(dateProchaine)} ne sera pas prélevée</> : null}
+            , ou <strong>à la fin de la période</strong>
+            {dateProchaine ? <> — elle sera prélevée, puis plus rien</> : null}.</>,
         ]} />
       </div>
 

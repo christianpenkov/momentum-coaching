@@ -633,9 +633,16 @@ function BarreActions({ deal, etat, mode, onAction }: {
     <div style={{
       borderTop: '1px solid var(--border-soft)', background: 'var(--surface-2)',
       padding: '10px 14px', display: 'flex', gap: 8,
-      // Cinq boutons ne tiennent pas sur 390 px : plutôt que de les empiler sur
-      // deux rangées — ce qui ferait perdre l'ordre de gravité — la barre défile.
-      overflowX: 'auto', scrollbarWidth: 'none',
+      // ⚠️ Cinq boutons ne tiennent pas sur 390 px. La barre DEFILAIT, en pariant
+      // que l'ordre de gravité valait mieux que l'empilement — et le pari est
+      // perdu : sur téléphone, « Annuler » était coupé au bord de l'écran, donc
+      // invisible pour qui ne pense pas à faire glisser une barre qui ne
+      // ressemble pas à une zone défilante. Un bouton hors champ n'a pas d'ordre.
+      //
+      // Ils passent donc à la ligne. L'ordre de gravité est préservé : la lecture
+      // reste gauche→droite puis ligne suivante, et « Annuler » finit toujours
+      // en dernier — simplement visible.
+      flexWrap: 'wrap', rowGap: 8,
     }}>
       {boutons.map(([label, quoi, danger]) => (
         <button key={quoi + label} onClick={() => onAction(quoi)} style={{
