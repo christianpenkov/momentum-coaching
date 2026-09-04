@@ -37,7 +37,23 @@ export function Cloturer({ deal, onClose, onDone, onArreter }: {
 }) {
   const [raison, setRaison] = useState('');
   const [envoi, setEnvoi] = useState(false);
-  const [refus, setRefus] = useState<string | null>(null);
+  // ⚠️ Le refus s'affiche À L'OUVERTURE, pas après validation.
+  //
+  // Le serveur refusait déjà (`code: 'prelevement_actif'`), mais seulement une
+  // fois « Clôturer la vente » cliqué. Entre-temps l'écran affichait « Rien à
+  // faire dans Stripe — aucun argent ne bouge », ce qui est FAUX sur une vente
+  // dont Stripe prélèvera encore 250 € le mois suivant. On lisait une promesse,
+  // on cliquait, et le refus arrivait après coup : l'écran s'était contredit.
+  //
+  // ⚠️ Ce n'est PAS une garde — le serveur reste seul juge, lui interroge Stripe
+  // pour savoir si l'abonnement est réellement annulé. C'est un affichage : ne
+  // pas promettre ce qu'on va refuser.
+  //
+  // Un deal encore `open` portant un abonnement a presque toujours un abonnement
+  // vivant : une annulation constatée par le webhook l'aurait déjà passé en
+  // `ended`, où le bouton « Clôturer » n'existe plus.
+  const [refus, setRefus] = useState<string | null>(
+    () => (deal.stripeSubscriptionId ? 'prelevement_actif' : null));
   const [fait, setFait] = useState(false);
 
   const prenom = deal.buyerName.split(' ')[0];
