@@ -91,7 +91,9 @@ const SURVEILLANCES: Surveillance[] = [
     quoiFaire: [
       '`select * from migrations_sante;` — la colonne `nom` donne la migration concernée.',
       '« appliquée sans fichier » : lire l’état réel en base (`pg_get_viewdef`, `pg_get_functiondef`, `information_schema.columns`) et écrire le fichier manquant dans `supabase/migrations/`, en le marquant comme reconstitution. Ne jamais inventer une étape intermédiaire qu’on ne peut pas retrouver.',
-      '« fichier jamais appliqué » : vérifier si l’objet existe déjà en base sous un autre nom de migration avant d’appliquer quoi que ce soit — un double `apply` peut casser.',
+      '« fichier jamais appliqué » ne dit RIEN du contenu. Le changement peut très bien être déjà en base, posé par `execute_sql` ou depuis le dashboard, sans laisser de ligne à son nom — c’était le cas le 2026-09-04 pour `publications_youtube`. Ne pas partir chercher une fonctionnalité manquante à l’écran : commencer par lire l’état réel.',
+      '⚠️ Et « l’objet existe » ne suffit pas à décider. Le fichier peut différer de ce qui tourne, et le réappliquer changerait alors le comportement sans que rien ne le signale. Comparer les DEUX définitions NORMALISÉES — commentaires retirés, espaces réduits, puis `md5` — avant de conclure. Le 2026-09-04, elles ne différaient que par des alias de colonnes que Postgres supprime au stockage : appliquer était donc prouvé sans effet, et la migration a pu être enregistrée sans risque.',
+      'Puis appliquer par `apply_migration` sous le nom EXACT du fichier, ce qui inscrit la ligne manquante. Les instructions étant idempotentes (`create or replace`, `create index if not exists`), rejouer ne change rien.',
       '⚠️ Cause la plus fréquente : un nom différent des deux côtés. Renommer le fichier pour qu’il corresponde au nom appliqué (ou l’inverse) suffit alors.',
       '⚠️ Ne couvre que le récent : 185 migrations anciennes n’ont aucun fichier et il n’existe pas de clé fiable pour les rapprocher. Les deux bornes, et la mesure qui les justifie, sont dans `20260903200000_migrations_sante.sql`.',
     ],
