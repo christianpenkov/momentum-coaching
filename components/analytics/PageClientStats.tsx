@@ -1090,7 +1090,7 @@ type ContentSortKey = 'views' | 'watchTime' | 'calls' | 'revenue';
 
 // ─── TAB "Vue générale (B)" — version épurée ─────────────────────────────────
 
-function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, calendlyStaticClicsFromDb, igLive, ytLive, sinceConnection, leads, lmHistory, integrationsReadyAt, allTimeStart, deals, cashParVente }: { ig: IGStats | null; yt: YTStats | null; msgs: IGMessages | null; calls: CallRecord[]; callsAllTime?: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; calendlyStaticClicsFromDb?: number; igLive?: IGStats | null; ytLive?: YTStats | null; sinceConnection?: boolean; leads?: MockLead[]; lmHistory?: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[]; integrationsReadyAt?: string | null; allTimeStart?: string | null; deals?: DealRecord[]; cashParVente?: VenteCash[] }) {
+function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, calendlyStaticClicsFromDb, igLive, ytLive, sinceConnection, leads, lmHistory, integrationsReadyAt, allTimeStart, deals, cashParVente, stories }: { ig: IGStats | null; yt: YTStats | null; msgs: IGMessages | null; calls: CallRecord[]; callsAllTime?: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; calendlyStaticClicsFromDb?: number; igLive?: IGStats | null; ytLive?: YTStats | null; sinceConnection?: boolean; leads?: MockLead[]; lmHistory?: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[]; integrationsReadyAt?: string | null; allTimeStart?: string | null; deals?: DealRecord[]; cashParVente?: VenteCash[]; stories?: any[] }) {
   // Etiquette de fenetre. En All-Time les cartes affichaient « 30j » alors que le
   // bandeau annonce « All-Time » — meme defaut que celui corrige dans les onglets
   // Instagram et YouTube (2026-08-22).
@@ -1649,9 +1649,27 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   });
   const visibleContent = showAllContent ? sortedContent : sortedContent.slice(0, 5);
 
-  const igPostsInPeriod = ig?.posts.filter(p => { const t = new Date(p.timestamp).getTime(); return t >= ovPeriodStart.getTime() && (_ovPIdx === 0 || t <= ovPeriodEnd.getTime()); }).length || 0;
-  const ytVideosInPeriodOv = yt?.videos.filter(v => { const t = new Date(v.publishedAt).getTime(); return t >= ovPeriodStart.getTime() && (_ovPIdx === 0 || t <= ovPeriodEnd.getTime()); }).length || 0;
-  const totalPosts = igPostsInPeriod + ytVideosInPeriodOv;
+  // ⚠️ « Publications » est un INVENTAIRE, pas une mesure de periode — decision de
+  // Chris le 2026-09-04, apres avoir vu la carte afficher « 0 » a cote d'une grille
+  // de 14 contenus.
+  //
+  // Le compte de test n'a rien publie depuis son inscription (derniere publication le
+  // 23 fevrier, inscription le 9 juin) : borner l'All-Time a la date d'inscription
+  // rendait donc « 0 », ce qui est exact mais se lit comme une panne.
+  //
+  // Consequence assumee, et c'est pour cela que le sous-titre dit « sur le compte » :
+  // en All-Time ce chiffre ne se compare PAS avec la vue 30 jours, contrairement au
+  // reach ou aux calls qui, eux, comptent l'activite depuis l'inscription.
+  const dansLaFenetrePub = (t: number) =>
+    sinceConnection || (t >= ovPeriodStart.getTime() && (_ovPIdx === 0 || t <= ovPeriodEnd.getTime()));
+  const igPostsInPeriod = ig?.posts.filter(p => dansLaFenetrePub(new Date(p.timestamp).getTime())).length || 0;
+  const ytVideosInPeriodOv = yt?.videos.filter(v => dansLaFenetrePub(new Date(v.publishedAt).getTime())).length || 0;
+  // Les stories ne sont connues QUE depuis le premier passage du cron qui les a vues
+  // (25 juillet 2026 sur le compte de test) : elles expirent en 24 h et ne se
+  // rattrapent pas. Une periode anterieure en comptera donc zero, legitimement.
+  const storiesInPeriodOv = (stories ?? []).filter((s: any) =>
+    dansLaFenetrePub(new Date(s.posted_at).getTime())).length;
+  const totalPosts = igPostsInPeriod + ytVideosInPeriodOv + storiesInPeriodOv;
 
   return (
     <div className="stack">
@@ -1686,7 +1704,7 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
             <div key="publications" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
               <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8 }}>
                 <span>Publications</span>
-                <span style={{ fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{ovEtiquettePeriode}</span>
+                <span style={{ fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{sinceConnection ? 'sur le compte' : ovEtiquettePeriode}</span>
               </div>
               <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--ink)', lineHeight: 1, marginBottom: 8 }}>{fmt(totalPosts)}</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'nowrap' }}>
@@ -1700,6 +1718,12 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
                   <span style={{ width: 7, height: 7, borderRadius: '50%', background: YT_COLOR, flexShrink: 0 }} />
                   <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{fmt(ytVideosInPeriodOv)}</span>
                   <span style={{ fontSize: 10, color: 'var(--muted)', whiteSpace: 'nowrap' }}>YT</span>
+                </div>
+                <div style={{ width: 1, height: 12, background: 'var(--border)', flexShrink: 0 }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#8B5CF6', flexShrink: 0 }} />
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{fmt(storiesInPeriodOv)}</span>
+                  <span style={{ fontSize: 10, color: 'var(--muted)', whiteSpace: 'nowrap' }}>Stories</span>
                 </div>
               </div>
             </div>
@@ -1944,7 +1968,7 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
 
 // ─── TAB 2 : Instagram ────────────────────────────────────────────────────────
 
-function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, connexionCassee, abonnesAujourdHui, allTimeStart }: { ig: IGStats | null; period: Period; periodIndex?: number; profileId?: string; sinceConnection?: boolean; connexionCassee?: boolean; abonnesAujourdHui?: number | null; allTimeStart?: string | null }) {
+function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, connexionCassee, abonnesAujourdHui, allTimeStart, stories }: { ig: IGStats | null; period: Period; periodIndex?: number; profileId?: string; sinceConnection?: boolean; connexionCassee?: boolean; abonnesAujourdHui?: number | null; allTimeStart?: string | null; stories?: any[] }) {
   const [selectedPost, setSelectedPost] = useState<IGPost | null>(null);
   const [statModal, setStatModal] = useState<{ label: string; value: string; color: string; data: { date: string; v: number | null; libelle?: string }[]; unit?: string; pas?: number } | null>(null);
   const [contentSubTab, setContentSubTab] = useState<'posts' | 'stories'>('posts');
@@ -2193,8 +2217,21 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
   // contient les posts qui ont un INSTANTANÉ dans la fenêtre, pas ceux qui y ont été
   // PUBLIÉS. Un post de février est encore photographié chaque jour, il y figure donc.
   // La borne reste donc une date de publication, celle de la mise en route.
-  const debutPublicationsIg = sinceConnection && allTimeStart ? new Date(allTimeStart) : cutoffIg;
-  const postsInPeriod = ig.posts.filter(p => new Date(p.timestamp) >= debutPublicationsIg).length;
+  // Voir le commentaire de `dansLaFenetrePub` en Vue generale : en All-Time la carte
+  // est un INVENTAIRE du compte, sans borne basse. Sur une periode datee, la borne
+  // reste une date de PUBLICATION — `ig.posts` contient les posts qui ont un
+  // instantane dans la fenetre, pas ceux qui y ont ete publies, et un post de fevrier
+  // est encore photographie chaque jour.
+  const dansLaFenetrePubIg = (t: number) => sinceConnection || t >= cutoffIg.getTime();
+  const estReel = (p: any) => p.type === 'REEL' || p.type === 'REELS' || p.type === 'VIDEO';
+  const publicationsIg = ig.posts.filter(p => dansLaFenetrePubIg(new Date(p.timestamp).getTime()));
+  const nbReels = publicationsIg.filter(estReel).length;
+  const nbPosts = publicationsIg.length - nbReels;
+  // Stories connues seulement depuis le premier passage du cron : elles expirent en
+  // 24 h et ne se rattrapent pas.
+  const nbStoriesIg = (stories ?? []).filter((s: any) =>
+    dansLaFenetrePubIg(new Date(s.posted_at).getTime())).length;
+  const postsInPeriod = nbPosts + nbReels + nbStoriesIg;
   const pubsByDay = igDays.map(d => ({
     date: d.date,
     v: igDaysNoDataSet.has(d.date) ? (null as any) : ig.posts.filter(p => parisDateStr(new Date(p.timestamp)) === d.date).length,
@@ -2330,7 +2367,9 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
           // (demande de Chris, 2026-08-22). Meme principe que la carte YouTube, qui
           // porte deja « +0 (+0 -0) » a cote de son chiffre.
           { label: 'Abonnés', value: abonnesAujourdHui != null ? fmt(abonnesAujourdHui) : '—', sub: "aujourd'hui", color: 'var(--ink)', key: 'Abonnés', badge: igFollowerDeltaP },
-          { label: 'Publications', value: fmt(postsInPeriod), sub: igEtiquettePeriode, color: IG_COLOR, key: 'Publications' },
+          { label: 'Publications', value: fmt(postsInPeriod),
+            sub: `Posts ${fmt(nbPosts)} · Reels ${fmt(nbReels)} · Stories ${fmt(nbStoriesIg)}`,
+            color: IG_COLOR, key: 'Publications' },
           { label: 'Reach · personnes', value: fmt(igReachP), sub: igEtiquettePeriode, color: 'var(--ink)', key: 'Reach' },
           { label: 'Interactions posts', value: fmt(igInteractionsP), sub: igEtiquettePeriode, color: 'var(--ink)', key: 'Interactions posts' },
         ].map(s => (
@@ -11448,6 +11487,16 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   // Données effectives : "depuis connexion" en priorité si actif, sinon historiques
   // si periodIndex > 0, live sinon (tous onglets). sinceConnection est un mode
   // séparé et prioritaire — jamais mélangé avec la logique periodIndex existante.
+  // Stories, pour le KPI « Publications » des deux onglets. MEME queryKey que la
+  // requete de TabInstagram : React Query partage alors le cache et ne declenche pas
+  // un second appel. Sans ca, la carte aurait eu besoin de sa propre route.
+  const { data: storiesKpiData } = useQuery({
+    queryKey: ['stories', profileId],
+    queryFn: () => fetch(profileId ? `/api/client/stories?profileId=${profileId}` : '/api/client/stories').then(r => r.json()),
+    staleTime: 60 * 1000,
+  });
+  const storiesKpi: any[] = storiesKpiData?.stories ?? [];
+
   const igEff      = (sinceConnection ? (sinceConnSnap?.igHist      ?? null) : (periodIndex > 0 ? (snapData?.igHist      ?? null) : ig))      as IGStats | null;
   const ytEff      = (sinceConnection ? (sinceConnSnap?.ytHist      ?? null) : (periodIndex > 0 ? (snapData?.ytHist      ?? null) : yt))      as YTStats | null;
   // true quand yt est retombé sur ytRaw brut (pas de snapshot pour la période) — ytRaw agrège toujours sur 30j côté API
@@ -11640,8 +11689,8 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
 
       {loading ? <InlineLoader /> : (
         <>
-          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} msgs={msgsEff} calls={callsEff} callsAllTime={callsAllTimeEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} deals={dealsEff} cashParVente={cashParVente} />}
-          {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} abonnesAujourdHui={ig?.followers ?? null} allTimeStart={allTimeStart} />}
+          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} msgs={msgsEff} calls={callsEff} callsAllTime={callsAllTimeEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} deals={dealsEff} cashParVente={cashParVente} stories={storiesKpi} />}
+          {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} abonnesAujourdHui={ig?.followers ?? null} allTimeStart={allTimeStart} stories={storiesKpi} />}
           {/* La retention est une PROPRIETE DE LA VIDEO, pas une metrique de periode :
               « 45 % de ma video est regardee » ne depend pas de la fenetre consultee.
               La stocker jour par jour etait l'erreur de modelisation — chaque ligne
