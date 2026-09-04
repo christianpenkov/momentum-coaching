@@ -786,6 +786,97 @@ function ilYA(iso: string): string {
  * elle-même. D'où le rendu en gabarit — titre puis bouton — plutôt qu'une
  * vignette qui n'existerait pas.
  */
+/**
+ * Le lecteur d'un message vocal.
+ *
+ * Le lecteur natif du navigateur fonctionne, mais il arrive avec sa propre
+ * barre grise, son menu à trois points et son curseur de volume : dans une
+ * bulle Instagram, il a l'air d'un corps étranger. Celui-ci reprend la forme
+ * du vrai — bouton rond, barre de progression, durée — et surtout il hérite de
+ * la couleur de sa bulle, donc il tient aussi bien sur le gris d'un message
+ * reçu que sur le violet d'un message envoyé.
+ *
+ * ⚠️ La barre est un `input[type=range]`, pas un `div` cliquable. C'est ce qui
+ * la rend déplaçable au clavier et annoncée par un lecteur d'écran ; un `div`
+ * avec un `onClick` aurait la même apparence et ne serait utilisable qu'à la
+ * souris.
+ *
+ * ⚠️ Une durée non finie n'est pas une anomalie : elle arrive tant que les
+ * métadonnées ne sont pas chargées, et sur un flux sans longueur déclarée. On
+ * affiche alors le temps écoulé seul, au lieu d'un « 0:00 / NaN ».
+ */
+function LecteurVocal({ src }: { src: string }) {
+  const audio = useRef<HTMLAudioElement>(null);
+  const [joue, setJoue] = useState(false);
+  const [pos, setPos] = useState(0);
+  const [duree, setDuree] = useState(0);
+  const connue = Number.isFinite(duree) && duree > 0;
+
+  const mmss = (s: number) => {
+    if (!Number.isFinite(s) || s < 0) return '0:00';
+    return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  };
+
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, minWidth: 200 }}>
+      <audio
+        ref={audio} src={src} preload="metadata"
+        onLoadedMetadata={e => setDuree(e.currentTarget.duration)}
+        onTimeUpdate={e => setPos(e.currentTarget.currentTime)}
+        onPlay={() => setJoue(true)}
+        onPause={() => setJoue(false)}
+        onEnded={() => { setJoue(false); setPos(0); }}
+      />
+
+      <button
+        type="button"
+        aria-label={joue ? 'Mettre le message vocal en pause' : 'Écouter le message vocal'}
+        onClick={() => { const a = audio.current; if (!a) return; joue ? a.pause() : a.play(); }}
+        style={{
+          width: 30, height: 30, borderRadius: '50%', flexShrink: 0, cursor: 'pointer',
+          // La pastille est en couleur courante à faible opacité : sur une bulle
+          // grise elle est sombre, sur une bulle violette elle est claire. Une
+          // couleur fixe aurait disparu sur l'une des deux.
+          background: 'currentColor', opacity: .92, border: 'none',
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+        {joue ? (
+          // Deux barres, comme une vraie pause : un carré plein se lirait comme
+          // un bouton « stop », qui ne veut pas dire la même chose.
+          <span style={{ display: 'inline-flex', gap: 2.5 }}>
+            <span style={{ display: 'block', width: 2.5, height: 10, background: 'var(--surface, #fff)' }} />
+            <span style={{ display: 'block', width: 2.5, height: 10, background: 'var(--surface, #fff)' }} />
+          </span>
+        ) : (
+          <span style={{
+            display: 'block', width: 0, height: 0, marginLeft: 2,
+            borderTop: '5px solid transparent', borderBottom: '5px solid transparent',
+            borderLeft: '8px solid var(--surface, #fff)',
+          }} />
+        )}
+      </button>
+
+      <input
+        type="range" min={0} max={connue ? duree : 0} step={0.01}
+        value={Math.min(pos, connue ? duree : 0)}
+        disabled={!connue}
+        aria-label="Position dans le message vocal"
+        onChange={e => {
+          const a = audio.current; if (!a) return;
+          a.currentTime = Number(e.target.value); setPos(a.currentTime);
+        }}
+        style={{
+          flex: 1, minWidth: 80, height: 3, accentColor: 'currentColor',
+          cursor: connue ? 'pointer' : 'default',
+        }} />
+
+      <span style={{ fontSize: 11.5, opacity: .7, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+        {connue ? `${mmss(pos)} / ${mmss(duree)}` : mmss(pos)}
+      </span>
+    </span>
+  );
+}
+
 function PieceJointe({ messageId, type }: { messageId: string; type: string }) {
   const [contenu, setContenu] = useState<any>(null);
   const [charge, setCharge] = useState(false);
@@ -849,12 +940,16 @@ function PieceJointe({ messageId, type }: { messageId: string; type: string }) {
   }
 
   if (contenu?.forme === 'media') {
-    // Un vocal ou une vidéo : lecteur natif plutôt qu'un lien. Les octets
-    // passent par notre route, donc la CSP reste fermée.
-    if (contenu.type === 'audio' || contenu.type === 'video') {
-      const Lecteur = contenu.type === 'audio' ? 'audio' : 'video';
-      return <Lecteur src={contenu.url} controls preload="none"
-                      style={{ display: 'block', maxWidth: 260, borderRadius: 10 }} />;
+    // Les octets passent par notre route, donc la CSP reste fermée.
+    //
+    // Le vocal a son propre lecteur : c'est le seul média que la plateforme
+    // stocke, donc le seul qui se lit toujours, et le lecteur natif détonnait
+    // dans une bulle. La vidéo garde les commandes natives — elle est rare, et
+    // elle apporte son plein écran, son volume et ses sous-titres.
+    if (contenu.type === 'audio') return <LecteurVocal src={contenu.url} />;
+    if (contenu.type === 'video') {
+      return <video src={contenu.url} controls preload="none"
+                    style={{ display: 'block', maxWidth: 260, borderRadius: 10 }} />;
     }
     return (
       <a href={contenu.url} target="_blank" rel="noopener noreferrer"
