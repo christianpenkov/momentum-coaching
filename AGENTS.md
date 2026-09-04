@@ -809,7 +809,7 @@ Deux mécanismes le remplacent, aucun n'étant une date tapée par quelqu'un :
 
 - **`migrations_du_depot.vu_le`** — le jour où le dépôt a montré le fichier pour la
   première fois. Posée à l'insertion, jamais mise à jour (la route ne l'envoie pas dans
-  son `upsert`). Elle donne **4 heures de grâce** : écrire le fichier puis appliquer la
+  son `upsert`). Elle donne **4 heures de grâce** côté fichiers : écrire le fichier puis appliquer la
   migration est un ordre légitime, et sans grâce la vue crierait dans l'intervalle.
 - **`migrations_ecarts_historiques`** — les quinze exceptions antérieures, **nommées une
   par une avec leur preuve**. Une liste fermée qui ne grandit jamais toute seule vaut
@@ -824,6 +824,20 @@ en angle mort *documenté*, ce qui est pire : on cesse de chercher.
 
 ⚠️ **Cette liste ne doit jamais grandir.** Une ligne de plus signifie qu'on a renoncé à
 comprendre un écart, pas qu'on l'a résolu.
+
+⚠️ **Et une marge d'UNE HEURE côté migrations appliquées**, ajoutée le 2026-09-04 après
+que la vue se soit signalée elle-même. L'instantané peut être frais de trente secondes et
+porter un contenu périmé : le trajet complet est `git push` → construction Vercel (1 à
+5 min) → rafraîchissement horaire. Un rafraîchissement qui tombe entre le `push` et la
+fin de la construction écrit un inventaire **daté de maintenant, bâti sur le dépôt
+d'avant** — et la migration, plus ancienne que cette heure d'écriture, était jugée contre
+lui. Une migration doit donc être plus vieille d'une heure que l'instantané pour être
+jugée. Un vrai orphelin est signalé une heure plus tard ; l'alerte part par un e-mail
+quotidien, ça ne change rien.
+
+**Les deux branches ont maintenant chacune leur marge, et aucune ne repose sur une date
+saisie à la main** — c'est le même principe des deux côtés : on ne juge pas un état tant
+qu'on n'a pas la preuve de l'avoir observé après le fait.
 
 ⚠️ Leçon de méthode payée en route : trois de ces quinze avaient d'abord été déclarées
 « absentes » parce que le nom de leur colonne avait été **deviné** au lieu d'être lu dans
