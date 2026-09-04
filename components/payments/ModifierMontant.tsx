@@ -296,11 +296,18 @@ export default function ModifierMontant({ deal, detail, onClose, onDone, onRembo
         {(mode === 'offline' || (complement && encaissement === 'offline'))
           && !(complement && encaissement === 'lien')
           && resultat.resteAEncaisser > 0.005 && (
-          <Encart ton="attention" titre="Préviens ton client toi-même">
-            Cette vente s’encaisse hors Stripe : Momentum a mis l’échéancier à
-            jour, mais ne peut prévenir personne. C’est à toi de dire à
-            {' '}{deal.buyerName.split(' ')[0]} ce qu’il doit désormais virer.
-          </Encart>
+          // ⚠️ « virer » nommait UN moyen. Hors Stripe veut dire « par le moyen
+          // de ton choix » — virement, espèces, chèque. Nommer le virement fait
+          // croire à une contrainte que la plateforme n'impose pas, et laisse
+          // sans réponse celui qui encaisse autrement.
+          <div style={{ marginTop: 12 }}>
+            <Encart ton="attention" titre="Préviens ton client toi-même">
+              Cette vente s’encaisse hors Stripe : Momentum a mis l’échéancier à
+              jour, mais ne peut prévenir personne. C’est à toi de dire à
+              {' '}{deal.buyerName.split(' ')[0]} ce qu’il doit régler, et par
+              quel moyen.
+            </Encart>
+          </div>
         )}
       </ModaleAction>
     );
@@ -524,7 +531,7 @@ function PreviewHausse({
           ) : (
             <>Cette vente s’encaisse hors Stripe : aucun lien ne sera créé, et
               Momentum ne préviendra personne. C’est à toi de dire à {prenom} ce
-              qu’il doit virer.</>
+              qu’il doit régler, et par quel moyen.</>
           )}
         </div>
       </Encart>

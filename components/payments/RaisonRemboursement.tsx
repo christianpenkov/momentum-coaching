@@ -175,7 +175,7 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
               <Encart ton="attention" titre="Préviens-le toi-même">
                 Tu encaisses hors Stripe : l’échéance est créée, mais Momentum ne
                 peut prévenir personne. C’est à toi de dire à {prenom} ce qu’il
-                doit virer, et de le noter ici quand il arrive.
+                doit régler et par quel moyen, puis de le noter ici quand il arrive.
               </Encart>
             )}
           </>
