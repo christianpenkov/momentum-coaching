@@ -404,7 +404,7 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
                 fontSize: 11.5, color: 'var(--accent-brand)', fontFamily: 'inherit',
                 display: 'inline-flex', alignItems: 'center', gap: 6,
               }}>
-              <Icon name="edit" size={13} color="currentColor" />
+              <span aria-hidden="true" style={{ fontSize: 12, lineHeight: '16px' }}>📌</span>
               Ajouter une note sur ce fil
             </button>
           )}
@@ -441,7 +441,7 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
           const contenu = m.texte
             ? m.texte
             : (m.type_piece_jointe
-                ? <MarqueurPieceJointe type={m.type_piece_jointe} sortant={m.sortant} />
+                ? <PieceJointe messageId={m.id} type={m.type_piece_jointe} />
                 : '');
 
           return (
@@ -495,7 +495,9 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
                       display: 'grid', placeItems: 'center', padding: 0,
                       boxShadow: '0 1px 4px rgba(26,24,21,.10)',
                     } as React.CSSProperties}>
-                    <Icon name="edit" size={13} color="currentColor" />
+                    {/* Le même glyphe que la note qu'il produit : une affordance
+                        doit annoncer ce qu'elle fabrique. */}
+                    <span aria-hidden="true" style={{ fontSize: 12, lineHeight: 1 }}>📝</span>
                   </button>
                 )}
               </div>
@@ -549,7 +551,7 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
             display: 'flex', flexDirection: 'column',
           }}>
           {[
-            ['edit', 'Ajouter une note', () => {
+            ['note', 'Ajouter une note', () => {
               const m = (messages ?? []).find(x => x.id === menu.id);
               setEdite({ id: menu.id, valeur: m?.note ?? '' });
               setMenu(null);
@@ -567,7 +569,9 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
                 fontFamily: 'inherit', whiteSpace: 'nowrap',
                 display: 'flex', alignItems: 'center', gap: 9,
               }}>
-              <Icon name={icone as any} size={14} color="var(--muted)" />
+              {icone === 'note'
+                ? <span aria-hidden="true" style={{ fontSize: 12, width: 14, textAlign: 'center' }}>📝</span>
+                : <Icon name={icone as any} size={14} color="var(--muted)" />}
               {libelle as string}
             </button>
           ))}
@@ -767,4 +771,86 @@ function ilYA(iso: string): string {
   if (s < 86400) return `${Math.round(s / 3600)} h`;
   const j = Math.round(s / 86400);
   return j < 30 ? `${j} j` : new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+}
+
+/**
+ * Une pièce jointe : un marqueur, et son contenu à la demande.
+ *
+ * ⚠️ RIEN N'EST STOCKÉ. 14 % des messages en portent une ; les ré-héberger
+ * remplirait le gigaoctet gratuit de stockage en neuf jours, et les URL de Meta
+ * expirent de toute façon — une copie vieillirait sans qu'on le sache. On garde
+ * le `mid` (et lui seul, pour ces messages-là) et on redemande au clic.
+ *
+ * ⚠️ Mesuré le 2026-09-04 : la plupart des « pièces jointes » d'un fil de lead
+ * ne sont pas des médias, ce sont les DM à bouton que la plateforme envoie
+ * elle-même. D'où le rendu en gabarit — titre puis bouton — plutôt qu'une
+ * vignette qui n'existerait pas.
+ */
+function PieceJointe({ messageId, type }: { messageId: string; type: string }) {
+  const [contenu, setContenu] = useState<any>(null);
+  const [charge, setCharge] = useState(false);
+
+  async function afficher() {
+    if (charge) return;
+    setCharge(true);
+    try {
+      const r = await fetch(`/api/coach/ig-piece-jointe?message_id=${messageId}`);
+      setContenu(r.ok ? await r.json() : { forme: 'indisponible', motif: 'Chargement impossible' });
+    } catch {
+      setContenu({ forme: 'indisponible', motif: 'Chargement impossible' });
+    }
+  }
+
+  if (contenu?.forme === 'template') {
+    // Le gabarit tel qu'Instagram le montre : titre en gras, puis le bouton dans
+    // un rectangle clair. C'est ce que le prospect a vu.
+    return (
+      <span style={{ display: 'block' }}>
+        <span style={{ display: 'block', fontWeight: 700, marginBottom: 7 }}>{contenu.titre}</span>
+        {contenu.bouton && (
+          <span style={{
+            display: 'block', background: '#fff', color: '#000', borderRadius: 14,
+            padding: '9px 12px', margin: '0 12px', textAlign: 'center', fontWeight: 700,
+          }}>{contenu.bouton}</span>
+        )}
+      </span>
+    );
+  }
+
+  if (contenu?.forme === 'media' && contenu.type === 'image') {
+    return <img src={contenu.url} alt="Photo envoyée dans la conversation"
+                style={{ display: 'block', maxWidth: 240, borderRadius: 12 }} />;
+  }
+
+  if (contenu?.forme === 'media' || contenu?.forme === 'story') {
+    return contenu.url
+      ? <a href={contenu.url} target="_blank" rel="noopener noreferrer"
+           style={{ color: 'inherit', textDecoration: 'underline' }}>Ouvrir le contenu</a>
+      : <MarqueurPieceJointe type={type} />;
+  }
+
+  if (contenu?.forme === 'indisponible') {
+    // On DIT que le contenu n'est plus rendu, plutot qu'un cadre casse : Meta
+    // finit par ne plus servir les medias anciens, et c'est un cas normal.
+    return (
+      <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 3 }}>
+        <MarqueurPieceJointe type={type} />
+        <span style={{ fontSize: 12, opacity: .75 }}>{contenu.motif}</span>
+      </span>
+    );
+  }
+
+  return (
+    <button type="button" onClick={afficher} disabled={charge}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 8, background: 'none',
+        border: 'none', padding: 0, cursor: charge ? 'wait' : 'pointer',
+        color: 'inherit', font: 'inherit', textAlign: 'left',
+      }}>
+      <MarqueurPieceJointe type={type} />
+      <span style={{ fontSize: 12, opacity: .7, textDecoration: 'underline' }}>
+        {charge ? 'Chargement…' : 'Afficher'}
+      </span>
+    </button>
+  );
 }
