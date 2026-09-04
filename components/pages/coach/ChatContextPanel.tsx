@@ -117,7 +117,13 @@ export default function ChatContextPanel({ client, calls, open, onClose }: ChatC
 
         {/* ── Identité ─────────────────────────────────────────────────── */}
         <div style={{ textAlign: 'center' }}>
-          <div style={{ margin: '0 auto 10px' }}>
+          {/* ⚠️ `display: flex` + `justifyContent: center`, et non `textAlign` ni
+              `margin: 0 auto`. `Avatar` rend un élément de BLOC (une `div` colorée, ou
+              une `img` en `display: block`) : `text-align` du parent ne le centre pas, et
+              son `margin: auto` ne fait rien tant que le conteneur n'a pas de largeur
+              propre. L'avatar restait donc collé à gauche pendant que le nom, lui, était
+              bien centré — un décalage qu'on voit sans savoir le nommer. */}
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}>
             <Avatar initials={client.initials || getInitials(client.name)} avatarUrl={client.avatar_url} size={60} seed={client.id} />
           </div>
           <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--ink)' }}>{client.name}</div>
