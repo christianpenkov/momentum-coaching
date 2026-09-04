@@ -7,7 +7,7 @@ import {
   desactiverLiensDuDeal,
   ajusterPrelevements,
 } from '@/lib/stripe-payment-links';
-import { calculerCash, aRembourser, resteAEncaisser, type LignePaiement } from '@/lib/dealCash';
+import { calculerCash, aRembourser, resteAEncaisser, statutDeal, type LignePaiement } from '@/lib/dealCash';
 
 /**
  * Corriger le montant d'une vente.
@@ -64,7 +64,7 @@ export async function PATCH(
   const { data: deal } = await supa
     .from('deals')
     .select(`id, profile_id, status, amount_total, buyer_name, payment_plan, installments_count,
-             installment_interval, currency, stripe_subscription_id,
+             installment_interval, currency, stripe_subscription_id, stripe_payment_link_id,
              ig_lead_id, first_touch_content_id,
              deal_payments(amount, status),
              deal_installments(id, rank, amount, status, due_on, stripe_payment_link_id)`)
@@ -98,8 +98,19 @@ export async function PATCH(
   // la vente, aucun sur ses échéances, pas de prélèvement. Se fier aux seules
   // échéances ne suffisait pas — un comptant hors Stripe déjà encaissé n'en a
   // aucune (links/route.ts enregistre directement le paiement).
+  // ⚠️ `stripe_payment_link_id` DOIT être dans le select ci-dessus. Il n'y était
+  // pas, et un `as` masquait l'absence : le champ valait toujours `undefined`,
+  // donc `horsStripe` était VRAI pour tout comptant — même portant un lien.
+  //
+  // La branche « hors Stripe » attrapait ainsi tous les comptants : un complément
+  // demandé par lien n'en créait jamais, et basculer une vente vers le hors Stripe
+  // laissait son lien d'origine payable. Constaté le 2026-09-04 sur TestYT, dont
+  // les quatre colonnes de lien avaient survécu à la bascule.
+  //
+  // Un `as` sur une donnée venue de la base ne convertit rien : il fait taire le
+  // compilateur sur un champ qu'on a oublié de demander.
   const horsStripe = !deal.stripe_subscription_id
-    && !(deal as { stripe_payment_link_id?: string | null }).stripe_payment_link_id
+    && !deal.stripe_payment_link_id
     && echeances.every(e => !e.stripe_payment_link_id);
 
   // ── Le moyen d'encaisser le complément est un CHOIX, pas une déduction ─────
@@ -257,7 +268,24 @@ export async function PATCH(
   // disparaît quand l'argent bouge. Aucune étape verrouillée — si l'élève ferme
   // l'écran, la fiche continue de dire ce qu'il reste à faire, et il n'y a rien
   // à reprendre ni à nettoyer.
-  await supa.from('deals').update({ amount_total: montant }).eq('id', dealId);
+  // ── Le statut suit le nouveau montant ────────────────────────────────────
+  // Il n'était PAS recalculé : une vente soldée dont on relève le montant restait
+  // « Soldée » avec de l'argent à encaisser — donc hors des relances, et jamais
+  // réclamé. Constaté sur TestYT : 800 € encaissés sur 1 000 €, pastille Soldée.
+  //
+  // ⚠️ Et `statutDeal` seule ne suffisait pas. Sa règle « déjà soldé + net > 0 →
+  // reste soldé » existe pour qu'un REMBOURSEMENT ne rouvre pas une vente et ne
+  // relance pas quelqu'un sur l'argent qu'on vient de lui rendre. Ici le manque
+  // vient d'une décision inverse — on a relevé le prix — et l'argent est bien dû.
+  // On neutralise donc la règle dans ce seul cas, en ne lui passant pas l'état
+  // « soldé » qu'elle protégerait.
+  const statutApres = reste > CENTIME && deal.status === 'paid'
+    ? (statutDeal(cash, montant, null) ?? 'open')
+    : (statutDeal(cash, montant, deal.status) ?? deal.status);
+
+  await supa.from('deals')
+    .update({ amount_total: montant, status: statutApres })
+    .eq('id', dealId);
 
   await supa.from('deal_events').insert({
     deal_id: dealId,

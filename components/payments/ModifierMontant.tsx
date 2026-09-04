@@ -287,9 +287,14 @@ export default function ModifierMontant({ deal, detail, onClose, onDone, onRembo
           </Encart>
         )}
 
-        {/* L'avertissement ne vaut que si le complément reste hors Stripe : avec
-            un lien, Momentum constate seul et il n'y a rien à annoncer. */}
-        {mode === 'offline' && !(complement && encaissement === 'lien')
+        {/* ⚠️ La condition suit le CHOIX, pas le mode. Sur un comptant avec lien
+            basculé vers le hors Stripe, `mode` vaut encore `one_shot` à cet
+            instant — la fiche derrière n'est rafraîchie qu'à la fermeture — donc
+            l'avertissement ne s'affichait pas. On venait de créer une échéance que
+            Momentum ne peut pas encaisser, et rien ne disait qu'il fallait
+            prévenir le client. Constaté le 2026-09-04 sur TestYT. */}
+        {(mode === 'offline' || (complement && encaissement === 'offline'))
+          && !(complement && encaissement === 'lien')
           && resultat.resteAEncaisser > 0.005 && (
           <Encart ton="attention" titre="Préviens ton client toi-même">
             Cette vente s’encaisse hors Stripe : Momentum a mis l’échéancier à
