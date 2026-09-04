@@ -31,6 +31,7 @@ import type { Task, SessionReport, Call, Client } from '@/lib/supabase/types';
 import { formatCallLongDate, formatCallTime } from '@/lib/callFormat';
 import { useViewerTimeZone } from '@/lib/UserContext';
 
+import CarteConversationsIg from '@/components/ig/CarteConversationsIg';
 interface ClientDetailData extends Client {
   tasks: Task[];
   avatar_url: string | null;
@@ -960,6 +961,19 @@ export default function PageClientDetail({ id }: Props) {
           </div>
         </div>
       </div>
+
+      {/* Conversations Instagram — hauteur CONSTANTE, quel que soit le nombre de
+          fils. La carte ne se rend pas du tout tant que l'élève n'a pas accordé
+          la lecture à son coach (la vue ne renvoie alors aucune ligne), donc rien
+          à expliquer ici : c'est lui qui décide, depuis ses réglages. */}
+      {client.profile_id && (
+        <div style={{ marginBottom: 24 }}>
+          <CarteConversationsIg
+            profileId={client.profile_id}
+            prenomEleve={(client.name || '').trim().split(/\s+/)[0] || 'ton élève'}
+          />
+        </div>
+      )}
 
       <AnimatePresence>
         {modalOpen && (

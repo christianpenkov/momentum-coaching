@@ -143,4 +143,5 @@ export const MIGRATIONS_DEPOT: { version: string; nom: string }[] = [
   { version: '20260904190000', nom: 'enregistrer_message_ig_signale_le_pseudo_manquant' },
   { version: '20260904200000', nom: 'base_sante_taille_compte_ig_messages' },
   { version: '20260904210000', nom: 'enregistrer_messages_ig_lot' },
+  { version: '20260904220000', nom: 'ig_conversations_visibles' },
 ];
