@@ -20,6 +20,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import { pushEvent } from '@/app/api/instagram/webhook-stream/route';
+import { estSortant, estLeCompte, typePieceJointe } from '@/lib/igConversations';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -217,6 +218,84 @@ async function fetchAndStoreAvatar(igUserId: string, accessToken: string): Promi
     return publicUrl;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Archive un message Instagram pour que le coach puisse le relire et l'annoter.
+ *
+ * ⚠️ N'ÉCRIT RIEN tant que l'élève n'a pas accordé la lecture à son coach. La
+ * garde vit dans la fonction Postgres, pas ici : aucun appelant futur ne peut
+ * l'oublier. Sans accord, la RPC ne rend aucune ligne et on s'arrête sans même
+ * appeler Meta.
+ *
+ * ⚠️ UNE requête par message, jamais quatre. L'egress Supabase se paie au NOMBRE
+ * de requêtes : à 40 élèves, quatre requêtes par message auraient ajouté
+ * 24 000 requêtes/jour sur un budget mesuré à ~66 000 (voir AGENTS.md).
+ *
+ * ⚠️ Avale ses erreurs, volontairement. Un fil non archivé est un manque à
+ * l'écran, rattrapable ; une exception ici ferait échouer l'événement entier et
+ * donc le DM1 qui suit — et Meta n'autorise qu'UNE réponse privée par
+ * commentaire, donc un DM1 perdu l'est définitivement.
+ */
+async function enregistrerPourLeCoach(
+  messaging: any,
+  profileId: string,
+  igAccountId: string,
+  entryId: string,
+  accessToken: string | null,
+): Promise<void> {
+  try {
+    // Un accusé de lecture, une réaction ou un postback n'est pas un message :
+    // pas de `mid`, rien à archiver.
+    const mid: string | undefined = messaging?.message?.mid;
+    if (!mid) return;
+
+    const formes = { igAccountId, entryId };
+    const sortant = estSortant(messaging, formes);
+
+    // L'interlocuteur est à l'autre bout selon le sens. Le garde `estLeCompte`
+    // couvre le cas où Meta rend les deux côtés sous une forme du compte
+    // (observé quand deux comptes connectés se parlent) : on n'archive pas un
+    // fil « avec soi-même ».
+    const peerId = String((sortant ? messaging?.recipient?.id : messaging?.sender?.id) || '');
+    if (!peerId || estLeCompte(peerId, formes)) return;
+
+    const args = {
+      p_profile_id: profileId,
+      p_ig_account_id: igAccountId,
+      p_peer_id: peerId,
+      p_peer_username: null as string | null,
+      p_mid: mid,
+      p_sortant: sortant,
+      p_texte: (messaging.message?.text as string) || null,
+      p_type_piece_jointe: typePieceJointe(messaging.message),
+      p_envoye_a: new Date(Number(messaging.timestamp) || Date.now()).toISOString(),
+    };
+
+    const { data, error } = await serviceSupabase.rpc('enregistrer_message_ig', args);
+    if (error) {
+      debugLog('enregistrer_message_ig a échoué', { erreur: error.message, peerId });
+      return;
+    }
+
+    const retour = Array.isArray(data) ? data[0] : data;
+    // Aucune ligne = aucun accord. Cas normal et silencieux.
+    if (!retour?.conversation_id || !retour.pseudo_a_resoudre || !accessToken) return;
+
+    // Le pseudo n'est PAS dans la charge utile du webhook. On le résout UNE
+    // seule fois par fil, puis on rappelle la même fonction : le message est
+    // absorbé par le `on conflict`, seule la conversation reçoit le pseudo.
+    // Un seul chemin de code, et aucun `update` séparé à maintenir.
+    const r = await fetch(
+      `https://graph.instagram.com/v22.0/${peerId}?fields=username&access_token=${accessToken}`
+    );
+    const j = await r.json();
+    const username: string | undefined = j?.username;
+    if (!username) return;
+    await serviceSupabase.rpc('enregistrer_message_ig', { ...args, p_peer_username: username });
+  } catch (e: any) {
+    debugLog('archivage coach échoué', { erreur: e?.message || String(e) });
   }
 }
 
@@ -670,6 +749,14 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
 
       if (!resolvedMatch) continue;
       const { profile_id: pid } = resolvedMatch;
+
+      // ── Archivage du fil pour le coach ────────────────────────────────────
+      // Une seule requête, avant tout le reste, et sans jamais bloquer la
+      // séquence de DM qui suit : `enregistrerPourLeCoach` avale ses erreurs.
+      // Un fil non archivé est un manque à l'écran ; un DM1 non envoyé est un
+      // lead perdu que Meta n'autorise pas à rattraper.
+      await enregistrerPourLeCoach(messaging, pid, canonicalIgAccountId ?? igAccountId,
+                                   igAccountId, resolvedMatch.access_token);
 
       // Un DM sortant vers un lead DÉJÀ CLASSÉ est une relance. Écrit avant tout
       // le reste, parce que c'est vrai que le message contienne un lien Calendly

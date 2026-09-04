@@ -140,4 +140,5 @@ export const MIGRATIONS_DEPOT: { version: string; nom: string }[] = [
   { version: '20260904160000', nom: 'migrations_sante_marge_avant_de_juger' },
   { version: '20260904180000', nom: 'conversations_instagram' },
   { version: '20260904181000', nom: 'conversations_instagram_purges_sante' },
+  { version: '20260904190000', nom: 'enregistrer_message_ig_signale_le_pseudo_manquant' },
 ];
