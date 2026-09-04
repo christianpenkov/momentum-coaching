@@ -187,7 +187,22 @@ export function Annuler({ deal, onClose, onDone, onRembourser }: {
   const [fait, setFait] = useState<{ liensDesactives: number; contracteRetire: number; appelDeclasse: boolean } | null>(null);
 
   const prenom = deal.buyerName.split(' ')[0];
-  const encaisse = deal.collected;
+
+  // ⚠️ DEUX QUANTITÉS, pas une. Elles étaient confondues sous un seul nom, et se
+  // contredisaient à l'écran (constaté sur TestStory le 2026-09-05).
+  //
+  // `collected` = tout ce que le client a versé. C'est ce qu'on lui REND :
+  // 500 € reçus, 500 € à rendre, même si la vente n'était qu'à 300 €.
+  //
+  // `collectedRetenu` = ce que cette vente apporte aux compteurs, plafonné au
+  // contracté. C'est ce qu'on RETIRE en annulant : les 200 € versés en trop
+  // n'ont jamais été comptés — la fiche l'écrit noir sur blanc juste à côté
+  // (« non comptés dans le cash encaissé ») — donc les annoncer comme retirés
+  // faisait dire à la plateforme deux choses opposées sur le même argent, dans
+  // le même écran. `types.ts` posait déjà la règle : « c'est LUI qu'un écran
+  // doit afficher, jamais `collected` ». Elle ne vaut que pour les compteurs.
+  const aRendre = deal.collected;
+  const retireDesCompteurs = deal.collectedRetenu;
 
   async function valider() {
     setEnvoi(true);
@@ -224,7 +239,7 @@ export function Annuler({ deal, onClose, onDone, onRembourser }: {
             reste — et c'est le reste qui compte. */}
         <Encart ton="bien" titre="C’est fait">
           <div>{fmtEurExact(fait.contracteRetire)} retirés du cash contracté.</div>
-          {encaisse > 0.005 && <div>{fmtEurExact(encaisse)} retirés du cash encaissé.</div>}
+          {retireDesCompteurs > 0.005 && <div>{fmtEurExact(retireDesCompteurs)} retirés du cash encaissé.</div>}
           {fait.liensDesactives > 0 && (
             <div>{fait.liensDesactives} lien{fait.liensDesactives > 1 ? 's' : ''} de paiement désactivé{fait.liensDesactives > 1 ? 's' : ''}.</div>
           )}
@@ -252,7 +267,7 @@ export function Annuler({ deal, onClose, onDone, onRembourser }: {
           <button className="btn-primary-brand"
             style={{ fontSize: 12.5, opacity: coche && !envoi ? 1 : .5, background: coche ? 'var(--red)' : undefined, borderColor: coche ? 'var(--red)' : undefined }}
             disabled={!coche || envoi} onClick={valider}>
-            {envoi ? 'Annulation…' : encaisse > 0.005 ? 'Annuler et rembourser' : 'Annuler la vente'}
+            {envoi ? 'Annulation…' : aRendre > 0.005 ? 'Annuler et rembourser' : 'Annuler la vente'}
           </button>
           <button className="btn-ghost" style={{ fontSize: 12.5 }} onClick={onClose} disabled={envoi}>Revenir</button>
           {erreur && <span style={{ fontSize: 12, color: 'var(--red)', flexBasis: '100%' }}>{erreur}</span>}
@@ -267,8 +282,8 @@ export function Annuler({ deal, onClose, onDone, onRembourser }: {
       <Section>Ce que ça change</Section>
       <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px' }}>
         <Ligne label="Retiré du cash contracté" valeur={`− ${fmtEurExact(deal.amountTotal)}`} ton="fort" />
-        {encaisse > 0.005 && (
-          <Ligne label="Retiré du cash encaissé" valeur={`− ${fmtEurExact(encaisse)}`} ton="fort" />
+        {retireDesCompteurs > 0.005 && (
+          <Ligne label="Retiré du cash encaissé" valeur={`− ${fmtEurExact(retireDesCompteurs)}`} ton="fort" />
         )}
         {deal.callId && (
           <div style={{ borderTop: '1px solid var(--border-soft)', marginTop: 7, paddingTop: 8, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.6 }}>
@@ -278,15 +293,22 @@ export function Annuler({ deal, onClose, onDone, onRembourser }: {
         )}
       </div>
 
-      {encaisse > 0.005 && (
+      {aRendre > 0.005 && (
         <div style={{ marginTop: 12 }}>
-          <Encart ton="attention" titre={`${fmtEurExact(encaisse)} à rendre à ${prenom}`}>
+          <Encart ton="attention" titre={`${fmtEurExact(aRendre)} à rendre à ${prenom}`}>
             La vente ne sera pas annulée tout de suite : tant que l’argent est
             encore chez toi, l’effacer des chiffres les rendrait faux dans l’autre
             sens.
             <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(181,128,37,.28)' }}>
-              Ses liens de paiement seront désactivés immédiatement, et l’écran
-              suivant te conduira au remboursement.
+              {/* ⚠️ Conditionnel, comme les prélèvements juste en dessous. Sur une
+                  vente encaissée hors Stripe il n'existe aucun lien : promettre
+                  de « désactiver ses liens de paiement » annonçait une action qui
+                  n'aurait pas lieu, dans l'écran où l'on demande précisément de
+                  faire confiance à une liste de conséquences. Une seule ligne
+                  fausse fait douter des vraies. */}
+              {deal.hasLinks
+                ? <>Ses liens de paiement seront désactivés immédiatement, et l’écran suivant te conduira au remboursement.</>
+                : <>L’écran suivant te conduira au remboursement.</>}
               {deal.stripeSubscriptionId && <> Ses prélèvements devront aussi être arrêtés.</>}
               {' '}Tu peux fermer et revenir : la vente t’attendra en
               «&nbsp;annulation en attente&nbsp;».
