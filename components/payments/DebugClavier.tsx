@@ -3,10 +3,15 @@
 import { useEffect, useRef, useState } from 'react';
 
 /**
- * ⚠️ TEMPORAIRE — instrument de diagnostic, à retirer une fois la cause trouvée.
+ * Instrument de diagnostic du clavier mobile. NON monté par défaut : une ligne à
+ * ajouter dans la feuille suspecte, puis à retirer.
  *
- * Cinq corrections déduites ont échoué sur le clavier iOS de `ModaleAction`.
- * Règle du projet : là où la déduction échoue, on mesure sur l'appareil.
+ *     {isMobile && <DebugClavier cible={feuilleRef} />}
+ *
+ * Gardé dans le dépôt à dessein. Six corrections déduites ont échoué sur le
+ * clavier iOS de `ModaleAction` (2026-09-03 → 09-04) ; la septième, fondée sur ce
+ * qu'il a relevé, a réglé la chose en un tour. Le rebâtir sous la pression, c'est
+ * le rebâtir mal. Mode d'emploi et pièges : `docs/clavier-mobile-modales.md`.
  *
  * Il n'affiche pas l'état courant mais un JOURNAL des dernières mesures : le
  * symptôme est une transition (« ça flashe en plein écran et revient »), pas un

@@ -30,6 +30,13 @@ This version has breaking changes — APIs, conventions, and file structure may 
   chargement** → `docs/pastille-et-sauts-accueil.md`. Dix bugs, un seul
   mécanisme : une valeur inconnue lue comme une valeur connue. Contient aussi
   les requêtes de diagnostic de la chaîne push.
+- **Poser une modale mobile qui contient un champ de saisie** →
+  `docs/clavier-mobile-modales.md`. La recette tient en dix lignes, mais six
+  corrections déduites ont échoué avant : `window.innerHeight` est écrasé par iOS
+  pendant l'animation du clavier **et restauré sans émettre d'événement**, donc
+  tout calcul fondé dessus reste figé sur zéro. La règle générale qui en sort
+  vaut bien au-delà du clavier : *toute valeur qui entre dans un calcul réactif
+  doit avoir un événement qui annonce son changement.*
 - **Toucher un lien Short.io, la route `/r/`, ou l'attribution d'un rendez-vous
   venu d'un lien PARTAGÉ** (bio, description, story) → `docs/click-id.md`. Les UTM
   reportés sur la destination ne sont pas décoratifs : sans eux, les clics de bio
