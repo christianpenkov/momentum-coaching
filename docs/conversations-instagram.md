@@ -1074,6 +1074,29 @@ reçu, `is_echo` classé sortant, `last_inbound_at` posé, `mid` omis sur un tex
 mais **la résolution nominale n'a jamais tourné en réel**. C'est le seul chemin de
 l'atterrissage 1 que le premier vrai DM éprouvera pour la première fois.
 
+### ✅ Atterrissage 2 — LIVRÉ le 2026-09-04
+
+Écrans coach et élève, extraction des primitives, vue `ig_conversations_visibles`.
+
+**Ce que le lancement réel a corrigé, et qu'aucune relecture n'aurait montré :**
+
+| Défaut | Comment il s'est révélé |
+|---|---|
+| Le curseur de page perdait le reste d'une page à la coupure du budget | « 3 fils traités sur 164, terminé » — un succès qui ment |
+| Backfill 90 j vs quarantaine 30 j : deux tiers des messages importés partaient à la purge suivante | **`ig_dm_sante` l'a signalé d'elle-même** — une vue de santé détecte aussi une incohérence entre deux décisions, pas seulement une panne |
+| Le fil s'ouvrait sur le message le plus ANCIEN | visible seulement à l'écran |
+| La pastille de note se collait au bord de la modale | visible seulement à l'écran |
+| 122 messages = 122 requêtes | le N+1 que j'avais condamné côté webhook, laissé passer côté backfill |
+
+⚠️ **Leçon à garder** : les types prouvent la forme, les tests prouvent les règles qu'on a
+pensé à écrire, et **seul le lancement réel prouve les quantités**. Comparer au volume
+attendu, pas seulement à l'absence d'erreur.
+
+**Vérifié en conditions réelles, connecté en coach** : carte à **161 px** de hauteur,
+4 fils suivis / 1 actif / 1 en attente, modale ouverte sur les vrais échanges, avatars
+réels, sens des bulles correct. Backfill : 4 fils importés = **exactement** les 4 leads
+visibles, zéro lead exclu, zéro alerte de santé.
+
 Reste de l'atterrissage 1, à faire :
 
 ### Atterrissage 1 — la plomberie, invisible (~6 fichiers)
