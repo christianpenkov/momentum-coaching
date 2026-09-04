@@ -1056,6 +1056,26 @@ rétention sur le plan Hobby et rendent une absence indiscernable d'une ignoranc
 le suivant s'y appuie. Un défaut de collecte découvert après la construction des écrans se
 diagnostique mal — et la quarantaine de 30 jours rend la donnée manquante irrécupérable.
 
+### ✅ Atterrissage 1 — LIVRÉ le 2026-09-04
+
+Cinq commits, de `0bafbef` à `2e631ba`. Migrations : `conversations_instagram`,
+`conversations_instagram_purges_sante`,
+`enregistrer_message_ig_signale_le_pseudo_manquant`,
+`base_sante_taille_compte_ig_messages`.
+
+**Vérifié sur le code déployé, pas en local :** deux événements mis en file dans
+`webhook_queue`, traités par le worker de production. Résultat — deux messages écrits, une
+seule conversation, `ig_account_id` résolu à sa forme **canonique** et non à l'`entry.id`
+reçu, `is_echo` classé sortant, `last_inbound_at` posé, `mid` omis sur un texte, empreinte
+à 16 octets. Base remise à zéro ensuite.
+
+⚠️ **Le pseudo n'a pas pu être résolu pendant le test** : l'identifiant de l'interlocuteur
+était fictif, donc Meta a refusé. C'est le repli attendu (pas de pseudo, pas de plantage),
+mais **la résolution nominale n'a jamais tourné en réel**. C'est le seul chemin de
+l'atterrissage 1 que le premier vrai DM éprouvera pour la première fois.
+
+Reste de l'atterrissage 1, à faire :
+
 ### Atterrissage 1 — la plomberie, invisible (~6 fichiers)
 
 1. Migration : `ig_conversations`, `ig_messages`, `ig_backfill_etat`,
