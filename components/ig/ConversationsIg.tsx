@@ -2,14 +2,20 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClient as createSupabase } from '@/lib/supabase/client';
-import ModalShell from '@/components/ui/ModalShell';
+import Icon from '@/components/ui/Icon';
 import {
-  IG, IgAvatarSimple, IgRecu, IgEnvoye, LIBELLE_PIECE_JOINTE,
+  IG, IgAvatarSimple, IgRecu, IgEnvoye, MarqueurPieceJointe, libellePieceJointe,
 } from '@/components/ig/primitivesInstagram';
 import { lienDiscussion } from '@/lib/igConversations';
 
 /**
  * Les conversations Instagram d'un élève — maître-détail.
+ *
+ * ⚠️ Ce composant ne connaît PAS son enveloppe. Côté coach il est posé dans une
+ * modale, côté élève c'est une PAGE à part entière. Une version antérieure
+ * embarquait `ModalShell` ici : la page de l'élève affichait donc une modale sur
+ * fond vide, avec une croix de fermeture qui ne menait nulle part. Un composant
+ * qui décide de sa propre enveloppe ne peut pas servir deux contextes.
  *
  * ⚠️ Le SENS des bulles est inversé par rapport à PageLiens : ici on rend depuis
  * le compte de l'ÉLÈVE, donc bulle grise = le prospect, dégradé = l'élève. Ce
@@ -62,14 +68,17 @@ type Message = {
 
 const PAGE = 50;
 
-export default function ModaleConversationsIg({
-  profileId, prenomEleve, annotable, onClose,
+export default function ConversationsIg({
+  profileId, prenomEleve, annotable, titre, hauteur = 'min(78vh, 700px)',
 }: {
   profileId: string;
   prenomEleve: string;
   /** Le coach annote et suggère ; l'élève lit seulement. */
   annotable: boolean;
-  onClose: () => void;
+  /** Le titre de la colonne de gauche. L'appelant le formule pour son contexte. */
+  titre: string;
+  /** Laissé à l'appelant : une modale et une page n'ont pas la même contrainte. */
+  hauteur?: string;
 }) {
   const supabase = createSupabase();
   const [fils, setFils] = useState<Fil[] | null>(null);
@@ -100,10 +109,9 @@ export default function ModaleConversationsIg({
   );
 
   return (
-    <ModalShell onClose={onClose} width={1040}>
       <div style={{
-        display: 'grid', gridTemplateColumns: '270px 1fr',
-        height: 'min(78vh, 700px)', overflow: 'hidden', borderRadius: 'inherit',
+        display: 'grid', gridTemplateColumns: 'minmax(240px, 300px) 1fr',
+        height: hauteur, overflow: 'hidden', borderRadius: 'inherit',
       }}>
         {/* ── Colonne des fils ─────────────────────────────────────────────── */}
         <div style={{
@@ -112,7 +120,7 @@ export default function ModaleConversationsIg({
         }}>
           <div style={{ padding: 12, borderBottom: '1px solid var(--border)' }}>
             <div style={{ fontWeight: 650, fontSize: 14, marginBottom: 9 }}>
-              Conversations de {prenomEleve}
+              {titre}
             </div>
             <input
               value={recherche}
@@ -165,7 +173,7 @@ export default function ModaleConversationsIg({
                     fontSize: 11.5, color: 'var(--muted)',
                     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                   }}>
-                    {f.dernier_texte || (f.dernier_type ? LIBELLE_PIECE_JOINTE[f.dernier_type] ?? '📎 Pièce jointe' : '—')}
+                    {f.dernier_texte || libellePieceJointe(f.dernier_type) || '—'}
                   </span>
                   {(f.attend_reponse || f.nb_notes > 0) && (
                     <span style={{ display: 'flex', gap: 5, marginTop: 3 }}>
@@ -187,7 +195,6 @@ export default function ModaleConversationsIg({
               Sélectionne une conversation.
             </div>}
       </div>
-    </ModalShell>
   );
 }
 
@@ -340,9 +347,18 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
           </div>
         </div>
         {lien && (
+          // Encadre plein : c'est une sortie hors de la plateforme, elle doit se
+          // lire comme un bouton et non comme un mot souligne dans un en-tete.
           <a href={lien} target="_blank" rel="noopener noreferrer"
-             className="btn-ghost" style={{ fontSize: 12, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+             style={{
+               display: 'inline-flex', alignItems: 'center', gap: 7, flexShrink: 0,
+               border: '1px solid var(--border)', borderRadius: 7,
+               padding: '7px 13px', fontSize: 12.5, fontWeight: 600,
+               color: 'var(--ink-2)', background: 'var(--surface)',
+               textDecoration: 'none', whiteSpace: 'nowrap',
+             }}>
             Ouvrir la discussion
+            <Icon name="external" size={13} color="var(--muted)" />
           </a>
         )}
       </div>
@@ -354,19 +370,24 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
             <SaisieNote
               valeur={editeNoteFil}
               placeholder={`Note sur ce fil, visible par ${prenomEleve}…`}
+              aide={`${prenomEleve} verra cette note dans son onglet Conversations DM.`}
               onChange={setEditeNoteFil}
               onAnnuler={() => setEditeNoteFil(null)}
               onValider={() => enregistrerNoteFil(editeNoteFil)}
             />
           ) : fil.note ? (
-            <BlocNote texte={fil.note} entete onEditer={annotable ? () => setEditeNoteFil(fil.note ?? '') : undefined} />
+            <BlocNote texte={fil.note} entete
+              auteur={annotable ? undefined : `Note de ${prenomEleve}`}
+              onEditer={annotable ? () => setEditeNoteFil(fil.note ?? '') : undefined} />
           ) : (
             <button type="button" onClick={() => setEditeNoteFil('')}
               style={{
-                background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                background: 'none', border: 'none', padding: '2px 0', cursor: 'pointer',
                 fontSize: 11.5, color: 'var(--accent-brand)', fontFamily: 'inherit',
+                display: 'inline-flex', alignItems: 'center', gap: 6,
               }}>
-              ✎ Ajouter une note sur ce fil
+              <Icon name="edit" size={13} color="currentColor" />
+              Ajouter une note sur ce fil
             </button>
           )}
         </div>
@@ -401,7 +422,9 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
           const jour = i === 0 || new Date(m.envoye_a).toDateString() !== new Date(tous[i - 1].envoye_a).toDateString();
           const contenu = m.texte
             ? m.texte
-            : (m.type_piece_jointe ? LIBELLE_PIECE_JOINTE[m.type_piece_jointe] ?? '📎 Pièce jointe' : '');
+            : (m.type_piece_jointe
+                ? <MarqueurPieceJointe type={m.type_piece_jointe} sortant={m.sortant} />
+                : '');
 
           return (
             <div key={m.id} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -432,24 +455,30 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
               >
                 {/* grise = LE PROSPECT, dégradé = L'ÉLÈVE. Inverse de PageLiens. */}
                 {m.sortant
-                  ? <IgEnvoye sc={1} texte={contenu} />
+                  ? <IgEnvoye sc={1}>{contenu}</IgEnvoye>
                   : <IgRecu sc={1} avatar={dernierDuGroupe}
                       avatarNode={<IgAvatarSimple url={fil.peer_avatar_url} pseudo={fil.peer_username} taille={30} />}>
                       {contenu}
                     </IgRecu>}
 
                 {annotable && (
-                  <button type="button" title="Ajouter une note"
+                  // Cible de 28 px, au-dessus du minimum confortable a la souris,
+                  // et toujours atteignable au clavier : `opacity` ne retire pas
+                  // du flux, et `:focus-visible` la revele.
+                  <button type="button"
+                    aria-label={m.note ? 'Modifier la note sur ce message' : 'Ajouter une note sur ce message'}
                     onClick={(e) => { e.stopPropagation(); setEdite({ id: m.id, valeur: m.note ?? '' }); }}
                     className="ig-pastille-note"
                     style={{
-                      position: 'absolute', top: -6, [m.sortant ? 'left' : 'right']: -6,
-                      width: 21, height: 21, borderRadius: '50%', cursor: 'pointer',
+                      position: 'absolute', top: -8, [m.sortant ? 'left' : 'right']: -8,
+                      width: 28, height: 28, borderRadius: '50%', cursor: 'pointer',
                       background: 'var(--surface)', border: '1px solid var(--border)',
-                      color: 'var(--accent-brand)', fontSize: 10, lineHeight: 1,
+                      color: 'var(--ink-2)',
                       display: 'grid', placeItems: 'center', padding: 0,
-                      boxShadow: '0 2px 6px rgba(26,24,21,.14)',
-                    } as React.CSSProperties}>✎</button>
+                      boxShadow: '0 1px 4px rgba(26,24,21,.10)',
+                    } as React.CSSProperties}>
+                    <Icon name="edit" size={13} color="currentColor" />
+                  </button>
                 )}
               </div>
 
@@ -458,6 +487,7 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
                   <SaisieNote
                     valeur={edite.valeur}
                     placeholder={`Note sur ce message, visible par ${prenomEleve}…`}
+                    aide={`${prenomEleve} verra cette note à côté du message.`}
                     onChange={v => setEdite({ id: m.id, valeur: v })}
                     onAnnuler={() => setEdite(null)}
                     onValider={() => enregistrerNote(m.id, edite.valeur)}
@@ -466,6 +496,7 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
               ) : m.note ? (
                 <div style={{ maxWidth: '78%', alignSelf: m.sortant ? 'flex-end' : 'flex-start' }}>
                   <BlocNote texte={m.note}
+                    auteur={annotable ? undefined : `Note de ${prenomEleve}`}
                     onEditer={annotable ? () => setEdite({ id: m.id, valeur: m.note ?? '' }) : undefined} />
                 </div>
               ) : null}
@@ -500,23 +531,27 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
             display: 'flex', flexDirection: 'column',
           }}>
           {[
-            ['✎  Ajouter une note', () => {
+            ['edit', 'Ajouter une note', () => {
               const m = (messages ?? []).find(x => x.id === menu.id);
               setEdite({ id: menu.id, valeur: m?.note ?? '' });
               setMenu(null);
             }],
-            ['⧉  Copier le message', () => {
+            ['copy', 'Copier le message', () => {
               const m = (messages ?? []).find(x => x.id === menu.id);
               navigator.clipboard?.writeText(m?.texte ?? '').catch(() => {});
               setMenu(null);
             }],
-          ].map(([libelle, action]) => (
+          ].map(([icone, libelle, action]) => (
             <button key={libelle as string} type="button" onClick={action as () => void}
               style={{
-                padding: '7px 10px', borderRadius: 6, border: 'none', background: 'none',
+                padding: '8px 10px', borderRadius: 6, border: 'none', background: 'none',
                 textAlign: 'left', fontSize: 12.5, color: 'var(--ink-2)', cursor: 'pointer',
                 fontFamily: 'inherit', whiteSpace: 'nowrap',
-              }}>{libelle as string}</button>
+                display: 'flex', alignItems: 'center', gap: 9,
+              }}>
+              <Icon name={icone as any} size={14} color="var(--muted)" />
+              {libelle as string}
+            </button>
           ))}
         </div>
       )}
@@ -534,34 +569,46 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
       }}>
         {suggestions.filter(s => !s.traite_le).map(s => (
           <div key={s.id} style={{
-            border: '1px dashed color-mix(in srgb, var(--accent-brand) 45%, transparent)',
-            background: 'var(--accent-brand-soft, #eef2f4)', borderRadius: 10,
-            padding: '11px 13px', display: 'flex', flexDirection: 'column', gap: 9,
+            // Pointillé NEUTRE : c'est la forme, pas la couleur, qui dit
+            // « pas encore envoyé ». Le bleu de marque reste réservé au bouton
+            // d'action, seul endroit où il guide une décision.
+            border: '1px dashed var(--border)',
+            background: 'var(--surface-2)', borderRadius: 10,
+            padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10,
           }}>
             <div style={{
-              fontSize: 10, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase',
-              color: 'var(--accent-brand)',
+              fontSize: 11, fontWeight: 600, color: 'var(--muted)',
+              display: 'flex', alignItems: 'center', gap: 7,
             }}>
-              ✻ Suggestion · pas encore envoyée
+              <Icon name="send" size={13} color="currentColor" />
+              Message de suggestion, pas encore envoyé
             </div>
-            <div style={{ fontSize: 13, lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>{s.texte}</div>
+            <div style={{ fontSize: 13.5, lineHeight: 1.5, whiteSpace: 'pre-wrap', color: 'var(--ink)' }}>{s.texte}</div>
             {!annotable && (
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <button type="button" className="btn-primary" style={{ fontSize: 12 }}
                   onClick={() => copier(s)}>
-                  {s.copie_le ? 'Copié ✓' : 'Copier le texte'}
+                  {s.copie_le ? 'Texte copié' : 'Copier le texte'}
                 </button>
                 {lien && (
-                  <a href={lien} target="_blank" rel="noopener noreferrer" className="btn-ghost"
-                     style={{ fontSize: 12, textDecoration: 'none' }} onClick={() => marquer(s, 'traite_le')}>
+                  <a href={lien} target="_blank" rel="noopener noreferrer"
+                     onClick={() => marquer(s, 'traite_le')}
+                     style={{
+                       display: 'inline-flex', alignItems: 'center', gap: 7,
+                       border: '1px solid var(--border)', borderRadius: 7,
+                       padding: '8px 14px', fontSize: 12.5, fontWeight: 600,
+                       color: 'var(--ink-2)', background: 'var(--surface)',
+                       textDecoration: 'none', whiteSpace: 'nowrap',
+                     }}>
                     Ouvrir la discussion
+                    <Icon name="external" size={13} color="var(--muted)" />
                   </a>
                 )}
                 <button type="button" onClick={() => marquer(s, 'traite_le')}
                   style={{
                     background: 'none', border: 'none', padding: 0, cursor: 'pointer',
                     fontSize: 11, color: 'var(--muted)', fontFamily: 'inherit',
-                  }}>C’est fait</button>
+                  }}>Je l’ai envoyé</button>
               </div>
             )}
             {/* ⚠️ Ce marqueur ne prouve PAS qu'un message est parti : l'envoi a
@@ -570,7 +617,7 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
                 `is_echo` et il apparaît dans le fil. */}
             {annotable && s.copie_le && (
               <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>
-                Copiée par l’élève le {new Date(s.copie_le).toLocaleDateString('fr-FR')}
+                {prenomEleve} a copié ce message le {new Date(s.copie_le).toLocaleDateString('fr-FR')}
               </div>
             )}
           </div>
@@ -581,7 +628,7 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
             <textarea
               value={brouillon}
               onChange={e => setBrouillon(e.target.value)}
-              placeholder={`Rédiger une suggestion pour ${prenomEleve}…`}
+              placeholder={`Écrire un message de suggestion pour ${prenomEleve}…`}
               rows={2}
               style={{
                 flex: 1, resize: 'vertical', padding: '9px 12px', borderRadius: 10,
@@ -591,7 +638,7 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
             />
             <button type="button" className="btn-primary" disabled={!brouillon.trim() || envoi}
               onClick={envoyerSuggestion} style={{ fontSize: 12.5, flexShrink: 0 }}>
-              {envoi ? 'Envoi…' : 'Envoyer'}
+              {envoi ? 'Envoi…' : 'Envoyer le message'}
             </button>
           </div>
         )}
@@ -606,32 +653,64 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
   );
 }
 
-function BlocNote({ texte, entete, onEditer }: { texte: string; entete?: boolean; onEditer?: () => void }) {
+/**
+ * Une note du coach, attachée à un fil ou à un message.
+ *
+ * ⚠️ Deux règles du design system que la première version violait :
+ *
+ *  1. « La Règle de la Rareté Ardoise » — le bleu de marque ne colore jamais un
+ *     bloc entier. Il était ici en fond ET en liseré : deux mésusages sur le
+ *     même composant, ce qui aspirait le regard sur la note plutôt que sur la
+ *     conversation qu'elle commente.
+ *  2. Un liseré latéral coloré de plus d'1 px comme accent est un motif banni
+ *     — jamais intentionnel, toujours un réflexe.
+ *
+ * À la place : la surface crème du système, une bordure pleine d'1 px, et le
+ * texte en encre secondaire. La note se lit comme une annotation en marge, pas
+ * comme une alerte.
+ */
+function BlocNote({ texte, entete, auteur, onEditer }: {
+  texte: string; entete?: boolean; auteur?: string; onEditer?: () => void;
+}) {
   return (
     <div style={{
-      display: 'flex', gap: 8, alignItems: 'flex-start',
-      background: 'var(--accent-brand-soft, #eef2f4)',
-      border: entete ? '1px solid color-mix(in srgb, var(--accent-brand) 18%, transparent)' : undefined,
-      borderLeft: entete ? undefined : '2px solid var(--accent-brand)',
-      borderRadius: entete ? 9 : '0 8px 8px 0',
-      padding: entete ? '9px 12px' : '7px 10px',
-      fontSize: entete ? 12 : 11.5, color: 'var(--ink-2)', lineHeight: 1.45,
+      display: 'flex', gap: 9, alignItems: 'flex-start',
+      background: 'var(--surface-2)',
+      border: '1px solid var(--border)',
+      borderRadius: 10,
+      padding: entete ? '10px 12px' : '8px 11px',
+      fontSize: entete ? 12.5 : 12,
+      color: 'var(--ink-2)', lineHeight: 1.5,
     }}>
-      <span style={{ flexShrink: 0 }}>{entete ? '📌' : '✎'}</span>
-      <span style={{ flex: 1, whiteSpace: 'pre-wrap' }}>{texte}</span>
+      <span aria-hidden="true" style={{
+        flexShrink: 0,
+        fontSize: entete ? 13 : 11.5,
+        // Cale le glyphe sur la premiere ligne de texte plutot que sur le haut
+        // de la boite : sans ca il flotte, et c'est ce qui fait « pose la ».
+        lineHeight: entete ? '19px' : '18px',
+        filter: 'saturate(.92)',
+      }}>{entete ? '📌' : '📝'}</span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        {auteur && (
+          <span style={{ fontWeight: 600, color: 'var(--ink)' }}>{auteur} — </span>
+        )}
+        <span style={{ whiteSpace: 'pre-wrap' }}>{texte}</span>
+      </span>
       {onEditer && (
-        <button type="button" onClick={onEditer}
+        <button type="button" onClick={onEditer} aria-label="Modifier la note"
           style={{
-            background: 'none', border: 'none', padding: 0, cursor: 'pointer', flexShrink: 0,
-            fontSize: 11, color: 'var(--accent-brand)', fontFamily: 'inherit',
-          }}>modifier</button>
+            background: 'none', border: 'none', padding: 2, cursor: 'pointer', flexShrink: 0,
+            color: 'var(--muted)', display: 'grid', placeItems: 'center', borderRadius: 4,
+          }}>
+          <Icon name="edit" size={13} color="currentColor" />
+        </button>
       )}
     </div>
   );
 }
 
-function SaisieNote({ valeur, placeholder, onChange, onValider, onAnnuler }: {
-  valeur: string; placeholder: string;
+function SaisieNote({ valeur, placeholder, aide, onChange, onValider, onAnnuler }: {
+  valeur: string; placeholder: string; aide: string;
   onChange: (v: string) => void; onValider: () => void; onAnnuler: () => void;
 }) {
   return (
@@ -656,8 +735,8 @@ function SaisieNote({ valeur, placeholder, onChange, onValider, onAnnuler }: {
           Annuler
         </button>
       </div>
-      <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>
-        Cette note est visible par l’élève.
+      <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+        {aide}
       </div>
     </div>
   );

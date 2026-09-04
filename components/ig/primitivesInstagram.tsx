@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import Icon, { type IconName } from '@/components/ui/Icon';
 
 /**
  * Les primitives de rendu d'un fil Instagram, partagées.
@@ -168,13 +169,36 @@ export function IgEnvoye({ texte, sc, children }: { texte?: string; sc: number; 
  * ⚠️ On ne stocke JAMAIS le média : 14 % des messages en portent un, et
  * ré-héberger remplirait le gigaoctet gratuit de stockage en neuf jours. L'URL
  * fraîche est redemandée à Meta au moment où quelqu'un clique.
+ *
+ * ⚠️ Une ICÔNE, jamais un emoji. Un emoji est rendu par la police emoji du
+ * système : sa forme change d'un appareil à l'autre, il ne suit ni la couleur ni
+ * l'épaisseur de trait du reste de l'interface, et certains glyphes de la table
+ * dingbat (✎, ✻, ⧉) s'affichent comme des symboles méconnaissables. Le projet a
+ * déjà son jeu d'icônes vectorielles — on s'en sert.
  */
-export const LIBELLE_PIECE_JOINTE: Record<string, string> = {
-  image: '📷 Photo',
-  video: '🎬 Vidéo',
-  audio: '🎤 Message vocal',
-  file: '📎 Fichier',
-  share: '🎬 Publication partagée',
-  story_reply: '⚡ Réponse à une story',
-  autre: '📎 Pièce jointe',
+export const PIECE_JOINTE: Record<string, { icone: IconName; libelle: string }> = {
+  image:       { icone: 'camera',   libelle: 'Photo' },
+  video:       { icone: 'video',    libelle: 'Vidéo' },
+  audio:       { icone: 'mic',      libelle: 'Message vocal' },
+  file:        { icone: 'file',     libelle: 'Fichier' },
+  share:       { icone: 'external', libelle: 'Publication partagée' },
+  story_reply: { icone: 'reply',    libelle: 'Réponse à une story' },
+  autre:       { icone: 'file',     libelle: 'Pièce jointe' },
 };
+
+/** Le marqueur rendu, aligné sur la ligne de base du texte de la bulle. */
+export function MarqueurPieceJointe({ type, sortant }: { type: string; sortant?: boolean }) {
+  const pj = PIECE_JOINTE[type] ?? PIECE_JOINTE.autre;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+      <Icon name={pj.icone} size={15} color="currentColor" />
+      {pj.libelle}
+    </span>
+  );
+}
+
+/** Le libellé seul, pour les extraits de liste où une icône serait du bruit. */
+export function libellePieceJointe(type: string | null | undefined): string {
+  if (!type) return '';
+  return (PIECE_JOINTE[type] ?? PIECE_JOINTE.autre).libelle;
+}
