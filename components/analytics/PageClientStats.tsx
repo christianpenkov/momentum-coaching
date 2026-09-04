@@ -2088,6 +2088,10 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
   const { data: periodesKpiData } = usePeriodesIg(typePorteeKpi, profileId);
   const porteeKpi = porteeDeLaPeriode(periodesKpiData?.periodes, typePorteeKpi, parisDateStr(igPeriodStart));
   const igReachP: number | null = porteeKpi?.reachTotal ?? null;
+  // La somme des journees reste calculee — elle a UN usage legitime, le taux
+  // d'engagement ci-dessous. Elle ne doit simplement jamais s'afficher sous le mot
+  // « personnes ».
+  const igReachCumuleP = igDaysSlice.reduce((s, d) => s + d.reach, 0);
   // Bornes qui portent RÉELLEMENT un nombre d'abonnés, pas les bornes de la période.
   // `ig_followers` n'est plus écrit que sur la ligne du jour depuis le 2026-08-30 : une
   // journée comblée par le seul rattrapage n'en porte pas. Avec `?? 0` sur les bornes,
@@ -2130,11 +2134,20 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
   const igProfileViewsP = igDaysSlice.reduce((s, d) => s + ((d as any).profileViews ?? 0), 0);
 
 
-  // Interactions rapportees aux PERSONNES touchees, pas au cumul des journees : c'est
-  // la definition usuelle du taux d'engagement, et elle devient juste du seul fait que
-  // le denominateur l'est. Sans portee mesuree, la division n'a pas de sens — `null`
-  // plutot qu'un 0 qui affirmerait « aucun engagement ».
-  const engRate: number | null = igReachP && igReachP > 0 ? pct(igInteractionsP, igReachP) : null;
+  // ⚠️ Ici, et SEULEMENT ici, le denominateur est la somme des journees — pas la
+  // portee dedupliquee. Raison donnee par Chris le 2026-09-04, et elle est juste :
+  //
+  //   les interactions sont un FLUX (une meme personne peut liker, commenter,
+  //   enregistrer, revenir le lendemain) ; la portee dedupliquee est un STOCK (cette
+  //   personne y compte une fois, pour toute la periode).
+  //
+  // Diviser un flux par un stock gonfle mecaniquement le taux, et d'autant plus que
+  // la fenetre est longue — en All-Time il aurait double. Les deux termes doivent
+  // etre de meme nature : interactions cumulees sur portee cumulee.
+  //
+  // C'est le meme raisonnement que la regle des taux du referentiel — sommer les
+  // numerateurs ET les denominateurs, jamais moyenner des pourcentages.
+  const engRate: number | null = igReachCumuleP > 0 ? pct(igInteractionsP, igReachCumuleP) : null;
   // Nombre RÉEL de comptes abonnés uniques touchés (pas un ratio recalculé depuis un
   // total de reach mêlé abonnés+non-abonnés) — confirmé via test direct API Meta :
   // period=days_28 + metric_type=total_value + breakdown=follow_type renvoie le vrai
@@ -2444,7 +2457,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
           { label: 'Visites de profil', value: fmt(igProfileViewsP), sub: igEtiquettePeriode, color: 'var(--ink)', key: 'Visites de profil' },
           { label: "Taux d'engagement",
             value: engRate !== null ? fmtPct(engRate) : '—',
-            sub: engRate !== null ? 'interactions / personnes touchées' : 'portée non mesurée',
+            sub: engRate !== null ? 'interactions / reach cumulé' : 'aucune portée sur la période',
             color: (engRate === null ? 'var(--faint)' : engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED) as string,
             key: "Taux d'engagement" },
           // « / total » etait ambigu : on ne savait pas si le denominateur etait le
