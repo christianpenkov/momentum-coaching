@@ -9,8 +9,6 @@ import { formatTimeIn, formatDateIn } from '@/lib/timezone';
 import { useViewerTimeZone } from '@/lib/UserContext';
 import type { Call } from '@/lib/supabase/types';
 
-let instanceCounter = 0;
-
 // Dernière liste connue, conservée ENTRE les montages du hook.
 //
 // Sans ce cache, revenir sur l'accueil repartait systématiquement d'une liste
@@ -37,16 +35,33 @@ let cachedKey: string | null = null;
 // « null » figerait le hook sur un état périmé jusqu'au rechargement de la page.
 const cacheIntegrationsReadyAt = new Map<string, string>();
 
-// ⚠️ Piste ÉCARTÉE, pour qu'elle ne soit pas retentée sans mesure : mutualiser les
-// instances du hook. `TopBar` le monte en permanence, `PageToday` ou `PageClientView`
-// une seconde fois, et chacune porte son `setInterval` et son canal Realtime.
+// ── UN SEUL abonnement Realtime et UN SEUL minuteur, pour toutes les instances ──
 //
-// Fusionner leurs rafraîchissements ne se réduit PAS à sauter le tour de la seconde
-// instance : chacune a son propre `useState`, donc celle qui saute resterait figée sur
-// une liste périmée au lieu de coûter moins cher. Il faudrait un état partagé avec
-// abonnés — un vrai changement de structure, pour un gain que la mesure ne montre pas :
-// un onglet ouvert émet 5 requêtes par minute, soit UNE passe de `refresh`, pas deux.
-// À reprendre seulement si une mesure montre le double.
+// `TopBar` monte ce hook en permanence, `PageToday` ou `PageClientView` une seconde
+// fois : deux instances simultanées, donc DEUX canaux Realtime et DEUX minuteurs, pour
+// afficher exactement la même liste.
+//
+// Mesure du 2026-09-04 sur le tableau de bord Supabase : l'egress Realtime pèse 63,6 %
+// de la facture, devant PostgREST. Et il ne se paie PAS au nombre de changements en
+// base — la doc Supabase est explicite : *tout* message envoyé sur une socket ouverte
+// compte, y compris les battements et les trames de protocole. Le coût suit donc le
+// NOMBRE DE CANAUX OUVERTS multiplié par le temps, pas l'activité. Un canal en double
+// coûte le double, même quand il ne se passe rien.
+//
+// ⚠️ Mutualiser ne se réduit pas à « sauter le tour » de la seconde instance : chacune a
+// son propre `useState`, donc celle qui saute resterait figée sur une liste périmée au
+// lieu de coûter moins cher. Il faut un état PARTAGÉ avec abonnés — c'est le motif déjà
+// éprouvé dans `useUnreadMessagesCount`, repris ici à l'identique plutôt qu'inventé.
+//
+// Une instance supplémentaire ne rouvre donc rien : elle s'abonne. Et la fermeture n'a
+// lieu qu'au démontage de la DERNIÈRE.
+const abonnes = new Set<(liste: AppNotif[]) => void>();
+let partageCle: string | null = null;
+let partageFermeture: (() => void) | null = null;
+// Toutes les instances portent un `refresh` équivalent (même profil, même rôle, même
+// fuseau) et son résultat est diffusé à toutes : la dernière rendue fait donc l'affaire
+// pour tout le monde.
+let refreshPartage: (() => void) | null = null;
 
 export type NotifType = 'rapport_call' | 'session_rapport' | 'call_request' | 'call_canceled' | 'call_rescheduled' | 'call_accepted' | 'call_declined' | 'rapport_ready';
 
@@ -71,15 +86,15 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
   const [notifs, setNotifsState] = useState<AppNotif[]>(
     () => (cachedKey === cacheKey ? cachedNotifs : [])
   );
-  // Toute écriture passe par ici : l'état local et le cache inter-montages ne
-  // doivent jamais diverger.
+  // Toute écriture passe par ici : le cache inter-montages ET toutes les instances
+  // montées. Cette instance-ci est elle-même dans `abonnes`, elle est donc servie par la
+  // même diffusion — aucune ne peut rester en retard sur une autre.
   const setNotifs = useCallback((list: AppNotif[]) => {
     cachedNotifs = list;
     cachedKey = cacheKey;
-    setNotifsState(list);
+    abonnes.forEach(fn => fn(list));
   }, [cacheKey]);
   const coachNameRef = useRef<string | null>(null);
-  const instanceId = useRef(`${++instanceCounter}`);
 
   // Charge le prénom du coach une seule fois (pour l'élève uniquement)
   useEffect(() => {
@@ -378,11 +393,34 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
   }, [profileId, isClient, viewerTz, setNotifs]);
 
   const refreshRef = useRef(refresh);
-  useEffect(() => { refreshRef.current = refresh; }, [refresh]);
+  useEffect(() => { refreshRef.current = refresh; refreshPartage = refresh; }, [refresh]);
 
   useEffect(() => {
     if (!profileId) return;
-    refreshRef.current();
+    abonnes.add(setNotifsState);
+
+    // Changement d'utilisateur ou de rôle : fermer le partage précédent avant d'en
+    // ouvrir un neuf, sinon on continuerait d'écouter le profil d'avant.
+    if (partageCle !== cacheKey && partageFermeture) {
+      partageFermeture();
+      partageFermeture = null;
+    }
+
+    // Instance SUPPLÉMENTAIRE : elle n'ouvre rien. Elle affiche immédiatement ce que le
+    // partage connait déjà, puis recevra les mises à jour par diffusion.
+    if (partageFermeture) {
+      setNotifsState(cachedKey === cacheKey ? cachedNotifs : []);
+      return () => {
+        abonnes.delete(setNotifsState);
+        if (abonnes.size === 0 && partageFermeture) {
+          partageFermeture(); partageFermeture = null; partageCle = null;
+        }
+      };
+    }
+
+    partageCle = cacheKey;
+    const declencher = () => refreshPartage?.();
+    declencher();
     // ── Le FILET, pas le canal principal ────────────────────────────────────────
     //
     // Une notification n'attend pas ce minuteur : l'abonnement Realtime plus bas
@@ -401,8 +439,8 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
     // la pastille peut avoir 3 minutes de retard au lieu d'1 — à condition que l'app
     // soit restée au premier plan sans qu'on y touche, puisque le moindre
     // retour d'arrière-plan force un rafraîchissement immédiat.
-    const interval = setInterval(() => refreshRef.current(), 180_000);
-    const handler = () => refreshRef.current();
+    const interval = setInterval(declencher, 180_000);
+    const handler = () => declencher();
     window.addEventListener('notifs-refresh', handler);
 
     // iOS efface la pastille d'une PWA de son propre chef — redémarrage du
@@ -415,28 +453,40 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return;
       reassertAppBadge();
-      refreshRef.current();
+      declencher();
     };
     document.addEventListener('visibilitychange', onVisible);
     // Retour depuis le bfcache iOS, où `visibilitychange` ne se déclenche pas
     // systématiquement.
     window.addEventListener('pageshow', onVisible);
 
+    // ⚠️ Le nom ne porte plus d'identifiant d'instance : il n'y a plus qu'UN canal par
+    // profil. Le `.on()` n'est appelé qu'ici, une seule fois, donc l'exception
+    // « cannot add postgres_changes callbacks after subscribe() » — celle qui plantait la
+    // page quand deux montages partageaient un canal — reste impossible.
     const supabase = createClient();
     const channel = supabase
-      .channel(`notifs-rt-${profileId}-${instanceId.current}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'client_notifications', filter: `profile_id=eq.${profileId}` }, () => refreshRef.current())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'calls', ...(isClient ? {} : { filter: `coach_id=eq.${profileId}` }) }, () => refreshRef.current())
+      .channel(`notifs-rt-${profileId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'client_notifications', filter: `profile_id=eq.${profileId}` }, () => declencher())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'calls', ...(isClient ? {} : { filter: `coach_id=eq.${profileId}` }) }, () => declencher())
       .subscribe();
 
-    return () => {
+    partageFermeture = () => {
       clearInterval(interval);
       window.removeEventListener('notifs-refresh', handler);
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('pageshow', onVisible);
       supabase.removeChannel(channel);
     };
-  }, [profileId, isClient]);
+
+    // Fermeture au démontage du DERNIER consommateur seulement.
+    return () => {
+      abonnes.delete(setNotifsState);
+      if (abonnes.size === 0 && partageFermeture) {
+        partageFermeture(); partageFermeture = null; partageCle = null;
+      }
+    };
+  }, [profileId, isClient, cacheKey]);
 
   return { notifs, refresh };
 }
