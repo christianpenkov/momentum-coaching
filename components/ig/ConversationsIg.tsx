@@ -64,6 +64,13 @@ type Message = {
   type_piece_jointe: string | null;
   envoye_a: string;
   note: string | null;
+  /**
+   * Le fichier du vocal est-il encore la ? `null` quand la question ne se pose
+   * pas (message texte, photo...). Derive a la lecture par
+   * `ig_messages_visibles`, jamais stocke : une colonne ecrite a la capture
+   * deviendrait fausse le jour de la purge a 30 jours.
+   */
+  vocal_conserve: boolean | null;
 };
 
 const PAGE = 50;
@@ -272,8 +279,11 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
   }
 
   const charger = useCallback(async (avant?: string) => {
-    let q = supabase.from('ig_messages')
-      .select('id, sortant, texte, type_piece_jointe, envoye_a, note')
+    // ⚠️ La lecture passe par la VUE, pas par la table : c'est elle qui porte
+    // `vocal_conserve`. Elle n'elargit rien — `security_invoker = true`, donc la
+    // RLS d'`ig_messages` decide toujours quelles lignes sortent.
+    let q = supabase.from('ig_messages_visibles')
+      .select('id, sortant, texte, type_piece_jointe, envoye_a, note, vocal_conserve')
       .eq('conversation_id', fil.id)
       .order('envoye_a', { ascending: false })
       .limit(PAGE);
@@ -441,7 +451,8 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
           const contenu = m.texte
             ? m.texte
             : (m.type_piece_jointe
-                ? <PieceJointe messageId={m.id} type={m.type_piece_jointe} />
+                ? <PieceJointe messageId={m.id} type={m.type_piece_jointe}
+                               vocalConserve={m.vocal_conserve} />
                 : '');
 
           return (
@@ -877,7 +888,10 @@ function LecteurVocal({ src }: { src: string }) {
   );
 }
 
-function PieceJointe({ messageId, type }: { messageId: string; type: string }) {
+function PieceJointe(
+  { messageId, type, vocalConserve }:
+  { messageId: string; type: string; vocalConserve: boolean | null }
+) {
   const [contenu, setContenu] = useState<any>(null);
   const [charge, setCharge] = useState(false);
 
@@ -964,6 +978,28 @@ function PieceJointe({ messageId, type }: { messageId: string; type: string }) {
       <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 3 }}>
         <MarqueurPieceJointe type={type} />
         <span style={{ fontSize: 12, opacity: .75 }}>{contenu.motif}</span>
+      </span>
+    );
+  }
+
+  // ── Un vocal dont le fichier n'est plus là ────────────────────────────────
+  //
+  // On ne propose PAS « Afficher ». Vérifié le 2026-09-04 par deux chemins
+  // d'API indépendants, sur un vocal vieux d'une heure comme sur un vocal vieux
+  // d'un jour : `is_unsupported: true`, `attachments: null`. Meta ne le
+  // resservira pas, le clic ne peut donc mener qu'à une déception — et un
+  // aller-retour pour rien.
+  //
+  // ⚠️ « Non récupérable » et pas « Erreur » : ce n'est pas une panne de la
+  // plateforme. Le vocal est soit antérieur à la capture, soit sorti des
+  // 30 jours de conservation. La distinction compte — la première formulation
+  // clôt la question, la seconde envoie chercher un bug qui n'existe pas.
+  if (vocalConserve === false) {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, opacity: .7 }}
+            title="Instagram ne ressert pas les messages vocaux. Celui-ci est antérieur à leur conservation, ou a dépassé 30 jours.">
+        <MarqueurPieceJointe type={type} />
+        <span style={{ fontSize: 12 }}>Non récupérable</span>
       </span>
     );
   }

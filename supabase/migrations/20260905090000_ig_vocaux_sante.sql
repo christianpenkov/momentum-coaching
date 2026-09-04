@@ -52,7 +52,7 @@ where m.type_piece_jointe = 'audio'
     select 1 from storage.objects o
      where o.bucket_id = 'ig-vocaux'
        and o.name = m.profile_id::text || '/'
-                 || encode(substring(digest(m.mid, 'sha256') from 1 for 16), 'hex')
+                 || encode(substring(extensions.digest(m.mid, 'sha256') from 1 for 16), 'hex')
                  || '.m4a'
   );
 
