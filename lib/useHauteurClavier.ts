@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { hauteurClavier } from './hauteurClavier';
 
 /**
  * La hauteur occupée par le clavier virtuel, en pixels. Zéro s'il est fermé.
@@ -18,14 +19,15 @@ import { useEffect, useState } from 'react';
  * `visualViewport` est la seule mesure qui reflète cette zone. On en déduit la
  * hauteur du clavier, dont la feuille se décolle.
  *
- * ── Pourquoi un seuil de 100 px ────────────────────────────────────────────
- * Les barres d'URL qui se rétractent au défilement produisent des écarts de
- * quelques dizaines de pixels, sans rapport avec un clavier. Réagir à ces
- * micro-variations ferait sautiller la feuille pendant le simple défilement.
+ * ── Où vit le calcul ───────────────────────────────────────────────────────
+ * Dans `hauteurClavier.ts`, à part, avec son test. Ce hook ne fait que brancher
+ * les écouteurs. Le seuil de 100 px y est expliqué, ainsi que la raison pour
+ * laquelle `offsetTop` n'entre pas dans la hauteur.
  *
  * ── Pourquoi `scroll` en plus de `resize` ──────────────────────────────────
- * iOS décale le viewport visuel (`offsetTop`) sans toujours changer sa hauteur :
- * sans cet écouteur, la feuille reste calée sur une position périmée.
+ * iOS décale le viewport visuel (`offsetTop`) sans changer sa hauteur : sans cet
+ * écouteur, `dessus` reste périmé et la feuille se cale au mauvais endroit. Cet
+ * événement ne change PAS `hauteur` — c'est voulu, le clavier n'a pas bougé.
  */
 export interface Clavier {
   /** La hauteur occupée par le clavier, en pixels. Zéro s'il est fermé. */
@@ -55,9 +57,16 @@ export function useHauteurClavier(): Clavier {
 
     function mesurer() {
       if (!vv) return;
-      const occupe = window.innerHeight - vv.height - vv.offsetTop;
       setEtat({
-        hauteur: occupe > 100 ? Math.round(occupe) : 0,
+        // ⚠️ `offsetTop` sert au positionnement (`dessus`), JAMAIS à la hauteur —
+        // voir l'avertissement en tête de `hauteurClavier.ts`, qui porte le calcul
+        // et son test. Les confondre faisait retomber la feuille dès qu'iOS
+        // décalait la vue sur le champ touché.
+        hauteur: hauteurClavier({
+          innerHeight: window.innerHeight,
+          hauteurVisible: vv.height,
+          decalage: vv.offsetTop,
+        }),
         dessus: Math.round(vv.offsetTop),
         visible: Math.round(vv.height),
       });
