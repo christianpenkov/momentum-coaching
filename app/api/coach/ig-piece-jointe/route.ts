@@ -60,7 +60,7 @@ export async function GET(request: Request) {
   if (!id) return NextResponse.json({ error: 'message_id requis' }, { status: 400 });
 
   const { data: msg } = await supa
-    .from('ig_messages').select('mid, profile_id').eq('id', id).maybeSingle();
+    .from('ig_messages').select('mid, profile_id, type_piece_jointe').eq('id', id).maybeSingle();
   if (!msg?.mid) return NextResponse.json({ error: 'Introuvable' }, { status: 404 });
 
   // Deux personnes ont le droit de regarder : l'élève, et son coach s'il a
@@ -75,6 +75,55 @@ export async function GET(request: Request) {
     autorise = !!lien;
   }
   if (!autorise) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
+
+  // ── Un vocal : notre copie fait autorité, et on la regarde EN PREMIER ─────
+  //
+  // C'est la seule exception à « on ne stocke aucun média », parce que Meta ne
+  // ressert jamais un vocal : mesuré le 2026-09-04 sur un message vieux de
+  // quelques heures, `is_unsupported: true` et zéro pièce jointe rendue.
+  //
+  // ⚠️ Ce bloc était placé APRÈS l'appel à Meta, et l'ordre était un défaut :
+  // une réponse en erreur de Meta rendait « indisponible » sans jamais regarder
+  // le fichier qu'on a pourtant sous la main. Notre copie ne dépend de personne,
+  // elle passe donc devant — et l'appel à Meta est épargné au passage.
+  //
+  // ⚠️ Et il est réservé au type `audio`. Sans ce garde-fou, chaque photo et
+  // chaque DM à bouton payait une requête de stockage pour un fichier qui
+  // n'existe pas. Sur ce projet l'egress se compte en NOMBRE de requêtes, pas
+  // en volume : une requête inutile par pièce jointe regardée, c'est le motif
+  // exact qui a consommé 5 Go en une semaine (voir AGENTS.md).
+  if (msg.type_piece_jointe === 'audio') {
+    const chemin = `${msg.profile_id}/${empreinte(msg.mid)}.m4a`;
+    const { data: fichier } = await supa.storage.from('ig-vocaux')
+      .createSignedUrl(chemin, 600);
+
+    if (fichier?.signedUrl) {
+      if (!enOctets) {
+        return NextResponse.json({
+          forme: 'media', type: 'audio',
+          url: `/api/coach/ig-piece-jointe?message_id=${encodeURIComponent(id)}&media=1`,
+        } as Contenu);
+      }
+      const amont = await fetch(fichier.signedUrl);
+      if (amont.ok && amont.body) {
+        return new Response(amont.body, {
+          headers: {
+            'content-type': amont.headers.get('content-type') || 'audio/mp4',
+            'cache-control': 'private, max-age=600',
+          },
+        });
+      }
+    }
+
+    // Pas de fichier : le vocal est antérieur à la capture, ou plus vieux que
+    // les 30 jours de rétention. Meta ne le ressert pas, donc il n'existe nulle
+    // part — on le DIT, au lieu d'aller demander à Meta une réponse qu'on
+    // connaît déjà.
+    return NextResponse.json({
+      forme: 'indisponible',
+      motif: 'Instagram ne rend pas ce type de message, et ce vocal n’a pas été conservé',
+    } as Contenu);
+  }
 
   const { data: integ } = await supa
     .from('integrations').select('access_token')
@@ -103,33 +152,6 @@ export async function GET(request: Request) {
     } as Contenu);
   }
 
-  // ── Un vocal : on l'a stocké à la réception, Meta ne le resservira pas ────
-  //
-  // C'est la seule exception à « on ne stocke aucun média ». Le fichier porte
-  // l'empreinte du `mid`, la même qu'en base : le chemin se déduit du message,
-  // sans colonne supplémentaire.
-  const chemin = `${msg.profile_id}/${empreinte(msg.mid)}.m4a`;
-  const { data: fichier } = await supa.storage.from('ig-vocaux')
-    .createSignedUrl(chemin, 600);
-
-  if (fichier?.signedUrl) {
-    if (!enOctets) {
-      return NextResponse.json({
-        forme: 'media', type: 'audio',
-        url: `/api/coach/ig-piece-jointe?message_id=${encodeURIComponent(id)}&media=1`,
-      } as Contenu);
-    }
-    const amont = await fetch(fichier.signedUrl);
-    if (amont.ok && amont.body) {
-      return new Response(amont.body, {
-        headers: {
-          'content-type': amont.headers.get('content-type') || 'audio/mp4',
-          'cache-control': 'private, max-age=600',
-        },
-      });
-    }
-  }
-
   // ⚠️ META LE DIT LUI-MÊME. Certains types de message ne sont pas exposés par
   // l'API — les messages vocaux en font partie — et Meta le déclare par un champ
   // dédié plutôt que par une réponse vide. Mesuré le 2026-09-04 : sur un vocal,
@@ -140,13 +162,13 @@ export async function GET(request: Request) {
   // croire à une panne de la plateforme. La différence entre « je n'ai pas su
   // lire » et « Instagram refuse de le donner » compte : la première invite à
   // chercher un bug, la seconde clôt la question.
+  // Les vocaux sont sortis plus haut : ce qui arrive ici est un AUTRE type que
+  // Meta refuse d'exposer (un sticker, un partage de compte, un format récent).
+  // Rien à conserver de notre côté, il n'existe pas de flux à capturer pour eux.
   if (brut?.is_unsupported === true) {
     return NextResponse.json({
       forme: 'indisponible',
-      // Un vocal reçu AVANT la mise en place de la capture, ou plus vieux que
-      // les 30 jours de rétention, n'existe nulle part : Meta ne le ressert pas.
-      // On le DIT, plutôt que de laisser croire à une panne.
-      motif: 'Instagram ne rend pas ce type de message, et ce vocal n’a pas été conservé',
+      motif: 'Instagram ne rend pas ce type de message',
     } as Contenu);
   }
 
