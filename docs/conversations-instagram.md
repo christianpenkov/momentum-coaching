@@ -1159,12 +1159,29 @@ code d'autrui.
 
 ## Ce qui reste ouvert, et qui ne se code pas
 
-1. **L'unsend.** Aucun webhook Instagram ne signale un message annulé — les champs
-   disponibles sont `messages`, `message_reactions`, `message_echoes`, `messaging_seen`,
-   `messaging_optins`, `messaging_postbacks`, `messaging_referral`, `messaging_handover`,
-   et aucun ne couvre la suppression. Un message annulé sur Instagram reste chez nous.
-   **La rétention est la seule borne** : 30 jours en quarantaine, 12 mois pour un lead.
-   Écart assumé, pas un oubli.
+1. ~~**L'unsend.**~~ **FERMÉ le 2026-09-04.**
+
+   ⚠️ **Ce point était FAUX, et il a tenu plusieurs heures.** Il affirmait qu'aucun webhook
+   ne signale un message annulé et que la rétention en était la seule borne. La doc
+   officielle de Meta dit l'inverse : le champ **`messages`** — auquel ce projet est abonné
+   **depuis toujours** — porte `is_deleted: true` quand une personne retire un message.
+   **L'événement arrivait déjà dans `webhook_queue` ; le worker le jetait.**
+
+   L'erreur venait d'une lecture unique d'une page qui énumérait les CHAMPS d'abonnement
+   sans détailler leurs charges utiles. **Deuxième cas du même piège dans la même journée**,
+   après la fausse limite des « 20 derniers messages » qui aurait fait renoncer au backfill.
+   Une limitation crue sur une seule lecture ne produit aucun symptôme : on ne construit
+   simplement pas la chose qu'elle interdit.
+
+   `supprimer_message_ig()` efface **réellement** — un message gardé « masqué » reste un
+   message gardé — emporte la note du coach qui y était attachée, et recalcule les dates du
+   fil pour que la liste n'affiche plus comme dernier message un texte disparu.
+
+   ⚠️ **Aucune garde d'accord sur ce chemin**, contrairement à l'écriture : une suppression
+   doit aboutir même si l'accord a été retiré entre-temps.
+
+   ⚠️ **Comparaison stricte à `true`** : Meta envoie `is_deleted: false` sur des messages
+   ordinaires, et une comparaison souple ferait supprimer un message vivant.
 2. **La politique de confidentialité, pas l'App Review.**
 
    ⚠️ **Correction du 2026-09-04.** Ce document annonçait un risque d'App Review, au motif
