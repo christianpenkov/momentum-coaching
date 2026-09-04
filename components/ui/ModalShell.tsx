@@ -34,7 +34,7 @@ export default function ModalShell({
 }: Props) {
   const boxRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
-  const clavier = useHauteurClavier();
+  const { hauteur: clavier } = useHauteurClavier();
 
   // Le champ actif est remonté quand le clavier APPARAÎT, pas à chaque frappe :
   // l'effet ne se déclenche que sur un changement de hauteur de clavier. Un

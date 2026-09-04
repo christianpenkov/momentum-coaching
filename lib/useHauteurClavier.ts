@@ -27,8 +27,27 @@ import { useEffect, useState } from 'react';
  * iOS décale le viewport visuel (`offsetTop`) sans toujours changer sa hauteur :
  * sans cet écouteur, la feuille reste calée sur une position périmée.
  */
-export function useHauteurClavier(): number {
-  const [hauteur, setHauteur] = useState(0);
+export interface Clavier {
+  /** La hauteur occupée par le clavier, en pixels. Zéro s'il est fermé. */
+  hauteur: number;
+  /**
+   * Le haut de la zone visible, en pixels depuis le haut du viewport de MISE EN
+   * PAGE — `visualViewport.offsetTop`.
+   *
+   * ⚠️ Indispensable, et l'oublier se voit tout de suite. iOS ne se contente pas
+   * de rétrécir la zone visible quand le clavier s'ouvre : il la DÉCALE. Poser
+   * une feuille à `top: 0` la place donc au haut du viewport de mise en page,
+   * c'est-à-dire au-dessus de l'écran — son titre était coupé (constaté le
+   * 2026-09-04 sur la clôture). `position: fixed` se cale sur le viewport de mise
+   * en page, qui ne bouge pas : `top: dessus` remet la feuille au haut VISIBLE.
+   */
+  dessus: number;
+  /** La hauteur réellement visible — `visualViewport.height`. */
+  visible: number;
+}
+
+export function useHauteurClavier(): Clavier {
+  const [etat, setEtat] = useState<Clavier>({ hauteur: 0, dessus: 0, visible: 0 });
 
   useEffect(() => {
     const vv = typeof window !== 'undefined' ? window.visualViewport : null;
@@ -37,7 +56,11 @@ export function useHauteurClavier(): number {
     function mesurer() {
       if (!vv) return;
       const occupe = window.innerHeight - vv.height - vv.offsetTop;
-      setHauteur(occupe > 100 ? Math.round(occupe) : 0);
+      setEtat({
+        hauteur: occupe > 100 ? Math.round(occupe) : 0,
+        dessus: Math.round(vv.offsetTop),
+        visible: Math.round(vv.height),
+      });
     }
 
     mesurer();
@@ -49,5 +72,5 @@ export function useHauteurClavier(): number {
     };
   }, []);
 
-  return hauteur;
+  return etat;
 }

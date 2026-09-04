@@ -72,7 +72,7 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
   // viewport de mise en page, que le clavier recouvre. La rétrécir la vide par
   // le haut sans jamais dégager son bord bas — le champ actif et les boutons
   // restaient dessous. Il faut la DÉCOLLER, ce que fait le hook partagé.
-  const clavier = useHauteurClavier();
+  const { hauteur: clavier, dessus, visible } = useHauteurClavier();
 
   // Liste chargée dès l'ouverture, sans attendre une saisie : chercher suppose de
   // savoir qui on cherche, alors qu'on veut souvent juste « le prospect d'hier ».
@@ -180,7 +180,10 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
       {/* Même recalage que ModaleAction : cette feuille porte trois champs de
           saisie, dont une recherche — tous sous le clavier sans ça. */}
       <div style={isMobile ? {
-        position: 'fixed', left: 0, right: 0, bottom: clavier, zIndex: 9999,
+        position: 'fixed', left: 0, right: 0, zIndex: 9999,
+        // Clavier fermé : ancrée en bas. Ouvert : la position vient du bloc
+        // conditionnel plus bas, qui pose `top` et `height` sur la zone visible.
+        ...(clavier > 0 ? null : { bottom: 0 }),
         // ── Clavier ouvert : PLEIN ÉCRAN, comme le rapport de vente ──────────
         // Une hauteur MAXIMALE ne suffisait pas. La feuille restait ancrée en bas
         // et se contentait de la hauteur de son contenu : sur un écran long, le
@@ -198,7 +201,14 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
         // Plein écran : plus de coins arrondis, il n'y a plus rien derrière.
         borderTopLeftRadius: clavier > 0 ? 0 : 18,
         borderTopRightRadius: clavier > 0 ? 0 : 18,
-        ...(clavier > 0 ? { top: 0 } : { maxHeight: '88vh' }),
+        // ⚠️ `top: dessus`, pas `top: 0`. iOS DÉCALE la zone visible quand le
+        // clavier s'ouvre, en plus de la rétrécir : à `top: 0` la feuille se
+        // posait au haut du viewport de mise en page, donc au-dessus de
+        // l'écran — son titre était coupé. `height: visible` la borne
+        // exactement à ce qui reste, sans passer par `vh` ni `dvh`.
+        ...(clavier > 0
+          ? { top: dessus, height: visible }
+          : { maxHeight: '88vh' }),
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
       } : {
         position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 9999,
