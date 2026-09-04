@@ -151,4 +151,5 @@ export const MIGRATIONS_DEPOT: { version: string; nom: string }[] = [
   { version: '20260904250000', nom: 'ig_ecritures_par_route_seulement' },
   { version: '20260904260000', nom: 'stockage_fichiers_sante' },
   { version: '20260904270000', nom: 'bucket_ig_vocaux' },
+  { version: '20260904280000', nom: 'vocaux_ig_a_purger' },
 ];

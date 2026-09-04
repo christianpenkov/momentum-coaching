@@ -40,17 +40,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const limite = new Date(Date.now() - RETENTION_JOURS * 86400_000).toISOString();
-
   // `storage.objects` sert d'index : on y lit QUI supprimer, et l'API de
   // stockage fait la suppression réelle.
+  //
+  // ⚠️ La lecture passe par une fonction en base, pas par un `select` direct.
+  // PostgREST n'expose que les schémas déclarés dans sa configuration, et
+  // `storage` n'en fait pas partie : `supa.schema('storage').from('objects')`
+  // répond `Invalid schema: storage`. Mesuré en production le 2026-09-04, et
+  // c'était le pire mode de panne possible — la route répondait, journalisait
+  // son échec, et le stockage aurait grossi indéfiniment pendant que la purge
+  // avait l'air d'exister.
   const { data: vieux, error } = await supa
-    .schema('storage')
-    .from('objects')
-    .select('name')
-    .eq('bucket_id', 'ig-vocaux')
-    .lt('created_at', limite)
-    .limit(LOT_MAX);
+    .rpc('vocaux_ig_a_purger', { p_jours: RETENTION_JOURS, p_limite: LOT_MAX });
 
   if (error) {
     await supa.from('cron_runs').insert({
@@ -60,8 +61,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const chemins = (vieux ?? []).map(o => o.name as string);
-  if (!chemins.length) return NextResponse.json({ ok: true, supprimes: 0 });
+  const chemins = (vieux ?? []).map((o: { chemin: string }) => o.chemin);
+  // `regle` est un marqueur de version. Sans lui, un test négatif ne distingue
+  // pas « le code est faux » de « Vercel n'a pas encore déployé » — ce piège a
+  // coûté trois diagnostics faux sur ce chantier.
+  if (!chemins.length) return NextResponse.json({ ok: true, supprimes: 0, regle: 'rpc_vocaux_ig_a_purger' });
 
   const { error: errSup } = await supa.storage.from('ig-vocaux').remove(chemins);
   if (errSup) {
@@ -72,5 +76,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: errSup.message }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true, supprimes: chemins.length, reste_peut_etre: chemins.length === LOT_MAX });
+  return NextResponse.json({
+    ok: true, supprimes: chemins.length,
+    reste_peut_etre: chemins.length === LOT_MAX,
+    regle: 'rpc_vocaux_ig_a_purger',
+  });
 }
