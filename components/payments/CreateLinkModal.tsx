@@ -181,13 +181,24 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
           saisie, dont une recherche — tous sous le clavier sans ça. */}
       <div style={isMobile ? {
         position: 'fixed', left: 0, right: 0, bottom: clavier, zIndex: 9999,
-        // ⚠️ `100dvh` et non `100vh`. Sur iOS, `100vh` vaut la hauteur LARGE du
-        // viewport — barre d'URL rétractée comprise — donc plus que ce qui est
-        // réellement visible. La feuille se croyait plus haute qu'elle ne l'est,
-        // et son bas repassait sous le clavier. Même leçon que ModalShell.
-        maxHeight: clavier > 0 ? `calc(100dvh - ${clavier + 24}px)` : '88vh',
+        // ── Clavier ouvert : PLEIN ÉCRAN, comme le rapport de vente ──────────
+        // Une hauteur MAXIMALE ne suffisait pas. La feuille restait ancrée en bas
+        // et se contentait de la hauteur de son contenu : sur un écran long, le
+        // champ de saisie restait sous la ligne de flottaison, et le défilement
+        // n'avait pas assez de course pour l'en sortir.
+        //
+        // `top: 0` + `bottom: clavier` donne EXACTEMENT la zone visible, sans
+        // dépendre d'une unité de viewport — ni `vh`, ni `dvh`, dont iOS ne
+        // s'accorde pas sur le sens quand le clavier est là. La feuille occupe
+        // tout, le contenu défile dedans, et remonter le champ devient possible.
+        //
+        // C'est ce que fait `ModalShell` en `fullScreen` sur le rapport de vente,
+        // et c'est le seul montage éprouvé sur ce projet.
         background: 'var(--surface)', boxShadow: 'var(--shadow-modal)',
-        borderTopLeftRadius: 18, borderTopRightRadius: 18,
+        // Plein écran : plus de coins arrondis, il n'y a plus rien derrière.
+        borderTopLeftRadius: clavier > 0 ? 0 : 18,
+        borderTopRightRadius: clavier > 0 ? 0 : 18,
+        ...(clavier > 0 ? { top: 0 } : { maxHeight: '88vh' }),
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
       } : {
         position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 9999,
