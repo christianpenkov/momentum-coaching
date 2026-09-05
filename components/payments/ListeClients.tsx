@@ -5,7 +5,7 @@ import Avatar, { getInitials, seedForPerson } from '@/components/ui/Avatar';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { ETATS, libelleEtat, moyenDefini, compteDansLesTotaux, type EtatVente } from './etats';
 import { Barre } from './FicheClient';
-import { fmtEurExact, fmtDateLong, type PersonRow, type DealRow } from './types';
+import { fmtEurExact, fmtDateLong, fmtEcheanceLitige, type PersonRow, type DealRow } from './types';
 
 /**
  * Une ligne par PERSONNE, et non par vente.
@@ -227,5 +227,5 @@ function etatSimple(d: DealRow): string {
 
 function dateLitige(siennes: DealRow[]): string {
   const d = siennes.find(x => x.disputeDueBy);
-  return d?.disputeDueBy ? `réponse avant le ${fmtDateLong(d.disputeDueBy)}` : 'réponse à donner';
+  return d?.disputeDueBy ? `réponse avant le ${fmtEcheanceLitige(d.disputeDueBy)}` : 'réponse à donner';
 }

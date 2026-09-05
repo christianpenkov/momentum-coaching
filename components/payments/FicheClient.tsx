@@ -382,7 +382,12 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
   // c'est le role — les autres sections regardent vers l'avant, celle-ci
   // reconstitue. Une redondance avec l'echeancier coute une ligne ; une omission
   // coute une enquete, et on ne sait meme pas qu'il faut la mener.
-  const aMontrer = paiements.filter(p => p.status !== 'refunded');
+  // Les REMBOURSEMENTS et les LITIGES sortent d'ici : ils sont racontes par les
+  // evenements, un par mouvement, a leur vraie date. Les montrer aussi comme
+  // lignes de paiement donnait deux fois le meme fait — « Conteste — somme
+  // reprise par Stripe − 2 100,00 € » suivi de « Paiement conteste aupres de la
+  // banque — 2100 € », a deux formats differents. Constate le 2026-09-05.
+  const aMontrer = paiements.filter(p => p.status !== 'refunded' && p.status !== 'disputed');
 
   // Les paiements et le journal, melanges et tries. Les remboursements ne sont
   // pas ici : ils viennent des evenements `refund`, un par remboursement, a leur

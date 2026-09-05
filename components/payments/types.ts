@@ -253,6 +253,26 @@ export function fmtDateLong(iso: string | null): string {
   return new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
 }
 
+/**
+ * « 14 septembre à 01:59 » — l'échéance d'un litige, HEURE COMPRISE.
+ *
+ * ⚠️ La date seule est trompeuse ici, et c'est la seule échéance de la
+ * plateforme où le retard coûte de l'argent. Stripe fixe la limite en UTC :
+ * 13/09 23:59 UTC vaut 14/09 01:59 à Paris. Afficher « avant le 14 septembre »
+ * est donc vrai, et laisse croire qu'on a toute la journée du 14 — alors qu'il
+ * reste deux heures après minuit. Relevé le 2026-09-05 sur le premier litige
+ * réel, en comparant l'écran au dashboard Stripe qui affichait « 13 sept. ».
+ *
+ * Passé le délai, Stripe perd le litige automatiquement et l'argent ne revient
+ * jamais. Une heure de plus dans un libellé coûte moins qu'un malentendu.
+ */
+export function fmtEcheanceLitige(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return `${d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} à `
+    + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+}
+
 /** « il y a 3 jours » — plus parlant qu'une date pour juger d'une relance. */
 export function fmtRelative(iso: string | null): string {
   if (!iso) return '';

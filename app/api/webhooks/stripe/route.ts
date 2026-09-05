@@ -717,7 +717,13 @@ async function handleEvent(event: Stripe.Event) {
       await supabase.from('deals').update({ dispute_due_by: echeance }).eq('id', dealId);
 
       await journaliser(supabase, dealId, 'dispute',
-        `Paiement contesté auprès de la banque — ${Math.round((dispute.amount ?? 0) / 100)} €`,
+        // ⚠️ Formate comme partout ailleurs. `Math.round` rendait « 2100 € » —
+        // sans espace, sans decimales — au milieu d'une chronologie qui ecrit
+        // « 2 100,00 € ». C'est desormais la SEULE ligne qui raconte le litige :
+        // la ligne de paiement a ete retiree de l'historique pour ne pas dire
+        // deux fois la meme chose.
+        `Paiement contesté auprès de la banque — ${((dispute.amount ?? 0) / 100)
+          .toLocaleString('fr-FR', { minimumFractionDigits: 2 })} €`,
         { due_by: echeance, reason: dispute.reason });
 
       await refreshDealStatus(supabase, dealId);

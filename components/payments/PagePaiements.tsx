@@ -10,7 +10,7 @@ import RelancesTab, { compterRelances } from './RelancesTab';
 import CreateLinkModal from './CreateLinkModal';
 import { useIsMobile } from '@/lib/useIsMobile';
 import type { PaymentsData, DealRow, PersonRow } from './types';
-import { fmtEur, fmtDateLong } from './types';
+import { fmtEur, fmtDateLong, fmtEcheanceLitige } from './types';
 
 /**
  * Page Paiements — « où est mon argent ».
@@ -182,7 +182,7 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
             </div>
             <div style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 3, lineHeight: 1.55 }}>
               {litiges.length === 1 && litiges[0].disputeDueBy
-                ? <>Réponse à donner dans Stripe avant le {fmtDateLong(litiges[0].disputeDueBy)}. Passé ce délai, l’argent est perdu automatiquement.</>
+                ? <>Réponse à donner dans Stripe avant le {fmtEcheanceLitige(litiges[0].disputeDueBy)}. Passé ce délai, l’argent est perdu automatiquement.</>
                 : <>Une réponse doit être donnée dans Stripe pour chacun. Passé le délai, l’argent est perdu automatiquement.</>}
             </div>
           </div>
