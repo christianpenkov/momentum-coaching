@@ -167,4 +167,5 @@ export const MIGRATIONS_DEPOT: { version: string; nom: string }[] = [
   { version: '20260905160000', nom: 'moyen_encaissement_echeancier_sans_lien' },
   { version: '20260905170000', nom: 'moyen_encaissement_paiement_offline' },
   { version: '20260905180000', nom: 'origine_dm_entrant' },
+  { version: '20260905200000', nom: 'clics_calendly_yt' },
 ];

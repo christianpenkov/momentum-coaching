@@ -188,6 +188,11 @@ interface PipelineData {
   overrides: Override[];
   events: ProspectEvent[];
   lmHistory: LmHistoryEntry[];
+  // Le haut de l'entonnoir YouTube : des CLICS, pas des personnes. Un lien
+  // Calendly de bio ou de description est partagé, donc anonyme — on n'apprend
+  // un nom qu'à la réservation. `depuis` = premier jour couvert par les relevés,
+  // à afficher avec le total : sans lui, le chiffre se lit « depuis toujours ».
+  clicsCalendlyYt?: { total: number; depuis: string | null };
   ytVideoTitles: Record<string, string>; // video_id → titre, résolu côté API (cache DB + oEmbed)
   igPostMeta: Record<string, IgPostMeta>; // media_id → légende/permalink/thumbnail, résolu côté API (cache DB + Graph API)
   storySequenceByMediaId: Record<string, StorySequenceRef>; // ig_story_id → séquence — distingue un media_id "story" (éphémère, sans permalink exploitable) d'un vrai post
@@ -1759,6 +1764,74 @@ function TuilesIssues({
  * horizontal absorbe la place manquante et rien de déjà visible ne bouge.
  */
 const LARGEUR_COLONNE = 252;
+
+/**
+ * Le haut de l'entonnoir YouTube — un compteur, pas une colonne.
+ *
+ * ── POURQUOI CE N'EST PAS UNE COLONNE ────────────────────────────────────────
+ *
+ * Un lien Calendly de bio ou de description YouTube est PARTAGÉ : tout le monde
+ * clique le même, donc le clic est anonyme. On n'apprend le nom de quelqu'un
+ * qu'au moment où il remplit le formulaire Calendly, c'est-à-dire en réservant.
+ * Cette colonne ne peut donc contenir personne — par nature, pas par manque de
+ * données (vérifié : zéro lien de suivi YouTube cliqué en base).
+ *
+ * La supprimer ferait commencer l'entonnoir YouTube à « RDV pris », en cachant
+ * la seule mesure d'acquisition qu'il possède. On garde donc la place, avec ce
+ * qu'on sait vraiment.
+ *
+ * ── CE QU'IL NE FAUT PAS EN FAIRE ────────────────────────────────────────────
+ *
+ * ⚠️ Elle ne s'ouvre pas, et n'accepte AUCUN dépôt. Une colonne pliée ordinaire
+ * fait les deux ; lui laisser ces gestes promettrait un contenu qui n'existera
+ * jamais, et un dépôt y serait avalé sans effet.
+ *
+ * ⚠️ Le nombre est écrit « clics », jamais nu. Ses voisines comptent des
+ * PERSONNES : un nombre seul, à côté d'elles, se lirait « 13 personnes sont à
+ * cette étape ». C'est faux — la même personne qui clique deux fois compte deux
+ * fois, et rien ne permet de la reconnaître.
+ */
+function CompteurClicsYt({ stage, total, depuis }: {
+  stage: { label: string; color: string };
+  total: number;
+  depuis: string | null;
+}) {
+  // La fenêtre réelle, dite dans l'infobulle. Les relevés ont un début : un total
+  // présenté sans elle se lit « depuis toujours » et sous-entend que rien ne
+  // s'est passé avant — le piège déjà payé sur « Lead magnet reçu » (0 face à 412).
+  const fenetre = depuis
+    ? `depuis le ${new Date(depuis + 'T00:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })}`
+    : 'aucun relevé pour le moment';
+
+  return (
+    <div
+      title={`${total} clic${total > 1 ? 's' : ''} sur tes liens Calendly YouTube (bio et description), ${fenetre}.\n\nCe sont des clics, pas des personnes : ces liens sont partagés, donc anonymes. On ne connaît quelqu'un qu'à partir du moment où il réserve.`}
+      style={{
+        width: 34, flexShrink: 0, alignSelf: 'stretch',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 9,
+        padding: '11px 0',
+        // Même cadre que les colonnes pliées : c'est la même place dans
+        // l'entonnoir. Le fond légèrement retiré dit qu'on ne peut rien y faire.
+        background: 'var(--surface-2)',
+        border: '1px solid var(--border)',
+        borderRadius: 10,
+        cursor: 'default',
+      }}
+    >
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: stage.color, flexShrink: 0 }} />
+      <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>
+        {total}
+      </span>
+      <span style={{
+        writingMode: 'vertical-rl', transform: 'rotate(180deg)',
+        fontSize: 10, fontWeight: 500, color: 'var(--muted)',
+        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+      }}>
+        clics Calendly
+      </span>
+    </div>
+  );
+}
 
 function KanbanColumn({
   stage, cards, stages, draggingKey, onDragStart, onDrop, onDragOver, onDragLeave,
@@ -4238,6 +4311,31 @@ export default function PagePipeline() {
               // index dans le tableau des étapes — il ne pouvait donc pas
               // désigner une issue, qui n'a pas de position sur cet axe.
               const stageCards = cards.filter(c => c.stageKey === stage.key);
+
+              // Côté YouTube, « Lien cliqué » ne peut contenir personne : le lien
+              // est partagé, donc le clic est anonyme. On y met le seul chiffre
+              // qu'on sache — voir CompteurClicsYt pour le raisonnement complet.
+              //
+              // ⚠️ `stageCards.length === 0` n'est pas une précaution décorative.
+              // Un chemin peut y déposer une carte : un lien de suivi créé à la
+              // main pour un prospect YouTube (bloc « ceux qui ont cliqué sans
+              // réserver »), ou un recul manuel depuis le menu d'une carte. Il ne
+              // produit rien aujourd'hui — zéro ligne en base — mais s'il en
+              // produisait une, remplacer la colonne par un compteur la rendrait
+              // INVISIBLE, sans message et sans moyen de la retrouver. Le
+              // compteur ne prend donc la place que tant qu'il n'y a réellement
+              // personne ; dès qu'une carte apparaît, la vraie colonne revient.
+              if (tab === 'yt' && stage.key === 'link_clicked' && stageCards.length === 0) {
+                return (
+                  <CompteurClicsYt
+                    key={stage.key}
+                    stage={stage}
+                    total={data?.clicsCalendlyYt?.total ?? 0}
+                    depuis={data?.clicsCalendlyYt?.depuis ?? null}
+                  />
+                );
+              }
+
               return (
                 <KanbanColumn
                   key={stage.key}

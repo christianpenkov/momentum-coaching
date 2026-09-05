@@ -161,6 +161,23 @@ export async function GET() {
     }
   }
 
+  // Le haut de l'entonnoir YouTube, et le seul qu'on puisse mesurer : un lien
+  // Calendly de bio ou de description est PARTAGÉ, donc son clic est anonyme. On
+  // n'apprend un nom qu'à la réservation — la colonne « Lien cliqué » de l'onglet
+  // YouTube ne peut donc contenir personne, par nature et non par manque de
+  // données (0 lien de suivi YouTube cliqué en base le 2026-09-05).
+  //
+  // Un agrégat, pas une liste : la somme se fait en base plutôt que de rapatrier
+  // un relevé par lien et par jour pour l'additionner ici.
+  //
+  // `depuis` accompagne le total et n'est pas décoratif : les relevés ont un
+  // début, et un total présenté sans sa fenêtre se lit « depuis toujours ».
+  const { data: clicsYtRows } = await supa.rpc('clics_calendly_yt', { p_profile_id: user.id });
+  const clicsCalendlyYt = {
+    total:  Number((clicsYtRows as { clics?: number }[] | null)?.[0]?.clics ?? 0),
+    depuis: ((clicsYtRows as { depuis?: string | null }[] | null)?.[0]?.depuis ?? null) as string | null,
+  };
+
   if (clicksRes.error) console.warn('[pipeline] shortio_link_daily_snapshots fetch failed:', clicksRes.error.message);
   if (eventsRes.error) console.warn('[pipeline] prospect_events fetch failed:', eventsRes.error.message);
 
@@ -207,6 +224,7 @@ export async function GET() {
     overrides: overridesRes.data ?? [],
     events: eventsRes.data ?? [],
     lmHistory: lmHistoryRes.data ?? [],
+    clicsCalendlyYt,
     ytVideoTitles,
     igPostMeta,
     storySequenceByMediaId,
