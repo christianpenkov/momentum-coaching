@@ -354,6 +354,16 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
   // plutôt que d'afficher la seule ligne que la base connaît.
   const { lignes: prelevements } = useEcheancesAVenir(deal, detail);
 
+  // ── Ce que l'historique doit reprendre ────────────────────────────────────
+  // Les ENCAISSEMENTS n'y figurent que si rien d'autre ne les raconte : sur un
+  // plan, chaque ligne d'echeance dit deja « payee le 20 aout », et les repeter
+  // ferait douter qu'il s'agit du meme argent.
+  //
+  // Les REMBOURSEMENTS, eux, y figurent toujours — parce que rien d'autre ne les
+  // raconte jamais. Aucune ligne d'echeance ne dit « 300 EUR rendus ».
+  const rienNeLesRaconte = echeances.length === 0 && prelevements.length === 0;
+  const aMontrer = paiements.filter(p => p.status === 'refunded' || rienNeLesRaconte);
+
   // ── Y a-t-il un lien à envoyer sur la vente elle-même ? ──────────────────
   // Le cas du comptant, et celui du prélèvement automatique PAS ENCORE
   // DÉMARRÉ : tant qu'aucun abonnement n'existe chez Stripe, il n'y a qu'un
@@ -499,11 +509,19 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
                     le bandeau juste au-dessus en demandait justement la cause.
                     Deux phrases de la meme fiche se contredisaient. Relevé par
                     Chris le 2026-09-05. */}
-                {raisonsRemboursement.length > 0 && (
-                  deal.refundInexplique > 0.005
-                    ? <> — dont {fmtEurExact(deal.refunded - deal.refundInexplique)} en {raisonsRemboursement.join(', ')}</>
-                    : <> ({raisonsRemboursement.join(', ')})</>
-                )}
+                {/* Les DEUX parts, nommees chacune. Dire seulement « dont 200 EUR
+                    en geste commercial » laissait deviner le reste par
+                    soustraction, sur l'ecran meme ou une question porte dessus. */}
+                {deal.refundInexplique > 0.005 ? (
+                  <>
+                    {raisonsRemboursement.length > 0 && (
+                      <> {fmtEurExact(deal.refunded - deal.refundInexplique)} en {raisonsRemboursement.join(', ')},</>
+                    )}
+                    {' '}{fmtEurExact(deal.refundInexplique)} encore à expliquer.
+                  </>
+                ) : raisonsRemboursement.length > 0 ? (
+                  <> ({raisonsRemboursement.join(', ')})</>
+                ) : null}
               </div>
             )}
             {/* Le ruban du haut plafonne le cash encaissé au montant de chaque vente :
@@ -676,13 +694,22 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
           Les paiements n'y figurent QUE s'ils ne sont pas déjà racontés par
           l'échéancier — sur un plan, chaque ligne dit déjà « payée le 20 août »,
           et les répéter ici ferait douter qu'il s'agit du même argent. */}
+      {/* Les encaissements ne sont repris ici que si rien d'autre ne les
+          raconte ; les remboursements le sont TOUJOURS, parce que rien d'autre ne
+          les raconte jamais. */}
       <Repliable titre="Historique" ouvert={ouvertes.historique}
         onToggle={() => setOuvertes(o => ({ ...o, historique: !o.historique }))}>
         <Origine dealId={deal.id} deal={deal} />
 
-        {echeances.length === 0 && prelevements.length === 0 && paiements.length > 0 && (
+        {/* ⚠️ La regle « l'echeancier le raconte deja » ne vaut QUE pour les
+            encaissements. Une ligne d'echeance dit « payee le 20 aout » — elle ne
+            dit jamais « 300 EUR rendus ». Les remboursements disparaissaient donc
+            de l'historique des qu'une echeance existait : un mouvement d'argent
+            sans aucune trace dans la chronologie, alors que c'est exactement ce
+            qu'on vient y chercher. Releve par Chris le 2026-09-05. */}
+        {aMontrer.length > 0 && (
           <div style={{ marginTop: 8 }}>
-            {paiements.map(p => (
+            {aMontrer.map(p => (
               <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '6px 0' }}>
                 <span style={{
                   width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
