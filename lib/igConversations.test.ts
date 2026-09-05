@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   estLeCompte, estSortant, interlocuteur, typePieceJointe, lienDiscussion, estSuppression,
+  sourceDuLead,
 } from './igConversations.ts';
 
 // Lancé par `npm test` (node --test, sans aucune dépendance à installer).
@@ -220,4 +222,46 @@ test('l’empreinte d’un mid est la même en SQL, dans le worker et dans la ro
 
   assert.equal(route, attenduSql, 'la route a divergé du SQL');
   assert.equal(worker, attenduSql, 'le worker a divergé du SQL');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// sourceDuLead — le libellé et la pastille d'une origine de lead
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('sourceDuLead traduit les deux origines que la base contient vraiment', () => {
+  assert.equal(sourceDuLead('comment')?.libelle, 'Commentaire LM');
+  assert.equal(sourceDuLead('cold_dm')?.libelle, 'Cold DM');
+});
+
+test('sourceDuLead rend null sur une source inconnue, jamais la valeur brute', () => {
+  // ⚠️ Le défaut corrigé était précisément d'afficher la clé de base telle
+  // quelle. Un repli sur `source` la ferait revenir par la porte de derrière ;
+  // un repli sur « Cold DM » affirmerait une origine qu'on ne connaît pas.
+  for (const inconnue of ['autre_chose', '', null, undefined]) {
+    assert.equal(sourceDuLead(inconnue as any), null);
+  }
+});
+
+test('sourceDuLead couvre toutes les sources que le code sait écrire', () => {
+  // La liste vient de `lib/canalDm.ts` et du webhook. Si une source nouvelle
+  // apparaît sans libellé, l'en-tête n'affichera rien du tout — un trou muet.
+  for (const s of ['comment', 'cold_dm', 'story_reply', 'dm_entrant', 'dm_sortant']) {
+    assert.ok(sourceDuLead(s), `source sans libellé : ${s}`);
+  }
+});
+
+test('les pastilles restent celles du pipeline, sinon deux codes couleur cohabitent', () => {
+  // ⚠️ Ce test lit le VRAI fichier du pipeline. Un commentaire disant « garder
+  // en phase » n'est qu'un vœu ; ceci est une garde. Le coach voit ces mêmes
+  // pastilles dans Pipeline Leads, deux palettes pour une même notion seraient
+  // pires que pas de couleur du tout.
+  const pipeline = readFileSync(
+    new URL('../components/pipeline/PagePipeline.tsx', import.meta.url), 'utf8');
+  for (const [source, etape] of [['cold_dm', 'cold_dm'], ['comment', 'lm_sent']] as const) {
+    const couleur = sourceDuLead(source)!.couleur;
+    const ligne = pipeline.split('\n').find(l => l.includes(`key: '${etape}'`));
+    assert.ok(ligne, `étape introuvable dans PagePipeline : ${etape}`);
+    assert.ok(ligne!.includes(couleur),
+      `la pastille ${source} (${couleur}) ne correspond plus à l'étape ${etape} du pipeline`);
+  }
 });

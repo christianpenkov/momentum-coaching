@@ -6,7 +6,7 @@ import Icon from '@/components/ui/Icon';
 import {
   IG, IgAvatarSimple, IgRecu, IgEnvoye, MarqueurPieceJointe, libellePieceJointe,
 } from '@/components/ig/primitivesInstagram';
-import { lienDiscussion } from '@/lib/igConversations';
+import { lienDiscussion, sourceDuLead } from '@/lib/igConversations';
 
 /**
  * Les conversations Instagram d'un élève — maître-détail.
@@ -420,10 +420,33 @@ function Fil({ fil, annotable, prenomEleve, onFermer, onNoteFil }: {
         <IgAvatarSimple url={fil.peer_avatar_url} pseudo={fil.peer_username} taille={32} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 650, fontSize: 13.5 }}>@{fil.peer_username ?? fil.peer_id}</div>
-          <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>
-            {fil.nb_messages} message{fil.nb_messages > 1 ? 's' : ''}
-            {fil.lead_depuis && ` · lead depuis le ${new Date(fil.lead_depuis).toLocaleDateString('fr-FR')}`}
-            {fil.lead_source && ` · ${fil.lead_source}`}
+          <div style={{
+            fontSize: 10.5, color: 'var(--muted)',
+            display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap',
+          }}>
+            <span>
+              {fil.nb_messages} message{fil.nb_messages > 1 ? 's' : ''}
+              {fil.lead_depuis && ` · lead depuis le ${new Date(fil.lead_depuis).toLocaleDateString('fr-FR')}`}
+            </span>
+            {/* ⚠️ On affichait ici la valeur BRUTE de `source` — « comment »,
+                « cold_dm ». Une clé de base de données n'est pas un libellé : elle
+                ne veut rien dire pour un coach, et « comment » se lit même comme un
+                mot français tronqué. La pastille reprend celle de Pipeline Leads,
+                où le coach voit déjà la même origine — un test confronte les deux
+                palettes pour qu'elles ne divergent pas en silence. */}
+            {(() => {
+              const src = sourceDuLead(fil.lead_source);
+              if (!src) return null;
+              return (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <span aria-hidden="true" style={{
+                    width: 6, height: 6, borderRadius: '50%',
+                    background: src.couleur, flexShrink: 0,
+                  }} />
+                  {src.libelle}
+                </span>
+              );
+            })()}
           </div>
         </div>
         {lien && (

@@ -215,3 +215,42 @@ function decodeBase64(s: string): string | null {
     return null;
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Par où ce lead est entré
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Le libellé et la pastille d'une `instagram_leads.source`.
+ *
+ * L'en-tête d'un fil affichait la valeur BRUTE — « comment », « cold_dm ». Ce
+ * n'est pas un libellé, c'est une clé de base de données : elle ne veut rien
+ * dire pour un coach, et « comment » se lit même comme un mot français tronqué.
+ *
+ * ⚠️ Les couleurs sont celles d'`IG_STAGES` dans `components/pipeline/PagePipeline.tsx`,
+ * délibérément : le coach voit déjà ces deux pastilles dans Pipeline Leads, et
+ * deux codes couleur pour la même notion seraient pires que pas de couleur du
+ * tout. Un test les confronte au fichier du pipeline — sans quoi ce serait une
+ * copie que personne ne relit, c'est-à-dire une copie qui finira par mentir.
+ *
+ * ⚠️ Une source INCONNUE rend `null`, et l'en-tête n'affiche alors rien. Un
+ * repli sur la valeur brute réintroduirait exactement le défaut corrigé ici, et
+ * un repli sur « Cold DM » affirmerait une origine qu'on ne connaît pas.
+ */
+export function sourceDuLead(
+  source: string | null | undefined
+): { libelle: string; couleur: string } | null {
+  switch (source) {
+    // Le commentaire mot-clé sous une publication : la porte d'entrée du lead magnet.
+    case 'comment':     return { libelle: 'Commentaire LM', couleur: '#7C3AED' };
+    // Le coach est allé chercher la personne.
+    case 'cold_dm':     return { libelle: 'Cold DM',        couleur: '#0891B2' };
+    // Réponse à une story : le déclencheur est un contenu daté, pas un commentaire.
+    case 'story_reply': return { libelle: 'Réponse story',  couleur: '#D97706' };
+    // Les deux réponses possibles à la question posée à la création d'un lien
+    // manuel (voir `lib/canalDm.ts`) : elles disent qui a fait le premier pas.
+    case 'dm_entrant':  return { libelle: 'DM entrant',     couleur: '#7C3AED' };
+    case 'dm_sortant':  return { libelle: 'DM sortant',     couleur: '#0891B2' };
+    default:            return null;
+  }
+}
