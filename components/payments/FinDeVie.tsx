@@ -454,6 +454,7 @@ export function PaiementInattendu({ deal, onClose, onDone, onRembourser }: {
   onRembourser: (aRembourser: number, arretRequis: boolean) => void;
 }) {
   const [envoi, setEnvoi] = useState(false);
+  const [erreur, setErreur] = useState<string | null>(null);
   const prenom = deal.buyerName.split(' ')[0];
   const annulee = deal.status === 'canceled';
 
@@ -466,8 +467,21 @@ export function PaiementInattendu({ deal, onClose, onDone, onRembourser }: {
   }
 
   async function cEtaitUneErreur() {
-    await fetch(`/api/payments/deals/${deal.id}/unexpected`, { method: 'DELETE' });
-    onRembourser(deal.collected, false);
+    // La réponse est VÉRIFIÉE (balayage du 2026-09-05) : avant, un DELETE en échec
+    // enchaînait quand même sur le flux de remboursement — le coach remboursait
+    // pendant que la vente restait « à rouvrir ? ». Chemin argent : on s'arrête.
+    setEnvoi(true);
+    setErreur(null);
+    try {
+      const res = await fetch(`/api/payments/deals/${deal.id}/unexpected`, { method: 'DELETE' });
+      if (!res.ok) {
+        setErreur("Impossible d'enregistrer la décision — réessaie dans un instant.");
+        return;
+      }
+      onRembourser(deal.collected, false);
+    } catch {
+      setErreur('Réseau indisponible — réessaie dans un instant.');
+    } finally { setEnvoi(false); }
   }
 
   return (
@@ -489,6 +503,12 @@ export function PaiementInattendu({ deal, onClose, onDone, onRembourser }: {
           </button>
         </>
       }>
+
+      {erreur && (
+        <div role="alert" style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 8, fontSize: 12.5, background: 'rgba(200,60,60,.08)', color: 'var(--danger, #b42318)' }}>
+          {erreur}
+        </div>
+      )}
 
       <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px' }}>
         <Ligne label={annulee ? 'Vente annulée le' : 'Vente terminée le'}

@@ -13,6 +13,9 @@ import { calculerCash } from './dealCash.ts';
 import { CALL_TYPES_VENTE } from './callTypes.ts';
 import type { Call } from '@/lib/supabase/types';
 import type { SupabaseClient } from '@supabase/supabase-js';
+// Relatif avec extension, comme les autres imports de ce fichier : `node --test`
+// (npm test) charge ce module sans bundler et ne connaît pas l'alias `@/`.
+import { lireTout } from './supabase/lireTout.ts';
 
 // Calls annulés exclus de tout calcul de funnel de vente (booking, show-up, closing).
 // Même filtre que PageClientDetail.tsx (8 KPI all-time), extrait ici pour être
@@ -225,13 +228,20 @@ function requetesLeads(supabase: SupabaseClient, profileIds: string[], since: st
   // Volontairement PAS de filtre sur `deleted_at` : un lien supprimé depuis « Gérer mes
   // liens » doit rester dans les stats, sinon le prospect sort du dénominateur du taux
   // d'activation (voir app/api/client/prospect-links/route.ts:127).
-  const leads = supabase.from('instagram_leads')
+  // Des FABRIQUES (`() => …`), lues par `lireTout` chez les appelants : ces quatre
+  // lectures portent sur PLUSIEURS élèves à la fois (page coach, stats clients) et
+  // dépassent 1 000 lignes bien avant 40 élèves — PostgREST tronquait sans erreur,
+  // et le comptage de leads / le CA sous-comptaient en silence (balayage du
+  // 2026-09-05). Tri sur `id` pour des pages déterministes.
+  const leads = () => supabase.from('instagram_leads')
     .select('profile_id, ig_username, detected_at')
-    .in('profile_id', profileIds).is('archived_at', null).eq('not_a_lead', false);
+    .in('profile_id', profileIds).is('archived_at', null).eq('not_a_lead', false)
+    .order('id', { ascending: true });
 
-  const liens = supabase.from('prospect_links')
+  const liens = () => supabase.from('prospect_links')
     .select('profile_id, ig_username, created_at')
-    .in('profile_id', profileIds).is('archived_at', null);
+    .in('profile_id', profileIds).is('archived_at', null)
+    .order('id', { ascending: true });
 
   // ⚠️ `calls.coach_id` est le profile_id de l'ÉLÈVE, pas le coach humain
   // (docs/calls-coach-id-piege.md). `.neq('ignored', true)` est indispensable : sans
@@ -242,23 +252,31 @@ function requetesLeads(supabase: SupabaseClient, profileIds: string[], since: st
   // `like('source', 'ig\\_%')` : un préfixe, pas une liste fermée. `ig_story` manquait,
   // donc un rendez-vous venu d'une story n'était compté nulle part (corrigé aux trois
   // endroits le 2026-08-19). L'underscore est un joker SQL, d'où l'échappement.
-  let callsIg = supabase.from('calls')
-    .select('coach_id, id, invitee_email, invitee_name, booked_at, scheduled_at')
-    .in('coach_id', profileIds)
-    .in('call_type', CALL_TYPES_VENTE)
-    .neq('ignored', true)
-    .is('ig_lead_id', null)
-    .neq('lead_deleted', true)
-    .like('source', 'ig\\_%');
-  if (since) callsIg = callsIg.or(`booked_at.gte.${since},and(booked_at.is.null,scheduled_at.gte.${since})`);
+  const callsIg = () => {
+    let q = supabase.from('calls')
+      .select('coach_id, id, invitee_email, invitee_name, booked_at, scheduled_at')
+      .in('coach_id', profileIds)
+      .in('call_type', CALL_TYPES_VENTE)
+      .neq('ignored', true)
+      .is('ig_lead_id', null)
+      .neq('lead_deleted', true)
+      .like('source', 'ig\\_%')
+      .order('id', { ascending: true });
+    if (since) q = q.or(`booked_at.gte.${since},and(booked_at.is.null,scheduled_at.gte.${since})`);
+    return q;
+  };
 
-  let callsYt = supabase.from('calls')
-    .select('coach_id, id, invitee_email, invitee_name, booked_at, scheduled_at')
-    .in('coach_id', profileIds)
-    .in('call_type', CALL_TYPES_VENTE)
-    .neq('ignored', true)
-    .like('source', 'yt%');
-  if (since) callsYt = callsYt.or(`booked_at.gte.${since},and(booked_at.is.null,scheduled_at.gte.${since})`);
+  const callsYt = () => {
+    let q = supabase.from('calls')
+      .select('coach_id, id, invitee_email, invitee_name, booked_at, scheduled_at')
+      .in('coach_id', profileIds)
+      .in('call_type', CALL_TYPES_VENTE)
+      .neq('ignored', true)
+      .like('source', 'yt%')
+      .order('id', { ascending: true });
+    if (since) q = q.or(`booked_at.gte.${since},and(booked_at.is.null,scheduled_at.gte.${since})`);
+    return q;
+  };
 
   return { leads, liens, callsIg, callsYt };
 }
@@ -277,7 +295,7 @@ function grouper<T extends Record<string, any>>(lignes: T[] | null, cle: 'profil
 /** Leads Instagram seuls (sans le volet YouTube). Signature inchangée. */
 export async function fetchIgLeadsCount(supabase: SupabaseClient, profileId: string, since: string | null): Promise<number> {
   const q = requetesLeads(supabase, [profileId], since);
-  const [leadsRes, liensRes, callsIgRes] = await Promise.all([q.leads, q.liens, q.callsIg]);
+  const [leadsRes, liensRes, callsIgRes] = await Promise.all([lireTout(q.leads), lireTout(q.liens), lireTout(q.callsIg)]);
   return compterLeads({
     leads: (leadsRes.data ?? []) as any[],
     liens: (liensRes.data ?? []) as any[],
@@ -291,7 +309,7 @@ export async function fetchIgLeadsCount(supabase: SupabaseClient, profileId: str
 // recolle IG + YT séparément et diverge silencieusement (déjà arrivé).
 export async function fetchAllLeadsCount(supabase: SupabaseClient, profileId: string, since: string | null): Promise<number> {
   const q = requetesLeads(supabase, [profileId], since);
-  const [leadsRes, liensRes, callsIgRes, callsYtRes] = await Promise.all([q.leads, q.liens, q.callsIg, q.callsYt]);
+  const [leadsRes, liensRes, callsIgRes, callsYtRes] = await Promise.all([lireTout(q.leads), lireTout(q.liens), lireTout(q.callsIg), lireTout(q.callsYt)]);
   return compterLeads({
     leads: (leadsRes.data ?? []) as any[],
     liens: (liensRes.data ?? []) as any[],
@@ -314,7 +332,7 @@ export async function fetchLignesLeadsBatch(
   if (profileIds.length === 0) return resultat;
 
   const q = requetesLeads(supabase, profileIds, since);
-  const [leadsRes, liensRes, callsIgRes, callsYtRes] = await Promise.all([q.leads, q.liens, q.callsIg, q.callsYt]);
+  const [leadsRes, liensRes, callsIgRes, callsYtRes] = await Promise.all([lireTout(q.leads), lireTout(q.liens), lireTout(q.callsIg), lireTout(q.callsYt)]);
 
   const parLeads = grouper(leadsRes.data as any[], 'profile_id');
   const parLiens = grouper(liensRes.data as any[], 'profile_id');
@@ -350,7 +368,7 @@ export async function fetchLeadsCountsBatch(
   if (profileIds.length === 0) return resultat;
 
   const q = requetesLeads(supabase, profileIds, since);
-  const [leadsRes, liensRes, callsIgRes, callsYtRes] = await Promise.all([q.leads, q.liens, q.callsIg, q.callsYt]);
+  const [leadsRes, liensRes, callsIgRes, callsYtRes] = await Promise.all([lireTout(q.leads), lireTout(q.liens), lireTout(q.callsIg), lireTout(q.callsYt)]);
 
   const parLeads = grouper(leadsRes.data as any[], 'profile_id');
   const parLiens = grouper(liensRes.data as any[], 'profile_id');

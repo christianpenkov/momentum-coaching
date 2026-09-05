@@ -170,10 +170,14 @@ Deno.serve(async (req: Request) => {
     } catch (e: any) {
       // Panne réseau : rien n'est parti chez Meta. On restaure la réservation
       // pour que le passage suivant (60 s) retente — la fenêtre de 2 h borne tout.
-      await supa.from('instagram_leads')
+      const { error: restaureErr } = await supa.from('instagram_leads')
         .update({ pending_dm3: lead.pending_dm3, dm3_scheduled_at: lead.dm3_scheduled_at })
         .eq('id', lead.id);
-      errors.push(`reseau ${lead.ig_username || lead.id}: ${e?.message || 'unknown'}`);
+      // Une restauration ratee = DM3 PERDU (la reservation est consommee). On le
+      // dit explicitement plutot que de laisser croire a un simple retry.
+      errors.push(restaureErr
+        ? `reseau ${lead.ig_username || lead.id}: ${e?.message || 'unknown'} — ET restauration echouee (${restaureErr.message}) : DM3 perdu`
+        : `reseau ${lead.ig_username || lead.id}: ${e?.message || 'unknown'} (restaure, retente au prochain passage)`);
       return;
     }
 

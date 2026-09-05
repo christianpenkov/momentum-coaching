@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { resolveYtVideoTitles } from '@/lib/ytVideoTitles';
 import { resolveIgPostMeta } from '@/lib/igPostMeta';
+import { lireTout } from '@/lib/supabase/lireTout';
 
 const supa = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,37 +27,50 @@ export async function GET() {
     .maybeSingle();
   const integrationsReadyAt: string | null = clientRow?.integrations_ready_at ?? null;
 
-  let callsQuery = supa.from('calls')
-    // calendly_event_uuid + next_rescheduled_uri : servent à relier un call
-    // reprogrammé à celui qui le remplace, pour n'afficher qu'UNE carte par
-    // prospect (voir le chaînage dans PagePipeline).
-    .select('id, invitee_name, invitee_email, scheduled_at, booked_at, status, no_show, no_show_at, deal_closed, revenue, outcome, source, ig_lead_id, prospect_id, utm_content, utm_medium, utm_campaign, short_link_path, created_at, rescheduled, rescheduled_at, cancellation_reason, lead_deleted, is_follow_up, lead_rapport_comment, calendly_event_uuid, next_rescheduled_uri, canceled_at, canceled_by, fathom_share_url, objection, objection_autre, relance_at')
-    .eq('coach_id', user.id)
-    .in('call_type', CALL_TYPES_VENTE)
-    .neq('ignored', true)
-    .order('scheduled_at', { ascending: false });
+  // ⚠️ Les lectures qui GROSSISSENT avec l'activité (leads, liens, calls, clics,
+  // événements, historique LM) passent par `lireTout` : PostgREST tronque à 1 000
+  // lignes sans erreur, et `prospect_events` grossit de plusieurs lignes par lead —
+  // au-delà, `resolveStage` perdait des événements et des cartes RECULAIENT en
+  // silence (balayage du 2026-09-05). Fabriques (`() => …`) et non requêtes
+  // construites : `lireTout` pose `.range()` sur une requête neuve à chaque page.
+  // Un tri secondaire sur `id` rend les pages déterministes quand les dates
+  // s'égalent.
+  const construireCalls = () => {
+    let q = supa.from('calls')
+      // calendly_event_uuid + next_rescheduled_uri : servent à relier un call
+      // reprogrammé à celui qui le remplace, pour n'afficher qu'UNE carte par
+      // prospect (voir le chaînage dans PagePipeline).
+      .select('id, invitee_name, invitee_email, scheduled_at, booked_at, status, no_show, no_show_at, deal_closed, revenue, outcome, source, ig_lead_id, prospect_id, utm_content, utm_medium, utm_campaign, short_link_path, created_at, rescheduled, rescheduled_at, cancellation_reason, lead_deleted, is_follow_up, lead_rapport_comment, calendly_event_uuid, next_rescheduled_uri, canceled_at, canceled_by, fathom_share_url, objection, objection_autre, relance_at')
+      .eq('coach_id', user.id)
+      .in('call_type', CALL_TYPES_VENTE)
+      .neq('ignored', true)
+      .order('scheduled_at', { ascending: false })
+      .order('id', { ascending: true });
 
-  if (integrationsReadyAt) {
-    // Un call réservé (booked_at) avant que toutes les intégrations obligatoires soient
-    // connectées n'a pas pu être généré par le pipeline Momentum — fallback sur
-    // scheduled_at si booked_at manque.
-    callsQuery = callsQuery.or(
-      `booked_at.gte.${integrationsReadyAt},and(booked_at.is.null,scheduled_at.gte.${integrationsReadyAt})`
-    );
-  }
+    if (integrationsReadyAt) {
+      // Un call réservé (booked_at) avant que toutes les intégrations obligatoires soient
+      // connectées n'a pas pu être généré par le pipeline Momentum — fallback sur
+      // scheduled_at si booked_at manque.
+      q = q.or(
+        `booked_at.gte.${integrationsReadyAt},and(booked_at.is.null,scheduled_at.gte.${integrationsReadyAt})`
+      );
+    }
+    return q;
+  };
 
   const [leadsRes, prospectsRes, nonIgProspectsRes, callsRes, overridesRes, clicksRes, eventsRes, lmHistoryRes, fusionsRes, dealsRes] = await Promise.all([
-    supa.from('instagram_leads')
+    lireTout(() => supa.from('instagram_leads')
       .select('id, ig_username, ig_user_id, keyword_matched, lead_magnet_sent, hook_replied, hook_replied_at, tracking_link, detected_at, media_id, source, avatar_url')
       .eq('profile_id', user.id)
       .is('archived_at', null)
       .eq('not_a_lead', false)
-      .order('detected_at', { ascending: false }),
+      .order('detected_at', { ascending: false })
+      .order('id', { ascending: true })),
     // archived_at : le pipeline unit cette table avec instagram_leads par ig_username.
     // Sans le filtre, un prospect dont le lead vient d'être archivé (bascule vers un
     // autre compte Instagram) revenait par ici — et s'affichait à une étape erronée,
     // le lead qui portait hook_replied ayant été filtré de l'autre source.
-    supa.from('prospect_links')
+    lireTout(() => supa.from('prospect_links')
       // `ig_lead_id`, `prospect_id` et `source_at_creation` disent À QUI appartient
       // ce lien. Sans eux, l'écran ne pouvait pas le savoir : il traitait TOUT lien
       // comme un lien Instagram, et un lien de suivi généré pour quelqu'un venu de
@@ -65,7 +79,8 @@ export async function GET() {
       .select('id, ig_username, short_url, content_id, created_at, calendly_link_sent, calendly_link_sent_at, last_calendly_link_sent_at, first_click_at, min_stage_reached, ig_lead_id, prospect_id, source_at_creation')
       .eq('profile_id', user.id)
       .is('archived_at', null)
-      .order('created_at', { ascending: false }),
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: true })),
     // Pas de filtre `deleted` : la colonne n'existe pas sur `prospects`. Postgres
     // refusait donc la requête (42703), le résultat retombait sur `?? []` et
     // `nonIgProspects` était TOUJOURS vide — vérifié en base le 2026-08-27 :
@@ -76,19 +91,24 @@ export async function GET() {
       .eq('profile_id', user.id)
       .eq('not_a_lead', false)
       .order('created_at', { ascending: false }),
-    callsQuery,
+    lireTout(construireCalls),
     supa.from('pipeline_overrides')
       .select('prospect_key, platform, stage, updated_at, reason, natural_at_override')
       .eq('profile_id', user.id),
-    supa.from('shortio_link_daily_snapshots')
+    // 30 jours × liens : dépasse 1 000 lignes dès ~35 liens. Tri obligatoire pour
+    // que les pages ne se recouvrent pas (aucun tri auparavant).
+    lireTout(() => supa.from('shortio_link_daily_snapshots')
       .select('short_url, human_clicks')
       .eq('profile_id', user.id)
-      .gte('date', since30d),
-    supa.from('prospect_events')
+      .gte('date', since30d)
+      .order('short_url', { ascending: true })
+      .order('date', { ascending: true })),
+    lireTout(() => supa.from('prospect_events')
       .select('id, prospect_key, platform, event_type, occurred_at, ig_lead_id, prospect_link_id, call_id')
       .eq('profile_id', user.id)
-      .order('occurred_at', { ascending: false }),
-    supa.from('instagram_lead_lm_history')
+      .order('occurred_at', { ascending: false })
+      .order('id', { ascending: true })),
+    lireTout(() => supa.from('instagram_lead_lm_history')
       // `lead_magnet_sent` distingue une demande VUE d'une demande SERVIE. Une
       // ligne à false n'a fait entrer personne dans la séquence : la compter
       // gonflerait l'entonnoir. Cas réel : rdjdkzjd, ligne à false le 28/06 à
@@ -96,7 +116,8 @@ export async function GET() {
       .select('id, ig_username, ig_user_id, keyword_matched, media_id, detected_at, lead_magnet_sent')
       .eq('profile_id', user.id)
       .is('archived_at', null)
-      .order('detected_at', { ascending: false }),
+      .order('detected_at', { ascending: false })
+      .order('id', { ascending: true })),
     // Les doublons déjà tranchés : fusionnés (avec la liste des rendez-vous
     // déplacés, pour pouvoir séparer) ou refusés (pour ne plus reposer la
     // question). Sans cette lecture, le bandeau reproposerait à chaque

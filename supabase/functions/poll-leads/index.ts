@@ -492,6 +492,13 @@ async function fetchIgDayMetrics(token: string, igAccountId: string, date: strin
   // passer : les reponses lisibles sont ecrites, les autres restent null et le
   // filtre sansNull de l'appelant les empeche d'ecraser quoi que ce soit.
   const toutEnEchec = reponses.every(([r, b]) => !r.ok || b?.error);
+  // `fiable` : l'appel des metriques journalieres (reach & co) a repondu proprement.
+  // Le rattrapage s'en sert pour distinguer « Meta n'a rien pour ce jour » (fiable,
+  // memorisable) d'« un des appels a echoue » (non fiable, a retenter). Sans cette
+  // distinction, l'appel `?fields=followers_count` — sans date, il reussit meme quand
+  // les insights sont en panne — masquait l'echec et faisait memoriser un refus
+  // definitif sur un simple transitoire (revue adversariale du 2026-09-05).
+  const fiable = insightsRes.ok && !insightsData?.error && insightsTvRes.ok && !insightsTvData?.error;
   if (toutEnEchec) {
     const detail = reponses.map(([r, b]) => b?.error?.message).find(Boolean) || `http_${reponses[0][0].status}`;
     throw new Error(`ig_api_erreur: ${detail}`);
@@ -650,6 +657,7 @@ async function fetchIgDayMetrics(token: string, igAccountId: string, date: strin
     ig_followers:          accountData.followers_count ?? null,
     ig_following:          accountData.follows_count ?? null,
    },
+   fiable,
   };
 }
 
@@ -666,7 +674,23 @@ async function pollIgComments(profileId: string, token: string, igAccountId: str
   const clByMedia = new Map<string, typeof contentLinks[0]>();
   for (const cl of contentLinks) if (cl.content_id) clByMedia.set(cl.content_id, cl);
 
-  const sinceMs = Math.max(since.getTime(), Date.now() - 48 * 60 * 60 * 1000);
+  // ⚠️ Fenetre FIXE de 48 h, quel que soit `since` (revue adversariale du 2026-09-05).
+  //
+  // `since` est derive de `last_ig_poll`, qui depuis le 2026-09-02 avance a CHAQUE
+  // passage (il fait tourner la rotation « les plus en retard d'abord »). Le borner
+  // par `since` ramenait donc la fenetre de traitement de 48 h a ~5 min — et comme
+  // l'horodatage est ecrit en FIN de fonction, apres plusieurs secondes de fetchs,
+  // un commentaire poste pendant le passage P avait un timestamp anterieur au
+  // `since` du passage P+1 : perdu, a chaque passage, sans trace. La latence de
+  // visibilite des commentaires dans l'API Meta (parfois > 5 min) aggravait le trou.
+  //
+  // La fenetre large ne coute AUCUN appel de plus : les commentaires sont recuperes
+  // de toute facon (limit=50 par media), elle ne change que le filtre ci-dessous ;
+  // et la reservation `instagram_lead_lm_history` (plus bas) rend le retraitement
+  // d'un commentaire deja vu gratuit. C'etait le comportement d'origine — le filet
+  // du webhook — restaure. `since` ne sert plus qu'a la rotation des profils.
+  void since;
+  const sinceMs = Date.now() - 48 * 60 * 60 * 1000;
   const sinceDate = new Date(sinceMs);
   let leadsFound = 0;
   // Echecs d'envoi DM1 (refus Meta, marquage rate) : collectes pour remonter dans
@@ -819,7 +843,26 @@ async function pollIgComments(profileId: string, token: string, igAccountId: str
             // profil au lieu de disparaitre.
             const dmData = await safeJson(dmRes);
             if (!dmRes.ok || dmData?.error) {
-              throw new Error(`dm1_meta_refus: ${dmData?.error?.message || `http_${dmRes.status}`}`);
+              // ⚠️ Le retry promis n'existait pas (revue adversariale du 2026-09-05) :
+              // la reservation `instagram_lead_lm_history` ecrite plus haut faisait
+              // `count === 0` au passage suivant → `continue` avant meme le bloc DM1.
+              // Un hoquet Meta de 2 s coutait donc le DM1 pour toujours.
+              //
+              // Refus TRANSITOIRE (429, 5xx, codes Meta de limite/indisponibilite) :
+              // on EFFACE notre reservation pour que le passage suivant re-reserve et
+              // retente — sans risque de doublon, Meta n'autorise qu'UNE reponse
+              // privee par commentaire et refuserait la seconde. Refus DEFINITIF
+              // (permission, fenetre fermee, deja repondu) : la reservation reste,
+              // rien ne retente, l'echec est trace une fois.
+              const codeMeta = Number(dmData?.error?.code);
+              const transitoire = dmRes.status === 429 || dmRes.status >= 500
+                || [1, 2, 4, 17, 32, 613].includes(codeMeta);
+              if (transitoire) {
+                await supa.from('instagram_lead_lm_history').delete()
+                  .eq('profile_id', profileId).eq('ig_user_id', commenterId)
+                  .eq('media_id', media.id).eq('comment_id', String(comment.id));
+              }
+              throw new Error(`dm1_meta_refus${transitoire ? '_transitoire' : '_definitif'}: ${dmData?.error?.message || `http_${dmRes.status}`}`);
             }
             // lead_magnet_sent: true impératif ici — sans lui, le prochain passage du cron
             // (5 min après) relit lead_magnet_sent toujours falsy et renvoie un 3e DM1
@@ -2806,7 +2849,7 @@ async function rattraperTrousIg(profileId: string, token: string, igAccountId: s
         // `jour` seulement : ecrire `compte` ici tamponnerait le nombre d'abonnes
         // d'AUJOURD'HUI sur une journee vieille de plusieurs semaines. C'est la source
         // exacte de la courbe d'abonnes plate constatee le 2026-08-30.
-        const { jour: metrics } = await fetchIgDayMetrics(token, igAccountId, t.date);
+        const { jour: metrics, fiable } = await fetchIgDayMetrics(token, igAccountId, t.date);
         // Ne pas ecrire une ligne vide : si Meta ne renvoie rien pour ce jour, mieux
         // vaut laisser le trou que d'y poser des null qui empecheraient un nouvel essai
         // de se distinguer d'un echec. Et MEMORISER le refus — voir le bloc refus
@@ -2815,7 +2858,9 @@ async function rattraperTrousIg(profileId: string, token: string, igAccountId: s
         // ressort du rattrapage normal.
         if (metrics.ig_reach == null) {
           const dateAgeMs = maintenant - new Date(t.date + 'T00:00:00Z').getTime();
-          if (dateAgeMs > 7 * 24 * 60 * 60 * 1000) {
+          // `fiable` : ne memoriser un refus que si Meta a repondu PROPREMENT sans
+          // rien avoir — jamais sur un appel en echec, qui doit etre retente.
+          if (fiable && dateAgeMs > 7 * 24 * 60 * 60 * 1000) {
             const dejaVu = refusParDate.get(t.date);
             const tentatives = (dejaVu?.tentatives ?? 0) + 1;
             const { error: refusErr } = await supa.from('ig_rattrapage_refus').upsert({
@@ -3489,9 +3534,14 @@ Deno.serve(async (req: Request) => {
   // Le verrou expire seul à 4 min (un run dure 150 s max) : un crash sans
   // relâche ne coûte qu'UN passage sauté, jamais un blocage.
   const verrouPerime = new Date(Date.now() - 4 * 60 * 1000).toISOString();
+  // La valeur posee est memorisee : la relache ne retire QUE ce verrou-la (voir le
+  // .finally plus bas). Sans ca, un run qui depasse 4 min voyait le suivant prendre
+  // le verrou perime, puis sa propre relache tardive EFFACER le verrou du second —
+  // et un troisieme passage pouvait chevaucher (revue adversariale du 2026-09-05).
+  const verrouValeur = new Date().toISOString();
   const { data: verrouPris, error: verrouErr } = await supa
     .from('crons_passages')
-    .update({ verrou_pris_a: new Date().toISOString() })
+    .update({ verrou_pris_a: verrouValeur })
     .eq('nom', 'poll-leads')
     .or(`verrou_pris_a.is.null,verrou_pris_a.lt.${verrouPerime}`)
     .select('nom')
@@ -3500,8 +3550,15 @@ Deno.serve(async (req: Request) => {
   // Une erreur de verrou (DB indisponible ?) laisse passer : mieux vaut un
   // risque théorique de doublon qu'un cron entier qui s'arrête de collecter.
   if (!verrouErr && !verrouPris) {
-    console.warn('[poll-leads] passage déjà en cours — invocation ignorée');
-    return new Response(JSON.stringify({ status: 'skipped_run_en_cours' }), { status: 202, headers: { 'Content-Type': 'application/json' } });
+    // Zero ligne matchee : verrouille… ou ligne ABSENTE (environnement neuf ou
+    // filigrane en panne). Le second cas bloquerait le cron pour toujours en
+    // silence, 202 apres 202 — on le distingue et on laisse passer sans verrou.
+    const { data: ligne } = await supa.from('crons_passages').select('nom').eq('nom', 'poll-leads').maybeSingle();
+    if (ligne) {
+      console.warn('[poll-leads] passage déjà en cours — invocation ignorée');
+      return new Response(JSON.stringify({ status: 'skipped_run_en_cours' }), { status: 202, headers: { 'Content-Type': 'application/json' } });
+    }
+    console.error('[poll-leads] verrou : ligne crons_passages absente — passage SANS verrou');
   }
 
   // Fenêtre d'auto-réparation Short.io : 7 jours par défaut, élargissable pour un
@@ -3897,6 +3954,8 @@ Deno.serve(async (req: Request) => {
       .finally(() => supa.from('crons_passages')
         .update({ verrou_pris_a: null })
         .eq('nom', 'poll-leads')
+        // Relache PROPRIETAIRE : uniquement si le verrou est encore le notre.
+        .eq('verrou_pris_a', verrouValeur)
         .then(({ error }: { error: { message: string } | null }) => {
           if (error) console.error('[poll-leads] relache du verrou:', error.message);
         })),

@@ -455,7 +455,10 @@ export async function POST(request: NextRequest) {
       // reproduit et confirmé le 2026-08-14. Même RPC utilisée côté cron
       // (supabase/functions/sync-calendly/index.ts) — les deux convergent sur la même
       // ligne en cas de course serrée.
-      serviceSupabase.rpc('upsert_prospect_event_call_booked', {
+      // Attendu, et non en `.then()` detache : Vercel gele l'invocation des que la
+      // reponse part, et un evenement pipeline coupe en vol est perdu sans trace
+      // (revue adversariale du 2026-09-05).
+      const { error: evtErr } = await serviceSupabase.rpc('upsert_prospect_event_call_booked', {
         p_profile_id: leadsProfileId,
         p_prospect_key: prospectKey,
         p_platform: platform,
@@ -466,9 +469,8 @@ export async function POST(request: NextRequest) {
         p_ig_lead_id: igLeadId,
         p_prospect_link_id: prospectLinkId,
         p_call_id: callRow.id,
-      }).then(({ error: evtErr }) => {
-        if (evtErr) console.error('[webhook/calendly] prospect_events upsert:', evtErr.message);
       });
+      if (evtErr) console.error('[webhook/calendly] prospect_events upsert:', evtErr.message);
     }
   }
 

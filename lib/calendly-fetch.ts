@@ -369,7 +369,9 @@ export async function syncCalendlyEleve(
             .eq('event_type', 'call_booked')
             .maybeSingle();
           if (!existingEvt) {
-            serviceSupabase.from('prospect_events').insert({
+            // Attendu, pas en `.then()` détaché : une écriture pipeline coupée par la
+            // fin de l'invocation Vercel est perdue sans trace (revue 2026-09-05).
+            const { error: evtErr } = await serviceSupabase.from('prospect_events').insert({
               profile_id:       profileId,
               prospect_key:     igLead.ig_username.toLowerCase(),
               platform:         'ig',
@@ -379,9 +381,8 @@ export async function syncCalendlyEleve(
               ig_lead_id:       effectiveIgLeadId,
               prospect_link_id: finalProspectLinkId,
               call_id:          callRow.id,
-            }).then(({ error: evtErr }) => {
-              if (evtErr) console.error('[calendly-fetch] prospect_events call_booked:', evtErr.message);
             });
+            if (evtErr) console.error('[calendly-fetch] prospect_events call_booked:', evtErr.message);
           }
           // Lier le lead au call dans l'autre sens
           await serviceSupabase.from('instagram_leads')

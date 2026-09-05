@@ -102,6 +102,13 @@ export default function AppBootstrap() {
       // dans la même session soit rattrapé aussi.
       navigator.serviceWorker.addEventListener('message', function (e) {
         if (e.data?.type !== 'DEPLOIEMENT_DETECTE') return;
+        // Hors ligne, le signal vient d'un chunk non caché injoignable — pas d'un
+        // deploy. Recharger éjecterait l'élève d'une page qui marchait vers
+        // l'écran hors ligne (revue adversariale du 2026-09-05).
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+          logClient('[SW] deploiement_detecte_hors_ligne_ignore', {});
+          return;
+        }
         const dernierRechargement = Number(sessionStorage.getItem('__deploy_reload_at') || '0');
         if (Date.now() - dernierRechargement < 60_000) {
           logClient('[SW] deploiement_detecte_boucle_evitee', {});

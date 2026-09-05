@@ -799,7 +799,12 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
         );
         const resolveData = await resolveRes.json();
         if (resolveData?.id && !resolveData.error) return r;
-        throw new Error('no match');
+        // Le motif du refus compte (voir plus bas) : un 429 / une panne Meta n'est
+        // pas « ce jeton ne connaît pas ce compte ».
+        const code = Number(resolveData?.error?.code);
+        const transitoire = resolveRes.status === 429 || resolveRes.status >= 500
+          || [1, 2, 4, 17, 32, 613].includes(code);
+        throw new Error(transitoire ? 'transitoire' : 'definitif');
       }));
       const found = results.find((res): res is PromiseFulfilledResult<any> => res.status === 'fulfilled');
       if (found) {
@@ -808,13 +813,24 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
         serviceSupabase.from('ig_entry_id_mapping')
           .upsert({ entry_id: igAccountId, ig_account_id: resolvedMatch.metadata?.ig_account_id }, { onConflict: 'entry_id' })
           .then();
-      } else {
+      } else if (results.every(res => res.status === 'rejected' && res.reason?.message === 'definitif')) {
+        // ⚠️ Mémorisé SEULEMENT quand chaque jeton a répondu « je ne connais pas ce
+        // compte » — un refus définitif. Un scan qui échoue parce que Meta
+        // rate-limite ou tombe (rejet réseau, 429, 5xx) NE DIT RIEN sur le compte :
+        // le mémoriser empoisonnait l'entry.id pour 24 h, et pendant la fenêtre
+        // chaque commentaire finissait en `profil_non_trouve` → item `done` → private
+        // replies perdues définitivement, précisément en rafale (revue adversariale du
+        // 2026-09-05). Sur un transitoire, on ne pose rien : le prochain événement
+        // rescanne.
+        //
         // Échec mémorisé — created_at rafraîchi pour dater la fenêtre de 24 h.
         // L'erreur de CET upsert est lue : un cache négatif qui ne s'écrit pas en
         // silence referait le scan à chaque événement, exactement le défaut fermé.
         const { error: negErr } = await serviceSupabase.from('ig_entry_id_mapping')
           .upsert({ entry_id: igAccountId, ig_account_id: CACHE_NEGATIF, created_at: new Date().toISOString() }, { onConflict: 'entry_id' });
         if (negErr) debugLog('cache négatif NON écrit', { igAccountId, erreur: negErr.message });
+      } else {
+        debugLog('scan entry.id en échec transitoire — pas de cache négatif', { igAccountId });
       }
     }
     debugLog('resolvedMatch après résolution', {
@@ -1370,7 +1386,11 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
                 media_id: storyReplyId,
                 keyword_matched: seq.lm_keyword,
                 detected_at: existingLead?.detected_at ?? nowIso,
-                lead_magnet_sent: leadMagnetSent,
+                // Jamais de rétrogradation true → false : au retry d'une entry (throw
+                // transitoire sur un AUTRE commentaire du même lot), Meta refuse le 2e
+                // private reply → leadMagnetSent=false → écraser la fiche coupait le
+                // DM2 (qui exige lead_magnet_sent=true). Revue adversariale 2026-09-05.
+                ...(leadMagnetSent ? { lead_magnet_sent: true } : (existingLead ? {} : { lead_magnet_sent: false })),
                 tracking_link: shortLink || null,
                 // La relance est mise de côté ici et programmée au clic, comme
                 // pour un post : la planifier dès maintenant l'enverrait à
@@ -1410,7 +1430,12 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
             }
 
             if (senderId) {
-              await serviceSupabase
+              // ⚠️ onConflict sur la VRAIE clé unique (profile_id, ig_user_id, media_id,
+              // comment_id) — l'ancienne (`…,detected_at`) ne correspondait à aucun
+              // index : 42P10 systématique, erreur jamais lue, et l'historique LM des
+              // séquences story n'était JAMAIS écrit (balayage du 2026-09-05). Pour
+              // une story, l'identifiant de la réponse tient le rôle du comment_id.
+              const { error: lmStoryErr } = await serviceSupabase
                 .from('instagram_lead_lm_history')
                 .upsert({
                   profile_id: pid,
@@ -1418,11 +1443,13 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
                   ig_user_id: senderId,
                   keyword_matched: seq.lm_keyword,
                   media_id: storyReplyId,
+                  comment_id: storyReplyId,
                   lm_url: shortLink || null,
                   lead_magnet_sent: leadMagnetSent,
                   detected_at: nowIso,
                   ig_account_id: canonicalIgAccountId,
-                }, { onConflict: 'profile_id,ig_user_id,media_id,detected_at', ignoreDuplicates: true });
+                }, { onConflict: 'profile_id,ig_user_id,media_id,comment_id', ignoreDuplicates: true });
+              if (lmStoryErr) console.error('[IG Webhook] instagram_lead_lm_history (story):', lmStoryErr.message);
             }
 
             console.log(`[IG Webhook] Lead story stocké — @${senderUsername}, mot-clé: ${seq.lm_keyword}, séquence: ${story.sequence_id}`);
@@ -1751,7 +1778,8 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
           media_permalink: mediaPermalink,
           keyword_matched: matchedKeyword,
           detected_at: existingLead?.detected_at ?? timestamp,
-          lead_magnet_sent: leadMagnetSent,
+          // Jamais de rétrogradation true → false — voir le même garde côté story.
+          ...(leadMagnetSent ? { lead_magnet_sent: true } : (existingLead ? {} : { lead_magnet_sent: false })),
           tracking_link: shortLink || null,
           pending_dm2: dm2Text || null,
           pending_dm3: dm3Text || null,

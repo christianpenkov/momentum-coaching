@@ -310,18 +310,24 @@ export async function POST() {
       }
       const prospectKey = igUsername?.toLowerCase() ?? prospectId ?? eventUuid;
       const platform = igUsername ? 'ig' : effectivePlatform;
-      serviceSupabase.from('prospect_events').upsert({
-        profile_id:       leadsProfileId,
-        prospect_key:     prospectKey,
-        platform,
-        event_type:       'call_booked',
-        occurred_at:      scheduledAt ?? new Date().toISOString(),
-        ig_lead_id:       igLeadId,
-        prospect_link_id: prospectLinkId,
-        call_id:          callRow.id,
-      }, { onConflict: 'call_id,event_type' }).then(({ error: evtErr }) => {
-        if (evtErr) console.error('[calendly/sync] prospect_events upsert:', evtErr.message);
+      // RPC et non `.upsert({ onConflict: 'call_id,event_type' })` : l'index reel
+      // `prospect_events_call_event_uidx` est PARTIEL (WHERE call_id IS NOT NULL), et
+      // le client Supabase JS ne peut cibler un ON CONFLICT que sur un index total —
+      // l'upsert echouait SYSTEMATIQUEMENT (42P10), donc cette route n'ecrivait JAMAIS
+      // l'evenement call_booked. Les deux autres chemins (webhook, Edge) avaient recu
+      // la RPC le 2026-08-14 ; celui-ci avait ete oublie (balayage du 2026-09-05).
+      // Attendu, pas en `.then()` : Vercel gele l'invocation a la reponse.
+      const { error: evtErr } = await serviceSupabase.rpc('upsert_prospect_event_call_booked', {
+        p_profile_id: leadsProfileId,
+        p_prospect_key: prospectKey,
+        p_platform: platform,
+        p_event_type: 'call_booked',
+        p_occurred_at: scheduledAt ?? new Date().toISOString(),
+        p_ig_lead_id: igLeadId,
+        p_prospect_link_id: prospectLinkId,
+        p_call_id: callRow.id,
       });
+      if (evtErr) console.error('[calendly/sync] prospect_events upsert:', evtErr.message);
     }
 
     synced++;

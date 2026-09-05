@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
 import { idsDeContinuation } from '@/lib/callSeries';
+import { lireTout } from '@/lib/supabase/lireTout';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -29,17 +30,22 @@ const serviceSupabase = createClient(
  * d'un contexte plus large que ce qu'on lui passe » de docs/perimetre-stats-referentiel.md.
  */
 async function chainesEtCash(profileId: string) {
+  // `lireTout` : TOUS les calls du coach — c'est exactement la lecture qui dépasse
+  // 1 000 lignes en une année d'activité, et une troncature silencieuse ici
+  // fausserait le cash par séquence (balayage du 2026-09-05).
   const [tous, deals] = await Promise.all([
-    serviceSupabase
+    lireTout(() => serviceSupabase
       .from('calls')
       .select('id, scheduled_at, booked_at, outcome, invitee_email, invitee_name')
       .eq('coach_id', profileId)
-      .neq('ignored', true),
-    serviceSupabase
+      .neq('ignored', true)
+      .order('id', { ascending: true })),
+    lireTout(() => serviceSupabase
       .from('deals')
       .select('call_id, amount_total, status')
       .eq('profile_id', profileId)
-      .not('call_id', 'is', null),
+      .not('call_id', 'is', null)
+      .order('id', { ascending: true })),
   ]);
   const continuations = idsDeContinuation((tous.data ?? []) as any[]);
   const montantParCall = new Map<string, number>();

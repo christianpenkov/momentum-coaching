@@ -554,26 +554,35 @@ async function syncProfile(profileId: string, acces: AccesStripe, lastSyncedAt: 
   // charge est hors de la fenêtre courante (les autres sont déjà couverts par la
   // passe ci-dessus) — le surcoût est donc proportionnel aux remboursements
   // tardifs, c'est-à-dire quasi nul en régime établi.
-  const lotRefunds = await stripeList(acces, 'refunds', since);
-  tronque = tronque || lotRefunds.tronque;
-  const chargesDejaVues = new Set(lotCharges.data.map((c: any) => c.id));
-  const chargesARelire = [...new Set(
-    lotRefunds.data
-      .filter((r: any) => r.status === 'succeeded' && typeof r.charge === 'string' && !chargesDejaVues.has(r.charge))
-      .map((r: any) => r.charge as string),
-  )];
-  const refundResults = await mapWithConcurrency(chargesARelire, 4, async (chargeId: string) => {
-    // La charge relue porte `amount_refunded` CUMULATIF, metadata et e-mail —
-    // exactement ce qu'attend upsertRefund, qui réécrit la ligne à chaque fois.
-    const charge = await stripeGet(acces, `charges/${chargeId}`, {});
-    if (Number(charge.amount_refunded ?? 0) > 0) {
-      await upsertRefund(profileId, charge, touchedDeals);
-    }
-  });
-  refundResults.forEach((r, i) => {
-    if (r.status === 'rejected') errors.push(`refund charge ${chargesARelire[i]}: ${r.reason?.message || 'unknown'}`);
-  });
-  seen += chargesARelire.length;
+  // ⚠️ Isolee dans son propre try : une cle restreinte creee AVANT ce correctif
+  // peut ne pas porter le scope Refunds:read → `stripeList` leverait a chaque
+  // passage, et la passe FACTURES ci-dessous (les abonnements) ne tournerait plus
+  // jamais pour ce profil (revue adversariale du 2026-09-05). L'echec reste une
+  // erreur du profil — borne retenue, ligne cron_runs — mais les factures passent.
+  try {
+    const lotRefunds = await stripeList(acces, 'refunds', since);
+    tronque = tronque || lotRefunds.tronque;
+    const chargesDejaVues = new Set(lotCharges.data.map((c: any) => c.id));
+    const chargesARelire = [...new Set(
+      lotRefunds.data
+        .filter((r: any) => r.status === 'succeeded' && typeof r.charge === 'string' && !chargesDejaVues.has(r.charge))
+        .map((r: any) => r.charge as string),
+    )];
+    const refundResults = await mapWithConcurrency(chargesARelire, 4, async (chargeId: string) => {
+      // La charge relue porte `amount_refunded` CUMULATIF, metadata et e-mail —
+      // exactement ce qu'attend upsertRefund, qui réécrit la ligne à chaque fois.
+      const charge = await stripeGet(acces, `charges/${chargeId}`, {});
+      if (Number(charge.amount_refunded ?? 0) > 0) {
+        await upsertRefund(profileId, charge, touchedDeals);
+      }
+    });
+    refundResults.forEach((r, i) => {
+      if (r.status === 'rejected') errors.push(`refund charge ${chargesARelire[i]}: ${r.reason?.message || 'unknown'}`);
+    });
+    seen += chargesARelire.length;
+  } catch (e) {
+    errors.push(`refunds (scope Refunds:read manquant sur la cle ?): ${(e as Error).message}`);
+  }
 
   const lotFactures = await stripeList(acces, 'invoices', since, { status: 'paid' });
   tronque = tronque || lotFactures.tronque;

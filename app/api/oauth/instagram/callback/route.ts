@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { lireTout } from '@/lib/supabase/lireTout';
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
@@ -216,10 +217,14 @@ export async function GET(request: NextRequest) {
       // pipeline par cette table — à une étape erronée de surcroît, le lead qui
       // portait hook_replied ayant été filtré. Fait après les étapes 1 et 2 pour
       // lire l'état final des leads, jamais un état intermédiaire.
-      const { data: leadStates } = await serviceSupabase
+      // `lireTout` : au-delà de 1 000 leads, PostgREST tronquait sans erreur et des
+      // prospects de l'ANCIEN compte réapparaissaient dans le pipeline — le bug
+      // exact que cette étape existe pour empêcher (balayage du 2026-09-05).
+      const { data: leadStates } = await lireTout(() => serviceSupabase
         .from('instagram_leads')
         .select('id, archived_at')
-        .eq('profile_id', user.id);
+        .eq('profile_id', user.id)
+        .order('id', { ascending: true }));
 
       const toArchive = (leadStates ?? []).filter(l => l.archived_at).map(l => l.id);
       const toUnarchive = (leadStates ?? []).filter(l => !l.archived_at).map(l => l.id);

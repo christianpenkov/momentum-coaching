@@ -69,15 +69,21 @@ export default function InviteCallbackPage() {
       // qu'on cherche à poser pour la première fois. Passe par une route serveur
       // (service-role) qui bypass la RLS.
       const claimRes = await fetch('/api/client/claim-invite', { method: 'POST' });
-      if (claimRes.ok) {
-        const { coach_id } = await claimRes.json();
-        if (coach_id) {
-          await fetch('/api/client/grant-default-resources', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ coach_id }),
-          });
-        }
+      if (!claimRes.ok) {
+        // Avant (balayage du 2026-09-05) : un claim en 4xx/5xx était avalé, l'élève
+        // définissait son mot de passe sans jamais être rattaché à son coach
+        // (`clients.profile_id` jamais posé) — symptôme différé, indiagnosticable.
+        // On s'arrête ici, avec un message qui dit quoi faire.
+        setError("Ton lien d'invitation n'a pas pu être validé. Demande à ton coach de t'en renvoyer un.");
+        return;
+      }
+      const { coach_id } = await claimRes.json();
+      if (coach_id) {
+        await fetch('/api/client/grant-default-resources', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ coach_id }),
+        });
       }
 
       setStep('set-password');

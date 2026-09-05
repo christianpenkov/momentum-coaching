@@ -1,4 +1,5 @@
-// SW v16 — push + coquille hors ligne + pastille persistante + cache borné
+// SW v17 — push + coquille hors ligne + pastille persistante + cache borné
+//           (v17 : signal DEPLOIEMENT_DETECTE aussi sur 404, pas seulement sur echec reseau)
 //
 // Strategie volontairement minimale, alignee sur les recommandations courantes :
 //   - navigations : RESEAU D'ABORD, repli sur /offline.html si le reseau echoue.
@@ -118,7 +119,7 @@ function swLog(event, data) {
 }
 
 self.addEventListener('install', e => {
-  swLog('install', { msg: 'SW v16 installing', ts: Date.now() });
+  swLog('install', { msg: 'SW v17 installing', ts: Date.now() });
   e.waitUntil(
     // L'ecran hors ligne doit etre en cache AVANT d'en avoir besoin : au moment
     // ou le reseau manque, il est trop tard pour le telecharger.
@@ -175,6 +176,18 @@ self.addEventListener('fetch', e => {
         if (res.ok && res.status === 200) {
           const copy = res.clone();
           caches.open(CACHE).then(c => c.put(req, copy)).then(() => elaguerCache()).catch(() => {});
+        }
+        // Le cas REEL d'un deploiement : Vercel repond 404 (une reponse, pas une
+        // erreur reseau) pour un chunk hashe de l'ancienne version. Le `.catch`
+        // ci-dessous ne le voyait jamais — il n'attrape que les echecs reseau —
+        // donc l'incident du 2026-08-21 n'etait toujours pas rattrape (revue
+        // adversariale du 2026-09-05). On previent la page ici aussi.
+        if (res.status === 404 && (url.pathname.endsWith('.js') || url.pathname.endsWith('.css'))) {
+          e.waitUntil(
+            self.clients.matchAll({ type: 'window' }).then(clients => {
+              clients.forEach(c => c.postMessage({ type: 'DEPLOIEMENT_DETECTE' }));
+            })
+          );
         }
         return res;
       }).catch(() => {

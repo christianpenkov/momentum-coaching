@@ -350,6 +350,15 @@ async function syncCalendlyEleve(
     // On lève : l'event part en erreur, la borne du profil ne bouge pas, le
     // passage suivant retraite. Un trou se rattrape ; une ligne vidée, non.
     if (!inviteesRes.ok) {
+      // 404/410 : l'event n'existe plus chez Calendly — DEFINITIF. Lever ici
+      // aurait gele `last_synced_at` pour toujours (meme erreur a chaque passage
+      // de 30 min, re-scan complet, ligne cron_runs perpetuelle) : on saute
+      // l'event, sans toucher a sa ligne en base (revue adversariale 2026-09-05).
+      // Le reste (401, 429, 5xx) est transitoire et doit lever.
+      if (inviteesRes.status === 404 || inviteesRes.status === 410) {
+        skipped++;
+        return false;
+      }
       throw new Error(`calendly_invitees_http_${inviteesRes.status} (event ${eventUuid})`);
     }
     const inviteesData = await inviteesRes.json().catch(() => null);
@@ -616,7 +625,10 @@ async function syncCalendlyEleve(
         // Postgres résout nativement l'ON CONFLICT contre un index partiel. Même RPC
         // utilisée par le webhook temps réel (app/api/webhooks/calendly/route.ts) —
         // les deux convergent sur la même ligne en cas de course serrée.
-        supabase.rpc('upsert_prospect_event_call_booked', {
+        // Attendu, et non en `.then()` detache : l'evenement `call_booked` alimente
+        // le pipeline et les stats — une ecriture coupee par la fin de l'invocation
+        // serait une perte silencieuse (revue adversariale du 2026-09-05).
+        const { error: evtErr } = await supabase.rpc('upsert_prospect_event_call_booked', {
           p_profile_id: profileId,
           p_prospect_key: igLead.ig_username.toLowerCase(),
           p_platform: 'ig',
@@ -626,9 +638,8 @@ async function syncCalendlyEleve(
           p_ig_lead_id: effectiveIgLeadId,
           p_prospect_link_id: finalProspectLinkId,
           p_call_id: callRow.id,
-        }).then(({ error: evtErr }: any) => {
-          if (evtErr) console.error('[sync-calendly] prospect_events:', evtErr.message);
         });
+        if (evtErr) throw new Error(`prospect_events call_booked: ${evtErr.message}`);
         await supabase.from('instagram_leads')
           .update({ calendly_event_uuid: eventUuid })
           .eq('id', effectiveIgLeadId);
