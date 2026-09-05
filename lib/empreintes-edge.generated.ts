@@ -26,7 +26,7 @@ export const EMPREINTES_EDGE: Record<string, string> = {
   'refresh-ig-posts': '2c8ad1014828b970', // 2 fichiers
   'send-pending-dm3': '339fd254c0b8a26e', // 2 fichiers
   'sync-calendly': 'e837bd06b56ba4aa', // 2 fichiers
-  'sync-stripe-payments': '47293389e3d0a9f1', // 3 fichiers
+  'sync-stripe-payments': 'eba10632afc18876', // 3 fichiers
 };
 
 /** L'empreinte d'une fonction, ou `null` si elle n'est pas dans le depot. */
