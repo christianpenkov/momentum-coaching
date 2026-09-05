@@ -6,7 +6,7 @@ import ModaleAction, {
   CaseResponsabilite, Encart, Section, LienACopier, Chip, ApercuEcheances,
 } from './ModaleAction';
 import {
-  modeDe, moyenDe, moyenDefini, libelleMode, libelleMoyen, libelleDuMoyen, libelleRythme,
+  modeDe, moyenDe, moyenDefini, libelleMoyen, libelleDuMoyen, libelleRythme,
   type Mode, type Moyen,
 } from './etats';
 import { useEcheancesAVenir } from './useEcheances';
@@ -233,7 +233,7 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
     return (
       <ModaleAction
         titre="Modalités modifiées"
-        sousTitre={`${libelleAvant(modeActuel, nbActuel, rythmeActuel)} → ${libelleAvant(mode, nbEffectif, rythme)}`}
+        sousTitre={`${libelleAvant(moyenDe(deal), nbActuel, rythmeActuel)} → ${libelleAvant(moyen ?? moyenDe(deal), nbEffectif, rythme)}`}
         onClose={onDone}
         pied={<BoutonFin onDone={onDone} />}>
 
@@ -275,7 +275,7 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
   return (
     <ModaleAction
       titre={`Modifier les modalités de la vente du ${fmtDateLong(deal.signedAt)}`}
-      sousTitre={`${fmtEurExact(deal.amountTotal)} · aujourd’hui ${libelleAvant(modeActuel, nbActuel, rythmeActuel)}`}
+      sousTitre={`${fmtEurExact(deal.amountTotal)} · aujourd’hui ${libelleAvant(moyenDe(deal), nbActuel, rythmeActuel)}`}
       onClose={tenterFermeture}
       bloque={envoi}
       pied={
@@ -489,8 +489,22 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
   );
 }
 
-function libelleAvant(mode: Mode, nb: number, rythme: string): string {
-  const m = libelleMode(mode);
+/**
+ * « comptant, par lien de paiement » — la ligne qui resume des modalites.
+ *
+ * ⚠️ Prend un MOYEN, pas un `Mode`. Avec `libelleMode`, `one_shot` rendait
+ * « comptant » : le resume affichait donc « comptant, comptant » sur une vente
+ * payee en une fois par lien, et l'ecran de resultat annoncait
+ * « comptant, hors Stripe → comptant, comptant » — un changement de moyen dont
+ * la moitie droite ne nommait aucun moyen. Constate sur RZK le 2026-09-05.
+ *
+ * Troisieme et dernier usage de ce melange dans ce fichier. Les deux premiers
+ * (l'avertissement, le rappel d'abandon) ont ete corriges une heure plus tot, et
+ * celui-ci avait ete manque parce qu'il passe par une fonction intermediaire :
+ * chercher `libelleMode` ne suffisait pas, il fallait suivre ce qu'elle nourrit.
+ */
+function libelleAvant(moyen: Moyen, nb: number, rythme: string): string {
+  const m = libelleDuMoyen(moyen, nb > 1);
   return nb > 1 ? `${nb} fois ${libelleRythme(rythme)}, ${m}` : `comptant, ${m}`;
 }
 

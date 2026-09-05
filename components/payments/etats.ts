@@ -198,12 +198,28 @@ export function libelleEtat(d: DealRow): string {
   return ETATS[e].label;
 }
 
-export function libelleMode(m: Mode): string {
-  return m === 'installments_auto' ? 'prélèvement automatique'
-    : m === 'installments_manual' ? 'un lien par échéance'
-    : m === 'offline' ? 'hors Stripe'
-    : 'comptant';
-}
+// ── `libelleMode` a ete SUPPRIMEE le 2026-09-05 ──────────────────────────────
+//
+// Elle traduisait un `Mode`, le type qui melange les deux axes herites de
+// `payment_plan` : elle rendait « comptant » pour `one_shot`, c'est-a-dire un
+// NOMBRE DE FOIS, partout ou l'on attendait un MOYEN. Elle a produit le meme
+// defaut a trois endroits du seul `ModifierModalites` :
+//
+//   · « hors Stripe et comptant reposent sur des mecanismes differents »
+//     — dans la phrase qui justifie de rendre 800 EUR au client
+//   · « comptant, comptant » dans le rappel « rien n'a ete modifie »
+//   · « comptant, hors Stripe → comptant, comptant » sur l'ecran de resultat
+//
+// Les deux premiers ont ete corriges d'abord, le troisieme est revenu une heure
+// plus tard parce qu'il passait par une fonction intermediaire : chercher les
+// appels ne suffisait pas, il fallait suivre ce qu'ils nourrissaient.
+//
+// La retirer est le seul correctif qui tienne. Un defaut de TYPE se ferme a la
+// fonction, jamais a l'appel — sinon il ressort au prochain appelant, et le
+// commentaire qui l'explique voyage sans empecher quoi que ce soit.
+//
+// A la place : `libelleMoyen(deal)` quand on part d'une vente, `libelleDuMoyen(
+// moyen, plusieursFois)` quand on part d'un choix a l'ecran.
 
 export const libelleRythme = (i: string | null) =>
   i === 'week' ? 'hebdomadaire' : 'mensuel';
