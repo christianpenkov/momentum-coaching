@@ -36,7 +36,9 @@ import { Cloturer, Annuler, ArreterPrelevements, PaiementInattendu } from './Fin
  */
 
 type Action =
-  | { quoi: 'montant' | 'modalites' | 'cloturer' | 'annuler' | 'arreter' | 'inattendu' | 'raisonRemboursement'; dealId: string }
+  | { quoi: 'modalites' | 'cloturer' | 'annuler' | 'arreter' | 'inattendu' | 'raisonRemboursement'; dealId: string }
+  /** `montantInitial` : ouvre l'ecran avec un chiffre deja saisi — voir son commentaire. */
+  | { quoi: 'montant'; dealId: string; montantInitial?: number }
   | { quoi: 'rembourser'; dealId: string; motif: MotifRemboursement; montant: number; arret: boolean };
 
 export default function FicheClient({
@@ -162,6 +164,9 @@ export default function FicheClient({
                   quoi: 'rembourser', dealId: d.id, motif: 'surplus',
                   montant: d.aRendre, arret: false,
                 })}
+                onPorterLaVenteAuVerse={() => setAction({
+                  quoi: 'montant', dealId: d.id, montantInitial: d.collected,
+                })}
             onChange={onChange} />
         ))}
 
@@ -186,6 +191,9 @@ export default function FicheClient({
                 onRendreTropPercu={() => setAction({
                   quoi: 'rembourser', dealId: d.id, motif: 'surplus',
                   montant: d.aRendre, arret: false,
+                })}
+                onPorterLaVenteAuVerse={() => setAction({
+                  quoi: 'montant', dealId: d.id, montantInitial: d.collected,
                 })}
                 onChange={onChange} />
             ))}
@@ -219,6 +227,7 @@ export default function FicheClient({
         <>
           {action.quoi === 'montant' && (
             <ModifierMontant deal={dealDeLaction} detail={details[action.dealId]}
+              montantInitial={action.montantInitial}
               onClose={() => setAction(null)} onDone={apresAction}
               onRembourser={(montant, arret) => setAction({
                 quoi: 'rembourser', dealId: action.dealId, motif: 'surplus', montant, arret,
@@ -270,7 +279,7 @@ export default function FicheClient({
    UN BLOC DE VENTE
    ══════════════════════════════════════════════════════════════════════════ */
 
-function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onChange }: {
+function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPorterLaVenteAuVerse, onChange }: {
   deal: DealRow;
   detail?: DealDetail;
   isMobile: boolean;
@@ -282,6 +291,11 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onChan
    * d'un motif et d'un montant, que seul le parent sait composer.
    */
   onRendreTropPercu: () => void;
+  /**
+   * Ouvre l'ecran de montant avec le total DEJA ENCAISSE propose : le client a
+   * versé plus, et cet argent-la lui a bien été vendu.
+   */
+  onPorterLaVenteAuVerse: () => void;
   onChange: () => Promise<unknown> | void;
 }) {
   // Sur téléphone, Origine et Journal sont repliés : ils sont utiles quand on
@@ -446,16 +460,30 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onChan
                 border: '1px solid rgba(181,128,37,.28)', borderRadius: 10, padding: '10px 12px',
               }}>
                 <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--amber-ink)', marginBottom: 3 }}>
-                  {fmtEurExact(deal.aRendre)} versés en trop
+                  {fmtEurExact(deal.aRendre)} encaissés au-delà de cette vente
                 </div>
+                {/* ⚠️ Le titre ne dit plus « à rendre », et les DEUX issues sont
+                    offertes. Derrière le même chiffre il y a deux situations
+                    opposées : le client a payé deux fois ou le prix a baissé
+                    après coup — on rend ; ou il a délibérément versé plus pour ce
+                    qu'il a acheté — et la vente vaut réellement davantage. Ne
+                    proposer que le remboursement affirmait la première et
+                    obligeait à passer par « Montant » pour la seconde, sans que
+                    rien n'y conduise. Relevé par Chris le 2026-09-05. */}
                 <div style={{ fontSize: 11.5, color: 'var(--ink-2)', lineHeight: 1.55 }}>
-                  À rendre à {deal.buyerName.split(' ')[0]}, et non comptés dans le
-                  cash encaissé — le ruban plafonne au montant de la vente.
+                  Non comptés dans le cash encaissé — le ruban plafonne au montant
+                  de la vente. Deux suites possibles, selon ce qui s’est passé.
                 </div>
-                <button onClick={onRendreTropPercu} className="btn-primary-brand"
-                  style={{ fontSize: 12.5, marginTop: 9 }}>
-                  Rembourser le trop-perçu
-                </button>
+                <div style={{ display: 'flex', gap: 8, marginTop: 9, flexWrap: 'wrap' }}>
+                  <button onClick={onRendreTropPercu} className="btn-primary-brand"
+                    style={{ fontSize: 12.5 }}>
+                    Rembourser le trop-perçu
+                  </button>
+                  <button onClick={onPorterLaVenteAuVerse} className="btn-ghost"
+                    style={{ fontSize: 12.5 }}>
+                    Porter la vente à {fmtEurExact(deal.collected)}
+                  </button>
+                </div>
               </div>
             )}
             {deal.disputed > 0.005 && (

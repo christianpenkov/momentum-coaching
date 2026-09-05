@@ -37,15 +37,25 @@ interface Resultat {
   liens: Array<{ rank: number | null; url: string; amount: number }>;
 }
 
-export default function ModifierMontant({ deal, detail, onClose, onDone, onRembourser }: {
+export default function ModifierMontant({ deal, detail, montantInitial, onClose, onDone, onRembourser }: {
   deal: DealRow;
   detail?: DealDetail;
+  /**
+   * Montant propose d'emblee, quand l'ecran est ouvert POUR une situation
+   * precise plutot qu'a froid.
+   *
+   * Sert au trop-percu : « Porter la vente a 500 EUR » arrive ici avec 500 deja
+   * saisi. Sans ca, l'ecran s'ouvrirait sur l'ancien montant et il faudrait
+   * retaper le chiffre qu'on venait de lire a l'ecran precedent — le genre de
+   * recopie ou l'on se trompe d'un zero.
+   */
+  montantInitial?: number;
   onClose: () => void;
   onDone: () => void;
   /** Conduit au parcours de remboursement, sur cette vente. */
   onRembourser: (aRembourser: number, arretRequis: boolean) => void;
 }) {
-  const [saisie, setSaisie] = useState(String(deal.amountTotal));
+  const [saisie, setSaisie] = useState(String(montantInitial ?? deal.amountTotal));
   const [coche, setCoche] = useState(false);
   // Présélectionné sur le moyen actuel de la vente : la question porte sur un
   // complément, pas sur une refonte. Proposer « par lien » d'office à quelqu'un
@@ -58,6 +68,12 @@ export default function ModifierMontant({ deal, detail, onClose, onDone, onRembo
   const [erreur, setErreur] = useState<string | null>(null);
   const [resultat, setResultat] = useState<Resultat | null>(null);
   const [fermeture, setFermeture] = useState(false);
+
+  // Le nouveau montant absorbe un trop-percu deja present : l'eleve ne « modifie
+  // pas un montant », il declare que cet argent a bien ete vendu. La case de
+  // responsabilite change de texte en consequence, plus bas.
+  const absorbeLeTropPercu =
+    deal.aRendre > 0.005 && Number(saisie.replace(',', '.')) >= deal.collected - 0.005;
 
   const mode = modeDe(deal);
   const echeances = detail?.installments ?? [];
@@ -468,7 +484,17 @@ export default function ModifierMontant({ deal, detail, onClose, onDone, onRembo
       )}
 
       <div style={{ marginTop: 18 }}>
-        <CaseResponsabilite niveau="orange" coche={coche} onChange={setCoche} />
+        {/* ── Le texte suit ce qu'on engage, pas le geste ────────────────────
+            Porter la vente au montant deja encaisse n'est pas « modifier un
+            montant » : c'est AFFIRMER que cet argent a ete vendu, et qu'il ne
+            s'agit pas d'un versement en trop. La formulation generique
+            (« mon client en est informe ») laisserait passer une erreur de
+            saisie du client comme un achat consenti — et l'argent resterait
+            chez l'eleve sans que personne ne l'ait jamais decide. */}
+        <CaseResponsabilite niveau="orange" coche={coche} onChange={setCoche}
+          texte={absorbeLeTropPercu
+            ? `Je confirme que ${deal.buyerName.split(' ')[0]} a bien acheté pour ce montant, et que les ${fmtEurExact(deal.aRendre)} versés en plus ne sont pas une erreur de sa part. Je reste responsable de cette déclaration.`
+            : undefined} />
       </div>
     </ModaleAction>
   );
