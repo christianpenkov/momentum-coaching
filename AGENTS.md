@@ -266,6 +266,34 @@ Juste après un déploiement, l'état attendu est `'non instrumentee'`, pas `'ok
 pas un échec. La preuve immédiate est ailleurs : `npm run deployer-edge` affiche
 l'empreinte qu'il envoie, et `get_edge_function` permet de la retrouver dans le bundle.
 
+### ✅ La vue sait maintenant attendre (2026-09-05)
+
+Ce faux positif **n'envoie plus d'e-mail**. `edge_sante_version` porte un état
+`'en attente du prochain passage'` : quand les deux empreintes diffèrent **et** que la
+fonction n'a pas tourné depuis le dernier changement d'empreinte du dépôt, elle n'a
+simplement pas encore eu l'occasion de se déclarer — il n'y a rien à juger.
+
+C'est le principe déjà appliqué partout ailleurs ici : **on ne juge pas un état tant
+qu'on n'a pas la preuve de l'avoir observé après coup.**
+
+⚠️ **La correction évidente aurait éteint la surveillance, et c'est le piège à retenir.**
+Comparer `dernier_passage > mis_a_jour_le` ne marche que si cette colonne dit *quand
+l'empreinte a changé*. Or `/api/sante/alerte-vues` réécrivait `mis_a_jour_le = now()` à
+**chaque passage quotidien**, changement ou pas : elle disait « quand la ligne a été
+touchée ». Un cron quotidien de 07:00 aurait donc eu `dernier_passage` (hier) toujours
+antérieur à `mis_a_jour_le` (ce matin 06:00) — « en attente » pour toujours, **plus jamais
+d'alerte**. Un déclencheur sur la table pose et préserve désormais la date de façon
+autonome, quel que soit l'écrivain.
+
+⚠️ **Ça ne cache rien durablement**, et deux garde-fous se couvrent : dès que la fonction
+tourne, un écart réel redevient `ALERTE` ; et si elle ne tourne plus du tout, c'est
+`crons_sante` qui le dit (`SILENCIEUX`).
+
+Témoin positif joué avant de conclure — c'est lui qui a trouvé que le déclencheur ne
+posait pas la date : écriture sans changement (date préservée), changement sans date
+fournie (posée par la base, état « en attente »), et fonction ayant tourné après le
+changement en remontant l'ancienne empreinte (**ALERTE**).
+
 ⚠️ **CETTE PHRASE ÉTAIT FAUSSE, corrigée le 2026-09-04.** Elle disait qu'une ALERTE juste
 après un déploiement est significative. Non : c'est au contraire le cas bénin le plus
 fréquent.
