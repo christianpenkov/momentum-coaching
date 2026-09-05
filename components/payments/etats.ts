@@ -217,10 +217,27 @@ export const libelleRythme = (i: string | null) =>
  * il produisait « comptant · comptant » sur une vente payée en une fois par lien.
  */
 export function libelleMoyen(d: DealRow): string {
-  const m = moyenDe(d);
+  return libelleDuMoyen(moyenDe(d), (d.installmentsCount ?? 1) > 1);
+}
+
+/**
+ * Le moyen en toutes lettres, depuis la VALEUR seule.
+ *
+ * `libelleMoyen` ci-dessus part d'une vente ; celui-ci part d'un choix — ce qu'on
+ * vient de selectionner a l'ecran, et qui n'est encore aucune vente. Sans lui, la
+ * seule fonction disponible pour nommer un moyen choisi etait `libelleMode`, qui
+ * rend « comptant » pour `one_shot` : l'ecran des modalites annoncait donc
+ * « hors Stripe et comptant reposent sur des mecanismes differents » alors qu'on
+ * passait a un LIEN DE PAIEMENT. Un nombre de fois presente comme un moyen —
+ * le melange des deux axes, une fois de plus, et dans la phrase qui doit
+ * justifier un remboursement de plusieurs centaines d'euros.
+ *
+ * Les deux fonctions partagent ce corps, pour qu'elles ne puissent pas diverger.
+ */
+export function libelleDuMoyen(m: Moyen, plusieursFois = false): string {
   if (m === 'auto') return 'prélèvement automatique';
   if (m === 'offline') return 'hors Stripe';
-  return (d.installmentsCount ?? 1) > 1 ? 'un lien par échéance' : 'par lien de paiement';
+  return plusieursFois ? 'un lien par échéance' : 'par lien de paiement';
 }
 
 /** « 3 fois mensuel · prélèvement automatique » — la ligne sous le montant. */

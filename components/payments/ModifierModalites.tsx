@@ -6,7 +6,7 @@ import ModaleAction, {
   CaseResponsabilite, Encart, Section, LienACopier, Chip, ApercuEcheances,
 } from './ModaleAction';
 import {
-  modeDe, moyenDe, moyenDefini, libelleMode, libelleRythme,
+  modeDe, moyenDe, moyenDefini, libelleMode, libelleMoyen, libelleDuMoyen, libelleRythme,
   type Mode, type Moyen,
 } from './etats';
 import { useEcheancesAVenir } from './useEcheances';
@@ -220,8 +220,10 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
         <Encart ton="bien" titre="Rien n’a encore été modifié">
           La vente reste comme aujourd’hui : {fmtEurExact(deal.amountTotal)}
           {nbActuel > 1
-            ? <> en {nbActuel} fois {libelleRythme(rythmeActuel)}, {libelleMode(modeActuel)}.</>
-            : <> comptant, {libelleMode(modeActuel)}.</>}
+            ? <> en {nbActuel} fois {libelleRythme(rythmeActuel)}, {libelleMoyen(deal)}.</>
+            /* « comptant, comptant » sans ça : `libelleMode` rend le nombre de
+               fois quand le moyen est un lien unique. */
+            : <> comptant, {libelleMoyen(deal)}.</>}
         </Encart>
       </ModaleAction>
     );
@@ -361,8 +363,14 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
               </>
             ) : (
               <>
-                Un paiement déjà encaissé ne se convertit pas d’un mode à l’autre
-                chez Stripe : {libelleMode(modeActuel)} et {libelleMode(mode)}
+                {/* ⚠️ `libelleDuMoyen` et non `libelleMode` : ce dernier rend
+                    « comptant » pour `one_shot`, c'est-à-dire un NOMBRE DE FOIS
+                    là où la phrase annonce un MOYEN. L'écran disait « hors Stripe
+                    et comptant » alors qu'on passait à un lien de paiement —
+                    dans la phrase même qui justifie de rendre 800 €. */}
+                Un paiement déjà encaissé ne se convertit pas d’un moyen à l’autre
+                chez Stripe : {libelleDuMoyen(moyenDe(deal), nbActuel > 1)} et
+                {' '}{libelleDuMoyen(moyen!, nbEffectif > 1)}
                 {' '}reposent sur des mécanismes différents.
               </>
             )}
