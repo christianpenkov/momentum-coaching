@@ -7,6 +7,7 @@ import {
   IG, IgAvatarSimple, IgRecu, IgEnvoye, MarqueurPieceJointe, libellePieceJointe,
 } from '@/components/ig/primitivesInstagram';
 import { lienDiscussion, sourceDuLead } from '@/lib/igConversations';
+import ModalShell from '@/components/ui/ModalShell';
 
 /**
  * Les conversations Instagram d'un élève — maître-détail.
@@ -106,6 +107,97 @@ function CroixFermer({ onFermer }: { onFermer: () => void }) {
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         cursor: 'pointer', color: 'var(--muted)', fontSize: 19, lineHeight: 1,
       }}>×</button>
+  );
+}
+
+/**
+ * La confirmation d'un retrait de conversation.
+ *
+ * ⚠️ Une CASE À COCHER, pas un simple bouton rouge. Le geste est irréversible et
+ * ses conséquences ne sont pas devinables : l'élève perd aussi sa propre
+ * lecture, les annotations de son coach disparaissent, et le coach ne pourra
+ * plus l'aider sur cette conversation. Un bouton seul se clique par réflexe ;
+ * une case oblige à passer par la phrase.
+ *
+ * ⚠️ Le texte ne promet PAS d'effacer la conversation Instagram elle-même. On
+ * n'efface que la copie de la plateforme — le dire évite la déception inverse,
+ * celle de croire qu'on a nettoyé sa messagerie.
+ */
+function ModaleRetrait({
+  pseudo, nbNotes, enCours, erreur, onAnnuler, onConfirmer,
+}: {
+  pseudo: string; nbNotes: number; enCours: boolean; erreur: string | null;
+  onAnnuler: () => void; onConfirmer: () => void;
+}) {
+  const [compris, setCompris] = useState(false);
+
+  return (
+    <ModalShell onClose={enCours ? () => {} : onAnnuler} width={520}>
+      <div style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ fontWeight: 650, fontSize: 16 }}>
+          Retirer la conversation avec @{pseudo} ?
+        </div>
+
+        <ul style={{
+          margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 8,
+          fontSize: 13.5, lineHeight: 1.55, color: 'var(--ink)',
+        }}>
+          <li><strong>Tu ne pourras plus la lire ici.</strong> Les messages conservés sur la plateforme sont supprimés.</li>
+          <li><strong>Ton coach ne pourra plus t'aider à l'analyser</strong> — il n'y aura plus accès du tout.</li>
+          <li>
+            {nbNotes > 0
+              ? <>Les <strong>{nbNotes} annotation{nbNotes > 1 ? 's' : ''}</strong> écrites sur ce fil disparaissent avec lui.</>
+              : <>Les <strong>annotations</strong> écrites sur ce fil disparaissent avec lui.</>}
+          </li>
+          <li>Cette personne <strong>sort de ton Pipeline Leads</strong>, et ce fil ne reviendra pas, même si elle t'écrit à nouveau.</li>
+          <li><strong>C'est irréversible.</strong> Rien ne permet de les récupérer ensuite.</li>
+        </ul>
+
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+          Ta conversation reste intacte dans Instagram : seule la copie conservée ici est effacée.
+        </div>
+
+        <label style={{
+          display: 'flex', alignItems: 'flex-start', gap: 9, cursor: enCours ? 'default' : 'pointer',
+          fontSize: 13, lineHeight: 1.5, padding: '11px 12px', borderRadius: 9,
+          border: '1px solid var(--border)', background: 'var(--surface-2)',
+        }}>
+          <input
+            type="checkbox" checked={compris} disabled={enCours}
+            onChange={e => setCompris(e.target.checked)}
+            style={{ marginTop: 2, width: 16, height: 16, flexShrink: 0, cursor: 'inherit' }}
+          />
+          <span>J'ai compris que ce retrait est définitif et que les annotations seront perdues.</span>
+        </label>
+
+        {erreur && (
+          <div style={{ fontSize: 12.5, color: 'var(--danger, #b3261e)' }}>{erreur}</div>
+        )}
+
+        <div style={{ display: 'flex', gap: 9, justifyContent: 'flex-end' }}>
+          <button type="button" onClick={onAnnuler} disabled={enCours}
+            style={{
+              border: '1px solid var(--border)', borderRadius: 8, padding: '9px 15px',
+              fontSize: 13, fontWeight: 600, color: 'var(--ink-2)',
+              background: 'var(--surface)', cursor: 'pointer', fontFamily: 'inherit',
+            }}>
+            Annuler
+          </button>
+          {/* ⚠️ Désactivé tant que la case n'est pas cochée : c'est ce qui fait la
+              différence entre lire la phrase et cliquer à travers elle. */}
+          <button type="button" onClick={onConfirmer} disabled={!compris || enCours}
+            style={{
+              border: 'none', borderRadius: 8, padding: '9px 15px', fontSize: 13,
+              fontWeight: 600, color: '#fff', fontFamily: 'inherit',
+              background: compris ? 'var(--danger, #b3261e)' : 'var(--muted)',
+              cursor: !compris || enCours ? 'not-allowed' : 'pointer',
+              opacity: !compris || enCours ? .6 : 1,
+            }}>
+            {enCours ? 'Retrait…' : 'Retirer définitivement'}
+          </button>
+        </div>
+      </div>
+    </ModalShell>
   );
 }
 
@@ -527,47 +619,15 @@ function Fil({ fil, annotable, prenomEleve, onFermer, retirable, onRetire, onNot
         {onFermer && <CroixFermer onFermer={onFermer} />}
       </div>
 
-      {/* ⚠️ Une confirmation en toutes lettres, et non un « Êtes-vous sûr ? ».
-          Ce geste efface des messages pour de bon ET écarte la personne du
-          pipeline : les deux effets sont réels, les cacher derrière un mot
-          rassurant en ferait un piège. C'est le même geste que « ce n'est pas un
-          lead » dans Pipeline Leads, dit avec les mots de cet écran-ci. */}
       {confirmeRetrait && (
-        <div style={{
-          margin: '10px 16px 0', padding: '12px 14px', borderRadius: 10,
-          border: '1px solid var(--border)', background: 'var(--surface-2)',
-          display: 'flex', flexDirection: 'column', gap: 10,
-        }}>
-          <div style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--ink)' }}>
-            Retirer la conversation avec <strong>@{fil.peer_username ?? fil.peer_id}</strong> ?
-            <br />
-            Les messages conservés ici seront <strong>supprimés définitivement</strong>, ton coach
-            n'y aura plus accès, et cette personne sortira de ton Pipeline Leads. Ta conversation
-            reste intacte dans Instagram.
-          </div>
-          {erreurRetrait && (
-            <div style={{ fontSize: 12, color: 'var(--danger, #b3261e)' }}>{erreurRetrait}</div>
-          )}
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button type="button" onClick={retirer} disabled={retraitEnCours}
-              style={{
-                border: 'none', borderRadius: 7, padding: '8px 14px', fontSize: 12.5,
-                fontWeight: 600, color: '#fff', background: 'var(--danger, #b3261e)',
-                cursor: retraitEnCours ? 'wait' : 'pointer', fontFamily: 'inherit',
-              }}>
-              {retraitEnCours ? 'Retrait…' : 'Retirer définitivement'}
-            </button>
-            <button type="button" onClick={() => { setConfirmeRetrait(false); setErreurRetrait(null); }}
-              disabled={retraitEnCours}
-              style={{
-                border: '1px solid var(--border)', borderRadius: 7, padding: '8px 14px',
-                fontSize: 12.5, fontWeight: 600, color: 'var(--ink-2)',
-                background: 'var(--surface)', cursor: 'pointer', fontFamily: 'inherit',
-              }}>
-              Annuler
-            </button>
-          </div>
-        </div>
+        <ModaleRetrait
+          pseudo={fil.peer_username ?? fil.peer_id}
+          nbNotes={fil.nb_notes}
+          enCours={retraitEnCours}
+          erreur={erreurRetrait}
+          onAnnuler={() => { setConfirmeRetrait(false); setErreurRetrait(null); }}
+          onConfirmer={retirer}
+        />
       )}
 
       {/* Note d'en-tête du fil */}
