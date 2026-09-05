@@ -384,6 +384,29 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
   // coute une enquete, et on ne sait meme pas qu'il faut la mener.
   const aMontrer = paiements.filter(p => p.status !== 'refunded');
 
+  // Les paiements et le journal, melanges et tries. Les remboursements ne sont
+  // pas ici : ils viennent des evenements `refund`, un par remboursement, a leur
+  // vraie date — la ligne de paiement, elle, porte le cumul et la date de la
+  // charge d'origine.
+  const chronologie = [
+    ...aMontrer.map(p => ({
+      cle: `p-${p.id}`,
+      quand: p.paid_at ?? p.created_at ?? '',
+      label: p.status === 'succeeded' ? 'Encaissé' : (p.failure_reason ?? 'Paiement refusé'),
+      montant: p.status === 'succeeded' ? fmtEurExact(Number(p.amount)) : null,
+      couleur: p.status === 'succeeded' ? 'var(--green)' : 'var(--red)',
+    })),
+    ...journal.map(ev => ({
+      cle: `e-${ev.id}`,
+      quand: ev.created_at,
+      label: ev.label,
+      montant: null as string | null,
+      // L'ocre des fins de vie pour l'argent qui repart, l'accent pour le reste :
+      // la couleur dit la NATURE du fait, comme les pastilles d'etat ailleurs.
+      couleur: ev.kind === 'refund' ? 'var(--taupe)' : 'var(--accent-brand)',
+    })),
+  ].filter(x => x.quand).sort((x, y) => x.quand.localeCompare(y.quand));
+
   // ── Y a-t-il un lien à envoyer sur la vente elle-même ? ──────────────────
   // Le cas du comptant, et celui du prélèvement automatique PAS ENCORE
   // DÉMARRÉ : tant qu'aucun abonnement n'existe chez Stripe, il n'y a qu'un
@@ -721,54 +744,37 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
         onToggle={() => setOuvertes(o => ({ ...o, historique: !o.historique }))}>
         <Origine dealId={deal.id} deal={deal} />
 
-        {/* ⚠️ La regle « l'echeancier le raconte deja » ne vaut QUE pour les
-            encaissements. Une ligne d'echeance dit « payee le 20 aout » — elle ne
-            dit jamais « 300 EUR rendus ». Les remboursements disparaissaient donc
-            de l'historique des qu'une echeance existait : un mouvement d'argent
-            sans aucune trace dans la chronologie, alors que c'est exactement ce
-            qu'on vient y chercher. Releve par Chris le 2026-09-05. */}
-        {aMontrer.length > 0 && (
-          <div style={{ marginTop: 8 }}>
-            {aMontrer.map(p => (
-              <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '6px 0' }}>
+        {/* ── UNE SEULE CHRONOLOGIE, UNE SEULE FORME ──────────────────────────
+            Les paiements et le journal etaient deux listes, avec deux grammaires
+            visuelles — pastille et date a droite d'un cote, date a gauche sans
+            pastille de l'autre — separees par un trait.
+            Le trait annoncait deux categories la ou il n'y a qu'une suite de
+            faits. Et les deux listes n'etaient pas triees ENSEMBLE : un
+            evenement anterieur a un paiement s'affichait quand meme apres lui,
+            ce qui est le contraire de ce qu'une chronologie promet.
+            Meme forme que l'origine juste au-dessus, pour que la ligne verticale
+            se poursuive sans rupture : un seul recit, du plus ancien au plus
+            recent. */}
+        {chronologie.length > 0 && (
+          <div style={{ position: 'relative', paddingLeft: 22, marginTop: 7 }}>
+            <div style={{ position: 'absolute', left: 4, top: 3, bottom: 9, width: 1, background: 'var(--border)' }} />
+            {chronologie.map((it, i) => (
+              <div key={it.cle} style={{ position: 'relative', paddingBottom: i === chronologie.length - 1 ? 0 : 7 }}>
                 <span style={{
-                  width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
-                  background: p.status === 'succeeded' ? 'var(--green)'
-                    : p.status === 'refunded' ? 'var(--taupe)' : 'var(--red)',
+                  position: 'absolute', left: -22, top: 3, width: 10, height: 10, borderRadius: '50%',
+                  boxSizing: 'border-box', background: it.couleur, border: `1.5px solid ${it.couleur}`,
                 }} />
-                <span style={{ flex: 1, minWidth: 0, fontSize: 12.5 }}>
-                  {p.status === 'refunded' ? 'Remboursé' : p.status === 'succeeded' ? 'Encaissé' : (p.failure_reason ?? 'Échec')}
-                  {' '}<span style={{ color: 'var(--muted)' }}>
-                    {/* Même repli que pour le tri : sans lui, la ligne la plus
-                        lourde de l'historique était la seule sans date. */}
-                    {(p.paid_at ?? p.created_at) ? `le ${fmtDateLong(p.paid_at ?? p.created_at!)}` : ''}
-                  </span>
-                  {/* La raison là où le montant est : c'est ici qu'on se demande
-                      pourquoi cet argent est reparti. */}
-                  {p.refund_reason && (
-                    <span style={{ color: 'var(--muted)' }}> · {LIBELLE_RAISON[p.refund_reason]}</span>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'baseline' }}>
+                  <span style={{ flex: 1, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.4 }}>{it.label}</span>
+                  {it.montant && (
+                    <span className="tabular" style={{ fontSize: 12.5, fontWeight: 600, flexShrink: 0 }}>{it.montant}</span>
                   )}
-                </span>
-                <span className="tabular" style={{ fontSize: 12.5, fontWeight: 600, color: p.status === 'succeeded' ? 'var(--ink)' : 'var(--muted)' }}>
-                  {p.status === 'refunded' ? '− ' : ''}{fmtEurExact(Number(p.amount))}
-                </span>
+                  <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0, whiteSpace: 'nowrap' }}>
+                    {fmtDateLong(it.quand)}
+                  </span>
+                </div>
               </div>
             ))}
-          </div>
-        )}
-
-        {journal.length > 0 && (
-          <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border-soft)' }}>
-          {journal.map(ev => (
-            <div key={ev.id} style={{ display: 'flex', gap: 12, padding: '5px 0', alignItems: 'baseline' }}>
-              {/* Assez large pour « 3 septembre » d'un seul tenant : a 62 px la
-                  date se coupait en deux lignes et decalait le libelle en face. */}
-              <span style={{ fontSize: 11, color: 'var(--faint)', flexShrink: 0, width: 86, whiteSpace: 'nowrap' }}>
-                {fmtDateLong(ev.created_at)}
-              </span>
-              <span style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.5 }}>{ev.label}</span>
-            </div>
-          ))}
           </div>
         )}
       </Repliable>
