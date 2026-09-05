@@ -479,8 +479,17 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
                     style={{ fontSize: 12.5 }}>
                     Rembourser le trop-perçu
                   </button>
-                  <button onClick={onPorterLaVenteAuVerse} className="btn-ghost"
-                    style={{ fontSize: 12.5 }}>
+                  {/* Encadré, et non `btn-ghost` : sans bordure il se lisait
+                      comme une phrase et non comme la seconde issue. Deux
+                      chemins d'égale légitimité doivent se ressembler assez pour
+                      qu'on comprenne qu'il faut choisir. */}
+                  <button onClick={onPorterLaVenteAuVerse} style={{
+                    fontSize: 12.5, padding: '7px 13px', borderRadius: 8,
+                    fontFamily: 'inherit', cursor: 'pointer',
+                    background: 'var(--surface)',
+                    border: '1px solid rgba(181,128,37,.45)',
+                    color: 'var(--amber-ink)', whiteSpace: 'nowrap',
+                  }}>
                     Porter la vente à {fmtEurExact(deal.collected)}
                   </button>
                 </div>
@@ -682,10 +691,24 @@ function BarreActions({ deal, etat, mode, onAction }: {
     // a une décision à prendre — et rien sur la fiche ne disait qu'elle
     // attendait. Un second bouton aurait fait doublon : c'est le libellé qui
     // change, pas l'écran.
-    boutons.push([
-      moyenDefini(deal) ? 'Modalités' : 'Choisir les modalités de paiement',
-      'modalites',
-    ]);
+    //
+    // ⚠️ Et le bouton DISPARAIT quand il ne reste rien à encaisser. Relevé par
+    // Chris : TestStory, entièrement payée hors Stripe, affichait « Choisir les
+    // modalités de paiement » — soit une invitation à décider comment encaisser
+    // un argent déjà reçu. Le libellé se lit comme une tâche en attente, et il
+    // annonçait un travail qui n'existe pas. `RelancesTab` appliquait déjà la
+    // règle en écartant les ventes soldées ; la fiche était le seul écran à ne
+    // pas la suivre.
+    //
+    // `collectedRetenu` et non `collected` : sur une vente en trop-perçu, le
+    // brut dépasse le contracté et un simple `collected < amountTotal` serait
+    // faux dans les deux sens selon le signe de l'écart.
+    if (deal.amountTotal - deal.collectedRetenu > 0.005) {
+      boutons.push([
+        moyenDefini(deal) ? 'Modalités' : 'Choisir les modalités de paiement',
+        'modalites',
+      ]);
+    }
     if (mode === 'installments_auto' && deal.stripeSubscriptionId) {
       boutons.push(['Arrêter', 'arreter']);
     }
