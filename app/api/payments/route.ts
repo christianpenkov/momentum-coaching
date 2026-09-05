@@ -519,7 +519,17 @@ export async function GET(request: NextRequest) {
   if (dealIds.length) {
     const { data: events } = await supa
       .from('deal_events')
-      .select('id, deal_id, kind, label, created_at, meta')
+      // ⚠️ `created_at:at` — la colonne s'appelle `at`, PAS `created_at`.
+      // La selectionner sous son faux nom faisait ECHOUER la requete, et l'erreur
+      // n'etait jamais lue (`const { data: events } = await …`) : le journal
+      // etait donc VIDE depuis toujours, sans qu'aucun ecran ne le signale.
+      // Aucun changement de montant, aucun changement de modalites, aucun
+      // remboursement n'y a jamais figure. Trouve le 2026-09-05 en cherchant
+      // pourquoi des evenements presents en base n'apparaissaient pas.
+      //
+      // L'alias garde le nom attendu par le type et le composant ; le vrai nom
+      // est ici, une fois, plutot que dissemine.
+      .select('id, deal_id, kind, label, created_at:at, meta')
       .in('deal_id', dealIds)
       // Ordre CROISSANT : le journal partage désormais une seule section avec
       // l'origine et les paiements, qui se lisent du plus ancien au plus récent.

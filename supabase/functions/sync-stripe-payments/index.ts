@@ -431,12 +431,29 @@ async function upsertRefund(
   // ligne plutôt que de sortir si elle existe déjà, contrairement aux paiements.
   // delete+insert et non upsert : index partiel + onConflict Supabase JS =
   // échec silencieux (cf. bug pipeline advance/reset).
+  // ── LES DEUX COTES DE LA PARTITION ────────────────────────────────────────
+  // Le webhook Next.js relit ces colonnes avant de detruire la ligne, pour ne pas
+  // perdre ce que l'eleve a ecrit dans « Pourquoi ces X EUR sont-ils repartis ? ».
+  // Cette copie-ci ne le faisait pas — et comme elle passe toutes les 30 minutes,
+  // elle effacait la raison quelques minutes apres qu'elle ait ete saisie.
+  //
+  // C'est EXACTEMENT le motif que le commentaire ci-dessous decrit pour `paid_at`
+  // (« deux copies, une seule a jour, sur de l'argent »), rejoue sur une autre
+  // colonne. Corriger une copie sans l'autre ne corrige rien : la plus frequente
+  // gagne. Constate le 2026-09-05, deux heures apres avoir corrige le webhook.
+  const { data: ancienne } = await supabase.from('deal_payments')
+    .select('refund_reason, refund_reason_note, refund_reason_stripe')
+    .eq('deal_id', dealId).eq('stripe_payment_id', refundId).maybeSingle();
+
   await supabase.from('deal_payments')
     .delete().eq('deal_id', dealId).eq('stripe_payment_id', refundId);
 
   const { error } = await supabase.from('deal_payments').insert({
     deal_id: dealId,
     stripe_payment_id: refundId,
+    refund_reason: ancienne?.refund_reason ?? null,
+    refund_reason_note: ancienne?.refund_reason_note ?? null,
+    refund_reason_stripe: ancienne?.refund_reason_stripe ?? null,
     amount: montant,
     currency: charge.currency,
     // ⚠️ JAMAIS null. `paid_at` borne les périodes partout (`gte`/`lte`) : à NULL,
