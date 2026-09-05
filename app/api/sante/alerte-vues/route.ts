@@ -198,15 +198,16 @@ const SURVEILLANCES: Surveillance[] = [
   {
     cle: 'sante_ventes_sur_encaissement',
     source: 'ventes_sante_sur_encaissement',
-    titre: 'Une vente a encaissé plus que son montant contracté',
+    titre: 'Un trop-perçu est resté sans suite depuis plus de 72 h',
     detection: 'toute_ligne',
     surveille:
-      'Qu’aucun deal n’ait encaissé NET plus d’argent qu’il n’en a contracté. Net = encaissé − remboursé − contesté, la règle unique de `lib/dealCash.ts`.',
+      'Qu’aucun deal n’ait encaissé NET plus d’argent qu’il n’en a contracté SANS QUE PERSONNE N’Y TOUCHE pendant trois jours. Net = encaissé − remboursé − contesté, la règle unique de `lib/dealCash.ts`. Le délai part du geste qui a créé l’écart : le dernier paiement, ou la dernière baisse de montant au journal.',
     signifie:
-      'Un trop-perçu fait dépasser 100 % de collecte, et dans les totaux il vient effacer la dette d’un autre client. C’est le garde-fou du cash, celui qui rattrape ce qu’aucune garde à l’écriture n’attrape. ⚠️ Elle comparait du BRUT jusqu’au 3 septembre 2026, ce qui la faisait crier à chaque geste commercial : le parcours de remise BAISSE `amount_total` du montant rendu, donc le brut dépassait toujours le contracté. Si elle recommence à alerter sur une remise ordinaire, c’est que la déduction a été perdue — et non qu’un doublement a eu lieu.',
+      'Quelqu’un a versé plus que sa vente ne vaut, et personne ne l’a traité depuis trois jours. ⚠️ Ce n’est PAS une alerte « il y a un trop-perçu » : la fiche client l’affiche déjà, avec un bouton « Rembourser le trop-perçu », et alerter là-dessus doublerait l’écran au lieu de le compléter. Cette vue ne dit donc pas que le trop-perçu existe, elle dit que personne ne l’a vu. Les deux causes possibles sont indiscernables en base et demandent des gestes opposés : un client qui a payé deux fois (on lui rend), ou un paiement rattaché au MAUVAIS deal (on le rattache ailleurs, et les chiffres de deux clients sont faux). ⚠️ Elle comparait du BRUT jusqu’au 3 septembre 2026 et alertait SANS DÉLAI jusqu’au 5 septembre — deux fois le même défaut : crier sur un état voulu.',
     quoiFaire: [
-      '`select * from ventes_sante_sur_encaissement;` — les colonnes `encaisse_brut`, `rembourse`, `conteste`, `encaisse_net` séparent les deux lectures.',
-      'Vérifier si un paiement a été rattaché au mauvais deal, ou si le montant contracté a été révisé à la baisse après coup.',
+      '`select * from ventes_sante_sur_encaissement;` — `excedent_depuis` dit depuis quand, `encaisse_brut` / `rembourse` / `conteste` / `encaisse_net` séparent les lectures.',
+      'Trancher entre les deux causes AVANT d’agir : le montant en trop correspond-il exactement à un paiement d’un AUTRE deal du même client ? Alors il est mal rattaché, et le rendre serait une erreur.',
+      'Si c’est un vrai trop-perçu : ouvrir la fiche du client et cliquer « Rembourser le trop-perçu ». L’alerte se réarmera d’elle-même quand la vue redeviendra vide.',
       'Ne jamais sommer des paiements à la main pour trancher : `lib/dealCash.ts` porte la règle unique, et elle déduit les remboursements ET les contestations.',
     ],
     docs: ['docs/stripe-paiements.md', 'lib/dealCash.ts'],
@@ -310,36 +311,44 @@ const SURVEILLANCES: Surveillance[] = [
     docs: ['docs/checklist-scalabilite.md'],
   },
   {
+    // ⚠️ La clé ne change PAS : elle identifie l’alerte dans `alertes_plateforme`.
+    // Seule la SOURCE a changé, de `cron_runs` vers `cron_runs_actifs`.
     cle: 'sante_cron_runs',
-    source: 'cron_runs',
+    source: 'cron_runs_actifs',
     titre: 'Un cron a échoué de façon actionnable',
     detection: 'toute_ligne',
     surveille:
-      'Les échecs de cron qui demandent une action. Les incidents passagers et auto-réparés en sont volontairement absents.',
+      'Les échecs de cron qui demandent ENCORE une action — c’est-à-dire ceux dont la cause n’a pas été corrigée (`cron_runs.resolu_le` nulle). Les incidents passagers et auto-réparés en sont volontairement absents.',
     signifie:
-      'Le contrat de cette table est « vide = aucun incident ». Une ligne veut donc dire qu’un traitement a échoué et ne se réparera pas tout seul. ⚠️ Ne jamais y ajouter d’incident auto-réparé : le jour où elle contient des lignes qu’on ne peut pas traiter, on prend l’habitude de ne plus la lire, et elle ne sert plus le jour d’un vrai incident.',
+      'Le contrat de cette vue est « vide = aucun incident ». Une ligne veut donc dire qu’un traitement a échoué et ne se réparera pas tout seul. ⚠️ Ne jamais y ajouter d’incident auto-réparé : le jour où elle contient des lignes qu’on ne peut pas traiter, on prend l’habitude de ne plus la lire, et elle ne sert plus le jour d’un vrai incident.',
     quoiFaire: [
-      '`select fonction, ran_at, erreurs from cron_runs order by ran_at desc;`',
-      'Elle se purge d’elle-même à 30 jours.',
+      '`select id, fonction, ran_at, erreurs from cron_runs_actifs order by ran_at desc;`',
+      'Corriger la CAUSE, puis marquer la ligne résolue — sans quoi elle bloque toute alerte ultérieure : `update cron_runs set resolu_le = now(), resolu_note = \'<le commit ou la migration qui corrige>\' where id = \'<id>\';`',
+      '⚠️ Ne JAMAIS supprimer la ligne : effacer la preuve d’un incident pour faire taire une alerte est le geste que ce projet interdit partout ailleurs. On l’annote, elle reste lisible dans `cron_runs`.',
+      '⚠️ Et ne jamais la marquer résolue « pour nettoyer » : tant que `resolu_le` est nulle, la ligne PROTÈGE — c’est elle qui dit qu’il reste quelque chose à faire.',
       'Si l’erreur est en réalité passagère et se répare seule, la classer dans `estIncidentPassager` (poll-leads) ET poser une vue qui surveille sa conséquence — jamais l’une sans l’autre.',
+      '`cron_runs` garde tout l’historique 30 jours, résolu ou non, et se purge d’elle-même.',
     ],
-    docs: ['AGENTS.md, section Santé de la plateforme'],
+    docs: [
+      'AGENTS.md, section Santé de la plateforme',
+      'supabase/migrations/20260905120000_cron_runs_incidents_resolus.sql',
+    ],
   },
   {
     cle: 'sante_ig_vocaux',
     source: 'ig_vocaux_sante',
-    titre: 'Un message vocal Instagram n’a pas été conservé',
+    titre: 'La capture des messages vocaux Instagram ne fonctionne plus',
     detection: 'toute_ligne',
     surveille:
-      'Que chaque message vocal reçu dans les 48 dernières heures ait bien son fichier dans le bucket `ig-vocaux`. Le chemin est recalculé à partir du message, il n’y a aucune colonne à tenir à jour.',
+      'Une ligne par élève dont le DERNIER message vocal reçu n’a pas de fichier dans le bucket `ig-vocaux`. Le chemin est recalculé à partir du message, il n’y a aucune colonne à tenir à jour.',
     signifie:
-      '⚠️ C’est une perte DÉFINITIVE, pas un retard. Meta ne ressert JAMAIS un message vocal : mesuré le 2026-09-04 sur un message vieux de trois heures, `is_unsupported: true` et zéro pièce jointe. Un vocal non capturé à la seconde où le webhook arrive est perdu pour toujours, et le coach verra « ce vocal n’a pas été conservé » à sa place. La capture est volontairement non bloquante — une exception ferait échouer l’événement, donc le DM1 qui suit — et le prix de ce choix est qu’elle peut échouer en silence : cette vue est ce qui le rend audible.',
+      '⚠️ La question posée est « est-ce cassé MAINTENANT ? », pas « un vocal a-t-il été perdu un jour ? ». Si le dernier vocal manque, la cause est encore active et le PROCHAIN vocal sera perdu aussi — là, il y a quelque chose à faire. Les pertes déjà rattrapées ne sont volontairement PAS signalées : elles n’appellent aucune action, puisque Meta ne ressert jamais un vocal, et l’écran les montre déjà une par une en « Non récupérable ». La première version de cette vue signalait toute perte des 48 dernières heures : son tout premier e-mail, le 2026-09-05, annonçait deux pertes déjà corrigées sur lesquelles il n’y avait rien à faire. Une alerte sans action possible est le début d’une alerte qu’on n’ouvre plus.',
     quoiFaire: [
       "La cause exacte est journalisée : `select created_at, message, data from webhook_debug_log where message ilike '%vocal%' order by created_at desc;` (14 jours de rétention).",
       "⚠️ Cause déjà rencontrée le 2026-09-04 : Meta sert un vocal avec `content-type: video/mp4`, que le bucket refusait (`mime type video/mp4 is not supported`). Corrigé par `typeAudio()` dans `lib/instagram-webhook-processor.ts`, qui ne fait confiance qu’à la déclaration `type: 'audio'` de la pièce jointe, pas à l’en-tête de transport.",
       'Autre piste : le plafond de 25 Mo du bucket, ou le quota de fichiers — voir `sante_stockage_fichiers`.',
-      '⚠️ Le vocal déjà perdu ne se rattrape pas. Corriger la cause protège les suivants, rien d’autre. La vérification est donc d’envoyer un NOUVEAU vocal au compte et de regarder si le fichier apparaît.',
-      'La fenêtre est de 48 h : un défaut réparé fait taire l’alerte tout seul le surlendemain, sans date à écrire nulle part.',
+      '⚠️ Le vocal déjà perdu ne se rattrape pas. Corriger la cause protège les suivants, rien d’autre. La vérification est donc d’envoyer un NOUVEAU vocal au compte concerné : dès qu’il est capturé, la vue se tait d’elle-même.',
+      '⚠️ Un défaut INTERMITTENT reste détecté : tôt ou tard le dernier vocal est un vocal manqué. On perd la trace des échecs isolés déjà rattrapés, jamais celle d’un défaut qui dure.',
     ],
     docs: ['docs/conversations-instagram.md', 'lib/instagram-webhook-processor.ts'],
   },

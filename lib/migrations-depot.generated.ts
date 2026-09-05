@@ -154,4 +154,7 @@ export const MIGRATIONS_DEPOT: { version: string; nom: string }[] = [
   { version: '20260904280000', nom: 'vocaux_ig_a_purger' },
   { version: '20260905090000', nom: 'ig_vocaux_sante' },
   { version: '20260905100000', nom: 'ig_messages_visibles' },
+  { version: '20260905120000', nom: 'cron_runs_incidents_resolus' },
+  { version: '20260905120000', nom: 'ig_vocaux_sante_cause_active' },
+  { version: '20260905130000', nom: 'sur_encaissement_delai_72h' },
 ];
