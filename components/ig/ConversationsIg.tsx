@@ -75,6 +75,40 @@ type Message = {
 
 const PAGE = 50;
 
+/**
+ * Le bandeau d'en-tête du panneau de droite.
+ *
+ * ⚠️ Partagé par le fil ET par l'état vide, et c'est tout l'intérêt : la croix
+ * de fermeture y vit dans le FLUX, donc `alignItems: center` l'aligne sur
+ * « Ouvrir la discussion » par construction. La première version la posait en
+ * absolu avec un `top` choisi à la main — les deux boutons tombaient à 2,4 px
+ * l'un de l'autre, mesuré au navigateur. Un alignement obtenu en faisant
+ * coïncider deux nombres se défait au premier changement de police ou de
+ * remplissage ; celui-ci ne peut pas se défaire.
+ */
+const BANDEAU: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', padding: '11px 16px',
+  borderBottom: '1px solid var(--border)', flexShrink: 0,
+};
+
+/**
+ * ⚠️ 34 px de côté : au-dessus des 24 px du plus petit bouton du projet, en
+ * dessous des 44 px imposés au tactile — cet écran est réservé à l'ordinateur,
+ * il n'y a pas de doigt à viser ici.
+ */
+function CroixFermer({ onFermer }: { onFermer: () => void }) {
+  return (
+    <button
+      type="button" onClick={onFermer} aria-label="Fermer" className="icon-btn"
+      style={{
+        width: 34, height: 34, borderRadius: 8, flexShrink: 0, padding: 0,
+        border: '1px solid var(--border)', background: 'var(--surface)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        cursor: 'pointer', color: 'var(--muted)', fontSize: 19, lineHeight: 1,
+      }}>×</button>
+  );
+}
+
 export default function ConversationsIg({
   profileId, prenomEleve, annotable, titre, hauteur = 'min(78vh, 700px)', onFermer,
 }: {
@@ -125,26 +159,7 @@ export default function ConversationsIg({
       <div style={{
         display: 'grid', gridTemplateColumns: 'minmax(240px, 300px) 1fr',
         height: hauteur, overflow: 'hidden', borderRadius: 'inherit',
-        // Ancre de la croix : elle se pose sur le coin de l'ÉCRAN, pas dans une
-        // des deux colonnes. Sans quoi elle suivrait l'état du panneau de droite,
-        // qui n'a pas d'en-tête tant qu'aucun fil n'est choisi.
-        position: 'relative',
       }}>
-        {onFermer && (
-          <button
-            type="button" onClick={onFermer} aria-label="Fermer" className="icon-btn"
-            style={{
-              position: 'absolute', top: 9, right: 12, zIndex: 3,
-              // 34 px : au-dessus des 24 px du plus petit bouton du projet, en
-              // dessous des 44 px imposés au tactile — cet écran est réservé à
-              // l'ordinateur, il n'y a pas de doigt à viser ici.
-              width: 34, height: 34, borderRadius: 8,
-              border: '1px solid var(--border)', background: 'var(--surface)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              cursor: 'pointer', color: 'var(--muted)', fontSize: 19, lineHeight: 1,
-              padding: 0,
-            }}>×</button>
-        )}
         {/* ── Colonne des fils ─────────────────────────────────────────────── */}
         <div style={{
           borderRight: '1px solid var(--border)', background: 'var(--surface-2)',
@@ -222,11 +237,22 @@ export default function ConversationsIg({
         {/* ── Le fil ───────────────────────────────────────────────────────── */}
         {actif
           ? <Fil key={actif.id} fil={actif} annotable={annotable} prenomEleve={prenomEleve}
-                 placeALaCroix={!!onFermer}
+                 onFermer={onFermer}
                  onNoteFil={n => setActif(a => (a ? { ...a, note: n } : a))} />
-          : <div style={{ display: 'grid', placeItems: 'center', color: 'var(--muted)', fontSize: 13 }}>
-              Sélectionne une conversation.
-            </div>}
+          : (
+            // ⚠️ Le panneau vide porte le MÊME bandeau d'en-tête que le fil, alors
+            // qu'il n'a rien à y mettre. C'est ce qui permet à la croix d'occuper
+            // toujours la même place : sans lui, elle sauterait d'une position à
+            // l'autre selon qu'un fil est choisi ou non.
+            <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, background: 'var(--surface)' }}>
+              <div style={{ ...BANDEAU, justifyContent: 'flex-end' }}>
+                {onFermer && <CroixFermer onFermer={onFermer} />}
+              </div>
+              <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: 'var(--muted)', fontSize: 13 }}>
+                Sélectionne une conversation.
+              </div>
+            </div>
+          )}
       </div>
   );
 }
@@ -243,10 +269,10 @@ function Etiquette({ children, ton }: { children: React.ReactNode; ton: 'amber' 
   );
 }
 
-function Fil({ fil, annotable, prenomEleve, placeALaCroix, onNoteFil }: {
+function Fil({ fil, annotable, prenomEleve, onFermer, onNoteFil }: {
   fil: Fil; annotable: boolean; prenomEleve: string;
-  /** Réserve le coin haut-droit à la croix de fermeture de la modale. */
-  placeALaCroix: boolean;
+  /** Fournie par l'enveloppe modale seulement — la page de l'élève n'a rien à fermer. */
+  onFermer?: () => void;
   onNoteFil: (n: string | null) => void;
 }) {
   const supabase = createSupabase();
@@ -390,14 +416,7 @@ function Fil({ fil, annotable, prenomEleve, placeALaCroix, onNoteFil }: {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, background: 'var(--surface)' }}>
       {/* En-tête */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 10, padding: '11px 16px',
-        // ⚠️ La croix de la modale flotte au-dessus de ce coin. Sans cette marge,
-        // elle recouvre « Ouvrir la discussion » — deux cibles superposées, dont
-        // l'une envoie hors de la plateforme et l'autre ferme l'écran.
-        paddingRight: placeALaCroix ? 58 : 16,
-        borderBottom: '1px solid var(--border)', flexShrink: 0,
-      }}>
+      <div style={{ ...BANDEAU, gap: 10 }}>
         <IgAvatarSimple url={fil.peer_avatar_url} pseudo={fil.peer_username} taille={32} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 650, fontSize: 13.5 }}>@{fil.peer_username ?? fil.peer_id}</div>
@@ -422,6 +441,7 @@ function Fil({ fil, annotable, prenomEleve, placeALaCroix, onNoteFil }: {
             <Icon name="external" size={13} color="var(--muted)" />
           </a>
         )}
+        {onFermer && <CroixFermer onFermer={onFermer} />}
       </div>
 
       {/* Note d'en-tête du fil */}
