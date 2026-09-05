@@ -34,8 +34,9 @@ const EVENT_STYLE: Record<string, { icon: Parameters<typeof Icon>[0]['name']; co
   // Sortant : c'est l'élève qui écrit le premier. L'avion, comme tout envoi.
   cold_dm_sent:        { icon: 'send',                    color: '#1a1815' },
   lm_sent:             { icon: 'send',                    color: '#1a1815' },
-  // Entrant : la personne a cliqué le bouton du DM1 pour obtenir le lien.
-  lm_link_requested:   { icon: 'mouse-pointer-click',    color: '#1a1815' },
+  // Pas de symbole propre pour `lm_link_requested`, volontairement : le seul
+  // disponible qui collait était déjà celui de « Lien Calendly cliqué », et deux
+  // événements différents sous le même symbole se lisent comme le même.
   lm_clicked:          { icon: 'file-down',              color: '#1a1815' },
   calendly_link_sent:  { icon: 'calendar-plus',          color: '#1a1815' },
   link_clicked:        { icon: 'mouse-pointer-click',    color: '#1a1815' },
@@ -107,9 +108,11 @@ function funnelRank(type: string): number {
 // et « Lm link requested » à l'écran. Tout nouveau type d'événement se déclare
 // ici le jour où il est écrit, pas le jour où quelqu'un le remarque.
 //
-// Chaque libellé dit le SENS du message : « envoyé » sortant, « réponse » /
-// « demandé » / « cliqué » entrant. Sans ça, une ligne de chronologie ne dit pas
-// qui a fait le geste.
+// Le seul endroit où le sens du message compte vraiment, c'est le Cold DM : lui
+// seul peut aller dans les deux directions, et rien d'autre dans la fiche ne le
+// dit. Les autres se lisent d'eux-mêmes — un lead magnet part toujours de nous,
+// un lien se fait toujours cliquer par la personne. Ne pas ajouter de marqueur
+// entrant/sortant sur ceux-là : ce serait du bruit sur un fait déjà évident.
 const EVENT_LABELS: Record<string, string> = {
   hook_replied:       "Réponse à l'accroche",
   cold_dm_sent:       'Cold DM envoyé',
