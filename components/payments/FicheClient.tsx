@@ -392,9 +392,22 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
     ...aMontrer.map(p => ({
       cle: `p-${p.id}`,
       quand: p.paid_at ?? p.created_at ?? '',
-      label: p.status === 'succeeded' ? 'Encaissé' : (p.failure_reason ?? 'Paiement refusé'),
-      montant: p.status === 'succeeded' ? fmtEurExact(Number(p.amount)) : null,
-      couleur: p.status === 'succeeded' ? 'var(--green)' : 'var(--red)',
+      // ⚠️ `disputed` n'est PAS un echec. Le paiement a bien eu lieu ; la banque
+      // du client l'a conteste et Stripe a repris la somme en attendant l'issue.
+      // Le repli `Paiement refuse` l'affirmait pourtant — sur la ligne meme ou
+      // l'eleve vient comprendre pourquoi son encaisse a chute. Constate sur
+      // Christos le 2026-09-05, au premier litige reel.
+      //
+      // Le montant est AFFICHE, en negatif : c'est de l'argent qui est sorti, et
+      // le taire laissait la chronologie sans explication de la baisse.
+      label: p.status === 'succeeded' ? 'Encaissé'
+        : p.status === 'disputed' ? 'Contesté — somme reprise par Stripe'
+        : (p.failure_reason ?? 'Paiement refusé'),
+      montant: p.status === 'succeeded' ? fmtEurExact(Number(p.amount))
+        : p.status === 'disputed' ? `− ${fmtEurExact(Number(p.amount))}`
+        : null,
+      couleur: p.status === 'succeeded' ? 'var(--green)'
+        : p.status === 'disputed' ? 'var(--red)' : 'var(--red)',
     })),
     ...journal.map(ev => ({
       cle: `e-${ev.id}`,
