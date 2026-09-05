@@ -12,6 +12,37 @@ import { limiteurShortio, mapWithConcurrency, sleep } from '../_shared/rate-limi
 // backfill-shortio ignorait utm_medium=story et effaçait donc tous les clics
 // Calendly de séquence story. Fichier sans aucun import, lisible par Node et Deno.
 import { createLinkCategoryResolver, type LinkCategory } from '../../../lib/shortio-link-category.ts';
+import { recupererAvatar } from '../../../lib/instagram-avatar.ts';
+/**
+ * Pose la photo de profil d'un lead cree par ce cron.
+ *
+ * Le webhook le fait sur ses quatre chemins ; ce cron, qui rattrape les
+ * commentaires que le webhook a rates, ne le faisait pas — un lead cree ici
+ * n'avait donc jamais de photo.
+ *
+ * Le jeton passe est celui du compte qui a recu le commentaire : un
+ * `ig_user_id` est scope, et un jeton etranger renvoie « does not exist ».
+ *
+ * Jamais bloquant : une photo manquante ne doit pas interrompre une passe de
+ * collecte. Mais l'echec est ecrit en base, pas avale.
+ */
+async function poserAvatarCron(
+  supa: any, profileId: string, igUserId: string, jeton: string,
+): Promise<void> {
+  try {
+    const { data: lead } = await supa.from('instagram_leads')
+      .select('id, avatar_url').eq('profile_id', profileId).eq('ig_user_id', igUserId).maybeSingle();
+    if (!lead?.id || lead.avatar_url) return;
+    const { url, echec } = await recupererAvatar(supa, igUserId, jeton);
+    if (url) {
+      await supa.from('instagram_leads').update({ avatar_url: url }).eq('id', lead.id);
+    } else if (echec) {
+      await supa.from('instagram_avatar_echecs').insert({
+        profile_id: profileId, ig_user_id: igUserId, lead_id: lead.id, raison: `cron: ${echec}`,
+      });
+    }
+  } catch { /* jamais bloquant */ }
+}
 // Lecture du flux de clics : même module que le bouton « Rafraîchir » (Node), pour
 // qu'une seule règle de filtrage et de datation existe dans toute la plateforme.
 import { fetchClicsShortio, agregerClics, estVraiClic, cleClic, hoteDuLien, type ClicShortio } from '../../../lib/shortio-clicks.ts';
@@ -802,6 +833,9 @@ async function pollIgComments(profileId: string, token: string, igAccountId: str
           ig_account_id: igAccountId,
           ...(existingLead ? {} : { lead_magnet_sent: false }),
         }, { onConflict: 'profile_id,ig_user_id', ignoreDuplicates: false });
+
+        // La photo de profil, comme dans le webhook.
+        if (commenterId) void poserAvatarCron(supa, profileId, commenterId, token);
 
         if (existingLead?.lead_magnet_sent) continue;
 
