@@ -317,6 +317,16 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
   // pour un fait déjà expliqué — et y répondre « geste commercial » aurait
   // baissé le montant une SECONDE fois.
   const aExpliquer = deal.refundInexplique > 0.005;
+  // Le motif du dashboard Stripe, quand il y en a un. Traduit ici et non stocke
+  // traduit : la base garde le mot de Stripe, qui reste comparable a ce qu'on
+  // voit dans leur interface.
+  const motifStripe = (() => {
+    const brut = remboursements.map(p => p.refund_reason_stripe).find(Boolean);
+    if (brut === 'requested_by_customer') return 'demandé par le client';
+    if (brut === 'duplicate') return 'doublon';
+    if (brut === 'fraudulent') return 'frauduleux';
+    return null;
+  })();
   const raisonsRemboursement = [...new Set(
     remboursements.filter(p => p.refund_reason)
       .map(p => LIBELLE_RAISON[p.refund_reason!]),
@@ -452,6 +462,17 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
               Sans la raison, on ne sait pas si {deal.buyerName.split(' ')[0]} te doit
               encore cette somme — et c’est elle qui explique le pourcentage ci-dessus.
             </div>
+            {/* Ce que Stripe SAIT deja : son formulaire de remboursement exige un
+                motif, donc l'information existe toujours quand le remboursement
+                est passe par lui. L'afficher ne repond pas a la question — les
+                deux listes ne se recouvrent pas — mais elle donne souvent la
+                reponse en un mot, et la redemander sans la montrer serait faire
+                ressaisir ce qu'on a deja. */}
+            {motifStripe && (
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 5 }}>
+                Stripe indique : <strong>{motifStripe}</strong>
+              </div>
+            )}
             <button onClick={() => onAction('raisonRemboursement')}
               className="btn-primary-brand"
               style={{ fontSize: 12.5, marginTop: 11 }}>

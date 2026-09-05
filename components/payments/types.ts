@@ -110,6 +110,11 @@ export interface DealPayment {
    */
   refund_reason?: RaisonRemboursement | null;
   refund_reason_note?: string | null;
+  /**
+   * Le motif saisi dans le dashboard STRIPE. Constaté, jamais demandé —
+   * à distinguer de `refund_reason`, qui porte la taxonomie de Momentum.
+   */
+  refund_reason_stripe?: string | null;
 }
 
 /**

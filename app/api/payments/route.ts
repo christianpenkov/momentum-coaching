@@ -153,7 +153,7 @@ export async function GET(request: NextRequest) {
       stripe_subscription_id, stripe_customer_id, stripe_payment_link_id,
       first_touch_content_id, attribution_source, shortio_link_id,
       ended_by, ended_at, ended_reason, stops_at, dispute_due_by, unexpected_payment_at,
-      deal_payments ( id, installment_id, amount, status, paid_at, created_at, stripe_payment_id, failure_reason, refund_reason, refund_reason_note ),
+      deal_payments ( id, installment_id, amount, status, paid_at, created_at, stripe_payment_id, failure_reason, refund_reason, refund_reason_note, refund_reason_stripe ),
       deal_installments ( id, rank, amount, due_on, status, short_url, sent_at, shortio_link_id )
     `)
     .eq('profile_id', profileId)
@@ -309,7 +309,23 @@ export async function GET(request: NextRequest) {
       disputeDueBy: d.dispute_due_by ?? null,
       unexpectedPaymentAt: d.unexpected_payment_at ?? null,
       refunded: cash.rembourse,
-      refundInexplique: Math.max(0, Math.round((cash.rembourse - Number(d.refund_explique ?? 0)) * 100) / 100),
+      // ── L'ECART, et lui seul ────────────────────────────────────────────
+      // La regle etait deja ecrite dans le commentaire du champ (« un
+      // remboursement de trop-percu ramene l'encaisse au montant de la vente
+      // sans creer le moindre ecart, et n'appelle donc aucune question »), mais
+      // le calcul comptait TOUT le rembourse. Une vente dont on baisse le
+      // montant de 200 EUR puis dont on rend 200 EUR portait donc « A EXPLIQUER »
+      // alors que net = contracte : rien ne manque, il n'y a rien a expliquer.
+      // Constate sur RZK le 2026-09-05, apres un remboursement Stripe reel.
+      //
+      // On ne retient donc que la part du remboursement qui CREUSE un manque —
+      // celle qui laisse la vente en dessous de ce qu'elle vaut. C'est la seule
+      // qui pose la question « le client doit-il encore cette somme ? ».
+      refundInexplique: (() => {
+        const manque = Math.max(0, Number(d.amount_total) - cash.net);
+        const partQuiCreuse = Math.min(cash.rembourse, manque);
+        return Math.max(0, Math.round((partQuiCreuse - Number(d.refund_explique ?? 0)) * 100) / 100);
+      })(),
       disputed: cash.conteste,
       // Versé AU-DELÀ du montant de la vente. Le ruban plafonne (`collectedRetenu`),
       // donc sans ce chiffre affiché sur la vente, l'argent en trop disparaîtrait de

@@ -147,6 +147,12 @@ async function recordPayment(supabase: Supa, params: {
   paidAt: string;
   status: 'succeeded' | 'failed' | 'pending' | 'refunded';
   failureReason?: string | null;
+  /**
+   * Le motif saisi dans le dashboard Stripe au moment du remboursement.
+   * Constaté, jamais demandé : Stripe le rend OBLIGATOIRE, donc l'information
+   * existe toujours — la jeter obligeait a reposer la question a l'eleve.
+   */
+  refundReasonStripe?: string | null;
   metadata?: Record<string, string> | null;
   subscriptionId?: string | null;
   /** Lu sur charge.billing_details.email / invoice.customer_email / session. */
@@ -256,6 +262,7 @@ async function recordPayment(supabase: Supa, params: {
     paid_at: params.status === 'succeeded' || params.status === 'refunded' ? params.paidAt : null,
     status: params.status,
     failure_reason: params.failureReason ?? null,
+    refund_reason_stripe: params.refundReasonStripe ?? null,
     match_method: matchMethod,
   });
   if (dpErr) throw dpErr;
@@ -564,6 +571,13 @@ async function handleEvent(event: Stripe.Event) {
         currency: charge.currency,
         paidAt: new Date(charge.created * 1000).toISOString(),
         status: 'refunded',
+        // ⚠️ Le motif du DERNIER remboursement, et non d'une liste figee : Stripe
+        // classe `refunds.data` du plus recent au plus ancien, et c'est celui
+        // qu'on vient de constater qui explique le montant qu'on enregistre.
+        // Absent si l'eleve a coche « Autre » — l'API ne transmet que
+        // duplicate / fraudulent / requested_by_customer.
+        refundReasonStripe:
+          (charge.refunds?.data?.[0]?.reason as string | null | undefined) ?? null,
         metadata: charge.metadata as Record<string, string> | null,
         buyerEmail: charge.billing_details?.email ?? null,
       });
