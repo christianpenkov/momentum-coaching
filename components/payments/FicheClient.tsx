@@ -356,6 +356,20 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
 
   // ── L'historique montre TOUT, il ne choisit pas ───────────────────────────
   //
+  // ⚠️ Une exception, et c'est la seule : les lignes `refunded`. Elles ne sont pas
+  // omises, elles sont racontees AILLEURS et MIEUX — par les evenements
+  // `refund`, un par remboursement, a la date ou il a eu lieu.
+  //
+  // La ligne de paiement, elle, porte le CUMUL des remboursements d'une charge
+  // (Stripe ne renvoie que ca) et la date de la CHARGE D'ORIGINE (voulue, pour
+  // que le remboursement se soustraie au mois ou l'argent etait entre). Affichee
+  // telle quelle, elle disait « Rembourse le 20 aout · − 300,00 EUR » pour deux
+  // remboursements faits le 31 aout et le 5 septembre.
+  //
+  // La montrer EN PLUS des evenements donnerait deux versions du meme fait, dont
+  // une fausse sur la date. Ce n'est donc pas « choisir » : c'est dire chaque
+  // fait une fois, au bon endroit.
+  //
   // Il a longtemps filtre : les encaissements n'y figuraient que si aucun
   // echeancier ne les racontait deja, pour eviter de « faire douter qu'il s'agit
   // du meme argent ». Le raisonnement se defendait, mais il a produit deux
@@ -368,7 +382,7 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
   // c'est le role — les autres sections regardent vers l'avant, celle-ci
   // reconstitue. Une redondance avec l'echeancier coute une ligne ; une omission
   // coute une enquete, et on ne sait meme pas qu'il faut la mener.
-  const aMontrer = paiements;
+  const aMontrer = paiements.filter(p => p.status !== 'refunded');
 
   // ── Y a-t-il un lien à envoyer sur la vente elle-même ? ──────────────────
   // Le cas du comptant, et celui du prélèvement automatique PAS ENCORE

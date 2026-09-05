@@ -270,7 +270,7 @@ async function recordPayment(supabase: Supa, params: {
   // deal, lui, n'etait pas touche : la vente affichait un remboursement compte
   // comme explique dont l'explication n'existait plus nulle part.
   const { data: ancienneLigne } = await supabase.from('deal_payments')
-    .select('refund_reason, refund_reason_note, refund_reason_stripe')
+    .select('amount, refund_reason, refund_reason_note, refund_reason_stripe')
     .eq('deal_id', resolvedDealId)
     .eq('stripe_payment_id', params.stripePaymentId)
     .maybeSingle();
@@ -316,6 +316,37 @@ async function recordPayment(supabase: Supa, params: {
     match_method: matchMethod,
   });
   if (dpErr) throw dpErr;
+
+  // ── UN EVENEMENT PAR REMBOURSEMENT, DATE DU JOUR OU IL A EU LIEU ──────────
+  //
+  // Stripe renvoie le CUMUL des remboursements d'une charge sous un seul
+  // identifiant : la ligne de `deal_payments` passe donc de 200 a 300 EUR sans
+  // qu'aucune trace ne dise qu'un remboursement de 100 EUR vient d'avoir lieu.
+  //
+  // Pire, sa date : `paid_at` porte volontairement celle de la CHARGE D'ORIGINE,
+  // pour que le remboursement se soustraie au mois ou l'argent etait entre. C'est
+  // juste pour la comptabilite, et faux pour une chronologie — l'historique
+  // affichait « Rembourse le 20 aout · − 300,00 EUR » pour deux remboursements
+  // faits le 31 aout et le 5 septembre. Un meme champ repondait a deux questions.
+  //
+  // On journalise donc le DELTA (nouveau cumul − ancien), a la date de
+  // l'evenement. Aucun besoin d'ecouter `refund.created`, que le plan interdit
+  // parce que les deux ensemble compteraient chaque remboursement deux fois : la
+  // soustraction donne le meme montant sans toucher au calcul du cash.
+  //
+  // Releve par Chris le 2026-09-05 : « pourquoi il met remboursement 300 EUR le
+  // 20 aout ? parce qu'il les groupe en 1 ? c'est pas possible ».
+  if (params.status === 'refunded') {
+    const avant = Number(ancienneLigne?.amount ?? 0);
+    const apres = params.amountMinor / 100;
+    const delta = Math.round((apres - avant) * 100) / 100;
+    if (delta > 0.005) {
+      await journaliser(supabase, resolvedDealId, 'refund',
+        `Remboursement de ${delta.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} € constaté`,
+        { montant: delta, cumul: apres, charge: params.stripePaymentId,
+          motifStripe: params.refundReasonStripe ?? null });
+    }
+  }
 
   if (installmentId && params.status === 'succeeded') {
     await supabase.from('deal_installments').update({ status: 'paid' }).eq('id', installmentId);
