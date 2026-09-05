@@ -535,7 +535,12 @@ export async function GET(request: NextRequest) {
       // l'origine et les paiements, qui se lisent du plus ancien au plus récent.
       // Deux sens de lecture dans le même bloc font douter de la chronologie
       // entière — c'est ce qui s'est produit sur la ligne de remboursement.
-      .order('created_at', { ascending: true });
+      // ⚠️ `at`, PAS l'alias. PostgREST trie sur le NOM REEL de la colonne : un
+      // `order` sur l'alias declare dans le `select` echoue exactement comme le
+      // select fautif d'origine. Corriger le select sans le tri laissait donc la
+      // requete en HTTP 400, et le journal vide — le meme defaut, a moitie ferme.
+      // Mesure du 2026-09-05 : `order=created_at` -> 400, `order=at` -> 3 lignes.
+      .order('at', { ascending: true });
     for (const e of events ?? []) {
       const liste = journalParDeal.get(e.deal_id);
       if (liste) liste.push(e); else journalParDeal.set(e.deal_id, [e]);
