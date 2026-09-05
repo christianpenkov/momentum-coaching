@@ -761,7 +761,9 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
           <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border-soft)' }}>
           {journal.map(ev => (
             <div key={ev.id} style={{ display: 'flex', gap: 12, padding: '5px 0', alignItems: 'baseline' }}>
-              <span style={{ fontSize: 11, color: 'var(--faint)', flexShrink: 0, width: 62 }}>
+              {/* Assez large pour « 3 septembre » d'un seul tenant : a 62 px la
+                  date se coupait en deux lignes et decalait le libelle en face. */}
+              <span style={{ fontSize: 11, color: 'var(--faint)', flexShrink: 0, width: 86, whiteSpace: 'nowrap' }}>
                 {fmtDateLong(ev.created_at)}
               </span>
               <span style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.5 }}>{ev.label}</span>
