@@ -400,6 +400,21 @@ représentait 66 % du trafic.
 
 **Le réflexe à avoir devant une facture d'egress : compter, pas peser.**
 
+### Résultat mesuré, pour que ces règles restent crédibles
+
+| Poste | 03 sept. | 05 sept. | Facteur |
+|---|---|---|---|
+| PostgREST | 386 MB | **30,2 MB** | ÷ 12,8 |
+| Realtime | 465 MB | **4,0 MB** | **÷ 116** |
+| **Total / jour** | **858 MB** | **42,4 MB** | **÷ 20** |
+
+Soit **~1,3 Go/mois projeté** sur un quota de 5 Go, contre ~26 Go au rythme du 3 septembre.
+
+⚠️ **Le coût réel par requête est de ~1,4 ko**, mesuré (386 MB ÷ 289 000 requêtes), et non
+2,5 ko comme je l'avais d'abord estimé. Toute projection faite avant cette mesure était
+deux fois trop pessimiste — c'est la raison pour laquelle on compte les requêtes ET on
+recoupe avec la facture.
+
 ```sql
 -- Dans les logs de la passerelle (ClickHouse, source `edge_logs`) :
 -- grouper par `request.path` et COMPTER. La colonne `content_length` ment sur le coût.
@@ -484,12 +499,22 @@ mois plus tard. Le quota qui compte n'est donc pas les 250 Go du Pro, c'est **le
 gratuit, avec de vrais élèves**.
 
 Mesure du 2026-09-04, sur 8 passages : **~11 requêtes par élève et par passage**, plus
-~25 fixes. Le budget est d'environ 66 000 requêtes/jour pour rester sous 5 Go.
+~25 fixes.
 
-| Élèves | Serveur | Navigateurs | Total/jour |
+⚠️ **Le budget est d'environ 120 000 requêtes/jour**, pas 66 000. La première estimation
+partait d'un coût de 2,5 ko par requête ; la facture réelle donne **~1,4 ko**. Ne pas
+refaire ce calcul de tête : le diviseur se lit sur le tableau de bord, en croisant les
+Go facturés avec le nombre de requêtes compté dans les logs.
+
+| Élèves | Requêtes/jour | Egress projeté | Verdict |
 |---|---|---|---|
-| 5 | ~32 000 | variable | tient largement |
-| 20 | ~70 000 | ~29 000 | **~99 000 — ne tenait pas** |
+| 5 (mesuré le 05/09) | ~20 000 | **1,3 Go/mois** | 25 % du quota |
+| 20 | ~55 000 | ~3 Go/mois | tient |
+| 40 | ~64 000 | ~3,5 Go/mois | tient, sans marge confortable |
+
+**Le plan gratuit tient donc jusqu'à la livraison et au-delà** — à condition qu'aucun des
+trois défauts corrigés le 04-05 septembre ne revienne. C'est le rôle des sections
+ci-dessus.
 
 D'où deux cadences espacées, **choisies après chiffrage, pas au jugé** :
 
