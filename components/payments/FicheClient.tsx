@@ -487,10 +487,22 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
             {deal.refunded > 0.005 && (
               <div>
                 {fmtEurExact(deal.refunded)} remboursés — déjà déduits ci-dessus.
-                {/* La raison, dès qu'elle est connue : c'est elle qui explique
-                    pourquoi le pourcentage n'est pas celui qu'on attendait. */}
+                {/* ⚠️ La raison ne couvre que la part EXPLIQUÉE, et le montant est
+                    dit quand les deux diffèrent.
+                    Stripe renvoie le CUMUL des remboursements d'un paiement sous
+                    un seul identifiant : Momentum n'a donc qu'une ligne, avec une
+                    seule case « raison », pour des remboursements qui peuvent
+                    avoir des motifs differents. Ecrite sans son montant,
+                    l'etiquette attribuait la totalite a la premiere raison
+                    donnee — « 300,00 € remboursés (geste commercial) » alors que
+                    100 € venaient d'un second remboursement sans raison, et que
+                    le bandeau juste au-dessus en demandait justement la cause.
+                    Deux phrases de la meme fiche se contredisaient. Relevé par
+                    Chris le 2026-09-05. */}
                 {raisonsRemboursement.length > 0 && (
-                  <> ({raisonsRemboursement.join(', ')})</>
+                  deal.refundInexplique > 0.005
+                    ? <> — dont {fmtEurExact(deal.refunded - deal.refundInexplique)} en {raisonsRemboursement.join(', ')}</>
+                    : <> ({raisonsRemboursement.join(', ')})</>
                 )}
               </div>
             )}
