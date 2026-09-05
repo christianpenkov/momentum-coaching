@@ -18,6 +18,7 @@
  * milliers de commentaires peut donc s'étaler sur des heures sans rien perdre.
  */
 import { createClient } from '@supabase/supabase-js';
+import { recupererAvatar } from './instagram-avatar';
 import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import { pushEvent } from '@/app/api/instagram/webhook-stream/route';
 import { estSortant, estLeCompte, typePieceJointe, estSuppression } from '@/lib/igConversations';
@@ -190,35 +191,46 @@ function normalizeForKeywordMatch(raw: string): string {
   return raw.toLowerCase().trim().normalize('NFD').replace(/\p{Diacritic}/gu, '');
 }
 
-async function fetchAndStoreAvatar(igUserId: string, accessToken: string): Promise<string | null> {
+/**
+ * Pose la photo de profil d'un lead, si on ne l'a pas deja.
+ *
+ * ── UN SEUL POINT D'APPEL, POUR TOUS LES CHEMINS ────────────────────────────
+ * La recuperation ne vivait QUE dans le chemin du commentaire. Un lead Cold DM,
+ * un lead venu d'une reponse a une story ou un lead cree par le cron n'avaient
+ * donc JAMAIS de photo — verifie en base le 2026-09-05 : les six leads qui en
+ * avaient une venaient tous d'un commentaire.
+ *
+ * Ce n'etait pas une limite d'Instagram : l'API rend bien la photo d'une
+ * personne a qui on a envoye un Cold DM, meme sans reponse de sa part.
+ *
+ * `void` volontaire : la photo est un agrement, jamais une raison de faire
+ * echouer le traitement d'un webhook. Mais l'echec est ECRIT en base, sinon un
+ * lead sans photo reste indiscernable d'une recuperation qui a plante.
+ */
+async function poserAvatar(profileId: string, igUserId: string | null | undefined, leadId: string | null | undefined): Promise<void> {
+  if (!igUserId || !leadId) return;
   try {
-    const profileRes = await fetch(
-      `https://graph.instagram.com/v22.0/${igUserId}?fields=profile_pic&access_token=${accessToken}`
-    );
-    if (!profileRes.ok) return null;
-    const profileData = await profileRes.json();
-    const profilePicUrl: string | undefined = profileData?.profile_pic;
-    if (!profilePicUrl) return null;
+    const { data: lead } = await serviceSupabase
+      .from('instagram_leads').select('avatar_url').eq('id', leadId).maybeSingle();
+    if (lead?.avatar_url) return;   // deja fait, on ne redemande pas
 
-    const imgRes = await fetch(profilePicUrl);
-    if (!imgRes.ok) return null;
-    const blob = await imgRes.blob();
-    const arrayBuffer = await blob.arrayBuffer();
+    // Le jeton DOIT etre celui du compte qui a recu l'interaction : un
+    // `ig_user_id` est scope, et un jeton etranger renvoie « does not exist ».
+    const { data: integ } = await serviceSupabase
+      .from('integrations').select('access_token')
+      .eq('profile_id', profileId).eq('provider', 'instagram').maybeSingle();
+    if (!integ?.access_token) return;
 
-    const { error: uploadError } = await serviceSupabase.storage
-      .from('instagram-avatars')
-      .upload(`${igUserId}.jpg`, arrayBuffer, { contentType: 'image/jpeg', upsert: true });
-
-    if (uploadError) return null;
-
-    const { data: { publicUrl } } = serviceSupabase.storage
-      .from('instagram-avatars')
-      .getPublicUrl(`${igUserId}.jpg`);
-
-    return publicUrl;
-  } catch {
-    return null;
-  }
+    const { url, echec } = await recupererAvatar(serviceSupabase, igUserId, integ.access_token);
+    if (url) {
+      await serviceSupabase.from('instagram_leads').update({ avatar_url: url }).eq('id', leadId);
+    } else if (echec) {
+      // En base, pas en console : les logs Vercel ne se relisent pas.
+      await serviceSupabase.from('instagram_avatar_echecs').insert({
+        profile_id: profileId, ig_user_id: igUserId, lead_id: leadId, raison: echec,
+      });
+    }
+  } catch { /* jamais bloquant */ }
 }
 
 /**
@@ -701,6 +713,8 @@ async function handleColdDmCandidate(params: {
     .maybeSingle();
 
   if (newLead?.id) {
+    // La photo de profil, comme pour un lead venu d'un commentaire.
+    void poserAvatar(pid, recipientId, newLead.id);
     // RPC obligatoire — aucun index ne couvrait (ig_lead_id, event_type) pour
     // 'cold_dm_sent', donc ce .upsert() échouait à chaque appel sans que rien ne
     // le dise : zéro événement cold_dm_sent en base au 2026-08-27. Les index de
@@ -934,6 +948,7 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
             .select('id')
             .single();
           if (newLead) {
+            void poserAvatar(pid, recipientId, newLead.id);
             igLeadId = newLead.id;
             await serviceSupabase.from('prospect_links').update({ ig_lead_id: igLeadId }).eq('id', matchedLink.id);
           }
@@ -1414,6 +1429,10 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
               .select('id')
               .maybeSingle();
 
+            // Meme photo que partout ailleurs : une reponse a une story fait
+            // un lead comme un autre.
+            void poserAvatar(pid, senderId, upsertedLead?.id);
+
             if (upsertedLead?.id && senderUsername) {
               serviceSupabase.from('prospect_events').insert({
                 profile_id: pid,
@@ -1794,25 +1813,8 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
         .select('id')
         .maybeSingle();
 
-      // Fetch et stocke l'avatar de façon permanente (fire-and-forget)
-      if (upsertedLead?.id && commenterId) {
-        const igInteg = await serviceSupabase
-          .from('integrations')
-          .select('access_token')
-          .eq('profile_id', profile_id)
-          .eq('provider', 'instagram')
-          .maybeSingle();
-        if (igInteg.data?.access_token) {
-          fetchAndStoreAvatar(commenterId, igInteg.data.access_token).then(avatarUrl => {
-            if (avatarUrl) {
-              serviceSupabase.from('instagram_leads')
-                .update({ avatar_url: avatarUrl })
-                .eq('id', upsertedLead.id)
-                .then();
-            }
-          });
-        }
-      }
+      // La photo de profil, sans bloquer le traitement du webhook.
+      void poserAvatar(profile_id, commenterId, upsertedLead?.id);
 
       // Enregistre l'événement lm_sent dans prospect_events (index partiel = idempotent)
       if (upsertedLead?.id && commenterUsername) {

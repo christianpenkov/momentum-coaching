@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
+import { recupererAvatar } from '@/lib/instagram-avatar';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -36,38 +37,15 @@ export async function POST() {
   let updated = 0;
   const errors: string[] = [];
 
+  // La MEME fonction que le webhook, pas une copie : les deux versions avaient
+  // deja diverge (celle-ci disait pourquoi elle echouait, l'autre non).
   for (const lead of leads) {
-    try {
-      const profileRes = await fetch(
-        `https://graph.instagram.com/v22.0/${lead.ig_user_id}?fields=profile_pic&access_token=${token}`
-      );
-      if (!profileRes.ok) { errors.push(`${lead.ig_username}: profile fetch ${profileRes.status}`); continue; }
-      const profileData = await profileRes.json();
-      const profilePicUrl: string | undefined = profileData?.profile_pic;
-      if (!profilePicUrl) { errors.push(`${lead.ig_username}: no profile_pic`); continue; }
-
-      const imgRes = await fetch(profilePicUrl);
-      if (!imgRes.ok) { errors.push(`${lead.ig_username}: img fetch ${imgRes.status}`); continue; }
-      const arrayBuffer = await imgRes.arrayBuffer();
-
-      const { error: uploadError } = await serviceSupabase.storage
-        .from('instagram-avatars')
-        .upload(`${lead.ig_user_id}.jpg`, arrayBuffer, { contentType: 'image/jpeg', upsert: true });
-
-      if (uploadError) { errors.push(`${lead.ig_username}: upload ${uploadError.message}`); continue; }
-
-      const { data: { publicUrl } } = serviceSupabase.storage
-        .from('instagram-avatars')
-        .getPublicUrl(`${lead.ig_user_id}.jpg`);
-
-      await serviceSupabase
-        .from('instagram_leads')
-        .update({ avatar_url: publicUrl })
-        .eq('id', lead.id);
-
+    const { url, echec } = await recupererAvatar(serviceSupabase, lead.ig_user_id, token);
+    if (url) {
+      await serviceSupabase.from('instagram_leads').update({ avatar_url: url }).eq('id', lead.id);
       updated++;
-    } catch (e: any) {
-      errors.push(`${lead.ig_username}: ${e?.message || 'unknown'}`);
+    } else {
+      errors.push(`${lead.ig_username}: ${echec}`);
     }
   }
 
