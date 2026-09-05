@@ -33,6 +33,11 @@ export default function ModaleConversationsIg({
         annotable={annotable}
         titre={`Conversations de ${prenomEleve}`}
         hauteur="min(88vh, 940px)"
+        // La croix n'est passée QUE d'ici. Sur la page de l'élève, le même
+        // composant n'en reçoit pas : il n'y aurait rien à fermer, et une croix
+        // qui ne mène nulle part est exactement le défaut qu'avait la première
+        // version de cet écran.
+        onFermer={onClose}
       />
     </ModalShell>
   );

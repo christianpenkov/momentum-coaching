@@ -76,7 +76,7 @@ type Message = {
 const PAGE = 50;
 
 export default function ConversationsIg({
-  profileId, prenomEleve, annotable, titre, hauteur = 'min(78vh, 700px)',
+  profileId, prenomEleve, annotable, titre, hauteur = 'min(78vh, 700px)', onFermer,
 }: {
   profileId: string;
   prenomEleve: string;
@@ -86,6 +86,12 @@ export default function ConversationsIg({
   titre: string;
   /** Laissé à l'appelant : une modale et une page n'ont pas la même contrainte. */
   hauteur?: string;
+  /**
+   * Fournie uniquement par l'enveloppe MODALE. Absente sur la page de l'élève,
+   * où il n'y a rien à fermer — une croix y renverrait vers du vide, ce qui
+   * était déjà le défaut d'une version antérieure de cet écran.
+   */
+  onFermer?: () => void;
 }) {
   const supabase = createSupabase();
   const [fils, setFils] = useState<Fil[] | null>(null);
@@ -119,7 +125,26 @@ export default function ConversationsIg({
       <div style={{
         display: 'grid', gridTemplateColumns: 'minmax(240px, 300px) 1fr',
         height: hauteur, overflow: 'hidden', borderRadius: 'inherit',
+        // Ancre de la croix : elle se pose sur le coin de l'ÉCRAN, pas dans une
+        // des deux colonnes. Sans quoi elle suivrait l'état du panneau de droite,
+        // qui n'a pas d'en-tête tant qu'aucun fil n'est choisi.
+        position: 'relative',
       }}>
+        {onFermer && (
+          <button
+            type="button" onClick={onFermer} aria-label="Fermer" className="icon-btn"
+            style={{
+              position: 'absolute', top: 9, right: 12, zIndex: 3,
+              // 34 px : au-dessus des 24 px du plus petit bouton du projet, en
+              // dessous des 44 px imposés au tactile — cet écran est réservé à
+              // l'ordinateur, il n'y a pas de doigt à viser ici.
+              width: 34, height: 34, borderRadius: 8,
+              border: '1px solid var(--border)', background: 'var(--surface)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', color: 'var(--muted)', fontSize: 19, lineHeight: 1,
+              padding: 0,
+            }}>×</button>
+        )}
         {/* ── Colonne des fils ─────────────────────────────────────────────── */}
         <div style={{
           borderRight: '1px solid var(--border)', background: 'var(--surface-2)',
@@ -197,6 +222,7 @@ export default function ConversationsIg({
         {/* ── Le fil ───────────────────────────────────────────────────────── */}
         {actif
           ? <Fil key={actif.id} fil={actif} annotable={annotable} prenomEleve={prenomEleve}
+                 placeALaCroix={!!onFermer}
                  onNoteFil={n => setActif(a => (a ? { ...a, note: n } : a))} />
           : <div style={{ display: 'grid', placeItems: 'center', color: 'var(--muted)', fontSize: 13 }}>
               Sélectionne une conversation.
@@ -217,8 +243,11 @@ function Etiquette({ children, ton }: { children: React.ReactNode; ton: 'amber' 
   );
 }
 
-function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
-  fil: Fil; annotable: boolean; prenomEleve: string; onNoteFil: (n: string | null) => void;
+function Fil({ fil, annotable, prenomEleve, placeALaCroix, onNoteFil }: {
+  fil: Fil; annotable: boolean; prenomEleve: string;
+  /** Réserve le coin haut-droit à la croix de fermeture de la modale. */
+  placeALaCroix: boolean;
+  onNoteFil: (n: string | null) => void;
 }) {
   const supabase = createSupabase();
   const [messages, setMessages] = useState<Message[] | null>(null);
@@ -363,6 +392,10 @@ function Fil({ fil, annotable, prenomEleve, onNoteFil }: {
       {/* En-tête */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10, padding: '11px 16px',
+        // ⚠️ La croix de la modale flotte au-dessus de ce coin. Sans cette marge,
+        // elle recouvre « Ouvrir la discussion » — deux cibles superposées, dont
+        // l'une envoie hors de la plateforme et l'autre ferme l'écran.
+        paddingRight: placeALaCroix ? 58 : 16,
         borderBottom: '1px solid var(--border)', flexShrink: 0,
       }}>
         <IgAvatarSimple url={fil.peer_avatar_url} pseudo={fil.peer_username} taille={32} />
