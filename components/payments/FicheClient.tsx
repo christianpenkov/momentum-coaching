@@ -7,7 +7,7 @@ import Portal from './Portal';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { ETATS, etatDe, libelleEtat, precisionEtat, modeDe, moyenDefini, libelleModalites, compteDansLesTotaux } from './etats';
 import { useEcheancesAVenir } from './useEcheances';
-import { LIBELLE_RAISON, fmtEur, fmtEurExact, fmtDateLong, type DealRow, type DealDetail, type PersonRow } from './types';
+import { LIBELLE_RAISON, fmtEur, fmtEurExact, fmtDateLong, fmtEcheanceLitige, type DealRow, type DealDetail, type PersonRow } from './types';
 import ModifierMontant from './ModifierMontant';
 import RaisonRemboursement from './RaisonRemboursement';
 import ModifierModalites from './ModifierModalites';
@@ -518,6 +518,38 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
               style={{ fontSize: 12.5, marginTop: 11 }}>
               Choisir les modalités de paiement
             </button>
+          </div>
+        )}
+
+        {/* ── Le litige, DANS la vente ────────────────────────────────────────
+            Le bandeau rouge n'existait qu'a l'accueil de Paiements. Or c'est ici
+            qu'on vient comprendre pourquoi une vente affiche 0 % encaisse — et
+            l'ecran donnait alors la mauvaise nouvelle sans l'action qui va avec.
+            Un compte a rebours sur lequel on ne peut pas agir depuis l'endroit
+            ou on le lit est un compte a rebours qu'on remet a plus tard.
+            Releve par Chris le 2026-09-05. */}
+        {deal.disputeDueBy && (
+          <div style={{
+            marginTop: 10, background: 'var(--red-soft)',
+            border: '1px solid rgba(205,91,63,.28)', borderRadius: 10, padding: '12px 14px',
+          }}>
+            <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--red)', marginBottom: 3 }}>
+              {deal.buyerName.split(' ')[0]} conteste ce paiement
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--ink-2)', lineHeight: 1.55 }}>
+              Réponse à donner dans Stripe avant le{' '}
+              <strong>{fmtEcheanceLitige(deal.disputeDueBy)}</strong>. Passé ce délai,
+              l’argent est perdu automatiquement.
+            </div>
+            <a href="https://dashboard.stripe.com/disputes" target="_blank" rel="noopener noreferrer"
+              className="btn-primary-brand"
+              style={{
+                fontSize: 12.5, marginTop: 11, textDecoration: 'none',
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                background: 'var(--red)', borderColor: 'var(--red)',
+              }}>
+              <Icon name="external" size={13} /> Répondre dans Stripe
+            </a>
           </div>
         )}
 

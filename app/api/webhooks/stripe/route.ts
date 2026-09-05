@@ -776,6 +776,49 @@ async function handleEvent(event: Stripe.Event) {
       break;
     }
 
+    // ── Le litige se ferme, dans un sens ou dans l'autre ─────────────────────
+    //
+    // ⚠️ Cet evenement N'ETAIT PAS ECOUTE, et son absence bloquait un ecran.
+    // `created` et `funds_reinstated` etaient traites — donc l'ouverture et la
+    // victoire. La DEFAITE, elle, n'arrivait jamais : la vente restait
+    // « Contestee » pour toujours, le bandeau rouge ne disparaissait jamais, et
+    // il continuait d'annoncer « reponse a donner avant le 14 septembre » sur
+    // une affaire close depuis des semaines.
+    //
+    // L'argent, lui, etait juste : la ligne `dispute_…` l'a deduit a l'ouverture
+    // et doit RESTER si le litige est perdu — la banque a repris la somme pour
+    // de bon. C'est l'etat et l'alerte qui restaient figes.
+    //
+    // Une victoire declenche normalement `funds_reinstated`, qui fait le travail
+    // sur l'argent. On nettoie quand meme l'echeance ici : deux evenements
+    // peuvent arriver dans n'importe quel ordre, et le seul risque est de
+    // nettoyer deux fois.
+    //
+    // ⚠️ A COCHER DANS STRIPE : `charge.dispute.closed` ne figure pas dans les
+    // 11 evenements de l'endpoint. Sans lui, ce code ne s'executera jamais.
+    case 'charge.dispute.closed': {
+      const dispute = event.data.object as Stripe.Dispute;
+      const chargeId = typeof dispute.charge === 'string' ? dispute.charge : dispute.charge?.id;
+      if (!chargeId) break;
+
+      const { dealId } = await dealDuPaiement(supabase, profileId, chargeId, dispute.metadata);
+      if (!dealId) break;
+
+      await supabase.from('deals').update({ dispute_due_by: null }).eq('id', dealId);
+
+      const perdu = dispute.status === 'lost';
+      const somme = ((dispute.amount ?? 0) / 100)
+        .toLocaleString('fr-FR', { minimumFractionDigits: 2 });
+      await journaliser(supabase, dealId, 'dispute',
+        perdu
+          ? `Litige perdu — ${somme} € definitivement repris par la banque`
+          : `Litige clos — ${dispute.status}`,
+        { charge: chargeId, statut: dispute.status });
+
+      await refreshDealStatus(supabase, dealId);
+      break;
+    }
+
     // ── Un remboursement a échoué ────────────────────────────────────────────
     // Carte fermée, compte clos : Stripe renvoie les fonds sur le compte de
     // l'élève. L'argent n'est donc PAS parti — la ligne de remboursement doit
