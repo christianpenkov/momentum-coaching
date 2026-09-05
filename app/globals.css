@@ -2184,9 +2184,161 @@ a { color: inherit; text-decoration: none; }
   padding-bottom: 16px;
   overflow: hidden;
 }
-/* Entonnoir mobile — valeurs de base, surchargees sur ecran court. */
-.funnel-row { min-height: 56px; padding: 15px 14px; }
-.funnel-list { gap: 7px; }
+/* ── Pipeline mobile : liste a sections repliables ───────────────────────────
+   Remplace l'entonnoir de barres. Celui-ci demandait DEUX taps pour atteindre
+   quelqu'un — un pour ouvrir l'etape, un pour ouvrir la fiche — et cachait tout
+   le monde derriere un chiffre.
+
+   Tout vit ici plutot qu'en style inline : un style inline l'emporte sur toute
+   media query, et les reglages d'ecran court plus bas ne pourraient plus rien
+   surcharger. C'est la cause racine de plusieurs casses mobiles de ce projet.
+
+   Grille 4/8 tenue partout. L'ancien entonnoir melait 7, 9, 11 et 13 px, donc
+   rien ne s'alignait verticalement d'une ligne a l'autre. */
+
+.plm-liste { display: flex; flex-direction: column; }
+
+/* L'en-tete d'etape. `sticky` dans le conteneur qui defile : en parcourant une
+   longue etape on sait toujours laquelle on lit. C'est ce que fait une liste
+   iOS native, et c'est ce qui remplace l'ancien ecran d'entonnoir. */
+.plm-sec {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  min-height: 44px;                 /* cible tactile Apple, jamais en dessous */
+  padding: 8px 16px;
+  background: var(--surface-2);
+  /* ⚠️ `border: none` D'ABORD. Un <button> porte une bordure de 2px dans la
+     feuille par defaut du navigateur ; ne declarer que top et bottom laisse
+     GAUCHE et DROITE a 2px. Mesure a 390px : deux barres sombres sur les
+     bords de chaque en-tete, invisibles a la relecture du code. */
+  border: none;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  font: inherit; color: inherit; text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+/* Une etape vide n'est pas tactile : la regle des 44px ne s'y applique pas, et
+   la garder a 44 coutait 176px d'ecran pour quatre zeros a la suite — mesure
+   sur le compte de test, la moitie de la zone visible. Elle garde sa place,
+   parce que la forme de l'entonnoir se lit dans la SUITE des compteurs et
+   qu'une section qui disparait puis revient fait perdre le repere. */
+.plm-sec:disabled { cursor: default; min-height: 32px; padding-top: 5px; padding-bottom: 5px; }
+.plm-sec:active:not(:disabled) { background: var(--border-soft); }
+.plm-sec-pastille { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.plm-sec-label {
+  flex: 1; min-width: 0; font-size: 13px; font-weight: 700; letter-spacing: -0.1px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.plm-sec-compte {
+  font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: var(--ink-2); flex-shrink: 0;
+}
+.plm-sec-chev {
+  flex-shrink: 0; color: var(--faint); display: flex;
+  transition: transform 180ms cubic-bezier(.22,1,.36,1);
+}
+.plm-sec[aria-expanded="true"] .plm-sec-chev { transform: rotate(90deg); }
+
+/* Le corps d'une section. On anime opacite et translation UNIQUEMENT : animer
+   la hauteur ferait recalculer la mise en page a chaque image, et une etape
+   peut contenir des centaines de lignes. */
+.plm-corps { animation: plm-ouvre 180ms cubic-bezier(.22,1,.36,1); }
+@keyframes plm-ouvre {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.plm-ligne {
+  display: flex; align-items: center; gap: 12px;
+  /* `flex: 1` et non `width: 100%` : la ligne partage sa largeur avec le
+     bouton d'action. A 100% elle prenait tout et poussait « Remplir » hors
+     de l'ecran — mesure a 390px, la pastille etait coupee. */
+  flex: 1 1 auto; min-width: 0;
+  min-height: 56px;                 /* > 44px, cible tactile confortable */
+  padding: 8px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-soft);
+  font: inherit; color: inherit; text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.plm-ligne:active { background: var(--surface-2); }
+.plm-avatar {
+  width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 12px; font-weight: 700; letter-spacing: .2px;
+  object-fit: cover;
+}
+.plm-qui { flex: 1; min-width: 0; display: block; }
+/* 14.5px et non 13 : c'est le nom de la personne, l'information principale de
+   la ligne. A 13px il pesait moins que le compteur de l'en-tete. */
+.plm-nom {
+  display: block;                   /* <span> : inline par defaut, les deux se suivaient */
+  font-size: 14.5px; font-weight: 600; letter-spacing: -0.1px; color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.plm-meta {
+  display: block;
+  font-size: 11.5px; color: var(--muted); margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.plm-droite { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.plm-age { font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.plm-chev { color: var(--border); display: flex; flex-shrink: 0; }
+
+.plm-pastille-etat {
+  font-size: 9.5px; font-weight: 700; border-radius: 5px; padding: 2px 6px;
+  white-space: nowrap; flex-shrink: 0;
+}
+
+/* Le bouton d'action de ligne (remplir un rapport). 44x44 reels, separes du
+   reste par un trait : deux cibles voisines sans separation visible sont la ou
+   une liste mobile devient imprecise au doigt. */
+.plm-action {
+  /* ⚠️ Ni largeur figee, ni marge negative. La version d'avant portait
+     `margin-right: -16px` pour compenser un padding de ligne qui n'existe pas
+     de ce cote — le bouton est un FRERE de la ligne, pas son enfant. Mesure a
+     390px : son bord droit tombait a 392, donc deux pixels hors de l'ecran, et
+     la pastille etait coupee.
+     `min-width` et non `width` : le libelle commande, la cible tactile plancher. */
+  min-width: 44px; min-height: 44px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 14px;
+  border: none;                     /* meme bordure par defaut, voir plus haut */
+  border-left: 1px solid var(--border-soft);
+  background: none; font: inherit; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.plm-action:active { background: var(--amber-soft); }
+
+.plm-vide {
+  padding: 14px 16px 16px; font-size: 12.5px; color: var(--muted);
+  background: var(--surface); border-bottom: 1px solid var(--border-soft);
+}
+
+/* « Afficher les suivants ». Un lead magnet a deja fait 412 reclamations : tout
+   construire d'un coup fige le telephone plusieurs secondes. */
+.plm-plus {
+  width: 100%; min-height: 48px; padding: 12px 16px;
+  background: var(--surface); border: none;
+  border-bottom: 1px solid var(--border-soft);
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--accent-brand);
+  text-align: center; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.plm-plus:active { background: var(--accent-brand-soft); }
+
+.plm-titre-issues {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--muted);
+  padding: 20px 16px 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plm-corps { animation: none; }
+  .plm-sec-chev { transition: none; }
+}
 
 /* ── Une ligne de la vue liste ───────────────────────────────────────────────
    Elle est cliquable et ouvre la fiche : elle doit le montrer AVANT le clic.
@@ -4032,13 +4184,14 @@ html[data-splash='1'] .dot-wave {
   }
 }
 
-/* Ecrans courts (iPhone SE/8 et paysage) : 8 lignes a 56px plus l'en-tete
-   depassent la hauteur utile. Mesure a 375x667 : il manquait 174px. On
-   compacte l'entonnoir la, plutot que d'imposer un defilement partout.
-   Les cibles restent au-dessus du minimum tactile de 44px. */
+/* Ecrans courts (iPhone SE/8 et paysage).
+
+   La compaction de l'entonnoir a disparu avec lui : elle existait parce que
+   l'entonnoir devait tenir ENTIER sans defilement — 8 lignes de 56px plus
+   l'en-tete depassaient de 174px a 375x667. Une liste defile par nature, donc
+   rien ne justifie plus de rogner ses lignes, et les rogner reduirait la cible
+   tactile pour rien. */
 @media (max-width: 767px) and (max-height: 750px) {
-  .funnel-row { min-height: 46px !important; padding: 10px 13px !important; }
-  .funnel-list { gap: 5px !important; }
   .pipeline-page { gap: 8px !important; }
 }
 

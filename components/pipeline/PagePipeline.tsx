@@ -4,7 +4,7 @@ import { type RapportExistant } from '@/lib/rapportPatch';
 import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useEscapeKey } from '@/lib/useEscapeKey';
-import PipelineFunnelMobile from './PipelineFunnelMobile';
+import PipelineListeMobile from './PipelineListeMobile';
 import PipelineListView from './PipelineListView';
 import PipelineFilters, { FILTRES_VIDES, FILTRES_SANS_LM, type EtatsFiltres, type EtatFiltre, type FiltreKey } from './PipelineFilters';
 import Icon from '@/components/ui/Icon';
@@ -206,6 +206,22 @@ export type { IgLead, ProspectLink, Call, ProspectEvent, LmHistoryEntry, Pipelin
 // de --accent-brand (jour 7 design structurel, 2026-07-28) — laissées en dur pour
 // préserver la cohérence visuelle de la palette (cyan/violet/orange/bleu/vert), pas
 // une dérive de la couleur de marque à corriger.
+
+/**
+ * Les étapes qui arrivent REPLIÉES, sur téléphone comme sur ordinateur.
+ *
+ * « Commentaire LM » à lui seul peut contenir des centaines de fiches sur
+ * lesquelles il n'y a rien à faire — elles n'ont pas encore répondu. Dépliées,
+ * elles poussent hors écran les étapes où le travail se trouve vraiment.
+ *
+ * Une seule liste pour les deux écrans, et volontairement FIXE : la déduire de
+ * la taille des sections ferait changer l'écran d'un jour à l'autre, et on perd
+ * le repère de ce qu'on avait replié soi-même.
+ */
+export const REPLI_PAR_DEFAUT = ['lm_sent', 'lm_received', 'cold_dm'];
+
+/** La clé de conservation du repli, partagée par le board et la liste mobile. */
+export const CLE_REPLI = 'pipeline-colonnes-repliees';
 
 // ⚠️ DEUX AXES, JAMAIS UN SEUL. Un lead porte une ÉTAPE (où il en est) ET une
 // ISSUE (ce qui a été décidé). Les mélanger produisait « 3 show up » affiché
@@ -2520,7 +2536,6 @@ export default function PagePipeline() {
   // peut contenir des centaines de fiches sur lesquelles il n'y a rien à faire —
   // elles n'ont pas encore répondu. Dépliées, elles poussaient hors écran les
   // étapes où le travail se trouve vraiment.
-  const REPLI_PAR_DEFAUT = ['lm_sent', 'lm_received', 'cold_dm'];
   const [colonnesRepliees, setColonnesRepliees] = useState<Set<string>>(new Set(REPLI_PAR_DEFAUT));
 
   // La case isolée par les boutons d'étapes, en vue liste. `null` = tout.
@@ -2554,7 +2569,7 @@ export default function PagePipeline() {
   const effetAvantPeinture = typeof window === 'undefined' ? useEffect : useLayoutEffect;
   effetAvantPeinture(() => {
     try {
-      const r = window.localStorage.getItem('pipeline-colonnes-repliees');
+      const r = window.localStorage.getItem(CLE_REPLI);
       if (r) setColonnesRepliees(new Set(JSON.parse(r) as string[]));
     } catch { /* navigation privée, cookies bloqués : le repli par défaut suffit */ }
   }, []);
@@ -4256,11 +4271,31 @@ export default function PagePipeline() {
             tactile) et ses 8 colonnes demandent de defiler lateralement.
             Bascule purement CSS a 767px : le desktop reste inchange. */}
         <div className="pipeline-mobile" style={{ flex: 1, overflowY: 'auto', paddingBottom: 16 }}>
-          <PipelineFunnelMobile
+          <PipelineListeMobile
             cards={cards}
             stages={stages}
             issues={ISSUES}
             onCardClick={cardKey => setDetailModal({ cardKey, platform: tab })}
+            // Le rapport se remplit surtout depuis le telephone (PRODUCT.md) :
+            // la liste agit, elle ne se contente pas de montrer. On retrouve la
+            // carte par sa cle plutot que de la faire transiter — le composant
+            // mobile n'a pas besoin de connaitre les vingt champs d'un call.
+            onRapportClick={cle => {
+              const c = cards.find(x => x.key === cle);
+              if (!c?.callId) return;
+              setRapportModal({
+                callId: c.callId,
+                inviteeName: c.name,
+                scheduledAt: c.callScheduledAt ?? '',
+                isFollowUp: c.callIsFollowUp ?? false,
+                existing: {
+                  revenue: c.callRevenue ?? null, comment: c.callComment ?? null,
+                  outcome: c.callOutcome ?? null, qualified: c.callQualified ?? null,
+                  objection: c.callObjection ?? null, objectionAutre: c.callObjectionAutre ?? null,
+                  relanceAt: c.callRelanceAt ?? null,
+                },
+              });
+            }}
           />
         </div>
 
@@ -4359,7 +4394,7 @@ export default function PagePipeline() {
                   onToggleRepli={() => setColonnesRepliees(prev => {
                     const n = new Set(prev);
                     if (n.has(stage.key)) n.delete(stage.key); else n.add(stage.key);
-                    try { window.localStorage.setItem('pipeline-colonnes-repliees', JSON.stringify([...n])); } catch { /* sans effet */ }
+                    try { window.localStorage.setItem(CLE_REPLI, JSON.stringify([...n])); } catch { /* sans effet */ }
                     return n;
                   })}
                 />
