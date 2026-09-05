@@ -354,15 +354,21 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
   // plutôt que d'afficher la seule ligne que la base connaît.
   const { lignes: prelevements } = useEcheancesAVenir(deal, detail);
 
-  // ── Ce que l'historique doit reprendre ────────────────────────────────────
-  // Les ENCAISSEMENTS n'y figurent que si rien d'autre ne les raconte : sur un
-  // plan, chaque ligne d'echeance dit deja « payee le 20 aout », et les repeter
-  // ferait douter qu'il s'agit du meme argent.
+  // ── L'historique montre TOUT, il ne choisit pas ───────────────────────────
   //
-  // Les REMBOURSEMENTS, eux, y figurent toujours — parce que rien d'autre ne les
-  // raconte jamais. Aucune ligne d'echeance ne dit « 300 EUR rendus ».
-  const rienNeLesRaconte = echeances.length === 0 && prelevements.length === 0;
-  const aMontrer = paiements.filter(p => p.status === 'refunded' || rienNeLesRaconte);
+  // Il a longtemps filtre : les encaissements n'y figuraient que si aucun
+  // echeancier ne les racontait deja, pour eviter de « faire douter qu'il s'agit
+  // du meme argent ». Le raisonnement se defendait, mais il a produit deux
+  // defauts coup sur coup — d'abord les remboursements disparus des qu'une
+  // echeance existait, puis, une fois ceux-la rendus, une chronologie qui restait
+  // partielle sans le dire.
+  //
+  // Decision de Chris, 2026-09-05 : « l'historique doit montrer exactement tout
+  // ce qu'il s'est passe, pas choisir ». C'est le seul endroit de la fiche dont
+  // c'est le role — les autres sections regardent vers l'avant, celle-ci
+  // reconstitue. Une redondance avec l'echeancier coute une ligne ; une omission
+  // coute une enquete, et on ne sait meme pas qu'il faut la mener.
+  const aMontrer = paiements;
 
   // ── Y a-t-il un lien à envoyer sur la vente elle-même ? ──────────────────
   // Le cas du comptant, et celui du prélèvement automatique PAS ENCORE
