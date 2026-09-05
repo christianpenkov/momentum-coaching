@@ -129,6 +129,14 @@ export type Mode = 'one_shot' | 'installments_auto' | 'installments_manual' | 'o
 
 export function modeDe(d: DealRow): Mode {
   if (d.stripeSubscriptionId) return 'installments_auto';
+  // ⚠️ Le CHOIX enregistre prime sur la deduction — meme raison que dans
+  // `moyenDefini`. Sans ca, une vente payee par lien puis remboursee affichait
+  // « hors Stripe » des que son lien avait disparu : « comment ca se fait qu'on
+  // peut rembourser sur Stripe ? » (Chris, 2026-09-05, sur TestYT).
+  if (d.moyenChoisi === 'offline') return 'offline';
+  if (d.moyenChoisi === 'lien') {
+    return d.paymentPlan === 'installments_manual' ? 'installments_manual' : 'one_shot';
+  }
   if (!d.hasLinks) return 'offline';
   return d.paymentPlan === 'installments_auto' ? 'installments_auto'
     : d.paymentPlan === 'installments_manual' ? 'installments_manual'
@@ -146,6 +154,12 @@ export type Moyen = 'lien' | 'auto' | 'offline';
 
 export function moyenDe(d: DealRow): Moyen {
   if (d.stripeSubscriptionId) return 'auto';
+  // Le choix enregistre d'abord, la deduction ensuite. `hasLinks` dit seulement
+  // qu'un lien EXISTE AUJOURD'HUI : un lien consomme, desactive ou remplace
+  // laisse la vente sans lien, sans que son moyen ait change pour autant.
+  if (d.moyenChoisi === 'prelevement') return 'auto';
+  if (d.moyenChoisi === 'lien') return 'lien';
+  if (d.moyenChoisi === 'offline') return 'offline';
   if (d.hasLinks) return 'lien';
   return 'offline';
 }

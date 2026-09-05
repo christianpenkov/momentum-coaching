@@ -63,7 +63,7 @@ export async function PATCH(
 
   const { data: deal } = await supa
     .from('deals')
-    .select(`id, profile_id, status, amount_total, buyer_name, payment_plan, installments_count,
+    .select(`id, profile_id, status, amount_total, buyer_name, payment_plan, installments_count, refund_explique,
              installment_interval, currency, stripe_subscription_id, stripe_payment_link_id,
              ig_lead_id, first_touch_content_id,
              deal_payments(amount, status),
@@ -283,8 +283,33 @@ export async function PATCH(
     ? (statutDeal(cash, montant, null) ?? 'open')
     : (statutDeal(cash, montant, deal.status) ?? deal.status);
 
+  // ── L'INTENTION S'ENREGISTRE A LA DECISION, PAS A L'ARRIVEE DE L'ARGENT ────
+  //
+  // Releve par Chris : « lorsque depuis la plateforme tu dis que tu veux
+  // rembourser, et qu'ensuite sur Stripe tu rembourses, normalement il ne devrait
+  // pas te poser la question de dire pourquoi ? sinon le truc d'avant aurait
+  // servi a rien ». Exact — et sa conclusion l'est aussi : « mais ca veut dire
+  // attendre un remboursement et ne pas fermer le modal tant que c'est pas
+  // rembourse ».
+  //
+  // C'est precisement ce que l'ecran promet de ne PAS exiger (« tu peux fermer
+  // cette fenetre, Momentum le detecte tout seul »). Crediter a l'arrivee du
+  // webhook obligerait donc a garder la fenetre ouverte, ou a laisser passer
+  // l'explication. On credite au moment ou la DECISION est prise : elle est
+  // connue maintenant, elle ne le sera pas mieux plus tard.
+  //
+  // Crediter d'avance est sans risque : `refundInexplique` prend un `max(0, …)`,
+  // donc une explication en avance sur le remboursement ne fabrique rien. Et si
+  // l'eleve rembourse PLUS que ce qu'il avait decide, l'exces reste inexplique —
+  // ce qui est le comportement voulu.
   await supa.from('deals')
-    .update({ amount_total: montant, status: statutApres })
+    .update({
+      amount_total: montant,
+      status: statutApres,
+      ...(trop > CENTIME
+        ? { refund_explique: Math.round((Number(deal.refund_explique ?? 0) + trop) * 100) / 100 }
+        : null),
+    })
     .eq('id', dealId);
 
   await supa.from('deal_events').insert({
