@@ -111,6 +111,7 @@ function CroixFermer({ onFermer }: { onFermer: () => void }) {
 
 export default function ConversationsIg({
   profileId, prenomEleve, annotable, titre, hauteur = 'min(78vh, 700px)', onFermer,
+  retirable = false,
 }: {
   profileId: string;
   prenomEleve: string;
@@ -126,6 +127,12 @@ export default function ConversationsIg({
    * était déjà le défaut d'une version antérieure de cet écran.
    */
   onFermer?: () => void;
+  /**
+   * L'élève peut retirer une conversation ; le coach non. Ces messages sont
+   * ceux de l'élève, et le partage se révoque par celui qui l'a accordé — pas
+   * par celui qui en bénéficie.
+   */
+  retirable?: boolean;
 }) {
   const supabase = createSupabase();
   const [fils, setFils] = useState<Fil[] | null>(null);
@@ -237,7 +244,17 @@ export default function ConversationsIg({
         {/* ── Le fil ───────────────────────────────────────────────────────── */}
         {actif
           ? <Fil key={actif.id} fil={actif} annotable={annotable} prenomEleve={prenomEleve}
-                 onFermer={onFermer}
+                 onFermer={onFermer} retirable={retirable}
+                 onRetire={() => {
+                   // Retiré côté serveur : on l'ôte de la liste et on bascule sur
+                   // le fil suivant. Pas de rechargement — la réponse fait foi, et
+                   // une requête de plus par retrait se paierait à chaque geste.
+                   setFils(l => (l ?? []).filter(f => f.id !== actif.id));
+                   setActif(a => {
+                     const reste = (fils ?? []).filter(f => f.id !== a?.id);
+                     return reste[0] ?? null;
+                   });
+                 }}
                  onNoteFil={n => setActif(a => (a ? { ...a, note: n } : a))} />
           : (
             // ⚠️ Le panneau vide porte le MÊME bandeau d'en-tête que le fil, alors
@@ -269,10 +286,13 @@ function Etiquette({ children, ton }: { children: React.ReactNode; ton: 'amber' 
   );
 }
 
-function Fil({ fil, annotable, prenomEleve, onFermer, onNoteFil }: {
+function Fil({ fil, annotable, prenomEleve, onFermer, retirable, onRetire, onNoteFil }: {
   fil: Fil; annotable: boolean; prenomEleve: string;
   /** Fournie par l'enveloppe modale seulement — la page de l'élève n'a rien à fermer. */
   onFermer?: () => void;
+  /** Vrai côté élève uniquement. */
+  retirable: boolean;
+  onRetire: () => void;
   onNoteFil: (n: string | null) => void;
 }) {
   const supabase = createSupabase();
@@ -285,6 +305,9 @@ function Fil({ fil, annotable, prenomEleve, onFermer, onNoteFil }: {
   const [brouillon, setBrouillon] = useState('');
   const [envoi, setEnvoi] = useState(false);
   const [erreurNote, setErreurNote] = useState<string | null>(null);
+  const [confirmeRetrait, setConfirmeRetrait] = useState(false);
+  const [retraitEnCours, setRetraitEnCours] = useState(false);
+  const [erreurRetrait, setErreurRetrait] = useState<string | null>(null);
   const zoneRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -411,6 +434,29 @@ function Fil({ fil, annotable, prenomEleve, onFermer, onNoteFil }: {
     setEditeNoteFil(null);
   }
 
+  async function retirer() {
+    setRetraitEnCours(true);
+    setErreurRetrait(null);
+    try {
+      const r = await fetch('/api/client/ig-conversation-retirer', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ conversation_id: fil.id }),
+      });
+      // ⚠️ `fetch` ne lève pas sur un 4xx/5xx : sans ce test, un refus du serveur
+      // passerait pour un succès et le fil disparaîtrait de l'écran en restant
+      // bien présent en base. C'est le piège documenté de `lib/mutate.ts`.
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j?.error || `Erreur ${r.status}`);
+      }
+      onRetire();
+    } catch (e: any) {
+      setErreurRetrait(e?.message || 'Retrait impossible');
+      setRetraitEnCours(false);
+    }
+  }
+
   const lien = lienDiscussion(fil.id, fil.peer_username);
 
   return (
@@ -464,8 +510,65 @@ function Fil({ fil, annotable, prenomEleve, onFermer, onNoteFil }: {
             <Icon name="external" size={13} color="var(--muted)" />
           </a>
         )}
+        {retirable && (
+          <button
+            type="button" onClick={() => setConfirmeRetrait(true)} disabled={retraitEnCours}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0,
+              border: '1px solid var(--border)', borderRadius: 7,
+              padding: '7px 12px', fontSize: 12.5, fontWeight: 600,
+              color: 'var(--muted)', background: 'var(--surface)',
+              cursor: retraitEnCours ? 'wait' : 'pointer', fontFamily: 'inherit',
+              whiteSpace: 'nowrap',
+            }}>
+            Retirer
+          </button>
+        )}
         {onFermer && <CroixFermer onFermer={onFermer} />}
       </div>
+
+      {/* ⚠️ Une confirmation en toutes lettres, et non un « Êtes-vous sûr ? ».
+          Ce geste efface des messages pour de bon ET écarte la personne du
+          pipeline : les deux effets sont réels, les cacher derrière un mot
+          rassurant en ferait un piège. C'est le même geste que « ce n'est pas un
+          lead » dans Pipeline Leads, dit avec les mots de cet écran-ci. */}
+      {confirmeRetrait && (
+        <div style={{
+          margin: '10px 16px 0', padding: '12px 14px', borderRadius: 10,
+          border: '1px solid var(--border)', background: 'var(--surface-2)',
+          display: 'flex', flexDirection: 'column', gap: 10,
+        }}>
+          <div style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--ink)' }}>
+            Retirer la conversation avec <strong>@{fil.peer_username ?? fil.peer_id}</strong> ?
+            <br />
+            Les messages conservés ici seront <strong>supprimés définitivement</strong>, ton coach
+            n'y aura plus accès, et cette personne sortira de ton Pipeline Leads. Ta conversation
+            reste intacte dans Instagram.
+          </div>
+          {erreurRetrait && (
+            <div style={{ fontSize: 12, color: 'var(--danger, #b3261e)' }}>{erreurRetrait}</div>
+          )}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" onClick={retirer} disabled={retraitEnCours}
+              style={{
+                border: 'none', borderRadius: 7, padding: '8px 14px', fontSize: 12.5,
+                fontWeight: 600, color: '#fff', background: 'var(--danger, #b3261e)',
+                cursor: retraitEnCours ? 'wait' : 'pointer', fontFamily: 'inherit',
+              }}>
+              {retraitEnCours ? 'Retrait…' : 'Retirer définitivement'}
+            </button>
+            <button type="button" onClick={() => { setConfirmeRetrait(false); setErreurRetrait(null); }}
+              disabled={retraitEnCours}
+              style={{
+                border: '1px solid var(--border)', borderRadius: 7, padding: '8px 14px',
+                fontSize: 12.5, fontWeight: 600, color: 'var(--ink-2)',
+                background: 'var(--surface)', cursor: 'pointer', fontFamily: 'inherit',
+              }}>
+              Annuler
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Note d'en-tête du fil */}
       {(fil.note || annotable) && (

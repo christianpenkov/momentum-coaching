@@ -5,6 +5,7 @@ import { createClient as createServerClient } from '@/lib/supabase/server';
 import { resolveYtVideoTitles } from '@/lib/ytVideoTitles';
 import { resolveIgPostMeta } from '@/lib/igPostMeta';
 import { lireTout } from '@/lib/supabase/lireTout';
+import { retirerConversationsIg, peerIdsDuPseudo } from '@/lib/igConversationsRetrait';
 
 const supa = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -276,6 +277,24 @@ export async function PATCH(request: Request) {
         .eq('id', prospect_id);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // ⚠️ Écarter un lead Instagram doit EFFACER sa conversation, pas seulement la
+  // rendre invisible. La visibilité se dérive d'`instagram_leads`, donc le fil
+  // disparaissait bien de l'écran du coach — mais les messages restaient en base
+  // jusqu'à la quarantaine de 30 jours. `docs/conversations-instagram.md`
+  // annonçait cette purge immédiate depuis le premier jour ; elle n'avait jamais
+  // été écrite. Répondre « ce n'est pas un lead » est une demande de retrait, et
+  // une demande de retrait se traite tout de suite.
+  if (ig_username && not_a_lead === true) {
+    try {
+      await retirerConversationsIg(supa, user.id, await peerIdsDuPseudo(supa, user.id, ig_username));
+    } catch (e: any) {
+      // Le lead est déjà écarté, donc le fil est déjà invisible : on ne fait pas
+      // échouer le geste pour un ménage qui se rattrape de toute façon.
+      console.error('[pipeline] retrait de conversation échoué:', e?.message || e);
+    }
+  }
+
   return NextResponse.json({ ok: true });
 }
 
@@ -413,6 +432,26 @@ export async function DELETE(request: Request) {
   }
 
   await Promise.all(deleteOps);
+
+  // ⚠️ La conversation ne partait PAS avec le lead. Elle cessait seulement d'être
+  // VISIBLE — la vue joint `instagram_leads`, qui n'existe plus — puis restait
+  // 30 jours en base, invisible de tous et comptée dans le quota de stockage.
+  // Supprimer un lead est le geste le plus explicite qui soit : il ne doit rien
+  // laisser derrière lui.
+  //
+  // ⚠️ Les `ig_user_id` ont été lus AVANT la suppression, plus haut : après,
+  // plus rien ne relierait le pseudo au fil. Et l'appel vit ICI plutôt que dans
+  // `deleteOps` parce que ce tableau est typé par les promesses PostgREST — y
+  // glisser une promesse ordinaire ne compile pas.
+  if (igUserIds.length > 0) {
+    try {
+      await retirerConversationsIg(supa, user.id, igUserIds);
+    } catch (e: any) {
+      // Le lead est parti, donc le fil est déjà hors de portée : on ne fait pas
+      // échouer la suppression pour un ménage que la purge rattrape.
+      console.error('[pipeline] retrait de conversation échoué:', e?.message || e);
+    }
+  }
 
   return NextResponse.json({ ok: true });
 }

@@ -680,14 +680,56 @@ end; $$;
 
 Job pg_cron à **4 h 15**, après `degrossir-historiques-analytics-daily` (4 h 05).
 
-**Trois purges immédiates**, qui ne doivent pas attendre le cron parce qu'elles répondent
-à un geste explicite :
+**Les purges immédiates**, qui ne doivent pas attendre le cron parce qu'elles répondent à
+un geste explicite :
 
 | Geste | Où | Effet |
 |---|---|---|
-| « Ce n'est pas un lead » | `app/api/client/pipeline/route.ts`, branche `ig_username` du `PATCH` (ligne ~245) | supprime les messages du fil, et le webhook cesse d'en stocker (la règle est déjà dérivée) |
-| Retrait de l'accord de lecture | route des réglages de l'élève | supprime **tout** : conversations, messages, état de backfill |
+| « Retirer » depuis la page de l'élève | `app/api/client/ig-conversation-retirer/route.ts` | écarte le lead **et** efface fil, messages, vocaux |
+| « Ce n'est pas un lead » | `app/api/client/pipeline/route.ts`, `PATCH` | idem, par le même chemin partagé |
+| Suppression d'un lead | même fichier, `DELETE` | idem, en plus du reste des tables |
+| Retrait de l'accord de lecture | `app/api/client/ig-dm-consentement/route.ts` | supprime **tout** : conversations, messages, vocaux, état de backfill |
 | Déconnexion / bascule du compte Instagram | callback OAuth existant | `archived_at`, comme le reste |
+
+⚠️ **CE TABLEAU A MENTI JUSQU'AU 2026-09-05.** Il annonçait que « ce n'est pas un lead »
+supprimait les messages du fil : la route ne posait que `not_a_lead = true`, et **aucune
+purge n'avait jamais été écrite**. Le fil disparaissait bien de l'écran du coach — la
+visibilité se dérive — mais les messages restaient en base jusqu'à la quarantaine de
+30 jours. La suppression d'un lead ne les emportait pas davantage. Une doc qui décrit une
+garantie inexistante est pire que pas de doc : on cesse de vérifier.
+
+Les trois gestes passent désormais par **une seule** fonction,
+`retirerConversationsIg` (`lib/igConversationsRetrait.ts`) — le même motif que
+l'écriture, qui passe par une seule fonction Postgres.
+
+⚠️ **Elle ne touche PAS à `instagram_leads`, et c'est délibéré.** Elle efface la
+conversation, rien d'autre ; c'est l'appelant qui décide du sort du lead. Y glisser un
+`not_a_lead = true` ferait d'elle un second endroit où se décide la visibilité — ce que
+toute l'architecture de ce chantier interdit.
+
+⚠️ **Corollaire, dans l'autre sens : effacer sans écarter le lead ne tient pas.** Le
+prochain message recrée le fil et la reprise d'historique le réimporte. Un retrait qui ne
+pose pas `not_a_lead` ne fait gagner que quelques heures, et l'élève croit avoir retiré
+quelque chose qui revient.
+
+⚠️ **Les `mid` des vocaux se lisent AVANT la suppression.** Après, les lignes sont parties
+par cascade et le nom des fichiers n'est plus calculable : les octets resteraient dans le
+bucket, orphelins, invisibles, et comptés dans le quota jusqu'à la purge des 30 jours.
+
+### Pourquoi le retrait vit aussi sur la page de l'élève
+
+Le geste existait, mais **seulement dans Pipeline Leads**, sous le nom « ce n'est pas un
+lead » — c'est-à-dire au seul endroit où l'élève ne regarde pas quand il veut soustraire
+une conversation à son coach. Lui demander de traverser un autre écran, et d'y reconnaître
+un libellé de qualification commerciale, pour exercer ce qui est un droit de retrait.
+
+⚠️ La confirmation **énonce les deux effets** : les messages sont supprimés pour de bon,
+et la personne sort du Pipeline Leads. Ce second effet est réel — c'est le même geste — et
+le cacher derrière « masquer cette conversation » en ferait un piège.
+
+⚠️ **Réservé à l'élève.** Le coach lit, il n'efface pas : ces messages sont ceux de
+l'élève, et un partage se révoque par celui qui l'a accordé, pas par celui qui en
+bénéficie.
 
 ⚠️ **La branche `not_a_lead` est indexée par `ig_username`, les conversations par
 `peer_id`.** La suppression doit donc passer par `instagram_leads` pour traduire l'un en

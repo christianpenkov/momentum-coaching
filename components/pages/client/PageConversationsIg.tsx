@@ -116,6 +116,10 @@ export default function PageConversationsIg() {
             // Pleine hauteur utile : c'est une page, il n'y a rien derrière à
             // laisser voir. On réserve la place de l'en-tête et des marges.
             hauteur="calc(100dvh - 210px)"
+            // ⚠️ Le retrait n'est offert QUE d'ici. Le coach lit ces messages,
+            // il ne les efface pas : le partage se révoque par celui qui l'a
+            // accordé, pas par celui qui en bénéficie.
+            retirable
           />
         </div>
       )}
