@@ -882,6 +882,47 @@ ne prouverait donc pas qu'il tourne. Il **horodate chaque passage**, succès ou 
 dans `integrations.last_synced_at`, et `integrations_sante` signale son absence
 au-delà de 2 jours (`etat_collecte = 'ping_absent'`). Rien à aller lire à la main.
 
+# ⚠️ Un incident CORRIGÉ rendait l'alerte muette pendant 30 jours
+
+Le garde anti-répétition n'envoie chaque alerte qu'une fois et ne se réarme **que
+lorsque la vue redevient propre**. Pour les vues calculées, c'est parfait : elles se
+vident dès que la cause disparaît.
+
+**`cron_runs` est une table de journal, pas une vue.** Ses lignes vivent 30 jours. Donc
+une ligne dont la cause était déjà corrigée gardait l'alerte « déjà envoyée » pendant un
+mois entier :
+
+> un NOUVEL échec de cron, différent, dans cette fenêtre → **aucun e-mail**.
+
+Une alerte qui ne peut plus partir est pire que celle qu'on vient de recevoir. Le cas
+était actif le 2026-09-05 : sans correctif, plus aucune alerte de cron jusqu'au 4 octobre.
+
+**Après avoir corrigé la cause d'un incident, le marquer résolu fait partie du geste** :
+
+```sql
+update cron_runs
+set resolu_le = now(), resolu_note = '<le commit ou la migration qui corrige>'
+where id = '<id>';
+```
+
+La surveillance lit `cron_runs_actifs` (les non-résolus). `cron_runs` garde l'historique
+complet.
+
+⚠️ **Ne JAMAIS supprimer la ligne.** Effacer la preuve d'un incident pour faire taire une
+alerte est le geste que ce projet interdit partout ailleurs. On l'annote.
+
+⚠️ **Ne jamais marquer résolu « pour nettoyer ».** Tant que `resolu_le` est nulle, la
+ligne PROTÈGE — c'est elle qui dit qu'il reste quelque chose à faire.
+
+⚠️ **Pas de résolution automatique**, et c'est délibéré : la tentation serait de
+considérer un incident réglé dès que le cron repasse. Mais `marquer_passage_cron` est
+appelé au **début** d'un run — un passage prouve l'invocation, jamais le succès. Une
+résolution automatique fondée là-dessus effacerait des incidents encore vivants.
+
+**La leçon générale** : une surveillance dont la source est un JOURNAL (lignes qui
+persistent) et non un ÉTAT (calculé à la lecture) a besoin d'une notion de résolution,
+sinon le premier incident la condamne au silence jusqu'à la purge.
+
 # Santé de la plateforme
 
 **Aucune de ces vues n'a besoin d'être regardée.** Depuis le 2026-09-01,
@@ -902,7 +943,7 @@ Déclenchée par `poll-leads` dans la tranche 8 h Paris, comme `alerte-stockage`
 planificateur à créer, et la clé Resend ne quitte pas les variables Vercel.
 
 ```sql
-select * from cron_runs order by ran_at desc;   -- vide = aucun incident (30j)
+select * from cron_runs_actifs;                 -- vide = aucun incident à traiter
 select * from yt_sante_donnees;                 -- 'ok' partout
 select * from integrations_sante;               -- 'ok' ou 'non_connectee'
 select * from ventes_sante_montants;            -- vide = rapport et deal concordent
