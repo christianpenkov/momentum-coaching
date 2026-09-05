@@ -646,7 +646,11 @@ function TabDesc({ post, profileId, domain, canGenerate, showDisconnectedWarning
         body: JSON.stringify({ profileId, shortId, path, originalUrl: destUrl, title, utmSource: utms.source, utmMedium: utms.medium, utmCampaign: utms.campaign, utmContent: utms.content }),
       });
       const patchData = await patchRes.json();
-      if (patchRes.ok) shortUrl = patchData.shortUrl;
+      // Un re-pointage raté n'est PAS un succès : sans ce `throw`, le lien existant
+      // était enregistré avec son ANCIENNE destination et l'écran disait « créé »
+      // (balayage du 2026-09-04, motif « if (res.ok) sans else »).
+      if (!patchRes.ok) throw new Error(patchData.error || 'Lien existant, mais sa destination n\'a pas pu être mise à jour');
+      shortUrl = patchData.shortUrl;
     }
     return { shortId, shortUrl };
   };

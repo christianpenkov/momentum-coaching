@@ -2817,6 +2817,24 @@ async function rattraperTrousIg(profileId: string, token: string, igAccountId: s
     //
     // Sans ce second cas, les journees backfillees gardaient des colonnes vides pour
     // toujours : le rattrapage ne les voyait pas puisque ig_reach y etait rempli.
+    //
+    // ── Memoire des journees que Meta ne sert pas (decision Chris, 2026-09-04) ──
+    //
+    // Chargee AVANT la requete des trous : les journees refusees continuent de
+    // matcher le predicat (leur ig_reach reste null) et occupent les rangs les
+    // plus recents du tri. La limite est donc dimensionnee sur leur nombre reel
+    // (30 + refus, plafonne a 500) — une limite fixe (x4) laissait, au-dela de
+    // 120 refus, des journees recuperables masquees pour toujours (revue du
+    // 2026-09-04). Verdict prudent : retente UNE fois apres 30 jours, puis plus
+    // jamais ; une journee qui finit par repondre voit sa ligne effacee.
+    const { data: refusRows } = await supa
+      .from('ig_rattrapage_refus')
+      .select('date, tentatives, reessayer_apres')
+      .eq('profile_id', profileId);
+    const refusParDate = new Map<string, { tentatives: number; reessayer_apres: string }>();
+    for (const r of refusRows ?? []) refusParDate.set(r.date, r);
+    const maintenant = Date.now();
+
     const { data: trous } = await supa
       .from('analytics_daily_snapshots')
       .select('date')
@@ -2844,29 +2862,11 @@ async function rattraperTrousIg(profileId: string, token: string, igAccountId: s
       .gt('date', debutUtile)
       .lte('date', isoDate(1))
       .order('date', { ascending: false })   // les plus recents d'abord
-      // La limite est LARGE (x4) puis refiltree en memoire : les journees deja
-      // refusees par Meta (voir ig_rattrapage_refus ci-dessous) occupent les
-      // rangs les plus recents du tri, et une limite exacte les aurait laissees
-      // masquer indefiniment les journees encore recuperables derriere elles.
-      .limit(MAX_JOURS_PAR_PASSAGE * 4);
+      // Limite dimensionnee sur le nombre de refus memorises (voir le bloc
+      // ci-dessus), puis refiltree en memoire.
+      .limit(Math.min(500, MAX_JOURS_PAR_PASSAGE + refusParDate.size));
     if (!trous?.length) return [];
 
-    // ── Memoire des journees que Meta ne sert pas (decision Chris, 2026-09-04) ──
-    //
-    // Sans elle, une journee definitivement vide etait re-selectionnee a CHAQUE
-    // passage horaire, pour toujours : jusqu'a 30 jours x 6 appels = 180 appels
-    // Meta par heure et par profil, gaspilles, plus un bandeau « partial »
-    // permanent. Meme philosophie que `ig_post_insights_etat` cote posts : un
-    // refus est memorise avec un verdict prudent — retente UNE fois apres
-    // 30 jours (l'agregation tardive de Meta existe), puis plus jamais. Une
-    // journee qui finit par repondre voit sa ligne effacee.
-    const { data: refusRows } = await supa
-      .from('ig_rattrapage_refus')
-      .select('date, tentatives, reessayer_apres')
-      .eq('profile_id', profileId);
-    const refusParDate = new Map<string, { tentatives: number; reessayer_apres: string }>();
-    for (const r of refusRows ?? []) refusParDate.set(r.date, r);
-    const maintenant = Date.now();
     const aTraiter = trous
       .filter((t: { date: string }) => {
         const refus = refusParDate.get(t.date);

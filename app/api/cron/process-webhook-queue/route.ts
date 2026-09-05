@@ -100,15 +100,18 @@ export async function GET(request: Request) {
   // file avance de toute façon. La ligne se réinitialise seule si elle est
   // périmée (> 2 min — un worker vit 60 s max), donc un crash sans relâche ne
   // bloque jamais.
-  const { data: slotPris, error: slotErr } = await serviceSupabase.rpc('prendre_slot_worker');
+  // Un BAIL par worker (migration 20260905220000), et non plus un compteur : le
+  // compteur ne se remettait jamais à zéro sous trafic après un kill Vercel
+  // (revue du 2026-09-04). Chaque bail périme seul à 2 min.
+  const { data: bail, error: slotErr } = await serviceSupabase.rpc('prendre_slot_worker');
   if (slotErr) {
     // Erreur de sémaphore : on continue sans — mieux vaut un risque de rafale
     // qu'une file qui ne se vide plus.
     console.error('[process-webhook-queue] prendre_slot_worker:', slotErr.message);
-  } else if (slotPris === false) {
+  } else if (bail === null) {
     return NextResponse.json({ ok: true, skipped: 'workers_satures' });
   }
-  const slotAcquis = !slotErr && slotPris === true;
+  const bailAcquis: string | null = !slotErr && typeof bail === 'string' ? bail : null;
 
   try {
 
@@ -194,8 +197,8 @@ export async function GET(request: Request) {
   } finally {
     // Relâche du slot, succès OU échec. Si cette relâche rate (crash brutal),
     // la péremption à 2 min de la ligne réinitialise le compteur toute seule.
-    if (slotAcquis) {
-      const { error: slotLibErr } = await serviceSupabase.rpc('liberer_slot_worker');
+    if (bailAcquis) {
+      const { error: slotLibErr } = await serviceSupabase.rpc('liberer_slot_worker', { p_bail: bailAcquis });
       if (slotLibErr) console.error('[process-webhook-queue] liberer_slot_worker:', slotLibErr.message);
     }
   }

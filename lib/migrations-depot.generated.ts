@@ -154,6 +154,8 @@ export const MIGRATIONS_DEPOT: { version: string; nom: string }[] = [
   { version: '20260904280000', nom: 'vocaux_ig_a_purger' },
   { version: '20260905090000', nom: 'ig_vocaux_sante' },
   { version: '20260905100000', nom: 'ig_messages_visibles' },
+  { version: '20260905110806', nom: 'avatar_maj_le' },
+  { version: '20260905111210', nom: 'retrait_avatar_maj_le' },
   { version: '20260905120000', nom: 'avatars_echecs' },
   { version: '20260905120000', nom: 'cron_runs_incidents_resolus' },
   { version: '20260905120000', nom: 'ig_vocaux_sante_cause_active' },
@@ -170,4 +172,5 @@ export const MIGRATIONS_DEPOT: { version: string; nom: string }[] = [
   { version: '20260905180000', nom: 'raison_remboursement_stripe' },
   { version: '20260905190000', nom: 'moyen_encaissement_preuve_positive' },
   { version: '20260905200000', nom: 'clics_calendly_yt' },
+  { version: '20260905220000', nom: 'semaphore_worker_par_baux' },
 ];

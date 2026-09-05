@@ -1443,18 +1443,20 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
             void poserAvatar(pid, senderId, upsertedLead?.id);
 
             if (upsertedLead?.id && senderUsername) {
-              serviceSupabase.from('prospect_events').insert({
+              // Attendu, et non `.then()` détaché : cet insert est la SOURCE des stats
+              // du pipeline, et le freeze Vercel après la réponse pouvait le couper
+              // (balayage du 2026-09-04, motif P5).
+              const { error: evtErr } = await serviceSupabase.from('prospect_events').insert({
                 profile_id: pid,
                 prospect_key: senderUsername.toLowerCase(),
                 platform: 'ig',
                 event_type: 'lm_sent',
                 occurred_at: nowIso,
                 ig_lead_id: upsertedLead.id,
-              }).then(({ error: evtErr }) => {
-                if (evtErr && !evtErr.message.includes('duplicate')) {
-                  console.error('[IG Webhook] prospect_events lm_sent (story):', evtErr.message);
-                }
               });
+              if (evtErr && !evtErr.message.includes('duplicate')) {
+                console.error('[IG Webhook] prospect_events lm_sent (story):', evtErr.message);
+              }
             }
 
             if (senderId) {
@@ -1528,7 +1530,7 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
           .eq('id', leadToUpdate.id);
 
         if (leadToUpdate.ig_username) {
-          serviceSupabase.from('prospect_events').insert({
+          const { error: evtErrHook } = await serviceSupabase.from('prospect_events').insert({
             profile_id:  pid,
             prospect_key: leadToUpdate.ig_username.toLowerCase(),
             platform:    'ig',
@@ -1551,9 +1553,10 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
             // qui arrive a partir de maintenant. L'historique anterieur reste reconstruit,
             // et l'ecran prefere la valeur figee des qu'elle existe.
             metadata:    { media_id: leadToUpdate.media_id ?? null },
-          }).then(({ error: evtErr }) => {
-            if (evtErr) console.error('[IG Webhook] prospect_events hook_replied:', evtErr.message);
           });
+          // Attendu (voir lm_sent story) : source des stats, ne doit pas être coupé
+          // par le freeze Vercel.
+          if (evtErrHook) console.error('[IG Webhook] prospect_events hook_replied:', evtErrHook.message);
         }
 
         console.log(`[IG Webhook] hook_replied${wasAlreadyReplied ? ' (repeat)' : ''} — ig_user_id: ${senderId}, lead: ${leadToUpdate.id}, reply: "${msgText.slice(0, 50)}"`);
@@ -1914,18 +1917,19 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
 
       // Enregistre l'événement lm_sent dans prospect_events (index partiel = idempotent)
       if (upsertedLead?.id && commenterUsername) {
-        serviceSupabase.from('prospect_events').insert({
+        // Attendu, et non `.then()` détaché : source des stats du pipeline, le
+        // freeze Vercel après la réponse pouvait le couper (balayage 2026-09-04).
+        const { error: evtErr } = await serviceSupabase.from('prospect_events').insert({
           profile_id,
           prospect_key:  commenterUsername.toLowerCase(),
           platform:      'ig',
           event_type:    'lm_sent',
           occurred_at:   timestamp,
           ig_lead_id:    upsertedLead.id,
-        }).then(({ error: evtErr }) => {
-          if (evtErr && !evtErr.message.includes('duplicate')) {
-            console.error('[IG Webhook] prospect_events lm_sent:', evtErr.message);
-          }
         });
+        if (evtErr && !evtErr.message.includes('duplicate')) {
+          console.error('[IG Webhook] prospect_events lm_sent:', evtErr.message);
+        }
       }
 
       // Historique LM : stocke chaque interaction — idempotent via UNIQUE constraint sur

@@ -280,8 +280,12 @@ async function syncFathomProfile(profileId: string): Promise<{ checked: number; 
 
     if (!meetingsRes.ok) {
       const err = await meetingsRes.text().catch(() => '');
-      errors.push(`meetings_fetch_failed: ${meetingsRes.status} ${err}`);
-      return { checked: 0, matched: 0, unmatched: 0, errors };
+      errors.push(`meetings_fetch_failed: page ${page} ${meetingsRes.status} ${err}`);
+      // Page 0 en echec : rien a traiter. Page >= 1 : on GARDE les pages deja
+      // lues au lieu de tout jeter — le lookback de 48 h reprendra le reste au
+      // passage suivant (revue du 2026-09-04).
+      if (page === 0) return { checked: 0, matched: 0, unmatched: 0, errors };
+      break;
     }
 
     const meetingsData: { items?: (FathomMeeting & { action_items?: unknown })[]; next_cursor?: string | null } = await meetingsRes.json();
@@ -317,7 +321,11 @@ async function syncFathomProfile(profileId: string): Promise<{ checked: number; 
       // Un 404/403, lui, est definitif (transcript desactive ou inexistant) : on
       // enregistre avec null, sinon un meeting sans transcript ne serait JAMAIS
       // stocke — il sortirait de la fenetre en accumulant 48 h d'erreurs.
-      const transitoire = (r: Response) => !r.ok && r.status !== 404 && r.status !== 403;
+      // 401 aussi definitif : /meetings a repondu avec ce meme jeton, donc un 401
+      // ici est un probleme de droits sur l'endpoint, pas un jeton mort — le
+      // traiter comme transitoire faisait sauter l'enregistrement a chaque passage
+      // jusqu'a ce qu'il sorte de la fenetre de 48 h SANS jamais etre stocke.
+      const transitoire = (r: Response) => !r.ok && ![401, 403, 404].includes(r.status);
       if (transitoire(transcriptRes) || transitoire(summaryRes)) {
         errors.push(`recording_${recordingId}_report: transcript ${transcriptRes.status} / summary ${summaryRes.status} — retente au prochain passage`);
         continue;
