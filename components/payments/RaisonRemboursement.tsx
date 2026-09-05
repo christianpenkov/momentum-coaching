@@ -82,10 +82,25 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
   // « la première » tombait sur la mauvaise. Le montant à justifier est donc ce
   // qui a été rendu moins ce qui a déjà été justifié, calculé côté serveur.
   const montant = deal.refundInexplique;
-  // Sert seulement à dater la question à l'écran.
+  // ── La date du remboursement vient du JOURNAL, pas de la ligne de paiement ──
+  //
+  // `deal_payments.paid_at` porte volontairement la date de la CHARGE D'ORIGINE,
+  // pour que le remboursement se soustraie au mois ou l'argent etait entre. Juste
+  // pour la comptabilite, faux pour dater un fait : l'ecran demandait « pourquoi
+  // ces 100,00 EUR sont-ils repartis ? · remboursement du 20 aout » pour un
+  // remboursement fait le 5 septembre. Meme defaut que celui corrige dans
+  // l'historique une heure plus tot, a un troisieme endroit.
+  //
+  // Les evenements `refund` portent, eux, la vraie date — un par remboursement.
+  // On prend le plus recent, et on retombe sur `paid_at` s'il n'y en a aucun
+  // (remboursements anterieurs a la journalisation).
+  const dernierRefund = (detail?.events ?? [])
+    .filter(e => e.kind === 'refund')
+    .sort((x, y) => (y.created_at ?? '').localeCompare(x.created_at ?? ''))[0];
   const dernier = (detail?.payments ?? [])
     .filter(p => p.status === 'refunded')
     .sort((a, b) => (b.paid_at ?? '').localeCompare(a.paid_at ?? ''))[0];
+  const quandRembourse = dernierRefund?.created_at ?? dernier?.paid_at ?? null;
 
   const [etape, setEtape] = useState<Etape>('raison');
   const [raison, setRaison] = useState<RaisonRemboursement | null>(null);
@@ -212,7 +227,7 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
     return (
       <ModaleAction
         titre={`Pourquoi ces ${fmtEurExact(montant)} sont-ils repartis ?`}
-        sousTitre={`Vente du ${fmtDateLong(deal.signedAt)} · remboursement du ${fmtDateLong(dernier?.paid_at ?? null)}`}
+        sousTitre={`Vente du ${fmtDateLong(deal.signedAt)} · remboursement du ${fmtDateLong(quandRembourse)}`}
         onClose={onClose}
         pied={
           <>

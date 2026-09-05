@@ -592,7 +592,28 @@ export async function GET(request: NextRequest) {
         // sa ligne la plus importante. `created_at` est l'instant où on l'a
         // enregistrée, à quelques secondes de l'événement réel.
         .sort((a: any, b: any) =>
-          (a.paid_at ?? a.created_at ?? '').localeCompare(b.paid_at ?? b.created_at ?? '')),
+          (a.paid_at ?? a.created_at ?? '').localeCompare(b.paid_at ?? b.created_at ?? ''))
+        // ── LA MAUVAISE REPONSE DEVIENT IMPOSSIBLE A OBTENIR ─────────────────
+        //
+        // `paid_at` repond a DEUX questions qui different exprès sur un
+        // remboursement : « a quel mois rattacher cet argent » (la charge
+        // d'origine, voulu) et « quand est-ce arrive » (le jour du
+        // remboursement). Tout ecran qui veut la seconde et lit ce champ est
+        // faux — et deux l'ont ete : l'historique affichait « Rembourse le
+        // 20 aout » pour un remboursement du 5 septembre, puis l'ecran des
+        // raisons a repete la meme date.
+        //
+        // Les corriger un par un ne protege pas du troisieme. On retire donc la
+        // date d'imputation du champ `paid_at` sur les lignes REMBOURSEES, et on
+        // la renomme : un ecran qui cherche « quand » y trouve `null`, ce qui se
+        // voit, au lieu d'une date plausible et fausse, qui ne se voit pas.
+        //
+        // La vraie date d'un remboursement vit dans les evenements `refund`, un
+        // par remboursement. Les calculs comptables, eux, lisent `deal_payments`
+        // directement en base et ne passent pas par ici.
+        .map((p: any) => (p.status === 'refunded'
+          ? { ...p, paid_at: null, imputeLe: p.paid_at }
+          : p)),
       installments: (d.deal_installments ?? [])
         .sort((a: any, b: any) => a.rank - b.rank)
         .map((i: any) => ({
