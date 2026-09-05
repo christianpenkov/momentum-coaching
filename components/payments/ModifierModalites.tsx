@@ -52,6 +52,9 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
   onRefaire: (raison: 'rythme' | 'mode', aRembourser: number, arretRequis: boolean) => void;
 }) {
   const modeActuel = modeDe(deal);
+  // `null` = aucun moyen choisi. Nomme une fois ici, pour que chaque usage
+  // ci-dessous ait a decider quoi en dire plutot que de recevoir « hors Stripe ».
+  const moyenActuel = moyenDe(deal);
   const nbActuel = deal.installmentsCount ?? 1;
   const rythmeActuel = (deal.installmentInterval ?? 'month') as 'month' | 'week';
 
@@ -233,7 +236,7 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
     return (
       <ModaleAction
         titre="Modalités modifiées"
-        sousTitre={`${libelleAvant(moyenDe(deal), nbActuel, rythmeActuel)} → ${libelleAvant(moyen ?? moyenDe(deal), nbEffectif, rythme)}`}
+        sousTitre={`${moyenActuel ? libelleAvant(moyenActuel, nbActuel, rythmeActuel) : 'sans moyen de paiement'} → ${libelleAvant(moyen ?? moyenActuel ?? 'lien', nbEffectif, rythme)}`}
         onClose={onDone}
         pied={<BoutonFin onDone={onDone} />}>
 
@@ -275,7 +278,7 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
   return (
     <ModaleAction
       titre={`Modifier les modalités de la vente du ${fmtDateLong(deal.signedAt)}`}
-      sousTitre={`${fmtEurExact(deal.amountTotal)} · aujourd’hui ${libelleAvant(moyenDe(deal), nbActuel, rythmeActuel)}`}
+      sousTitre={`${fmtEurExact(deal.amountTotal)} · aujourd’hui ${moyenActuel ? libelleAvant(moyenActuel, nbActuel, rythmeActuel) : 'sans moyen de paiement'}`}
       onClose={tenterFermeture}
       bloque={envoi}
       pied={
@@ -369,7 +372,7 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
                     et comptant » alors qu'on passait à un lien de paiement —
                     dans la phrase même qui justifie de rendre 800 €. */}
                 Un paiement déjà encaissé ne se convertit pas d’un moyen à l’autre
-                chez Stripe : {libelleDuMoyen(moyenDe(deal), nbActuel > 1)} et
+                chez Stripe : {libelleDuMoyen(moyenActuel ?? 'offline', nbActuel > 1)} et
                 {' '}{libelleDuMoyen(moyen!, nbEffectif > 1)}
                 {' '}reposent sur des mécanismes différents.
               </>

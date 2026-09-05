@@ -152,7 +152,19 @@ export function modeDe(d: DealRow): Mode {
  */
 export type Moyen = 'lien' | 'auto' | 'offline';
 
-export function moyenDe(d: DealRow): Moyen {
+export function moyenDe(d: DealRow): Moyen | null {
+  // ⚠️ `null` = JAMAIS CHOISI, et ce n'est pas la meme chose que « hors Stripe ».
+  //
+  // Cette fonction retombait sur `'offline'` quand rien n'etait decide. La
+  // deduction se defendait — sans lien ni abonnement, il n'y a effectivement
+  // rien a encaisser chez Stripe — mais elle transformait une ABSENCE DE
+  // DECISION en decision. L'ecran affichait « comptant, hors Stripe » sur une
+  // vente dont l'encart voisin disait « rien n'est encore en place pour
+  // encaisser » : deux phrases de la meme fiche se contredisaient.
+  //
+  // Le type le dit maintenant, et le compilateur oblige chaque appelant a
+  // trancher. C'est le seul moyen que ca ne revienne pas : corriger les
+  // libelles un par un ne protege jamais du prochain appelant.
   if (d.stripeSubscriptionId) return 'auto';
   // Le choix enregistre d'abord, la deduction ensuite. `hasLinks` dit seulement
   // qu'un lien EXISTE AUJOURD'HUI : un lien consomme, desactive ou remplace
@@ -161,7 +173,7 @@ export function moyenDe(d: DealRow): Moyen {
   if (d.moyenChoisi === 'lien') return 'lien';
   if (d.moyenChoisi === 'offline') return 'offline';
   if (d.hasLinks) return 'lien';
-  return 'offline';
+  return null;
 }
 
 /**
@@ -247,7 +259,19 @@ export const libelleRythme = (i: string | null) =>
  * il produisait « comptant · comptant » sur une vente payée en une fois par lien.
  */
 export function libelleMoyen(d: DealRow): string {
-  return libelleDuMoyen(moyenDe(d), (d.installmentsCount ?? 1) > 1);
+  // ⚠️ Un moyen JAMAIS CHOISI ne se nomme pas « hors Stripe ».
+  //
+  // `moyenDe` retombe sur `offline` quand rien n'est decide — utile pour la
+  // LOGIQUE (sans lien ni abonnement, il n'y a effectivement rien a encaisser
+  // chez Stripe), faux pour un LIBELLE : l'ecran affirmait « comptant, hors
+  // Stripe » sur une vente dont l'encart voisin disait « rien n'est encore en
+  // place pour encaisser ». Deux phrases de la meme fiche se contredisaient.
+  // Constate sur Christos le 2026-09-05.
+  //
+  // Une absence de decision se dit, elle ne se devine pas.
+  const m = moyenDe(d);
+  if (!m) return 'moyen à choisir';
+  return libelleDuMoyen(m, (d.installmentsCount ?? 1) > 1);
 }
 
 /**
