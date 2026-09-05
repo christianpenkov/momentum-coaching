@@ -242,7 +242,15 @@ export async function PATCH(
           ? `Accompagnement — ${deal.buyer_name} — ${rank}/${nbEcheances}`
           : `Accompagnement — ${deal.buyer_name}`,
         leadId: deal.ig_lead_id,
-        installmentId: nbEcheances > 1 ? cree.id : null,
+        // ⚠️ TOUJOURS transmis, meme en une fois. Le garde `nbEcheances > 1`
+        // supposait qu'un comptant n'a pas d'echeance — or la boucle ci-dessus en
+        // cree une dans tous les cas. Sans cet identifiant, le webhook ne peut ni
+        // rattacher le paiement (`installment_id`), ni marquer l'echeance payee
+        // (`route.ts:263`) : la vente passait en soldee pendant que son echeance
+        // restait « a payer », avec son lien encore affiche et un bouton
+        // « Marquer envoye ». Constate sur RZK le 2026-09-05, au premier vrai
+        // paiement par lien jamais teste.
+        installmentId: cree.id,
         contentId: deal.first_touch_content_id,
         installments: plan === 'installments_auto' ? { count: aCreer, interval } : null,
       }, access);
@@ -305,8 +313,14 @@ function modeDe(deal: {
 const libelleRythme = (i: string) => (i === 'week' ? 'hebdomadaire' : 'mensuel');
 
 function libelle(plan: Plan, count: number | null, interval: string): string {
+  // ⚠️ `one_shot` vaut « par lien de paiement » et non « comptant » : dans ce
+  // type, `offline` porte deja le cas hors Stripe, donc `one_shot` designe un
+  // lien unique — un MOYEN. Ecrit « comptant », le journal disait « hors Stripe →
+  // comptant » sur un passage au lien de paiement, et cette phrase-la reste en
+  // base pour toujours. Meme melange des deux axes que `libelleMode`, supprimee
+  // cote navigateur le meme jour ; cette copie serveur avait ete oubliee.
   const noms: Record<Plan, string> = {
-    one_shot: 'comptant',
+    one_shot: 'par lien de paiement',
     installments_auto: 'prélèvement automatique',
     installments_manual: 'un lien par échéance',
     offline: 'hors Stripe',

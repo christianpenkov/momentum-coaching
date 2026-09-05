@@ -262,6 +262,20 @@ async function recordPayment(supabase: Supa, params: {
 
   if (installmentId && params.status === 'succeeded') {
     await supabase.from('deal_installments').update({ status: 'paid' }).eq('id', installmentId);
+
+    // ── Un lien paye a forcement ete envoye ────────────────────────────────
+    // Regle du plan : tout ce que Momentum peut CONSTATER, il le constate et ne
+    // le demande jamais. `sent_at` n'etait ecrit que par le bouton manuel
+    // « Marquer envoye » — l'historique d'une vente payee affirmait donc que son
+    // lien n'avait jamais ete envoye.
+    //
+    // `.is('sent_at', null)` : on n'ecrase pas une date d'envoi anterieure. Le
+    // jour de l'envoi et le jour du paiement sont deux faits differents, et
+    // c'est le premier qui a une valeur — il dit combien de temps le client a
+    // mis a payer.
+    await supabase.from('deal_installments')
+      .update({ sent_at: new Date().toISOString() })
+      .eq('id', installmentId).is('sent_at', null);
   }
 
   await refreshDealStatus(supabase, resolvedDealId, {
