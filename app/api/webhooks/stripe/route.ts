@@ -139,6 +139,29 @@ async function dealExiste(supabase: Supa, dealId: string): Promise<boolean> {
  *      coup dans l'écran de réconciliation.
  *   3. Rien → le paiement reste orphelin et remonte dans « À rattacher ».
  */
+/**
+ * Le motif du dernier remboursement d'une charge, demande a Stripe.
+ *
+ * Stripe rend ce champ OBLIGATOIRE dans son dashboard, mais ne le renvoie pas
+ * dans l'evenement `charge.refunded` : il faut aller le chercher. Sans lui,
+ * Momentum reposait a l'eleve une question dont Stripe avait deja la reponse.
+ *
+ * Rend `null` sur toute difficulte — reseau, droits, motif « Autre » que l'API ne
+ * transmet pas. Un motif absent fait poser la question ; il ne doit jamais
+ * empecher d'enregistrer le remboursement.
+ */
+async function motifDuRemboursement(profileId: string, chargeId: string): Promise<string | null> {
+  try {
+    const access = await getStripeAccess(profileId);
+    if (!access) return null;
+    const liste = await access.stripe.refunds.list({ charge: chargeId, limit: 1 }, access.opts);
+    return liste.data[0]?.reason ?? null;
+  } catch (e) {
+    console.error('[stripe] motif de remboursement illisible', chargeId, e);
+    return null;
+  }
+}
+
 async function recordPayment(supabase: Supa, params: {
   profileId: string;
   stripePaymentId: string;
@@ -230,6 +253,28 @@ async function recordPayment(supabase: Supa, params: {
 
   if (!resolvedDealId) return { attached: false };
 
+  // ── Ce que l'ELEVE a ecrit survit au remplacement ──────────────────────────
+  //
+  // Le `delete + insert` ci-dessous recree la ligne de zero. Tout ce que Stripe
+  // renvoie est reecrit a l'identique — mais les colonnes que Stripe ne connait
+  // PAS disparaissaient : `refund_reason` et sa note, saisies par l'eleve dans
+  // « Pourquoi ces X EUR sont-ils repartis ? ».
+  //
+  // Le cas est banal : un second remboursement partiel sur la meme charge. Stripe
+  // renvoie le CUMUL sous le meme identifiant, donc la ligne est remplacee — et
+  // l'explication donnee des semaines plus tot pour le premier remboursement etait
+  // effacee au passage. Constate sur TestYT le 2026-09-05 : « geste commercial »,
+  // saisi le 31 aout, perdu par un remboursement de 100 EUR fait le lendemain.
+  //
+  // On relit donc avant de detruire, et on repose apres. `refund_explique` sur le
+  // deal, lui, n'etait pas touche : la vente affichait un remboursement compte
+  // comme explique dont l'explication n'existait plus nulle part.
+  const { data: ancienneLigne } = await supabase.from('deal_payments')
+    .select('refund_reason, refund_reason_note, refund_reason_stripe')
+    .eq('deal_id', resolvedDealId)
+    .eq('stripe_payment_id', params.stripePaymentId)
+    .maybeSingle();
+
   // Index partiel + onConflict Supabase JS = combinaison silencieusement cassante
   // (cf. bug pipeline advance/reset). On passe par un delete+insert explicite.
   await supabase.from('deal_payments')
@@ -262,7 +307,12 @@ async function recordPayment(supabase: Supa, params: {
     paid_at: params.status === 'succeeded' || params.status === 'refunded' ? params.paidAt : null,
     status: params.status,
     failure_reason: params.failureReason ?? null,
-    refund_reason_stripe: params.refundReasonStripe ?? null,
+    // Ce que l'eleve a ecrit prime : il l'a saisi, Stripe ne le connait pas.
+    refund_reason: ancienneLigne?.refund_reason ?? null,
+    refund_reason_note: ancienneLigne?.refund_reason_note ?? null,
+    // Le motif Stripe du dernier remboursement s'il est connu, sinon celui deja
+    // enregistre — un evenement muet ne doit pas effacer un motif deja constate.
+    refund_reason_stripe: params.refundReasonStripe ?? ancienneLigne?.refund_reason_stripe ?? null,
     match_method: matchMethod,
   });
   if (dpErr) throw dpErr;
@@ -571,13 +621,22 @@ async function handleEvent(event: Stripe.Event) {
         currency: charge.currency,
         paidAt: new Date(charge.created * 1000).toISOString(),
         status: 'refunded',
-        // ⚠️ Le motif du DERNIER remboursement, et non d'une liste figee : Stripe
-        // classe `refunds.data` du plus recent au plus ancien, et c'est celui
-        // qu'on vient de constater qui explique le montant qu'on enregistre.
-        // Absent si l'eleve a coche « Autre » — l'API ne transmet que
-        // duplicate / fraudulent / requested_by_customer.
-        refundReasonStripe:
-          (charge.refunds?.data?.[0]?.reason as string | null | undefined) ?? null,
+        // ⚠️ LE MOTIF SE DEMANDE A L'API, il n'est PAS dans l'evenement.
+        //
+        // Premiere version : `charge.refunds?.data?.[0]?.reason`. Mesure du
+        // 2026-09-05 — remboursement de 100 EUR sur TestYT, motif « Doublon »
+        // saisi dans le dashboard, code deploye depuis deux heures : la colonne
+        // est restee NULL. Stripe n'inclut pas la liste `refunds` dans la charge
+        // utile de `charge.refunded` ; le champ existait dans le type TypeScript,
+        // ce qui rendait l'erreur invisible a la compilation.
+        //
+        // On interroge donc l'API. Un appel par remboursement, c'est-a-dire
+        // quelques-uns par an — et sans lui l'ecran redemande a l'eleve une
+        // information que Stripe l'a OBLIGE a saisir.
+        //
+        // Non bloquant : un motif manquant fait poser la question, il ne doit pas
+        // faire echouer l'enregistrement du remboursement lui-meme.
+        refundReasonStripe: await motifDuRemboursement(profileId, charge.id),
         metadata: charge.metadata as Record<string, string> | null,
         buyerEmail: charge.billing_details?.email ?? null,
       });
