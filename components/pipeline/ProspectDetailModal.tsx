@@ -7,6 +7,7 @@ import ModalShell from '@/components/ui/ModalShell';
 import type { ProspectContext } from './PagePipeline';
 import { avatarColor, avatarInitials } from './PagePipeline';
 import { isYtVideoId } from '@/lib/ytId';
+import { sensDuDm } from '@/lib/origineLead';
 import { isCallHonored } from '@/lib/callHonored';
 
 // ── TimelineEvent ────────────────────────────────────────────────────────────
@@ -216,15 +217,17 @@ function buildProspectTimeline(ctx: ProspectContext): TimelineEvent[] {
   // montrer leur première ligne. Se fier à `source` les laisserait sans rien.
   const aDejaSonColdDm = ctx.events.some(e => e.event_type === 'cold_dm_sent');
   if (ctx.lmHistory.length === 0 && ctx.lead?.detected_at && !aDejaSonColdDm) {
-    const estColdDm = ctx.lead.source === 'cold_dm';
+    const sens = sensDuDm(ctx.lead.source);
     events.push({
       id: `lead-detected-${ctx.lead.id}`,
-      type: estColdDm ? 'cold_dm_sent' : 'hook_replied',
+      type: sens ? 'cold_dm_sent' : 'hook_replied',
       occurredAt: ctx.lead.detected_at,
       source: 'event',
-      label: estColdDm
-        ? 'Cold DM envoyé'
-        : ctx.lead.keyword_matched ? `Commentaire détecté (#${ctx.lead.keyword_matched})` : 'Commentaire détecté',
+      label: sens === 'entrant'
+        ? 'DM reçu — la personne a écrit la première'
+        : sens === 'sortant'
+          ? 'Cold DM envoyé'
+          : ctx.lead.keyword_matched ? `Commentaire détecté (#${ctx.lead.keyword_matched})` : 'Commentaire détecté',
     });
   }
 
@@ -676,6 +679,17 @@ export default function ProspectDetailModal({ context, displayName, stageLabel, 
           </div>
           {context.lead?.keyword_matched && (
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Mot-clé : #{context.lead.keyword_matched}</div>
+          )}
+          {/* Le sens du premier message, EN TOUTES LETTRES — la carte n'en porte
+              qu'une flèche, qui se lit vite mais s'interprète mal hors contexte.
+              Rien ne s'affiche pour un commentaire : il n'a pas de sens d'envoi,
+              et une mention vide affirmerait qu'on ne sait pas. */}
+          {sensDuDm(context.lead?.source) && (
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+              {sensDuDm(context.lead?.source) === 'entrant'
+                ? 'DM entrant ↙ — la personne a écrit la première'
+                : 'Cold DM sortant ↗ — tu as écrit le premier'}
+            </div>
           )}
           {latestCall?.invitee_email && (
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{latestCall.invitee_email}</div>

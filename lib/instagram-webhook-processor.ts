@@ -19,6 +19,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { recupererAvatar } from './instagram-avatar';
+import { ORIGINE_DM_ENTRANT } from './origineLead';
 import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import { pushEvent } from '@/app/api/instagram/webhook-stream/route';
 import { estSortant, estLeCompte, typePieceJointe, estSuppression } from '@/lib/igConversations';
@@ -1508,7 +1509,7 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
         .select('id, hook_replied, ig_username, awaiting_story_followup, media_id')
         .eq('profile_id', pid)
         .eq('ig_user_id', senderId)
-        .or('lead_magnet_sent.eq.true,source.eq.cold_dm,awaiting_story_followup.eq.true')
+        .or('lead_magnet_sent.eq.true,source.eq.cold_dm,source.eq.dm_entrant,awaiting_story_followup.eq.true')
         .order('detected_at', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -1557,6 +1558,93 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
 
         console.log(`[IG Webhook] hook_replied${wasAlreadyReplied ? ' (repeat)' : ''} — ig_user_id: ${senderId}, lead: ${leadToUpdate.id}, reply: "${msgText.slice(0, 50)}"`);
         pushEvent({ type: 'hook_replied', ig_user_id: senderId, lead_id: leadToUpdate.id, reply_text: msgText.slice(0, 100) });
+      }
+      // ── LA PERSONNE ÉCRIT LA PREMIÈRE ─────────────────────────────────────
+      //
+      // Jusqu'ici : rien. Ce chemin ne faisait que METTRE À JOUR une fiche
+      // existante, sans jamais en créer. Quelqu'un qui écrivait spontanément —
+      // pas de commentaire, pas de story, pas de lead magnet — n'apparaissait
+      // nulle part dans le pipeline. Pas une fiche mal rangée : aucune fiche.
+      //
+      // Décision de Chris (2026-09-05) : on la crée, et c'est lui qui tranche
+      // ensuite avec « ce n'est pas un lead ». Le bruit se retire à la main ;
+      // une personne jamais vue ne se rattrape pas.
+      else if (!isEcho && senderId && msgText) {
+        // ⚠️ `leadToUpdate` vide ne veut PAS dire « aucune fiche ». La requête
+        // ci-dessus filtre (lead magnet reçu, cold DM, story en attente) : une
+        // fiche qui ne coche aucune de ces cases existe et ne remonte pas. Créer
+        // sans revérifier violerait l'unicité (profile_id, ig_user_id) — et sur
+        // une personne qui a simplement commenté sans réclamer de lead magnet,
+        // c'est-à-dire le cas le plus courant.
+        const { data: ficheExistante } = await serviceSupabase
+          .from('instagram_leads')
+          .select('id')
+          .eq('profile_id', pid)
+          .eq('ig_user_id', senderId)
+          .maybeSingle();
+
+        if (!ficheExistante) {
+          // Le pseudo n'est pas dans la charge utile de Meta, il faut le demander.
+          let pseudo = '';
+          if (resolvedMatch?.access_token) {
+            try {
+              const r = await fetch(`https://graph.instagram.com/v22.0/${senderId}?fields=username&access_token=${resolvedMatch.access_token}`);
+              pseudo = (await r.json())?.username || '';
+            } catch { /* non bloquant */ }
+          }
+
+          // Sans pseudo, on ne crée RIEN. `ig_username` sert de clé d'affichage
+          // et de `prospect_key` partout : une carte anonyme serait inutilisable
+          // et impossible à rapprocher. L'appel échoue rarement, et le message
+          // suivant de la même personne repassera ici — mieux vaut une fiche en
+          // retard qu'une fiche sans nom.
+          if (pseudo) {
+            const maintenant = new Date().toISOString();
+            const { data: fiche, error: ficheErr } = await serviceSupabase
+              .from('instagram_leads')
+              .insert({
+                profile_id:       pid,
+                ig_username:      pseudo,
+                ig_user_id:       senderId,
+                source:           ORIGINE_DM_ENTRANT,
+                // Aucun mot-clé : personne n'a commenté. Voir la migration
+                // 20260905160000 — on n'en invente plus.
+                keyword_matched:  null,
+                message:          msgText.slice(0, 500),
+                lead_magnet_sent: false,
+                // ⚠️ FAUX AMI : `hook_replied` veut dire « elle a répondu à NOTRE
+                // accroche ». Ici il n'y a eu aucune accroche. Et ce drapeau
+                // est testé AVANT l'origine dans `resolveNaturalStage` : à
+                // `true`, la carte partirait droit en « En conversation » et
+                // n'apparaîtrait jamais dans la colonne Cold DM.
+                //
+                // À `false`, elle s'y range — ce qui est aussi le sens de
+                // l'étape : un message part, personne n'a encore répondu. La
+                // conversation s'établit au message suivant, que le chemin
+                // ci-dessus prend en charge (le `.or` connaît maintenant cette
+                // origine).
+                hook_replied:     false,
+                detected_at:      maintenant,
+                ig_account_id:    canonicalIgAccountId ?? igAccountId,
+              })
+              .select('id')
+              .maybeSingle();
+
+            // ⚠️ L'ÉCHEC DOIT SE VOIR. Une contrainte CHECK sur `source` a bien
+            // failli refuser cette insertion, et un refus ici ne produit ni
+            // fiche ni erreur : `fiche?.id` est simplement vide. C'est le mode
+            // de panne exact de `cold_dm_sent`, écrit et rejeté pendant des mois
+            // derrière un log de succès. On dit donc pourquoi ça n'a pas marché.
+            if (ficheErr) {
+              console.error(`[IG Webhook] DM entrant NON créé — @${pseudo} — ${ficheErr.message}`);
+              pushEvent({ type: 'error', reason: 'dm_entrant_refuse', ig_username: pseudo, detail: ficheErr.message });
+            } else if (fiche?.id) {
+              void poserAvatar(pid, senderId, fiche.id);
+              console.log(`[IG Webhook] DM entrant — fiche créée pour @${pseudo}, lead: ${fiche.id}`);
+              pushEvent({ type: 'dm_entrant_cree', ig_username: pseudo, lead_id: fiche.id });
+            }
+          }
+        }
       }
     }
 

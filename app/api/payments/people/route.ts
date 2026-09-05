@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { resolveTargetProfile } from '@/lib/stripe-account';
+import { LIBELLE_ORIGINE } from '@/lib/origineLead';
 
 /**
  * Personnes proposées à la création d'un lien de paiement.
@@ -260,7 +261,9 @@ export async function GET(request: NextRequest) {
     people.push({
       id: l.id,
       name: l.ig_username,
-      subtitle: `@${l.ig_username}${l.source === 'cold_dm' ? ' · cold DM' : ' · Instagram'}`,
+      // La table partagée nomme chaque origine ; « Instagram » ne reste que pour
+      // une valeur qu'elle ne connaît pas encore — vague, mais jamais faux.
+      subtitle: `@${l.ig_username} · ${LIBELLE_ORIGINE[l.source] ?? 'Instagram'}`,
       kind: 'lead',
       avatarUrl: l.avatar_url ?? null,
       at: l.detected_at,

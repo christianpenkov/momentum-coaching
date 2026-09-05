@@ -22,6 +22,7 @@ import { objectionsPour, type OutcomeChoice } from '@/lib/rapportPatch';
 import { resolveLeadState, ISSUE_KEYS, ISSUE_TO_OUTCOME, MAX_RELANCES, RELANCE_EXPIRY_DAYS, type StageKey, type IssueKey } from '@/lib/pipelineStage';
 import { useViewerTimeZone } from '@/lib/UserContext';
 import { wallClockToUtc, cityLabelOf, formatDayPartsIn, jourCourantIci } from '@/lib/timezone';
+import { estOrigineDm, flecheDuDm, ORIGINE_COLD_DM } from '@/lib/origineLead';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -453,7 +454,10 @@ function getBestKnownStage(
   if (leadEvents.some(e => e.event_type === 'calendly_link_sent')) return 'calendly_sent';
   if (lead?.hook_replied) return 'in_convo';
   if (leadEvents.some(e => e.event_type === 'lm_link_requested')) return 'lm_received';
-  if (lead?.source === 'cold_dm') return 'cold_dm';
+  // Les deux sens vont dans la MÊME colonne : une personne à qui on a écrit et
+  // une personne qui a écrit sont au même endroit de l'entonnoir. Le sens se lit
+  // sur le badge, pas sur la position.
+  if (estOrigineDm(lead?.source)) return 'cold_dm';
   return 'lm_sent';
 }
 
@@ -2762,7 +2766,7 @@ export default function PagePipeline() {
         : false;
       const state = resolveLeadState({
         signals: {
-          isColdDm:         lead?.source === 'cold_dm',
+          isColdDm:         estOrigineDm(lead?.source),
           lmLinkRequested:  lmRequested,
           hasReplied:       !!lead?.hook_replied,
           calendlySentValid: !!calendlySentValid,
@@ -2846,7 +2850,11 @@ export default function PagePipeline() {
       // supprimer.
       const sub = lead?.keyword_matched
         ? `#${lead.keyword_matched}`
-        : (lead?.source === 'cold_dm' || prospect) ? 'Cold DM' : '';
+        : (estOrigineDm(lead?.source) || prospect)
+          // Une seule colonne, le sens porté par la flèche — décision de Chris.
+          // Un lien créé à la main (`prospect`) part toujours de nous.
+          ? `Cold DM ${flecheDuDm(lead?.source ?? ORIGINE_COLD_DM)}`
+          : '';
 
       const lmClickedEvent = lead ? events.find(e => e.ig_lead_id === lead.id && e.event_type === 'lm_clicked') : null;
 
@@ -2871,7 +2879,8 @@ export default function PagePipeline() {
         lmClaimed,
         lmReceived,
         badge,
-        lmNotReceived: lead && lead.source !== 'cold_dm' ? !lead.lead_magnet_sent : false,
+        // Un DM, dans les deux sens, n'attend aucun lead magnet.
+        lmNotReceived: lead && !estOrigineDm(lead.source) ? !lead.lead_magnet_sent : false,
         lmClickedAt: lmClickedEvent?.occurred_at ?? null,
         callId: call?.id ?? undefined,
         callScheduledAt: call?.scheduled_at ?? undefined,
