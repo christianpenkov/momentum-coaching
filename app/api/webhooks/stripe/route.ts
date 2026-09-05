@@ -776,6 +776,43 @@ async function handleEvent(event: Stripe.Event) {
       break;
     }
 
+    // ── Les preuves sont parties : la reponse n'est plus a donner ────────────
+    //
+    // ⚠️ Troisieme evenement de litige non ecoute, et celui-ci fait MENTIR
+    // l'alerte. Des que l'eleve soumet ses preuves, Stripe passe le litige en
+    // `under_review` : il a repondu, il n'y a plus rien a faire avant le verdict.
+    // Le bandeau, lui, continuait d'annoncer « reponse a donner avant le
+    // 13 septembre » — il reclamait une action deja faite, sur la seule alerte de
+    // la plateforme qui doit etre crue sans hesiter.
+    //
+    // On efface donc l'echeance des que le statut n'attend plus de reponse. Le
+    // montant reste deduit : l'argent est toujours chez la banque tant que le
+    // litige n'est pas tranche.
+    //
+    // ⚠️ A COCHER DANS STRIPE, comme `charge.dispute.closed` :
+    // `charge.dispute.updated` ne figure pas dans les evenements de l'endpoint.
+    case 'charge.dispute.updated': {
+      const dispute = event.data.object as Stripe.Dispute;
+      const chargeId = typeof dispute.charge === 'string' ? dispute.charge : dispute.charge?.id;
+      if (!chargeId) break;
+
+      const { dealId } = await dealDuPaiement(supabase, profileId, chargeId, dispute.metadata);
+      if (!dealId) break;
+
+      // `needs_response` et `warning_needs_response` sont les deux seuls etats ou
+      // l'eleve doit encore agir. Tous les autres — examen, verdict — n'attendent
+      // plus rien de lui.
+      const attendUneReponse = dispute.status === 'needs_response'
+        || dispute.status === 'warning_needs_response';
+      if (attendUneReponse) break;
+
+      await supabase.from('deals').update({ dispute_due_by: null }).eq('id', dealId);
+      await journaliser(supabase, dealId, 'dispute',
+        'Preuves envoyées — Stripe examine le litige',
+        { charge: chargeId, statut: dispute.status });
+      break;
+    }
+
     // ── Le litige se ferme, dans un sens ou dans l'autre ─────────────────────
     //
     // ⚠️ Cet evenement N'ETAIT PAS ECOUTE, et son absence bloquait un ecran.
