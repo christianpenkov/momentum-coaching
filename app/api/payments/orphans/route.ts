@@ -300,6 +300,56 @@ export async function POST(request: NextRequest) {
 
   if (!deal) return NextResponse.json({ error: 'Deal introuvable' }, { status: 404 });
 
+  // ── LA GARDE À L'ÉCRITURE ─────────────────────────────────────────────────
+  //
+  // C'est ICI que l'argent peut être rangé chez le mauvais client. Les quatre
+  // autres écritures en `match_method: 'manual'` sont des DÉCLARATIONS sur une
+  // vente déjà connue — « ce virement est arrivé », « j'ai remboursé ». Celle-ci
+  // est la seule où quelqu'un CHOISIT un destinataire, et deux ventes au même
+  // montant la même semaine suffisent à se tromper.
+  //
+  // Jusqu'ici rien ne le vérifiait : le seul filet était la vue de santé
+  // `ventes_sante_sur_encaissement`, dont le commentaire disait lui-même qu'elle
+  // « rattrape ce qu'aucune garde à l'écriture n'attrape ». La garde n'existait
+  // pas — on s'était contenté du filet, qui découvre l'erreur le lendemain matin,
+  // par e-mail, chez quelqu'un qui ne connaît pas les clients concernés.
+  //
+  // ⚠️ Elle REFUSE, elle n'interdit pas. Le sur-encaissement est un état légitime
+  // (un client paie deux fois, un montant baisse après coup) : bloquer
+  // définitivement empêcherait de rattacher un vrai paiement. Le refus porte donc
+  // les chiffres, et un second appel avec `confirmerDepassement` passe outre — de
+  // sorte qu'un dépassement ne puisse plus arriver PAR ACCIDENT ni EN SILENCE.
+  //
+  // On calcule sans la ligne de CE paiement : le `delete + insert` plus bas le
+  // remplace, et le compter deux fois ferait refuser un simple re-rattachement.
+  const { data: dejaLa } = await supa
+    .from('deal_payments')
+    .select('amount, status, stripe_payment_id')
+    .eq('deal_id', deal.id);
+
+  const lignesHorsCePaiement = (dejaLa ?? [])
+    .filter(p => p.stripe_payment_id !== payment.payment_id) as LignePaiement[];
+
+  const cashApres = calculerCash([
+    ...lignesHorsCePaiement,
+    { amount: Number(payment.amount), status: 'succeeded' },
+  ]);
+  const contracte = Number(deal.amount_total);
+  const excedent = Math.round((cashApres.net - contracte) * 100) / 100;
+
+  if (excedent > 0.01 && !body.confirmerDepassement) {
+    return NextResponse.json({
+      erreurDepassement: true,
+      // Tout ce qu'il faut pour trancher SANS aller le chercher ailleurs : c'est
+      // au moment du geste qu'on sait encore qui a payé quoi.
+      montantDuPaiement: Number(payment.amount),
+      contracte,
+      netAvant: Math.round(calculerCash(lignesHorsCePaiement).net * 100) / 100,
+      netApres: Math.round(cashApres.net * 100) / 100,
+      excedent,
+    }, { status: 409 });
+  }
+
   // delete + insert plutôt qu'upsert : onConflict est silencieusement inopérant
   // sur les index partiels avec le client Supabase JS.
   await supa.from('deal_payments')

@@ -93,6 +93,20 @@ function CauseDeLOrphelinat({ cause }: { cause: Orphan['cause'] }) {
   );
 }
 
+/**
+ * Le refus renvoye par la route quand un rattachement ferait passer une vente
+ * au-dessus de son montant contracte. Porte les chiffres du calcul : c'est au
+ * moment du geste qu'on sait encore qui a paye quoi, pas le lendemain matin.
+ */
+type Depassement = {
+  dealId: string;
+  montantDuPaiement: number;
+  contracte: number;
+  netAvant: number;
+  netApres: number;
+  excedent: number;
+};
+
 function OrphanCard({ orphan, onDone }: { orphan: Orphan; onDone: () => void }) {
   const [candidates, setCandidates] = useState<Candidate[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -103,6 +117,8 @@ function OrphanCard({ orphan, onDone }: { orphan: Orphan; onDone: () => void }) 
   // le problème qu'elle existe pour clore — l'échéance suivante reviendrait ici.
   const [lierAbonnement, setLierAbonnement] = useState(true);
   const [avertissement, setAvertissement] = useState<string | null>(null);
+  /** Le rattachement demandé ferait passer la vente au-dessus de son montant. */
+  const [depassement, setDepassement] = useState<Depassement | null>(null);
 
   async function load() {
     if (candidates || loading) return;
@@ -128,6 +144,22 @@ function OrphanCard({ orphan, onDone }: { orphan: Orphan; onDone: () => void }) 
         body: JSON.stringify({ paymentId: orphan.paymentId, ...body }),
       });
       const d = await r.json().catch(() => ({}));
+
+      // ── Le rattachement ferait dépasser le montant de la vente ──────────────
+      // Deux ventes au même montant la même semaine suffisent à se tromper de
+      // destinataire, et l'argent atterrit alors chez le mauvais client — deux
+      // séries de chiffres fausses, découvertes des semaines plus tard.
+      //
+      // On ne bloque pas : un sur-encaissement est un état légitime (le client a
+      // payé deux fois, ou le montant a baissé après coup). On force seulement à
+      // le VOIR. Le refus porte les chiffres du calcul, parce que c'est à cet
+      // instant précis qu'on sait encore qui a payé quoi.
+      if (r.status === 409 && d.erreurDepassement) {
+        setDepassement({ ...(d as Omit<Depassement, 'dealId'>), dealId: String(body.dealId ?? '') });
+        setBusy(false);
+        return;
+      }
+
       if (!r.ok) throw new Error(d.error || 'Échec du rattachement');
 
       // Le paiement est rattaché, mais l'abonnement ne l'a pas été : la vente en
@@ -291,6 +323,43 @@ function OrphanCard({ orphan, onDone }: { orphan: Orphan; onDone: () => void }) 
             {avertissement}
             <div style={{ marginTop: 10 }}>
               <BoutonFin onDone={onDone} discret>J&apos;ai compris</BoutonFin>
+            </div>
+          </div>
+        )}
+
+        {/* ── Le rattachement ferait dépasser le montant de la vente ───────────
+            La question posée n'est pas « es-tu sûr ? » — à laquelle on répond
+            toujours oui — mais « est-ce bien LUI qui a payé ça ? ». Les trois
+            chiffres sont là pour qu'on puisse répondre sans aller les chercher,
+            au seul moment où l'on sait encore qui a versé quoi. */}
+        {depassement && (
+          <div style={{
+            marginTop: 10, padding: '12px 14px', borderRadius: 9,
+            background: 'var(--amber-soft)', border: '1px solid rgba(181,128,37,.28)',
+            fontSize: 12.5, lineHeight: 1.6, color: 'var(--ink-2)',
+          }}>
+            <div style={{ fontWeight: 600, color: 'var(--amber-ink)', marginBottom: 5 }}>
+              Cette vente aurait alors encaissé {fmtEur(depassement.excedent)} de trop
+            </div>
+            Elle vaut {fmtEur(depassement.contracte)} et a déjà encaissé{' '}
+            {fmtEur(depassement.netAvant)}. En y ajoutant ce paiement de{' '}
+            {fmtEur(depassement.montantDuPaiement)}, elle passerait à{' '}
+            {fmtEur(depassement.netApres)}.
+            <div style={{ marginTop: 8 }}>
+              Deux ventes du même montant se ressemblent : vérifie que c’est bien{' '}
+              <strong>cette personne-là</strong> qui a versé cette somme. Si oui,
+              c’est simplement un trop-perçu — tu pourras le lui rendre depuis sa
+              fiche.
+            </div>
+            <div style={{ marginTop: 11, display: 'flex', gap: 9, flexWrap: 'wrap' }}>
+              <button className="btn-primary-brand" style={{ fontSize: 12.5 }} disabled={busy}
+                onClick={() => { setDepassement(null); act({ dealId: depassement.dealId, lierAbonnement, confirmerDepassement: true }); }}>
+                Oui, c’est bien lui — rattacher
+              </button>
+              <button className="btn-ghost" style={{ fontSize: 12.5 }} disabled={busy}
+                onClick={() => setDepassement(null)}>
+                Revenir
+              </button>
             </div>
           </div>
         )}
