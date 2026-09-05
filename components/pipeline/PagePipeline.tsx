@@ -29,7 +29,11 @@ interface IgLead {
   id: string;
   ig_username: string;
   ig_user_id: string;
-  keyword_matched: string;
+  // NULL quand il n'y a pas de mot-clé : un Cold DM n'en a aucun. La colonne a
+  // longtemps été NOT NULL, ce qui obligeait le webhook à inventer la valeur
+  // 'cold_dm' — un faux mot-clé que chaque lecteur devait ensuite apprendre à
+  // écarter, et l'un d'eux l'avait oublié (« Mot-clé : #cold_dm » à l'écran).
+  keyword_matched: string | null;
   lead_magnet_sent: boolean;
   hook_replied: boolean;
   hook_replied_at: string | null;
@@ -2836,7 +2840,11 @@ export default function PagePipeline() {
       const lmReceived = lead
         ? events.filter(e => e.ig_lead_id === lead.id && e.event_type === 'lm_link_requested').length
         : 0;
-      const sub = lead?.keyword_matched && lead.keyword_matched !== 'cold_dm'
+      // L'exception `!== 'cold_dm'` qui vivait ici n'a plus lieu d'être : la
+      // colonne ne porte plus de faux mot-clé, elle est NULL quand il n'y en a
+      // pas. Garder l'exception aurait entretenu la valeur qu'on vient de
+      // supprimer.
+      const sub = lead?.keyword_matched
         ? `#${lead.keyword_matched}`
         : (lead?.source === 'cold_dm' || prospect) ? 'Cold DM' : '';
 

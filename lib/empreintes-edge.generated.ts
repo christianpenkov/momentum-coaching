@@ -21,7 +21,7 @@ export const EMPREINTES_EDGE: Record<string, string> = {
   'fathom-cron-sync': 'a297c9d3ed787bc0', // 2 fichiers
   'installment-reminders': '8d9674a09565d8c8', // 1 fichier
   'notify-rapport': 'e4a81ea7cd76e171', // 2 fichiers
-  'poll-leads': 'afe260a053371b49', // 7 fichiers
+  'poll-leads': 'd6dd5530e45cacbb', // 8 fichiers
   'poll-stories': '8dec82c5f2fe74e6', // 2 fichiers
   'refresh-ig-posts': '2c8ad1014828b970', // 2 fichiers
   'send-pending-dm3': '339fd254c0b8a26e', // 2 fichiers

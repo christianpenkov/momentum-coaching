@@ -703,7 +703,11 @@ async function handleColdDmCandidate(params: {
       ig_username:      recipientUsername,
       ig_user_id:       recipientId,
       source:           'cold_dm',
-      keyword_matched:  'cold_dm',
+      // Un Cold DM n'a AUCUN mot-cle : personne n'a commente quoi que ce soit.
+      // NULL le dit ; 'cold_dm' l'inventait, et chaque lecteur devait ensuite
+      // apprendre a ecarter cette valeur — l'un d'eux l'avait oublie. C'est
+      // `source` qui porte l'origine, ici et partout ailleurs.
+      keyword_matched:  null,
       lead_magnet_sent: false,
       hook_replied:     false,
       detected_at:      now,
@@ -940,7 +944,11 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
               ig_username:      matchedLink.ig_username,
               ig_user_id:       recipientId || null,
               source:           'cold_dm',
-              keyword_matched:  'cold_dm',
+              // Un Cold DM n'a AUCUN mot-cle : personne n'a commente quoi que ce soit.
+              // NULL le dit ; 'cold_dm' l'inventait, et chaque lecteur devait ensuite
+              // apprendre a ecarter cette valeur — l'un d'eux l'avait oublie. C'est
+              // `source` qui porte l'origine, ici et partout ailleurs.
+              keyword_matched:  null,
               lead_magnet_sent: false,
               hook_replied:     false,
               ig_account_id:    canonicalIgAccountId ?? igAccountId,

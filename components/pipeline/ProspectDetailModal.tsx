@@ -31,7 +31,11 @@ interface TimelineEvent {
 
 const EVENT_STYLE: Record<string, { icon: Parameters<typeof Icon>[0]['name']; color: string }> = {
   hook_replied:        { icon: 'message-circle',        color: '#1a1815' },
+  // Sortant : c'est l'élève qui écrit le premier. L'avion, comme tout envoi.
+  cold_dm_sent:        { icon: 'send',                    color: '#1a1815' },
   lm_sent:             { icon: 'send',                    color: '#1a1815' },
+  // Entrant : la personne a cliqué le bouton du DM1 pour obtenir le lien.
+  lm_link_requested:   { icon: 'mouse-pointer-click',    color: '#1a1815' },
   lm_clicked:          { icon: 'file-down',              color: '#1a1815' },
   calendly_link_sent:  { icon: 'calendar-plus',          color: '#1a1815' },
   link_clicked:        { icon: 'mouse-pointer-click',    color: '#1a1815' },
@@ -98,9 +102,19 @@ function funnelRank(type: string): number {
 // base. Une table rend l'oubli visible, et le repli met en forme la cle plutot
 // que de l'afficher telle quelle, pour qu'un futur type non declare reste
 // presentable.
+// ⚠️ Un type absent d'ici n'est pas invisible : il s'affiche sous son nom
+// TECHNIQUE, via le repli de `labelFor`. C'est ce qui donnait « Cold dm sent »
+// et « Lm link requested » à l'écran. Tout nouveau type d'événement se déclare
+// ici le jour où il est écrit, pas le jour où quelqu'un le remarque.
+//
+// Chaque libellé dit le SENS du message : « envoyé » sortant, « réponse » /
+// « demandé » / « cliqué » entrant. Sans ça, une ligne de chronologie ne dit pas
+// qui a fait le geste.
 const EVENT_LABELS: Record<string, string> = {
   hook_replied:       "Réponse à l'accroche",
+  cold_dm_sent:       'Cold DM envoyé',
   lm_sent:            'Lead magnet envoyé',
+  lm_link_requested:  'Lien du lead magnet demandé',
   lm_clicked:         'Lead magnet ouvert',
   calendly_link_sent: 'Lien Calendly envoyé',
   link_clicked:       'Lien Calendly cliqué',
@@ -183,13 +197,27 @@ function buildProspectTimeline(ctx: ProspectContext): TimelineEvent[] {
   // Fallback : si aucun historique LM n'est disponible (lead ancien, avant l'ajout de
   // instagram_lead_lm_history, ou hors Instagram), garder l'ancien affichage basé sur
   // detected_at du lead.
-  if (ctx.lmHistory.length === 0 && ctx.lead?.detected_at) {
+  //
+  // ⚠️ UN COLD DM N'EST PAS UN COMMENTAIRE, et il a déjà sa ligne. Sa détection
+  // EST l'envoi du premier message, porté par l'événement `cold_dm_sent` — ce
+  // repli en ajoutait une seconde, à la même minute, libellée « Commentaire
+  // détecté ». Deux lignes pour un seul fait, dont une fausse.
+  //
+  // On teste la présence de l'événement plutôt que `source === 'cold_dm'` :
+  // `cold_dm_sent` a échoué en silence pendant des mois (zéro ligne en base
+  // avant le 2026-08-27), et les fiches de cette époque n'ont que ce repli pour
+  // montrer leur première ligne. Se fier à `source` les laisserait sans rien.
+  const aDejaSonColdDm = ctx.events.some(e => e.event_type === 'cold_dm_sent');
+  if (ctx.lmHistory.length === 0 && ctx.lead?.detected_at && !aDejaSonColdDm) {
+    const estColdDm = ctx.lead.source === 'cold_dm';
     events.push({
       id: `lead-detected-${ctx.lead.id}`,
-      type: 'hook_replied',
+      type: estColdDm ? 'cold_dm_sent' : 'hook_replied',
       occurredAt: ctx.lead.detected_at,
       source: 'event',
-      label: ctx.lead.keyword_matched ? `Commentaire détecté (#${ctx.lead.keyword_matched})` : 'Commentaire détecté',
+      label: estColdDm
+        ? 'Cold DM envoyé'
+        : ctx.lead.keyword_matched ? `Commentaire détecté (#${ctx.lead.keyword_matched})` : 'Commentaire détecté',
     });
   }
 

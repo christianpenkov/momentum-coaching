@@ -3348,6 +3348,15 @@ const LIBELLE_SOURCE_CALL: Record<string, string> = {
   yt_bio: 'Bio YouTube',
 };
 
+// L'origine d'une FICHE (`instagram_leads.source`) — à ne pas confondre avec la
+// source d'un CALL juste au-dessus : ce ne sont pas les mêmes valeurs, et les
+// mélanger donne un libellé vide sans que rien ne le signale.
+const LIBELLE_SOURCE_LEAD: Record<string, string> = {
+  cold_dm:     'Cold DM',
+  comment:     'Commentaire',
+  story_reply: 'Réponse à une story',
+};
+
 // ─── Panneau droit : Calendly prospect ───────────────────────────────────────
 
 function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calendlyUrl, posts }: {
@@ -3658,7 +3667,7 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
                       </span>
                       {/* D'où il vient : deux personnes peuvent porter le même
                           nom, et c'est le seul moyen de les distinguer ici. */}
-                      <span style={{ fontSize: 10, color: FAINT, flexShrink: 0 }}>{l.keyword_matched || l.origine}</span>
+                      <span style={{ fontSize: 10, color: FAINT, flexShrink: 0 }}>{l.keyword_matched || LIBELLE_SOURCE_LEAD[l.sourceLead ?? ''] || l.origine}</span>
                     </div>
                   ))}
                 </div>
@@ -3704,7 +3713,12 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
           )}
           {origineConnue && leadSaisi && (
             <div style={{ fontSize: 11.5, color: MUTED }}>
-              Origine déjà connue : <strong style={{ color: INK }}>{leadSaisi.keyword_matched ? `commentaire ${leadSaisi.keyword_matched}` : leadSaisi.origine}</strong>
+              {/* Ce bloc affichait « commentaire cold_dm » — une contradiction
+                  dans sa propre phrase. Sans mot-clé, on nomme la source de la
+                  fiche, qui est justement ce que « origine connue » veut dire. */}
+              Origine déjà connue : <strong style={{ color: INK }}>{leadSaisi.keyword_matched
+                ? `commentaire ${leadSaisi.keyword_matched}`
+                : LIBELLE_SOURCE_LEAD[leadSaisi.sourceLead ?? ''] ?? leadSaisi.origine}</strong>
             </div>
           )}
 
