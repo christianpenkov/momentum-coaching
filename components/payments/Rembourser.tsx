@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { jourCourantIci } from '@/lib/timezone';
+import { resteARembourser, remboursementConstate } from '@/lib/remboursementConstate';
 import Icon from '@/components/ui/Icon';
 import ModaleAction, {
   BoutonFin,
@@ -91,16 +92,32 @@ function AttendreStripe({
     return () => clearTimeout(t);
   }, []);
 
-  // ── Ce qui reste à rendre se relit, il ne se retient pas ──────────────────
-  // On ne décompte pas depuis `aRembourser` : c'est la valeur au moment où
-  // l'écran s'est ouvert, et elle ne bougerait plus. En repartant de
-  // `deal.collected` — que le rafraîchissement met à jour — un remboursement
-  // partiel fait descendre le chiffre, et un remboursement complet ferme
-  // l'écran tout seul.
-  const restant = motif === 'surplus'
-    ? Math.max(0, arrondi(deal.collected - deal.amountTotal))
-    : deal.collected;
-  const fait = restant <= 0.005;
+  // ── UN REMBOURSEMENT SE CONSTATE PAR UNE BAISSE, JAMAIS PAR UNE COMPARAISON ─
+  //
+  // ⚠️ L'ancienne version comparait `deal.collected` a `deal.amountTotal`. Les
+  // deux venaient du meme objet `deal`, et cet objet DATE D'AVANT le geste qui a
+  // conduit ici : `ModifierMontant` appelle `onRembourser` sans rafraichir, donc
+  // `amountTotal` valait encore l'ancien montant. Sur RZK le 2026-09-05 : montant
+  // ramene de 500 a 300 EUR, `deal` encore a 500, `collected` a 500 -> restant 0
+  // -> l'ecran a affiche « Remboursement constate — les chiffres sont a jour »
+  // alors que rien n'avait ete rembourse et que 200 EUR etaient dus au client.
+  //
+  // Le commentaire d'origine se mefiait deja d'une valeur figee (« on ne
+  // decompte pas depuis `aRembourser` »), mais `deal` en est une aussi — et la,
+  // les DEUX termes de la soustraction etaient perimes.
+  //
+  // On mesure donc le SEUL fait qui prouve un remboursement : l'argent encaisse a
+  // baisse. `netAuDepart` est fige au montage ; `deal.collected` descend quand le
+  // webhook enregistre le remboursement et que `onRafraichir` relit. Aucune
+  // comparaison avec le contracte, donc aucune dependance a une valeur que
+  // l'ecran precedent vient de changer.
+  //
+  // Regle generale : un ecran qui AFFIRME avoir constate un mouvement d'argent ne
+  // doit jamais le deduire de donnees anterieures a ce mouvement.
+  const netAuDepart = useRef(deal.collected);
+  const etat = { aRembourser, netAuDepart: netAuDepart.current, netMaintenant: deal.collected };
+  const restant = resteARembourser(etat);
+  const fait = remboursementConstate(etat);
 
   // ── Le cas « plusieurs échéances » ────────────────────────────────────────
   // Stripe ne rembourse pas un plan en un geste : un remboursement par paiement,
