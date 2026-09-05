@@ -389,6 +389,18 @@ export async function POST(request: NextRequest) {
     amount_total: amount,
     currency: 'eur',
     payment_plan: plan,
+    // ⚠️ LE SECOND CHEMIN. `terms/route.ts` enregistre le moyen quand on MODIFIE
+    // les modalites ; celui-ci le fait a la CREATION, depuis le rapport de vente.
+    // Ne corriger que le premier laissait toutes les ventes nees hors Stripe avec
+    // un `moyen_encaissement` a NULL, donc reclamant indefiniment un choix
+    // pourtant fait a la signature — le defaut ferme d'un cote et rouvert de
+    // l'autre. Les deux cotes d'une meme partition se corrigent ensemble.
+    //
+    // `offline` est la variable qui a decide de tout ce bloc quelques lignes plus
+    // haut : la lire ici, plutot que de rededuire depuis `plan`, evite que les
+    // deux reponses divergent un jour.
+    moyen_encaissement: offline ? 'offline'
+      : plan === 'installments_auto' ? 'prelevement' : 'lien',
     installments_count: count,
     installment_interval: plan === 'one_shot' ? null : interval,
     signed_at: signedAt,

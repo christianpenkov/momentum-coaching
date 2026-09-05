@@ -178,6 +178,11 @@ export async function PATCH(
 
     await supa.from('deals').update({
       payment_plan: 'installments_auto',
+      // Troisieme point d'ecriture du plan, et donc du moyen : l'ajustement en
+      // place d'un prelevement deja en cours. Il ne CHANGE pas le moyen — on est
+      // deja en prelevement — mais le reecrire coute une ligne et ferme le cas ou
+      // la vente aurait ete creee avant l'existence de la colonne.
+      moyen_encaissement: 'prelevement',
       installments_count: nbEcheances > 1 ? nbEcheances : null,
       installment_interval: nbEcheances > 1 ? interval : null,
     }).eq('id', dealId);
