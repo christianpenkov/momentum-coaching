@@ -110,9 +110,9 @@ export const MIGRATIONS_DEPOT: { version: string; nom: string }[] = [
   { version: '20260902100000', nom: 'dernier_snapshot_par_profil' },
   { version: '20260902110000', nom: 'memoire_premiere_connexion_integrations' },
   { version: '20260902130000', nom: 'backfill_ig_account_id_snapshots_quotidiens' },
+  { version: '20260902142947', nom: 'call_recordings' },
   { version: '20260902143239', nom: 'deal_payments_refund_reason' },
   { version: '20260902144205', nom: 'deals_refund_explique' },
-  { version: '20260902160000', nom: 'call_recordings' },
   { version: '20260902200000', nom: 'verrouillage_acces_anon' },
   { version: '20260903100000', nom: 'figer_detected_at' },
   { version: '20260903140000', nom: 'attribution_contenu_journal' },
@@ -164,4 +164,6 @@ export const MIGRATIONS_DEPOT: { version: string; nom: string }[] = [
   { version: '20260905150000', nom: 'edge_empreinte_horodatage_autonome' },
   { version: '20260905150000', nom: 'moyen_encaissement_valeur_explicite' },
   { version: '20260905160000', nom: 'keyword_matched_nullable' },
+  { version: '20260905160000', nom: 'moyen_encaissement_echeancier_sans_lien' },
+  { version: '20260905170000', nom: 'moyen_encaissement_paiement_offline' },
 ];

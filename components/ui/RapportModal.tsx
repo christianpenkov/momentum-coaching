@@ -171,7 +171,14 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
     // modale repartait avec des champs vides, et le patch les écrasait par
     // `null` sans que personne ne l'ait demandé.
     outcomeChoice: (existing?.outcome === 'no_show' ? null : existing?.outcome ?? null) as RapportAnswers['outcomeChoice'],
-    showedUp: existing?.outcome ? existing.outcome !== 'no_show' : null,
+    // `rescheduled` mis à part : sur un appel reporté, la question « s'est-il
+    // présenté ? » n'a jamais reçu de réponse — le parcours bifurque avant. La
+    // déduire de l'issue faisait surligner « Oui, il était là » à la réouverture,
+    // et rendait du même coup inatteignable la branche `rescheduled` de `value`
+    // sur l'écran show_up (elle ne servait plus qu'en cours de saisie).
+    showedUp: existing?.outcome && existing.outcome !== 'rescheduled'
+      ? existing.outcome !== 'no_show'
+      : null,
     qualified: existing?.qualified ?? null,
     objection: (existing?.objection ?? null) as ObjectionChoice | null,
     objectionAutre: existing?.objectionAutre ?? '',
@@ -770,7 +777,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               // nécessaire, et la raison d'être de ce composant.
               value={answers.showedUp === true ? 'yes' : answers.showedUp === false ? 'no' : answers.outcomeChoice === 'rescheduled' ? 'rescheduled' : null}
               choices={[
-                { value: 'yes', label: 'Oui, il était là', tone: 'primary' },
+                { value: 'yes', label: 'Oui, il était là' },
                 { value: 'no', label: 'No-show' },
                 { value: 'rescheduled', label: 'Appel reporté — nouvelle date à planifier', tone: 'warning' },
               ]}
@@ -790,8 +797,8 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               disabled={saving}
               value={answers.qualified === true ? 'yes' : answers.qualified === false ? 'no' : null}
               choices={[
-                { value: 'yes', label: 'Oui, qualifié', tone: 'primary' },
-                { value: 'no', label: 'Non, pas qualifié', tone: 'neutral' },
+                { value: 'yes', label: 'Oui, qualifié' },
+                { value: 'no', label: 'Non, pas qualifié' },
               ]}
               onChoose={v => handleQualified(v === 'yes')}
             />
@@ -877,7 +884,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               disabled={saving}
               value={answers.outcomeChoice === 'rescheduled' ? null : answers.outcomeChoice}
               choices={[
-                { value: 'closed', label: 'Oui, lead closé !', tone: 'primary' },
+                { value: 'closed', label: 'Oui, lead closé !' },
                 { value: 'second_call', label: isFollowUp ? 'Prochain call prévu' : '2ème call prévu' },
                 { value: 'to_recontact', label: 'Pas closé — à recontacter' },
                 // Deux issues qui existaient dans le pipeline sans qu'aucun
