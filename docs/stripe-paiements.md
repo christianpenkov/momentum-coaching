@@ -85,6 +85,8 @@ Mode **Comptes connectés** · Charge utile **Instantané** · API **2025-02-24.
 | `charge.refunded` | Ligne `refunded` séparée → le net baisse |
 | `refund.failed` | Retire la ligne : le remboursement n'a pas abouti |
 | `charge.dispute.created` | Ligne `disputed`, date limite, notification push |
+| `charge.dispute.updated` | Preuves envoyées → efface la date limite, le bandeau ne réclame plus rien |
+| `charge.dispute.closed` | Verdict rendu → journal « litige gagné » ou « litige perdu » |
 | `charge.dispute.funds_reinstated` | Retire la ligne : litige gagné, l'argent revient |
 | `customer.subscription.updated` | Lit `cancel_at_period_end` → « s'arrête après le … » |
 | `customer.subscription.deleted` | La vente passe en **terminée**, `ended_by = 'stripe'` |
@@ -102,6 +104,39 @@ Mode **Comptes connectés** · Charge utile **Instantané** · API **2025-02-24.
 
 ✅ `readInvoiceSubscription` gère **les deux structures** de facture (acacia et
 dahlia+) : une montée de version d'API ne demande rien.
+
+### Provoquer un litige de test — et le faire aboutir
+
+Payer avec **`4000 0000 0000 0259`** (n'importe quel CVC, date future). Stripe
+ouvre le litige tout seul, environ **90 secondes** après le paiement.
+
+Ensuite, pour que Stripe rende un verdict, il faut lui envoyer une **chaîne
+magique**, et elle n'est lue **que dans un seul champ** :
+
+| Champ de l'API | Nom dans le dashboard | Lu par Stripe ? |
+|---|---|---|
+| `uncategorized_text` | **Explication non catégorisée** | ✅ **le seul** |
+| `product_description` | Description | ❌ ignoré |
+| tous les autres | — | ❌ ignorés |
+
+Les deux valeurs : **`winning_evidence`** (litige gagné → `closed` +
+`funds_reinstated`) · **`losing_evidence`** (litige perdu → `closed` seul).
+
+⚠️ **On ne soumet des preuves qu'UNE FOIS par litige.** Il n'y a pas de seconde
+chance : une chaîne posée dans le mauvais champ, ou mal orthographiée, laisse le
+litige en `under_review` **définitivement**. Il faut alors refaire un paiement et
+un nouveau litige.
+
+Vérifier ce que Stripe a réellement enregistré, avant de conclure quoi que ce
+soit sur le webhook :
+
+```
+GET /v1/disputes?charge=ch_…      → status + evidence.uncategorized_text
+```
+
+Deux erreurs déjà commises, chacune coûtant un litige : `"Winnning evidence"`
+(faute de frappe) le 2026-09-05, puis la bonne chaîne dans `product_description`
+la nuit suivante. **Relire la valeur avec l'API avant de soumettre.**
 
 ---
 
