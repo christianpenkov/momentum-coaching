@@ -30,6 +30,13 @@ This version has breaking changes — APIs, conventions, and file structure may 
   chargement** → `docs/pastille-et-sauts-accueil.md`. Dix bugs, un seul
   mécanisme : une valeur inconnue lue comme une valeur connue. Contient aussi
   les requêtes de diagnostic de la chaîne push.
+- **Écrire une requête Supabase dont le résultat vide s'affiche** (journal,
+  historique, liste d'événements) → `docs/requetes-qui-echouent-en-silence.md`.
+  Une colonne inconnue rend HTTP 400 ; l'erreur non lue devient `data: null`,
+  puis une liste vide, puis un écran qui montre une absence au lieu d'une panne.
+  Le journal des ventes a été vide **depuis toujours** pour cette raison. Deux
+  pièges nommés : `order` n'accepte pas les alias du `select`, et un cast `as`
+  supprime la seule protection automatique qui reste.
 - **Poser une modale mobile qui contient un champ de saisie** →
   `docs/clavier-mobile-modales.md`. La recette tient en dix lignes, mais six
   corrections déduites ont échoué avant : `window.innerHeight` est écrasé par iOS

@@ -517,7 +517,15 @@ export async function GET(request: NextRequest) {
   const dealIds = (deals ?? []).map((d: any) => d.id);
   const journalParDeal = new Map<string, any[]>();
   if (dealIds.length) {
-    const { data: events } = await supa
+    // ⚠️ L'ERREUR EST LUE. Elle ne l'etait pas, et c'est ce qui a rendu le
+    // defaut invisible : une requete refusee rend `data: null`, le `?? []` en
+    // fait une liste vide, et un journal vide ressemble a un journal sans
+    // evenement. Aucun symptome, aucun test rouge, pendant des mois.
+    //
+    // Regle : partout ou une liste VIDE est un resultat plausible, l'erreur doit
+    // etre lue. C'est le seul moyen de distinguer « il ne s'est rien passe » de
+    // « je n'ai pas pu demander ».
+    const { data: events, error: erreurJournal } = await supa
       .from('deal_events')
       // ⚠️ `created_at:at` — la colonne s'appelle `at`, PAS `created_at`.
       // La selectionner sous son faux nom faisait ECHOUER la requete, et l'erreur
@@ -541,6 +549,7 @@ export async function GET(request: NextRequest) {
       // requete en HTTP 400, et le journal vide — le meme defaut, a moitie ferme.
       // Mesure du 2026-09-05 : `order=created_at` -> 400, `order=at` -> 3 lignes.
       .order('at', { ascending: true });
+    if (erreurJournal) console.error('[paiements] journal illisible :', erreurJournal.message);
     for (const e of events ?? []) {
       const liste = journalParDeal.get(e.deal_id);
       if (liste) liste.push(e); else journalParDeal.set(e.deal_id, [e]);
