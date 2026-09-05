@@ -482,13 +482,18 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
                   {/* Encadré, et non `btn-ghost` : sans bordure il se lisait
                       comme une phrase et non comme la seconde issue. Deux
                       chemins d'égale légitimité doivent se ressembler assez pour
-                      qu'on comprenne qu'il faut choisir. */}
+                      qu'on comprenne qu'il faut choisir.
+                      ⚠️ NEUTRE, et non dans l'ocre du bloc : teinté, il se lisait
+                      comme un avertissement alors que c'est simplement l'autre
+                      choix. La couleur porte la gravité, jamais l'appartenance
+                      au bloc qui l'entoure. Mêmes valeurs que la barre d'actions
+                      plus bas, pour qu'un bouton neutre se ressemble partout. */}
                   <button onClick={onPorterLaVenteAuVerse} style={{
                     fontSize: 12.5, padding: '7px 13px', borderRadius: 8,
                     fontFamily: 'inherit', cursor: 'pointer',
                     background: 'var(--surface)',
-                    border: '1px solid rgba(181,128,37,.45)',
-                    color: 'var(--amber-ink)', whiteSpace: 'nowrap',
+                    border: '1px solid var(--border)',
+                    color: 'var(--ink-2)', whiteSpace: 'nowrap',
                   }}>
                     Porter la vente à {fmtEurExact(deal.collected)}
                   </button>
