@@ -258,6 +258,13 @@ export async function PATCH(
   }
 
   await supa.from('deals').update({
+    // ⚠️ `payment_plan` repond a COMBIEN DE FOIS, `moyen_encaissement` a PAR QUEL
+    // MOYEN. `offline` est un moyen : le replier sur `one_shot` (ci-dessous) le
+    // faisait disparaitre, et une vente dont on venait de choisir « hors Stripe »
+    // redevenait indiscernable d'une vente ou personne n'avait rien decide. La
+    // fiche reclamait alors indefiniment un choix deja fait.
+    moyen_encaissement: plan === 'offline' ? 'offline'
+      : plan === 'installments_auto' ? 'prelevement' : 'lien',
     payment_plan: plan === 'offline' ? (nbEcheances > 1 ? 'installments_manual' : 'one_shot') : plan,
     installments_count: nbEcheances > 1 ? nbEcheances : null,
     installment_interval: nbEcheances > 1 ? interval : null,

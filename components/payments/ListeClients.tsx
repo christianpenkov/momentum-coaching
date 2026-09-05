@@ -3,7 +3,7 @@
 import Icon from '@/components/ui/Icon';
 import Avatar, { getInitials, seedForPerson } from '@/components/ui/Avatar';
 import { useIsMobile } from '@/lib/useIsMobile';
-import { ETATS, libelleEtat, type EtatVente } from './etats';
+import { ETATS, libelleEtat, moyenDefini, compteDansLesTotaux, type EtatVente } from './etats';
 import { Barre } from './FicheClient';
 import { fmtEurExact, fmtDateLong, type PersonRow, type DealRow } from './types';
 
@@ -67,6 +67,18 @@ function LigneClient({ person, deals, isMobile, isCoach, onOuvrir }: {
   // « Soldée » — et la question ne se voyait donc qu'en ouvrant la fiche, une
   // par une. Une question qu'il faut chercher est une question sans réponse.
   const aExpliquer = siennes.some(d => d.refundInexplique > 0.005);
+  // ── Rien n'est en place pour encaisser cette vente ────────────────────────
+  // Meme raison que ci-dessus : la pastille dit l'ETAT (« En cours »), pas qu'il
+  // manque une decision. Une vente signee sans moyen de paiement reste « En
+  // cours » indefiniment — l'argent n'a simplement aucun chemin pour arriver, et
+  // rien dans la liste ne le disait. Il fallait ouvrir chaque fiche.
+  //
+  // `moyenDefini` et non « pas de lien » : depuis le 2026-09-05 la base enregistre
+  // le moyen CHOISI, donc « hors Stripe » decide explicitement ne compte plus
+  // comme une absence.
+  const aChoisirModalites = siennes.some(
+    d => compteDansLesTotaux(d) && d.status !== 'ended'
+      && d.amountTotal - d.collectedRetenu > 0.005 && !moyenDefini(d));
   const origine = isCoach ? person.subtitleCoach : person.subtitle;
   const soustitre = [origine, resume(siennes, person)].filter(Boolean).join(' · ');
 
@@ -115,6 +127,13 @@ function LigneClient({ person, deals, isMobile, isCoach, onOuvrir }: {
             {/* Une étiquette et non une teinte : la couleur de la pastille est
                 déjà prise par l'état, et lui en superposer une seconde rendrait
                 les deux illisibles. Le mot dit ce qu'on attend de toi. */}
+            {aChoisirModalites && (
+              <span title="Aucun moyen d’encaisser n’a encore été choisi" style={{
+                flexShrink: 0, display: 'inline-flex', alignItems: 'center',
+              }}>
+                <Icon name="alert-triangle" size={13} color="var(--amber-ink)" />
+              </span>
+            )}
             {aExpliquer && (
               <span style={{
                 flexShrink: 0, fontSize: 9.5, fontWeight: 600, letterSpacing: '.2px',

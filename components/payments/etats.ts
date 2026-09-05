@@ -164,6 +164,18 @@ export function moyenDe(d: DealRow): Moyen {
  * décision à prendre.
  */
 export function moyenDefini(d: DealRow): boolean {
+  // ⚠️ Le CHOIX d'abord, la deduction ensuite — et jamais l'inverse.
+  //
+  // Cette fonction ne regardait que les OUTILS en place (abonnement, liens,
+  // echeancier). « Hors Stripe » n'en cree aucun : une vente dont l'eleve venait
+  // de choisir ce moyen repondait donc « non defini », et la fiche reclamait
+  // indefiniment une decision deja prise. La cause etait en base — `terms` ne
+  // stockait pas `offline` — et est fermee par `deals.moyen_encaissement`.
+  //
+  // La deduction reste en second : une vente creee par le rapport de vente porte
+  // ses liens sans etre jamais passee par l'ecran des modalites, et son moyen est
+  // pourtant evident.
+  if (d.moyenChoisi !== null && d.moyenChoisi !== undefined) return true;
   return !!d.stripeSubscriptionId || d.hasLinks || d.hasSchedule;
 }
 

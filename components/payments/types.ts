@@ -25,6 +25,8 @@ export interface DealRow {
   collectedRetenu: number;
   status: string;
   paymentPlan: string;
+  /** Le moyen CHOISI. `null` = jamais decide — et non « aucun moyen ». */
+  moyenChoisi: 'lien' | 'prelevement' | 'offline' | null;
   installmentsCount: number | null;
   installmentInterval: string | null;
   signedAt: string;

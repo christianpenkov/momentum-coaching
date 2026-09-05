@@ -39,6 +39,8 @@ export interface DealRow {
   collectedRetenu: number;
   status: string;
   paymentPlan: string;
+  /** Le moyen CHOISI. `null` = jamais decide — et non « aucun moyen ». */
+  moyenChoisi: 'lien' | 'prelevement' | 'offline' | null;
   installmentsCount: number | null;
   installmentInterval: string | null;
   signedAt: string;
@@ -146,7 +148,7 @@ export async function GET(request: NextRequest) {
     .from('deals')
     .select(`
       id, buyer_name, buyer_email, buyer_kind, amount_total, currency, status, refund_explique,
-      payment_plan, installments_count, installment_interval, signed_at,
+      payment_plan, moyen_encaissement, installments_count, installment_interval, signed_at,
       short_url, ig_lead_id, call_id, client_id, prospect_id,
       stripe_subscription_id, stripe_customer_id, stripe_payment_link_id,
       first_touch_content_id, attribution_source, shortio_link_id,
@@ -280,6 +282,7 @@ export async function GET(request: NextRequest) {
       collectedRetenu,
       status: d.status,
       paymentPlan: d.payment_plan,
+      moyenChoisi: (d.moyen_encaissement ?? null) as 'lien' | 'prelevement' | 'offline' | null,
       installmentsCount: d.installments_count,
       installmentInterval: d.installment_interval,
       signedAt: d.signed_at,

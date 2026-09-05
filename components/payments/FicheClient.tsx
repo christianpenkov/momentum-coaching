@@ -410,6 +410,36 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
             pas qu'il attend un clic. La question restait donc sans réponse alors
             même qu'elle était vue. Ce qui appelle une action doit RESSEMBLER à
             une action. */}
+        {/* ── Rien n'est en place pour encaisser cette vente ────────────────
+            Une vente signee sans moyen de paiement reste « En cours »
+            indefiniment : l'argent n'a aucun chemin pour arriver, et l'etat ne
+            le dit pas — c'est une DECISION qui manque, pas une etape qui traine.
+            Le bouton existait en bas de la fiche, mais un bouton parmi cinq ne
+            se lit pas comme une chose a faire.
+            Affiche seulement s'il reste a encaisser : sur une vente deja reglee,
+            reclamer un moyen d'encaisser n'aurait plus d'objet. */}
+        {!moyenDefini(deal) && etat !== 'ended' && etat !== 'canceled'
+          && deal.amountTotal - deal.collectedRetenu > 0.005 && (
+          <div style={{
+            marginTop: 10, background: 'var(--amber-soft)',
+            border: '1px solid rgba(181,128,37,.28)', borderRadius: 10, padding: '12px 14px',
+          }}>
+            <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--amber-ink)', marginBottom: 3 }}>
+              Rien n’est encore en place pour encaisser cette vente
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--ink-2)', lineHeight: 1.55 }}>
+              Ni lien de paiement, ni prélèvements, ni encaissement hors Stripe :
+              tant que ce n’est pas choisi, {deal.buyerName.split(' ')[0]} n’a aucun
+              moyen de payer et tu ne peux pas noter ce que tu as reçu.
+            </div>
+            <button onClick={() => onAction('modalites')}
+              className="btn-primary-brand"
+              style={{ fontSize: 12.5, marginTop: 11 }}>
+              Choisir les modalités de paiement
+            </button>
+          </div>
+        )}
+
         {aExpliquer && (
           <div style={{
             marginTop: 10, background: 'var(--amber-soft)',
@@ -697,23 +727,17 @@ function BarreActions({ deal, etat, mode, onAction }: {
     // attendait. Un second bouton aurait fait doublon : c'est le libellé qui
     // change, pas l'écran.
     //
-    // ⚠️ Et le bouton DISPARAIT quand il ne reste rien à encaisser. Relevé par
-    // Chris : TestStory, entièrement payée hors Stripe, affichait « Choisir les
-    // modalités de paiement » — soit une invitation à décider comment encaisser
-    // un argent déjà reçu. Le libellé se lit comme une tâche en attente, et il
-    // annonçait un travail qui n'existe pas. `RelancesTab` appliquait déjà la
-    // règle en écartant les ventes soldées ; la fiche était le seul écran à ne
-    // pas la suivre.
-    //
-    // `collectedRetenu` et non `collected` : sur une vente en trop-perçu, le
-    // brut dépasse le contracté et un simple `collected < amountTotal` serait
-    // faux dans les deux sens selon le signe de l'écart.
-    if (deal.amountTotal - deal.collectedRetenu > 0.005) {
-      boutons.push([
-        moyenDefini(deal) ? 'Modalités' : 'Choisir les modalités de paiement',
-        'modalites',
-      ]);
-    }
+    // ⚠️ TOUJOURS PRESENT, y compris sur une vente soldee. J'avais tente de le
+    // masquer quand il ne restait rien a encaisser, en prenant « plus rien a
+    // encaisser » pour « modalites decidees » — deux questions differentes, et
+    // exactement la confusion que ce fichier traque ailleurs. Changer les
+    // modalites apres encaissement est un cas GERE (`terms/route.ts:108`, qui
+    // renvoie `refaireRequis` avec le montant a rembourser) : le retirer ferait
+    // disparaitre une action qui fonctionne. Corrige apres remarque de Chris.
+    boutons.push([
+      moyenDefini(deal) ? 'Modalités' : 'Choisir les modalités de paiement',
+      'modalites',
+    ]);
     if (mode === 'installments_auto' && deal.stripeSubscriptionId) {
       boutons.push(['Arrêter', 'arreter']);
     }
