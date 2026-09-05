@@ -195,23 +195,31 @@ const SURVEILLANCES: Surveillance[] = [
     ],
     docs: ['docs/stripe-paiements.md', 'docs/perimetre-stats-referentiel.md (règle 7)'],
   },
-  {
-    cle: 'sante_ventes_sur_encaissement',
-    source: 'ventes_sante_sur_encaissement',
-    titre: 'Un trop-perçu est resté sans suite depuis plus de 72 h',
-    detection: 'toute_ligne',
-    surveille:
-      'Qu’aucun deal n’ait encaissé NET plus d’argent qu’il n’en a contracté SANS QUE PERSONNE N’Y TOUCHE pendant trois jours. Net = encaissé − remboursé − contesté, la règle unique de `lib/dealCash.ts`. Le délai part du geste qui a créé l’écart : le dernier paiement, ou la dernière baisse de montant au journal.',
-    signifie:
-      'Quelqu’un a versé plus que sa vente ne vaut, et personne ne l’a traité depuis trois jours. ⚠️ Ce n’est PAS une alerte « il y a un trop-perçu » : la fiche client l’affiche déjà, avec un bouton « Rembourser le trop-perçu », et alerter là-dessus doublerait l’écran au lieu de le compléter. Cette vue ne dit donc pas que le trop-perçu existe, elle dit que personne ne l’a vu. Les deux causes possibles sont indiscernables en base et demandent des gestes opposés : un client qui a payé deux fois (on lui rend), ou un paiement rattaché au MAUVAIS deal (on le rattache ailleurs, et les chiffres de deux clients sont faux). ⚠️ Elle comparait du BRUT jusqu’au 3 septembre 2026 et alertait SANS DÉLAI jusqu’au 5 septembre — deux fois le même défaut : crier sur un état voulu.',
-    quoiFaire: [
-      '`select * from ventes_sante_sur_encaissement;` — `excedent_depuis` dit depuis quand, `encaisse_brut` / `rembourse` / `conteste` / `encaisse_net` séparent les lectures.',
-      'Trancher entre les deux causes AVANT d’agir : le montant en trop correspond-il exactement à un paiement d’un AUTRE deal du même client ? Alors il est mal rattaché, et le rendre serait une erreur.',
-      'Si c’est un vrai trop-perçu : ouvrir la fiche du client et cliquer « Rembourser le trop-perçu ». L’alerte se réarmera d’elle-même quand la vue redeviendra vide.',
-      'Ne jamais sommer des paiements à la main pour trancher : `lib/dealCash.ts` porte la règle unique, et elle déduit les remboursements ET les contestations.',
-    ],
-    docs: ['docs/stripe-paiements.md', 'lib/dealCash.ts'],
-  },
+  // ── RETIREE DES E-MAILS le 2026-09-05 — `ventes_sante_sur_encaissement` ─────
+  //
+  // La vue existe toujours et reste interrogeable ; elle n'ecrit simplement plus
+  // a l'exploitant de la plateforme. Decision de Chris, et elle est juste :
+  //
+  //   « un trop-percu qui est la depuis un mois, c'est pas de ma faute mais de
+  //     l'user — que ca m'envoie pas de mails a moi pour ca »
+  //
+  // Un sur-encaissement fausse les chiffres D'UN COACH, sur SES clients, et lui
+  // seul sait qui a paye quoi. L'exploitant ne connait pas ces clients : il ne
+  // peut ni trancher ni corriger. Une alerte qu'on ne peut pas traiter est une
+  // alerte qu'on apprend a ignorer — et c'est celles qui comptent qui trinquent.
+  //
+  // Le cas est desormais pris en charge la ou il appartient :
+  //   · a l'ECRITURE  — `orphans/route.ts` refuse un rattachement qui ferait
+  //     depasser le montant contracte, en affichant les chiffres, et exige une
+  //     confirmation explicite. L'erreur ne peut plus se commettre distraitement.
+  //   · a la LECTURE  — la fiche du client affiche « X EUR verses en trop » avec
+  //     un bouton « Rembourser le trop-percu ». C'est l'ecran du coach, celui de
+  //     la personne qui peut agir.
+  //
+  // Regle generale a retenir avant d'ajouter une surveillance ici : n'y mettre
+  // que ce que l'EXPLOITANT peut reparer — cron arrete, code en ligne perime,
+  // acces ouvert, stockage sature, migrations divergentes. Jamais une donnee
+  // metier d'un compte client.
   {
     cle: 'sante_stripe_rattachement',
     source: 'stripe_sante_rattachement',
