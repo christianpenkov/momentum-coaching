@@ -111,21 +111,37 @@ Payer avec **`4000 0000 0000 0259`** (n'importe quel CVC, date future). Stripe
 ouvre le litige tout seul, environ **90 secondes** après le paiement.
 
 Ensuite, pour que Stripe rende un verdict, il faut lui envoyer une **chaîne
-magique**, et elle n'est lue **que dans un seul champ** :
+magique**. Elle n'est lue **que dans un seul champ**, et ce champ ne porte pas le
+même nom des deux côtés :
 
-| Champ de l'API | Nom dans le dashboard | Lu par Stripe ? |
-|---|---|---|
-| `uncategorized_text` | **Explication non catégorisée** | ✅ **le seul** |
-| `product_description` | Description | ❌ ignoré |
-| tous les autres | — | ❌ ignorés |
+| Où l'on répond | Le champ à remplir |
+|---|---|
+| Dashboard (le cas de Chris) | **« Informations supplémentaires »** |
+| API | `evidence[uncategorized_text]` |
 
-Les deux valeurs : **`winning_evidence`** (litige gagné → `closed` +
-`funds_reinstated`) · **`losing_evidence`** (litige perdu → `closed` seul).
+> « Si vous répondez via le Dashboard […], saisissez l'une des valeurs du tableau
+> dans le champ **Informations supplémentaires**, puis cliquez sur **Soumettre
+> des preuves**. » — [docs.stripe.com/testing#disputes](https://docs.stripe.com/testing#disputes)
 
-⚠️ **On ne soumet des preuves qu'UNE FOIS par litige.** Il n'y a pas de seconde
-chance : une chaîne posée dans le mauvais champ, ou mal orthographiée, laisse le
-litige en `under_review` **définitivement**. Il faut alors refaire un paiement et
-un nouveau litige.
+**Tout autre champ est ignoré**, y compris « Description » (`product_description`).
+
+Les trois valeurs :
+
+| Valeur | Résultat |
+|---|---|
+| `winning_evidence` | litige **gagné** → `closed` (`won`) + `funds_reinstated` |
+| `losing_evidence` | litige **perdu** → `closed` (`lost`), rien n'est recrédité |
+| `escalate_inquiry_evidence` | transforme une demande d'information en vrai litige |
+
+⚠️ **Une seule soumission par litige, sans exception :**
+
+> « Vous ne disposez que d'une seule occasion pour soumettre votre réponse. […]
+> Vous ne pourrez ni modifier votre réponse ni envoyer de fichiers
+> supplémentaires. » — [docs.stripe.com/disputes/responding](https://docs.stripe.com/disputes/responding)
+
+Une chaîne posée dans le mauvais champ, ou mal orthographiée, laisse donc le
+litige en `under_review` **définitivement**. Il faut refaire un paiement et un
+nouveau litige.
 
 Vérifier ce que Stripe a réellement enregistré, avant de conclure quoi que ce
 soit sur le webhook :
@@ -134,9 +150,10 @@ soit sur le webhook :
 GET /v1/disputes?charge=ch_…      → status + evidence.uncategorized_text
 ```
 
-Deux erreurs déjà commises, chacune coûtant un litige : `"Winnning evidence"`
-(faute de frappe) le 2026-09-05, puis la bonne chaîne dans `product_description`
-la nuit suivante. **Relire la valeur avec l'API avant de soumettre.**
+Deux litiges déjà perdus, chacun pour la même famille d'erreur : `"Winnning
+evidence"` (faute de frappe) le 2026-09-05, puis la bonne chaîne dans le champ
+« Description » la nuit suivante. **Dans les deux cas la consigne venait de
+mémoire, pas de la doc.** Relire la page ci-dessus avant de guider quelqu'un.
 
 ---
 
