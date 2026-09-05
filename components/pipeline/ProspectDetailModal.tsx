@@ -114,7 +114,11 @@ const EVENT_LABELS: Record<string, string> = {
   hook_replied:       "Réponse à l'accroche",
   cold_dm_sent:       'Cold DM envoyé',
   lm_sent:            'Lead magnet envoyé',
-  lm_link_requested:  'Lien du lead magnet demandé',
+  // Le MÊME mot que la colonne du kanban, et ce n'est pas un detail : c'est cet
+  // evenement qui y place la carte (`resolveNaturalStage` → 'lm_received').
+  // Deux noms pour un seul fait obligent a faire le rapprochement de tete.
+  // La progression se lit alors : envoye → reçu → ouvert.
+  lm_link_requested:  'Lead magnet reçu',
   lm_clicked:         'Lead magnet ouvert',
   calendly_link_sent: 'Lien Calendly envoyé',
   link_clicked:       'Lien Calendly cliqué',
