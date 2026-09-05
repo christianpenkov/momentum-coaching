@@ -1030,6 +1030,31 @@ ultérieures agissaient sur une table qu'aucun fichier ne créait.
 supabase/migrations/20260903200000_migrations_sante.sql   →   apply_migration(name: 'migrations_sante')
 ```
 
+### ✅ Le SQL exact d'une migration appliquée est RÉCUPÉRABLE (trouvé le 2026-09-05)
+
+`supabase_migrations.schema_migrations` porte une colonne **`statements`** : les
+instructions exactes de chaque migration appliquée, commentaires d'origine compris.
+
+```sql
+select name, version, array_to_string(statements, E'\n')
+from supabase_migrations.schema_migrations
+where name in ('…');
+```
+
+⚠️ **C'est très supérieur à la méthode que ce document recommandait** — reconstruire
+depuis `pg_get_viewdef`, `pg_get_functiondef` et `information_schema`. Celle-ci ne rend
+que l'état FINAL : elle ne peut pas distinguer « la colonne n'a jamais existé » de « elle
+a été ajoutée puis retirée », et elle perd tous les commentaires, donc le *pourquoi*.
+
+Utiliser `statements` en premier pour toute migration « appliquée sans fichier » :
+la reconstitution devient une **copie**, pas une déduction. Ne garder l'inspection de
+l'état que pour les migrations trop anciennes (les 185 d'avant la surveillance, dont
+`statements` peut être vide).
+
+Cas réel : `avatar_maj_le` et `retrait_avatar_maj_le` (05/09, colonne posée puis retirée
+en quatre minutes, effet net nul). L'état de la base seul aurait fait conclure « rien à
+reconstituer » — et aurait laissé deux trous permanents dans `migrations_sante`.
+
 ⚠️ **Le numéro de version ne peut PAS servir de clé** : celui de la base est généré par
 l'outil d'application, celui du fichier est choisi à la main, et les deux ne coïncident
 jamais (appliquée `20260903165006 inscrire_les_trois_crons_pg_cron`, fichier
