@@ -120,6 +120,20 @@ interface IGPost {
    *  mesuree, ou quand Meta ne sert pas le fichier (musique protegee) — un trou,
    *  jamais un zero. Elle ne vient d'aucun champ d'API : voir mesurerDureePost. */
   dureeSec: number | null;
+  /** Date a laquelle le post a cesse d'apparaitre dans la reponse de Meta, donc a
+   *  laquelle on le considere supprime. `null` = toujours en ligne.
+   *
+   *  ⚠️ Le post RESTE compte partout : dans « Publications », dans les classements,
+   *  dans les revenus qui lui sont attribues. Il a reellement produit cette portee et
+   *  ces rendez-vous, et un compteur d'activite passee ne doit pas baisser parce que
+   *  l'eleve fait du menage trois mois plus tard. Ce champ ne sert donc qu'a DIRE que
+   *  le contenu n'existe plus : une pastille, et un lien qu'on n'ouvre pas puisqu'il
+   *  mene a une page morte.
+   *
+   *  Il est auto-reparant : le cron reecrit `deleted_at: null` a chaque passage ou Meta
+   *  renvoie le post. Un faux positif (deja vu lors d'une bascule de compte A→B→A) se
+   *  corrige donc tout seul, et ne peut de toute facon fausser aucun chiffre. */
+  deletedAt: string | null;
 }
 interface YTStats {
   channelName: string; channelThumbnail: string; subscribers: number;
@@ -454,6 +468,31 @@ function regrouperDeuxSeries(
 ): { data: { date: string; v: number | null; libelle: string }[]; data2: { date: string; v: number | null }[]; pas: number } {
   const p = regrouperSerieAffichee(a, nature);
   return { data: p.data, data2: regrouperSerieAffichee(b, nature).data, pas: p.pas };
+}
+
+/**
+ * Pastille « supprime », posee sur un contenu qui a cesse d'exister sur Instagram.
+ *
+ * Un seul composant pour les trois endroits qui l'affichent (le tableau « Top contenus »,
+ * la vignette de l'onglet Instagram, la modale de detail) : trois recopies auraient
+ * fini par dire trois choses differentes du meme etat.
+ *
+ * Le contenu reste compte partout — voir IGPost.deletedAt. La pastille n'est donc pas un
+ * avertissement sur la donnee, qui est bonne : elle explique pourquoi la miniature est
+ * cassee et pourquoi le lien ne s'ouvre pas. D'ou le gris, et non le rouge.
+ */
+function PastilleSupprime({ titre }: { titre?: string }) {
+  return (
+    <span
+      title={titre ?? "Ce contenu n'est plus en ligne sur Instagram. Ses statistiques restent comptées : il a bien été publié et vu."}
+      style={{
+        display: 'inline-block', fontSize: 9, fontWeight: 700, lineHeight: 1.4,
+        color: 'var(--muted)', background: 'var(--surface-2)',
+        border: '1px solid var(--border)', borderRadius: 4, padding: '1px 5px',
+        whiteSpace: 'nowrap', verticalAlign: 'middle',
+      }}
+    >supprimé</span>
+  );
 }
 
 // « Ce lien Calendly a-t-il été envoyé au prospect ? » — source unique pour toutes les
@@ -1933,10 +1972,17 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
           </thead>
           <tbody>
             {visibleContent.map((c) => {
+              const postIg = c.platform === 'IG' ? ig?.posts.find(p => p.id === c.id) : undefined;
               const contentUrl = c.platform === 'YT'
                 ? yt?.videos.find(v => v.id === c.id)?.url
-                : ig?.posts.find(p => p.id === c.id)?.permalink;
-              const hasLink = contentUrl && contentUrl !== '#';
+                : postIg?.permalink;
+              // Un post supprime garde sa ligne, ses chiffres et son rang — il a
+              // reellement produit cette portee. Mais son permalien mene desormais a une
+              // page d'erreur Instagram : le rendre cliquable serait promettre une page
+              // qui n'existe plus. La ligne cesse donc d'etre cliquable, et la pastille
+              // dit pourquoi.
+              const supprime = postIg?.deletedAt != null;
+              const hasLink = !!contentUrl && contentUrl !== '#' && !supprime;
               return (
                 <tr key={c.id}
                   onClick={() => hasLink && window.open(contentUrl, '_blank')}
@@ -1954,6 +2000,7 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
                   </td>
                   <td style={{ padding: '8px 8px', maxWidth: 200 }}>
                     <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: hasLink ? 'var(--accent)' : 'var(--ink)' }}>{c.title}</div>
+                    {supprime && <div style={{ marginTop: 3 }}><PastilleSupprime /></div>}
                   </td>
                   <td style={{ padding: '8px 8px', textAlign: 'right' }}>
                     <span style={{ fontSize: 10, fontWeight: 600, color: c.platform === 'IG' ? IG_COLOR : YT_COLOR, background: c.platform === 'IG' ? IG_COLOR + '15' : YT_COLOR + '15', borderRadius: 4, padding: '2px 6px' }}>{c.platform} · {c.type}</span>
@@ -2675,7 +2722,12 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
                   </div>
                 </div>
                 <div style={{ padding: '8px 10px' }}>
-                  <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4 }}>{new Date(post.timestamp).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit', timeZone: 'Europe/Paris' })}</div>
+                  {/* Date et pastille sur la meme ligne : la vignette n'a pas la place
+                      d'une ligne de plus sans decaler la grille. */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
+                    <span style={{ fontSize: 10, color: 'var(--muted)' }}>{new Date(post.timestamp).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit', timeZone: 'Europe/Paris' })}</span>
+                    {post.deletedAt != null && <PastilleSupprime />}
+                  </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
                     <span>❤️ {post.likes ?? '—'}</span>
                     <span>👁 {post.reach ?? '—'}</span>
@@ -2982,9 +3034,20 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
               );
               })()}
             </div>
-            <a href={selectedPost.permalink} target="_blank" rel="noreferrer" style={{ display: 'block', marginTop: 14, textAlign: 'center', fontSize: 12, color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
-              Voir sur Instagram →
-            </a>
+            {/* Post supprime : le lien mene a une page d'erreur Instagram. On ne le
+                cache pas — son absence silencieuse laisserait croire a un bug — on dit
+                a sa place pourquoi il n'y a rien a ouvrir. Les statistiques au-dessus,
+                elles, restent affichees et restent comptees. */}
+            {selectedPost.deletedAt != null ? (
+              <div style={{ marginTop: 14, textAlign: 'center', fontSize: 11, color: 'var(--muted)', lineHeight: 1.5 }}>
+                <PastilleSupprime /><br />
+                Ce post n'est plus en ligne sur Instagram. Ses statistiques restent comptées.
+              </div>
+            ) : (
+              <a href={selectedPost.permalink} target="_blank" rel="noreferrer" style={{ display: 'block', marginTop: 14, textAlign: 'center', fontSize: 12, color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
+                Voir sur Instagram →
+              </a>
+            )}
           </div>
         </ModalOverlay>
       )}
@@ -10276,6 +10339,12 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     totalWatchTimeMs: row.total_watch_time_ms ?? null,
     skipRate: row.skip_rate ?? null,
     dureeSec: row.duree_sec != null ? Number(row.duree_sec) : null,
+    // Le chemin live (app/api/instagram/stats/route.ts) le renvoyait deja ; ce
+    // chemin-ci, non — et c'est lui qui sert toutes les periodes passees. Sans cette
+    // ligne, la pastille « supprime » n'apparaissait qu'en periode courante et
+    // disparaissait des qu'on changeait de fenetre, ce qui est exactement l'inverse du
+    // besoin : un post supprime se consulte surtout dans l'historique.
+    deletedAt: row.deleted_at ?? null,
   // Trié explicitement par date de publication décroissante — l'ordre du Map
   // (insertion = ordre de igPostsRows, trié par snapshot_date pas published_at)
   // ne coïncide avec l'ordre de publication qu'en période actuelle (tous les
