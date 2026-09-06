@@ -4770,20 +4770,20 @@ function ActionsStories({ selectionMode, selectedCount, compact, onStartSelectio
     );
   }
   return (
-    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginLeft: 'auto' }}>
       {/* Les deux manières de créer une séquence, ici aussi et pas seulement
           dans l'onglet Séquences : c'est en regardant ses stories qu'on décide
           d'en faire une, pas en consultant la liste de celles qui existent.
 
           L'ordre suit le moment : on prépare AVANT de publier, on regroupe
           APRÈS. La première est l'action principale, elle porte l'encre pleine. */}
-      <button onClick={onPreparer} style={{
+      <button onClick={onStartSelection} style={{
         minHeight: compact ? 30 : 32, padding: compact ? '0 10px' : '0 11px',
         fontSize: compact ? 11 : 11.5, fontWeight: 600, borderRadius: 7,
         border: `1px solid ${BLUE}`, background: 'transparent', color: BLUE, cursor: 'pointer',
-      }}>Nouvelle séquence · stories à venir</button>
-      <button onClick={onStartSelection} style={{ ...btn, minHeight: compact ? 32 : 34, borderRadius: 7 }}>
-        Nouvelle séquence · stories publiées
+      }}>Nouvelle séquence · lead magnet</button>
+      <button onClick={onPreparer} style={{ ...btn, minHeight: compact ? 30 : 32, padding: compact ? '0 10px' : '0 11px', borderRadius: 7, fontSize: compact ? 11 : 11.5 }}>
+        Nouvelle séquence · lien Calendly
       </button>
     </div>
   );
@@ -5156,9 +5156,10 @@ function VignetteContenu({ post, size, hauteur }: { post: Post; size: number; ha
   // Pas de pastille de plateforme sur la vignette : la ligne dit désormais
   // « Reel Instagram du 28 juillet » en toutes lettres, ce qui porte la même
   // information sans demander de décoder une couleur.
-  // Le compteur de stories groupées : sans lui, quatre vignettes identiques
-  // dans le rail ne disent pas qu'elles forment une seule séquence.
-  const nbStories = post.platform === 'STORY' ? (post.sequenceStoryCount ?? 0) : 0;
+  // Plus de compteur de séquence sur la vignette : dans l'onglet Stories, où l'on
+  // regarde des stories UNE PAR UNE, un « 4 » posé sur chacune les faisait passer
+  // pour des séquences. Et il ne manque plus nulle part : la liste des séquences
+  // montre désormais leurs vraies vignettes à côté du nom.
 
   // Une story dont le média n'a pas pu être copié avant expiration n'aura JAMAIS
   // de vignette : Meta ne sert plus l'URL passé 24 h. Le dire dans l'infobulle
@@ -5170,12 +5171,6 @@ function VignetteContenu({ post, size, hauteur }: { post: Post; size: number; ha
       {post.thumbnail
         ? <img loading="lazy" decoding="async" src={post.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'inherit' }} />
         : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: mediaPerdu ? 0.5 : 1 }}>{icon}</div>}
-      {nbStories > 1 && (
-        <span style={{
-          position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,.6)', color: '#fff',
-          fontSize: 8, fontWeight: 700, borderRadius: 8, padding: '0 4px', lineHeight: 1.5,
-        }}>{nbStories}</span>
-      )}
     </div>
   );
 }
@@ -6526,11 +6521,13 @@ export default function PageLiens() {
                   vraie. Un bouton d'action ne doit pas avoir la forme d'un onglet. */}
               {filterPlatform === 'STORY' && storiesSubTab === 'sequences' && (
                 <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginLeft: 'auto' }}>
-                  <button onClick={() => { setPreparation(true); setErreurPreparation(null); }} style={{ minHeight: 32, padding: '0 11px', fontSize: 11.5, fontWeight: 600, borderRadius: 7, border: `1px solid ${BLUE}`, background: 'transparent', color: BLUE, cursor: 'pointer' }}>
-                    Nouvelle séquence · stories à venir
+                  {/* Le lead magnet d'abord : c'est le CTA courant. Le Calendly
+                      demande de préparer avant de publier, c'est l'exception. */}
+                  <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ minHeight: 32, padding: '0 11px', fontSize: 11.5, fontWeight: 600, borderRadius: 7, border: `1px solid ${BLUE}`, background: 'transparent', color: BLUE, cursor: 'pointer' }}>
+                    Nouvelle séquence · lead magnet
                   </button>
-                  <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ minHeight: 32, padding: '0 11px', fontSize: 11.5, fontWeight: 600, borderRadius: 7, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
-                    Nouvelle séquence · stories publiées
+                  <button onClick={() => { setPreparation(true); setErreurPreparation(null); }} style={{ minHeight: 32, padding: '0 11px', fontSize: 11.5, fontWeight: 600, borderRadius: 7, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+                    Nouvelle séquence · lien Calendly
                   </button>
                 </div>
               )}
@@ -6539,13 +6536,13 @@ export default function PageLiens() {
                 sequences.length === 0 ? (
                   <div style={{ padding: '20px 16px', fontSize: 12, color: FAINT, textAlign: 'center', lineHeight: 1.5 }}>
                     Aucune séquence pour l'instant.
-                    <div style={{ marginTop: 4 }}>Pour des stories que tu n'as pas encore publiées : son lien Calendly est généré tout de suite, prêt à coller dans le sticker.</div>
+                    <div style={{ marginTop: 4 }}>Un lead magnet se configure après avoir publié. Un lien Calendly, lui, doit exister AVANT : il se colle dans le sticker au moment de publier.</div>
                     <div style={{ display: 'flex', gap: 7, justifyContent: 'center', marginTop: 12, flexWrap: 'wrap' }}>
-                      <button onClick={() => { setPreparation(true); setErreurPreparation(null); }} style={{ minHeight: 36, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer' }}>
-                        Nouvelle séquence · stories à venir
+                      <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ minHeight: 36, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer' }}>
+                        Nouvelle séquence · lead magnet
                       </button>
-                      <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ minHeight: 36, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
-                        Nouvelle séquence · stories publiées
+                      <button onClick={() => { setPreparation(true); setErreurPreparation(null); }} style={{ minHeight: 36, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+                        Nouvelle séquence · lien Calendly
                       </button>
                     </div>
                   </div>
@@ -6833,11 +6830,13 @@ export default function PageLiens() {
 
               {filterPlatform === 'STORY' && storiesSubTab === 'sequences' && (
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginLeft: 'auto' }}>
-                  <button onClick={() => { setPreparation(true); setErreurPreparation(null); }} style={{ minHeight: 30, padding: '0 10px', fontSize: 11, fontWeight: 600, borderRadius: 7, border: `1px solid ${BLUE}`, background: 'transparent', color: BLUE, cursor: 'pointer' }}>
-                    Nouvelle séquence · stories à venir
+                  {/* Le lead magnet d'abord : c'est le CTA courant. Le Calendly
+                      demande de préparer avant de publier, c'est l'exception. */}
+                  <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ minHeight: 32, padding: '0 11px', fontSize: 11.5, fontWeight: 600, borderRadius: 7, border: `1px solid ${BLUE}`, background: 'transparent', color: BLUE, cursor: 'pointer' }}>
+                    Nouvelle séquence · lead magnet
                   </button>
-                  <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ minHeight: 32, padding: '0 10px', fontSize: 11.5, fontWeight: 600, borderRadius: 7, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
-                    Nouvelle séquence · stories publiées
+                  <button onClick={() => { setPreparation(true); setErreurPreparation(null); }} style={{ minHeight: 32, padding: '0 11px', fontSize: 11.5, fontWeight: 600, borderRadius: 7, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+                    Nouvelle séquence · lien Calendly
                   </button>
                 </div>
               )}
@@ -6856,13 +6855,13 @@ export default function PageLiens() {
                 sequences.length === 0 ? (
                   <div style={{ padding: '20px 16px', fontSize: 12, color: FAINT, textAlign: 'center', lineHeight: 1.5 }}>
                     Aucune séquence pour l'instant.
-                    <div style={{ marginTop: 4 }}>Pour des stories que tu n'as pas encore publiées : son lien Calendly est généré tout de suite, prêt à coller dans le sticker.</div>
+                    <div style={{ marginTop: 4 }}>Un lead magnet se configure après avoir publié. Un lien Calendly, lui, doit exister AVANT : il se colle dans le sticker au moment de publier.</div>
                     <div style={{ display: 'flex', gap: 7, justifyContent: 'center', marginTop: 12, flexWrap: 'wrap' }}>
-                      <button onClick={() => { setPreparation(true); setErreurPreparation(null); }} style={{ minHeight: 36, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer' }}>
-                        Nouvelle séquence · stories à venir
+                      <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ minHeight: 36, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer' }}>
+                        Nouvelle séquence · lead magnet
                       </button>
-                      <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ minHeight: 36, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
-                        Nouvelle séquence · stories publiées
+                      <button onClick={() => { setPreparation(true); setErreurPreparation(null); }} style={{ minHeight: 36, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+                        Nouvelle séquence · lien Calendly
                       </button>
                     </div>
                   </div>
@@ -6971,7 +6970,7 @@ export default function PageLiens() {
       {preparation && (
         <ModalShell onClose={() => setPreparation(false)} width={420} variant={isMobile ? 'sheet' : 'centered'}>
           <div style={{ padding: 24 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: INK, marginBottom: 6 }}>Nouvelle séquence · stories à venir</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: INK, marginBottom: 6 }}>Nouvelle séquence · lien Calendly</div>
             <div style={{ fontSize: 12.5, color: MUTED, lineHeight: 1.6, marginBottom: 14 }}>
               <b style={{ color: INK }}>Uniquement si tu veux un lien Calendly comme CTA.</b> Pour un lead magnet, tu n'as rien à préparer : il se configure après avoir publié.
             </div>
