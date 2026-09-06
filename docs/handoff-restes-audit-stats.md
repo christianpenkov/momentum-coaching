@@ -1,17 +1,22 @@
 # Handoff — ce qui reste de l'audit Stats Clients vs Mes Stats
 
+> ## ÉTAT AU 2026-09-06, 19 h 30 — CLOS. Les sept divergences sont fermées.
+>
+> ⚠️ **Le lot A a été tranché À L'INVERSE de ce que ce document prescrivait.** Lire la
+> section « Lot A » avant toute chose : quelqu'un qui appliquerait la consigne d'origine
+> (`and deleted_at is null`) défferait le travail sans s'en rendre compte.
+
 **Origine** : audit de divergence entre Stats Clients (portefeuille coach) et Mes Stats,
-2026-09-06. **Sept divergences trouvées, cinq fermées.** Ce document porte les deux qui
-restent, plus un ménage optionnel.
+2026-09-06. **Sept divergences trouvées, sept fermées.**
 
 | # | Sujet | État |
 |---|---|---|
 | 1 | Leads comptés sur deux règles différentes | ✅ `5976ba0` |
-| 2 | Trous de collecte affichés « 0 » | ⚠️ **lot B ci-dessous** |
+| 2 | Trous de collecte affichés « 0 » | ✅ `f09eb1d` — lot B, voir ci-dessous |
 | 3 | Règle d'annulation recopiée sans `declined` | ✅ `5e3644b` |
 | 4 | Cash : trésorerie contre cohorte | ✅ `f77fe82` + Revenus refait |
 | 5 | « Calls bookés » : créneaux contre affaires | ✅ `4dba987` |
-| 6 | Publications : posts supprimés | ⚠️ **lot A ci-dessous** |
+| 6 | Publications : posts supprimés | ✅ `dd0003c` + `77bf7b2` — **sens inversé**, voir lot A |
 | 7 | Clics : carte morte depuis le 28 août | ✅ `b216a82` |
 
 ---
@@ -40,9 +45,47 @@ C'est la même nature que la divergence n° 3 (`declined`) : une règle appliqu�
 et pas de l'autre, sans conséquence visible tant que le cas ne se présente pas — donc
 rien ne la signalera avant qu'elle ne fasse un faux chiffre.
 
-### Ce qu'il faut faire
+### ⚠️ CE QU'IL NE FAUT PAS FAIRE — la consigne d'origine était fausse
 
-Ajouter `and deleted_at is null` à `get_ig_posts_history`, dans une migration.
+> **Ce document disait : « ajouter `and deleted_at is null` à `get_ig_posts_history` ».**
+> **C'est l'inverse qui a été fait, et il ne faut pas y revenir.**
+
+Le filtre a été **retiré de `stats_clients_series`** (et de la vue
+`derniere_publication_par_profil`, qui alimente le signal « ne publie plus »), pour
+aligner les deux écrans sur le comportement de Mes Stats.
+
+**Pourquoi ce sens-là.** La règle était déjà écrite, à l'endroit qui POSE le drapeau —
+`supabase/functions/_shared/ig-posts.ts` : « on le marque `deleted_at` plutôt que de
+l'effacer : l'historique de stats (analytics, rapports passés) doit rester intact, seul
+"Gérer mes liens" doit filtrer ces posts ». C'est donc `stats_clients_series` qui s'était
+écartée d'une règle existante, pas Mes Stats. Ce handoff proposait de corriger le
+mauvais côté.
+
+**La décision produit, prise par Chris le 2026-09-06 :**
+
+1. Un post supprimé **compte toujours** dans « Publications ». Ce compteur mesure une
+   activité passée, pas un inventaire présent — sinon un élève fait baisser ses
+   statistiques de juin en faisant du ménage en septembre, et un rapport imprimé la
+   veille cesse de correspondre à l'écran du lendemain.
+2. Il **reste dans « Top contenus »**, avec une pastille « supprimé » et son lien
+   désactivé : il a réellement produit cette portée, et parfois des rendez-vous.
+3. Le revenu qui lui est attribué ne disparaît donc jamais d'un total.
+
+**Ce que le point 2 a exigé** (`77bf7b2`) : `deleted_at` existait en base mais
+`get_ig_posts_history` ne le RENVOYAIT pas — l'écran ne pouvait pas distinguer un post
+supprimé d'un autre. La RPC l'expose désormais, et continue de ne pas le filtrer.
+
+⚠️ **Deux pièges rencontrés en le faisant**, notés dans la migration :
+`create or replace` ne suffit pas pour ajouter une colonne à un `returns table` (il faut
+drop + create) — et à la recréation, Supabase re-accorde `execute` à `anon` par ses
+privilèges par défaut. `revoke ... from public` ne l'enlève PAS : `anon` est un rôle,
+`PUBLIC` en est un autre. Voir `AGENTS.md` (`264d5fe`) pour le critère de tri des
+fonctions réellement exposées.
+
+**Aucun chiffre n'a bougé** : 0 post porte `deleted_at` sur 972 lignes. Comme la
+divergence n° 3 (`declined`), cet écart ne se signalera pas de lui-même — il se
+manifestera le jour où il produira un faux chiffre, et ce jour-là personne ne fera le
+lien avec la règle divergente.
 
 ⚠️ **Ce n'est pas qu'un compteur — décider avant d'écrire.** Cette RPC a **un seul
 appelant** (`PageClientStats.tsx:9968`, dans `fetchSnapshot`) mais son résultat alimente
@@ -68,10 +111,15 @@ pareil. Rien à faire.
 
 ---
 
-## Lot B — les cinq cartes qui lisent un total pré-calculé
+## Lot B — les cinq cartes qui lisent un total pré-calculé — ✅ FAIT (`f09eb1d`)
 
-**Déjà décrit en détail dans `docs/handoff-trous-de-collecte.md`**, section « Ce qui reste
-vraiment ». Ne pas dupliquer ici — s'y reporter.
+**Détail complet dans `docs/handoff-trous-de-collecte.md`**, passé à CLOS. Ne pas
+dupliquer ici — s'y reporter.
+
+⚠️ **L'inventaire ci-dessous était incomplet** : il annonçait deux chemins de données, il
+y en avait **quatre** (route API, totaux de période courante, périodes passées, et la
+branche « 7 jours » qui somme la série à la main). N'en corriger qu'une partie aurait fait
+dire à la MÊME carte « Non mesuré » sur un mois et « 0 » sur celui d'à côté.
 
 Résumé en trois lignes : « Reach Instagram » et « Vues YouTube » de la Vue générale, plus
 « Likes », « Commentaires » et « Partages » de l'onglet YouTube, lisent hors du mode
@@ -86,7 +134,7 @@ est une comparaison légale qui vaut toujours vrai. C'est pour ça que la correc
 
 ---
 
-## Lot C — ménage optionnel, demande le feu vert de Chris
+## Lot C — ménage — ✅ FAIT (`333be7a`), feu vert donné par Chris le 2026-09-06
 
 Quatre colonnes de `analytics_daily_snapshots` n'ont **plus aucun lecteur ni aucun
 écrivain** : `shortio_clicks`, `shortio_human_clicks`, `shortio_top_countries`,
@@ -103,14 +151,22 @@ de péremption ») est de les supprimer : une colonne absente produit une erreur
 ici — la carte « Clics » du coach a affiché 550 clics pour un élève qui en avait 27,
 pendant neuf jours, sans que rien n'alerte.
 
-⚠️ **Ne pas le faire sans l'accord explicite de Chris.** Supprimer des colonnes en
-production est irréversible, et ces quatre-là portent encore de l'historique jusqu'au
-28 août. Deux options à lui présenter :
+**Choix retenu : la suppression**, Chris ayant tranché « si on supprime directement c'est
+le mieux pour le reste et la maintenance, je m'en fiche de l'historique tant que j'ai
+celui d'août complet ».
 
-- **Supprimer** — l'historique est perdu, mais il n'est plus lu par rien et la table
-  vivante couvre la même période par lien.
-- **Renommer `<nom>_abandonnee_20260828`** — l'historique reste, et le nom porte la date,
-  donc plus personne ne peut s'y brancher par mégarde.
+⚠️ **Une affirmation de ce document était fausse, et la vérification l'a montrée avant
+d'agir** : « la table vivante couvre la même période par lien ». Non —
+
+| colonnes supprimées | 08/06/2026 → 28/08/2026 |
+|---|---|
+| `shortio_link_daily_snapshots` | à partir du **19/07/2026** |
+
+Un mois d'historique (8 juin → 8 juillet, 122 clics humains) n'existait donc nulle part
+ailleurs. Perte acceptée en connaissance de cause, à la condition qu'août soit complet —
+vérifié, 31 jours sur 31. Le backfill a été écarté pour une raison de fond : l'ancien
+format est agrégé PAR JOUR ET PAR PROFIL, la table vivante est PAR LIEN. Il n'existe
+aucun lien à qui attribuer ces clics, une recopie aurait donc inventé une ventilation.
 
 ---
 
