@@ -20,6 +20,10 @@ async function getCalendlyUrl(profileId: string): Promise<string | null> {
   return data?.calendly_url ?? null;
 }
 
+// Au-delà de ce délai, une séquence restée à 0 story n'attend plus rien : c'est
+// une séquence dont les stories ont été archivées, pas une préparation en cours.
+const FENETRE_PREPARATION_MS = 7 * 24 * 60 * 60 * 1000;
+
 export async function GET() {
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -49,16 +53,49 @@ export async function GET() {
     countBySeq.set(row.sequence_id, (countBySeq.get(row.sequence_id) || 0) + 1);
   }
 
+  // ── LECTURE DÉFENSIVE DE `closed_at` ──────────────────────────────────────
+  //
+  // Requête SÉPARÉE, et non une colonne de plus dans le select principal : si la
+  // migration n'est pas encore passée, PostgREST échoue avec 42703 et rend `data`
+  // à null — la liste entière des séquences deviendrait vide, sans erreur
+  // visible. Ici l'échec ne coûte que la clôture : toutes les séquences sont
+  // alors considérées ouvertes, ce qui est leur état d'avant.
+  const closedById = new Map<string, string | null>();
+  // `null` tant qu'on ne sait pas : c'est la réponse de cette requête qui le dit,
+  // et l'écran doit pouvoir cacher le bouton « Clôturer » plutôt que de proposer
+  // une action qui échouerait en silence.
+  let clotureDisponible = true;
+  if (seqIds.length) {
+    const { data: closedRows, error: closedErr } = await serviceSupabase
+      .from('story_sequences').select('id, closed_at').in('id', seqIds);
+    if (closedErr) clotureDisponible = false;
+    for (const r of closedRows ?? []) closedById.set(r.id, (r as any).closed_at ?? null);
+  }
+
+  // ── UNE SÉQUENCE SANS STORY N'EST PLUS UN FANTÔME ─────────────────────────
+  //
+  // Elle était filtrée parce qu'une séquence à 0 story ne pouvait signifier
+  // qu'une chose : toutes ses stories avaient été archivées lors d'une bascule
+  // de compte Instagram, et elle traînait vide.
+  //
+  // Depuis qu'on peut PRÉPARER une séquence avant de publier, 0 story veut aussi
+  // dire « elle attend ses stories » — et c'est précisément l'état où le coach a
+  // besoin de la voir, puisque c'est là qu'il vient chercher son lien Calendly.
+  // Les deux se distinguent par `created_at` : un fantôme est ancien, une
+  // séquence en préparation vient d'être créée.
+  const fantome = (s: any) =>
+    (countBySeq.get(s.id) || 0) === 0
+    && Date.now() - new Date(s.created_at).getTime() > FENETRE_PREPARATION_MS;
+
   const rows = (sequences || [])
-    .filter(s => (countBySeq.get(s.id) || 0) > 0)
-    .map(s => ({ ...s, story_count: countBySeq.get(s.id) || 0 }));
-  return NextResponse.json({ sequences: rows });
+    .filter(s => !fantome(s))
+    .map(s => ({ ...s, story_count: countBySeq.get(s.id) || 0, closed_at: closedById.get(s.id) ?? null }));
+  return NextResponse.json({ sequences: rows, clotureDisponible });
 }
 
-// Vérifie la contrainte de contiguïté : deux séquences distinctes ne peuvent jamais
-// être "entrelacées" — aucune story appartenant à une AUTRE séquence ne doit se situer
-// (dans l'ordre chronologique posted_at) entre le min et le max de finalStoryIds.
-// Des stories encore libres (sans séquence) peuvent en revanche s'intercaler librement.
+// Vérifie la contiguïté d'une séquence : entre sa première et sa dernière story, il
+// ne doit y avoir AUCUNE autre story publiée — ni appartenant à une autre séquence,
+// ni libre. Une séquence est un bloc continu.
 // excludeSequenceId : la séquence en cours d'édition elle-même, à ne pas compter comme
 // "autre séquence" (utilisé par l'ajout de stories à une séquence existante).
 async function validateContiguity(
@@ -78,12 +115,26 @@ async function validateContiguity(
   const minPosted = new Date(Math.min(...postedDates)).toISOString();
   const maxPosted = new Date(Math.max(...postedDates)).toISOString();
 
+  // ── AUCUN TROU DANS UNE SÉQUENCE ──────────────────────────────────────────
+  //
+  // On lit TOUTES les stories publiées entre la première et la dernière de la
+  // sélection, pas seulement celles qui appartiennent déjà à une séquence.
+  //
+  // Décision de Chris (2026-09-02) : « on ne publie jamais une story en plein
+  // milieu d'une séquence ». Une story qui tombe dans l'intervalle sans être
+  // sélectionnée est donc un oubli, pas un choix — et l'accepter en silence
+  // ferait mentir toutes les statistiques de rétention de la séquence, qui
+  // comparent la première story à la dernière en supposant qu'on les a vues à
+  // la suite.
+  //
+  // `archived_at is null` : une story archivée a été retirée du compte ou
+  // appartient à un compte Instagram précédent. Elle n'a jamais fait partie du
+  // parcours qu'on mesure, elle ne peut donc pas en être un trou.
   let query = serviceSupabase
     .from('ig_stories')
     .select('id, sequence_id, story_sequences!ig_stories_sequence_id_fkey(name)')
     .eq('profile_id', profileId)
     .is('archived_at', null)
-    .not('sequence_id', 'is', null)
     .gt('posted_at', minPosted)
     .lt('posted_at', maxPosted)
     .not('id', 'in', `(${finalStoryIds.join(',')})`);
@@ -91,8 +142,18 @@ async function validateContiguity(
 
   const { data: interleaved } = await query;
   if (interleaved && interleaved.length > 0) {
-    const clashName = (interleaved[0] as any).story_sequences?.name || 'une autre séquence';
-    return { ok: false, error: `Cette sélection chevauche la séquence « ${clashName} »` };
+    // Deux messages : chevaucher une AUTRE séquence n'est pas la même erreur que
+    // sauter une story libre, et la correction n'est pas la même non plus.
+    const dansUneAutre = interleaved.find(s => (s as any).sequence_id);
+    if (dansUneAutre) {
+      const clashName = (dansUneAutre as any).story_sequences?.name || 'une autre séquence';
+      return { ok: false, error: `Cette sélection chevauche la séquence « ${clashName} »` };
+    }
+    const n = interleaved.length;
+    return {
+      ok: false,
+      error: `Il manque ${n} story${n > 1 ? 's' : ''} publiée${n > 1 ? 's' : ''} au milieu de cette sélection. Une séquence doit être continue — ajoute-la${n > 1 ? 's' : ''} ou resserre la sélection.`,
+    };
   }
   return { ok: true };
 }
@@ -113,27 +174,46 @@ export async function POST(request: Request) {
 
   const { name, ctaStoryId, storyIds, lmId, lmKeyword, lmUrl, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage, wantsCalendly } = body;
   const wantsLm = !!lmKeyword;
-  if (!name?.trim() || !ctaStoryId || !Array.isArray(storyIds) || storyIds.length === 0) {
-    return NextResponse.json({ error: 'Champs requis manquants' }, { status: 400 });
+
+  // ── UNE SÉQUENCE PEUT NAÎTRE AVANT SES STORIES ────────────────────────────
+  //
+  // `ctaStoryId` et `storyIds` étaient obligatoires, ce qui interdisait le seul
+  // ordre qui fonctionne dans la vraie vie : préparer le lien, publier avec le
+  // sticker, rattacher ensuite. Une story publiée ne peut pas recevoir de lien
+  // après coup.
+  //
+  // Le nom reste obligatoire — c'est lui qui nomme le lien Short.io et qui
+  // permet de retrouver la séquence pour lui donner ses stories.
+  const ids: string[] = Array.isArray(storyIds) ? storyIds : [];
+  if (!name?.trim()) {
+    return NextResponse.json({ error: 'Donne un nom à la séquence' }, { status: 400 });
+  }
+  // Le CTA ne peut désigner qu'une story qu'on rattache maintenant : le poser
+  // sur une story absente laisserait une séquence qui se croit prête.
+  if (ctaStoryId && !ids.includes(ctaStoryId)) {
+    return NextResponse.json({ error: 'La story du CTA doit faire partie de la sélection' }, { status: 400 });
   }
   if (!wantsLm && !wantsCalendly) {
     return NextResponse.json({ error: 'Configure au moins un Lead Magnet ou un lien Calendly' }, { status: 400 });
   }
 
-  // Vérifie qu'aucune des stories sélectionnées n'appartient déjà à une séquence —
-  // une story ne peut appartenir qu'à une seule séquence à la fois.
-  const { data: alreadyAssigned } = await serviceSupabase
-    .from('ig_stories')
-    .select('id')
-    .eq('profile_id', user.id)
-    .in('id', storyIds)
-    .not('sequence_id', 'is', null);
-  if (alreadyAssigned && alreadyAssigned.length > 0) {
-    return NextResponse.json({ error: 'Une des stories sélectionnées appartient déjà à une séquence' }, { status: 409 });
-  }
+  // Les deux vérifications n'ont de sens que s'il y a des stories : une séquence
+  // préparée n'en a aucune, elle ne peut ni voler ni trouer quoi que ce soit.
+  if (ids.length > 0) {
+    // Une story ne peut appartenir qu'à une seule séquence à la fois.
+    const { data: alreadyAssigned } = await serviceSupabase
+      .from('ig_stories')
+      .select('id')
+      .eq('profile_id', user.id)
+      .in('id', ids)
+      .not('sequence_id', 'is', null);
+    if (alreadyAssigned && alreadyAssigned.length > 0) {
+      return NextResponse.json({ error: 'Une des stories sélectionnées appartient déjà à une séquence' }, { status: 409 });
+    }
 
-  const contiguity = await validateContiguity(user.id, storyIds, null);
-  if (!contiguity.ok) return NextResponse.json({ error: contiguity.error }, { status: 409 });
+    const contiguity = await validateContiguity(user.id, ids, null);
+    if (!contiguity.ok) return NextResponse.json({ error: contiguity.error }, { status: 409 });
+  }
 
   if (wantsCalendly) {
     const calendlyUrl = await getCalendlyUrl(user.id);
@@ -150,7 +230,7 @@ export async function POST(request: Request) {
     .insert({
       profile_id: user.id,
       name: name.trim(),
-      cta_story_id: ctaStoryId,
+      cta_story_id: ctaStoryId || null,
       lm_keyword: wantsLm ? (lmKeyword || '').toUpperCase().trim() : null,
       lm_id: wantsLm ? (lmId || null) : null,
       lm_url: wantsLm ? (lmUrl || null) : null,
@@ -165,12 +245,16 @@ export async function POST(request: Request) {
 
   if (seqErr) return NextResponse.json({ error: seqErr.message }, { status: 500 });
 
-  const { error: updateErr } = await serviceSupabase
-    .from('ig_stories')
-    .update({ sequence_id: seq.id })
-    .in('id', storyIds)
-    .eq('profile_id', user.id);
-  if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
+  // `.in('id', [])` rattacherait zéro ligne, mais autant ne pas écrire du tout :
+  // une séquence préparée n'a rien à rattacher, et l'appel dirait le contraire.
+  if (ids.length > 0) {
+    const { error: updateErr } = await serviceSupabase
+      .from('ig_stories')
+      .update({ sequence_id: seq.id })
+      .in('id', ids)
+      .eq('profile_id', user.id);
+    if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
+  }
 
   let calendlyShortUrl: string | null = null;
 
@@ -231,7 +315,7 @@ export async function PATCH(request: Request) {
 
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
-  const { id, name, ctaStoryId, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage, lmKeyword, generateCalendly, addStoryIds, removeStoryIds } = body;
+  const { id, name, ctaStoryId, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage, lmKeyword, generateCalendly, addStoryIds, removeStoryIds, closed } = body;
   if (!id) return NextResponse.json({ error: 'id requis' }, { status: 400 });
 
   const { data: seq, error: seqFetchErr } = await serviceSupabase
@@ -311,6 +395,24 @@ export async function PATCH(request: Request) {
   if (dmLinkButtonText !== undefined) patch.dm_link_button_text = dmLinkButtonText;
   if (dm2StoryMessage !== undefined) patch.dm2_story_message = dm2StoryMessage;
   if (lmKeyword !== undefined) patch.lm_keyword = (lmKeyword || '').toUpperCase().trim();
+
+  // Clôture — « j'ai fini de publier ». L'écran cesse alors de proposer les
+  // stories parues. Réversible : une séquence rouverte se remet à proposer, ce
+  // qui évite d'avoir à en recréer une pour une story oubliée.
+  if (closed !== undefined) patch.closed_at = closed ? new Date().toISOString() : null;
+
+  // Une clôture demandée alors que la colonne n'existe pas doit le DIRE. Sans ce
+  // contrôle l'update échoue en 42703, PostgREST rend `data` à null, et le bouton
+  // paraît ne rien faire — le mode de panne le plus coûteux à diagnostiquer.
+  if (closed !== undefined) {
+    const { error: sondeErr } = await serviceSupabase
+      .from('story_sequences').select('closed_at').eq('id', id).limit(1);
+    if (sondeErr) {
+      return NextResponse.json({
+        error: "La clôture manuelle n'est pas encore disponible : la migration `story_sequences_closed_at` n'a pas été appliquée. La séquence cesse d'elle-même de proposer des stories au bout de 24 h.",
+      }, { status: 409 });
+    }
+  }
 
   // ── Déplacement du CTA ──────────────────────────────────────────────────
   //
