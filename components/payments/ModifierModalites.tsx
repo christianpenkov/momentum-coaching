@@ -104,7 +104,25 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
   //
   // Or il y avait tout à faire : créer l'échéancier qui n'existe pas. Quand rien
   // n'est en place, tout choix complet est un changement.
-  const changed = complet && (!moyenDefini(deal) || changeMode || changeRythme || changeNb);
+  //
+  // ⚠️ Et un moyen ENREGISTRÉ ne veut pas dire un moyen EN PLACE — c'est la
+  // deuxième moitié de la même idée, trouvée le 2026-09-06 sur TestYT : vente
+  // « par lien de paiement », 200 € encore dus, et plus aucun lien vivant depuis
+  // le remboursement. `moyenDefini` répondait oui, donc `changed` restait faux,
+  // donc le bouton restait grisé — et cette vente n'avait AUCUN moyen de
+  // recevoir ses 200 €. Le seul geste possible était « Reçu », c'est-à-dire
+  // déclarer un virement qu'on n'a pas demandé.
+  //
+  // Le cas se reproduit à chaque fois qu'un remboursement laisse un reste sur
+  // une vente par lien : le lien d'origine est consommé, le reste est réel.
+  //
+  // Le prélèvement automatique est exclu : là, l'échéancier vit chez Stripe et
+  // l'absence de lien en base est l'état normal.
+  const rienPourEncaisser = moyen === 'lien' && reste > 0.005
+    && !deal.hasLinks && !deal.stripeSubscriptionId;
+
+  const changed = complet
+    && (!moyenDefini(deal) || rienPourEncaisser || changeMode || changeRythme || changeNb);
 
   // Ce qui rend le choix courant impossible en place — calculé pendant la
   // sélection, pas au moment de valider.
