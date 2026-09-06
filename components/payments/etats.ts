@@ -67,8 +67,20 @@ export function etatDe(d: DealRow): EtatVente {
  * constaté — or c'est cette nuance qui détermine si la vente peut être rouverte.
  */
 export function precisionEtat(d: DealRow): string | null {
-  if (d.status === 'disputed' && d.disputeDueBy) {
-    return `réponse à donner avant le ${jour(d.disputeDueBy)}`;
+  if (d.status === 'disputed') {
+    // ⚠️ Les DEUX moitiés du litige, pas seulement celle qui réclame une action.
+    //
+    // Cette fonction exigeait `disputeDueBy` — donc juste, mais muette dès que
+    // les preuves étaient parties : la pastille « Contestée » restait sans
+    // sous-titre pendant les semaines d'examen, la période exacte où l'on se
+    // demande ce qui se passe. Un silence à cet endroit se lit « on ne sait
+    // pas », alors qu'on sait très bien.
+    //
+    // L'échéance ABSENTE est une information, pas un manque : le webhook
+    // `charge.dispute.updated` l'efface quand Stripe cesse d'attendre.
+    return d.disputeDueBy
+      ? `réponse à donner avant le ${jour(d.disputeDueBy)}`
+      : 'preuves envoyées, en attente du verdict';
   }
   if (d.unexpectedPaymentAt) return 'de l’argent est arrivé après la fin';
   if (d.status === 'ended') {
