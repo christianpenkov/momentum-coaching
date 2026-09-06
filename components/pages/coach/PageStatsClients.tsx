@@ -10,7 +10,7 @@ import {
   etatDesSources, sourcesManquantes, sansAudience, enumerer, type SourcePage,
 } from '@/lib/sourcesStatsClients';
 import { CALL_TYPES_VENTE } from '@/lib/callTypes';
-import { calculerCash, type LignePaiement } from '@/lib/dealCash';
+import { calculerCash, encaisseRetenu, type LignePaiement } from '@/lib/dealCash';
 import { fetchLignesLeadsBatch, compterLeads, isNotCanceled, type LignesLeads, type LigneCallLead } from '@/lib/salesCallStats';
 import { getClientSignals, watchList, phraseSignaux, type ClientSignals } from '@/lib/clientSignals';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
@@ -85,8 +85,10 @@ interface DonneesStats {
   series: LigneSerie[];
   seriesPrecedentes: LigneSerie[];
   calls: { coach_id: string; status: string | null; booked_at: string | null; scheduled_at: string | null }[];
-  deals: { profile_id: string; amount_total: number | string | null; signed_at: string | null; status: string | null }[];
-  paiements: { amount: number | string | null; status: string | null; paid_at: string | null; deals: { profile_id: string } | null }[];
+  deals: { id: string; profile_id: string; amount_total: number | string | null; signed_at: string | null; status: string | null }[];
+  /** `deal_id` : le cash se calcule VENTE PAR VENTE (cohorte), pas en vrac sur la
+   *  fenêtre — sans lui l'écrêtage au montant contracté serait impossible. */
+  paiements: { amount: number | string | null; status: string | null; paid_at: string | null; deal_id: string | null; deals: { profile_id: string } | null }[];
   /** Lignes BRUTES par élève. La page compte elle-même, fenêtre par fenêtre, en
    *  appelant `compterLeads` — la règle reste unique, seul le découpage change. */
   lignesLeads: Map<string, LignesLeads>;
@@ -221,10 +223,10 @@ async function charger(period: Period, periodIndex: number, allTime: boolean): P
     // `deals` est la source du cash depuis le 2026-08-20 ; `calls.revenue` n'est plus
     // qu'une trace du rapport de call.
     profileIds.length
-      ? supabase.from('deals').select('profile_id, amount_total, signed_at, status').in('profile_id', profileIds)
+      ? supabase.from('deals').select('id, profile_id, amount_total, signed_at, status').in('profile_id', profileIds)
       : rien,
     profileIds.length
-      ? supabase.from('deal_payments').select('amount, status, paid_at, deals!inner(profile_id)')
+      ? supabase.from('deal_payments').select('amount, status, paid_at, deal_id, deals!inner(profile_id)')
           .in('deals.profile_id', profileIds).not('paid_at', 'is', null)
       : rien,
     // Lues depuis la borne la PLUS ANCIENNE des deux fenêtres : les mêmes lignes
@@ -489,16 +491,52 @@ export default function PageStatsClients() {
         new Date(d.signed_at).getTime() <= data.fin.getTime());
       const cashContracte = dealsFenetre.reduce((s, d) => s + Number(d.amount_total || 0), 0);
 
-      // ⚠️ `calculerCash` et jamais une somme à la main : sept lectures sommaient les
-      // paiements `succeeded` sans jamais déduire un remboursement (2 800 € affichés
-      // pour 2 600 € en caisse, corrigé le 2026-08-30).
+      /* ── Cash COLLECTÉ : par COHORTE, et écrêté vente par vente ─────────────────
+       *
+       * ⚠️ `calculerCash` et jamais une somme à la main : sept lectures sommaient les
+       * paiements `succeeded` sans jamais déduire un remboursement (2 800 € affichés
+       * pour 2 600 € en caisse, corrigé le 2026-08-30).
+       *
+       * ── Pourquoi la cohorte, et pas « l'argent rentré pendant la fenêtre » ──
+       *
+       * La carte affiche trois nombres qu'un lecteur doit pouvoir recomposer de tête :
+       * le collecté, le contracté, leur pourcentage. Ils portent donc TOUS sur les
+       * mêmes ventes — celles signées dans la fenêtre — et on somme TOUS leurs
+       * paiements, sans les borner sur la fenêtre.
+       *
+       * Cet écran faisait l'inverse : il comptait l'argent ARRIVÉ pendant la fenêtre
+       * et le rapportait à ce qui avait été VENDU pendant la fenêtre — deux ensembles
+       * différents. Mesuré le 2026-09-06 : 61 % du cash (3 600 € sur 5 900 €) tombait
+       * dans une semaine autre que celle de sa signature, et trois semaines sur cinq
+       * affichaient « 0 % collecté » sur des ventes intégralement payées. Le plafond à
+       * 100 % de `tauxCollecte` masquait la moitié du symptôme : le défaut ne se voyait
+       * que par en dessous.
+       *
+       * Contrepartie assumée, la même qu'à Mes Stats et à l'onglet Revenus : une
+       * fenêtre passée peut voir son taux MONTER plus tard, à mesure que les échéances
+       * de ses ventes tombent. C'est le sens de la question posée — « sur ce qui a été
+       * vendu cette semaine-là, combien est rentré à ce jour ». Décision de Chris,
+       * 2026-08-30 pour les deux autres écrans, 2026-09-06 pour celui-ci.
+       *
+       * ── Pourquoi `encaisseRetenu` et pas `.net` ──
+       *
+       * Un client peut verser PLUS que sa vente (double prélèvement, montant révisé à
+       * la baisse après paiement). Sans écrêtage vente par vente, ce surplus vient
+       * effacer l'impayé d'une AUTRE vente dans le total, et l'écran de pilotage dit
+       * « tout est rentré » alors qu'une relance reste à faire. Voir lib/dealCash.ts,
+       * la règle unique du cash. */
       const paiementsEleve = pid ? data.paiements.filter(p => p.deals?.profile_id === pid) : [];
-      const paiementsFenetre: LignePaiement[] = paiementsEleve
-        .filter(p => p.paid_at &&
-          new Date(p.paid_at).getTime() >= data.debut.getTime() &&
-          new Date(p.paid_at).getTime() <= data.fin.getTime())
-        .map(p => ({ amount: p.amount, status: p.status }));
-      const cashCollecte = calculerCash(paiementsFenetre).net;
+      const paiementsParDeal = new Map<string, LignePaiement[]>();
+      for (const p of paiementsEleve) {
+        if (!p.deal_id) continue;
+        const liste = paiementsParDeal.get(p.deal_id);
+        const ligne = { amount: p.amount, status: p.status };
+        if (liste) liste.push(ligne); else paiementsParDeal.set(p.deal_id, [ligne]);
+      }
+      /** Ce qui est rentré sur UNE vente, écrêté à son montant contracté. */
+      const collecteDuDeal = (d: { id: string; amount_total: number | string | null }) =>
+        encaisseRetenu(calculerCash(paiementsParDeal.get(d.id) ?? []), d.amount_total);
+      const cashCollecte = dealsFenetre.reduce((s, d) => s + collecteDuDeal(d), 0);
 
       /* La série tracée par le graphe. Les cinq premières métriques viennent de la
        * fonction SQL ; les quatre dernières sont découpées ici, depuis les tables
@@ -521,9 +559,13 @@ export default function PageStatsClients() {
               d => d.signed_at, fenetres, granularite,
             ).map(p => p.length);
           case 'cashCollecte':
+            // Découpé sur `signed_at`, comme la carte : la courbe et le KPI doivent
+            // répondre à la MÊME question, sinon un point du graphe ne se retrouve pas
+            // dans le total affiché juste au-dessus.
             return repartirParFenetre(
-              paiementsEleve, p => p.paid_at, fenetres, granularite,
-            ).map(p => calculerCash(p.map(x => ({ amount: x.amount, status: x.status }))).net);
+              dealsEleve.filter(d => d.status !== 'canceled'),
+              d => d.signed_at, fenetres, granularite,
+            ).map(p => p.reduce((s, d) => s + collecteDuDeal(d), 0));
           case 'leads':
             // Un point par fenêtre = les leads dont la date la plus ancienne y tombe.
             return fenetres.map((f, i) => {
@@ -593,13 +635,10 @@ export default function PageStatsClients() {
           new Date(d.signed_at).getTime() <= data.finPrecedente!.getTime());
         cumulPrec.ventes += dealsPrec.length;
         cumulPrec.cashContracte += dealsPrec.reduce((s, d) => s + Number(d.amount_total || 0), 0);
-        cumulPrec.cashCollecte += calculerCash(
-          pid ? data.paiements
-            .filter(p => p.deals?.profile_id === pid && p.paid_at &&
-              new Date(p.paid_at).getTime() >= data.debutPrecedent!.getTime() &&
-              new Date(p.paid_at).getTime() <= data.finPrecedente!.getTime())
-            .map(p => ({ amount: p.amount, status: p.status })) : [],
-        ).net;
+        // Même règle que la période courante — cohorte et écrêtage. Une période
+        // précédente calculée autrement rendrait le delta faux : il comparerait deux
+        // questions différentes et pas deux valeurs de la même question.
+        cumulPrec.cashCollecte += dealsPrec.reduce((s, d) => s + collecteDuDeal(d), 0);
       }
     }
 
