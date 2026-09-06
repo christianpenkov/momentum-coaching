@@ -11,6 +11,9 @@ import {
 } from '@/lib/sourcesStatsClients';
 import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import { calculerCash, encaisseRetenu, type LignePaiement } from '@/lib/dealCash';
+// Importé, jamais redérivé : `lib/callSeries.ts` est le seul endroit qui décide ce
+// qu'est une continuation, et deux définitions concurrentes se sépareraient en silence.
+import { idsDeContinuation } from '@/lib/callSeries';
 import { fetchLignesLeadsBatch, compterLeads, isNotCanceled, type LignesLeads, type LigneCallLead } from '@/lib/salesCallStats';
 import { getClientSignals, watchList, phraseSignaux, type ClientSignals } from '@/lib/clientSignals';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
@@ -84,7 +87,7 @@ interface DonneesStats {
   clients: ClientBrut[];
   series: LigneSerie[];
   seriesPrecedentes: LigneSerie[];
-  calls: { coach_id: string; status: string | null; booked_at: string | null; scheduled_at: string | null }[];
+  calls: { coach_id: string; id: string; status: string | null; outcome: string | null; invitee_email: string | null; invitee_name: string | null; booked_at: string | null; scheduled_at: string | null }[];
   deals: { id: string; profile_id: string; amount_total: number | string | null; signed_at: string | null; status: string | null }[];
   /** `deal_id` : le cash se calcule VENTE PAR VENTE (cohorte), pas en vrac sur la
    *  fenêtre — sans lui l'écrêtage au montant contracté serait impossible. */
@@ -217,7 +220,11 @@ async function charger(period: Period, periodIndex: number, allTime: boolean): P
     // (docs/calls-coach-id-piege.md). Vente = calendly ET manual, jamais calendly seul :
     // le filtre trop strict faisait disparaître les calls créés à la main.
     profileIds.length
-      ? supabase.from('calls').select('coach_id, status, booked_at, scheduled_at')
+      // `id, outcome, invitee_email, invitee_name` : de quoi reconnaître une
+      // CONTINUATION (2e rendez-vous d'un prospect dont le call précédent a été
+      // rapporté « 2ème call »). Sans ces quatre colonnes, `idsDeContinuation` ne peut
+      // ni regrouper par personne ni lire le maillon de la chaîne.
+      ? supabase.from('calls').select('coach_id, id, status, outcome, invitee_email, invitee_name, booked_at, scheduled_at')
           .in('coach_id', profileIds).in('call_type', CALL_TYPES_VENTE).neq('ignored', true)
       : rien,
     // `deals` est la source du cash depuis le 2026-08-20 ; `calls.revenue` n'est plus
@@ -464,8 +471,26 @@ export default function PageStatsClients() {
       const publications = agreger(valeurs('publications'), 'flux');
 
       const callsEleve = pid ? data.calls.filter(k => k.coach_id === pid) : [];
+      /* « Calls bookés » compte des OPPORTUNITÉS, pas des créneaux.
+       *
+       * Un prospect vu deux fois — le premier rendez-vous rapporté « 2ème call », le
+       * second quelques jours plus tard — est UNE affaire, pas deux. Cet écran les
+       * comptait toutes les deux là où Mes Stats n'en comptait qu'une : même libellé,
+       * deux nombres, pour le même élève sur la même semaine.
+       *
+       * L'argument décisif n'est pas l'écart (un seul cas au 2026-09-06) mais la place
+       * de la carte : « Calls bookés » est posée ENTRE « Leads » et « Ventes ». Leads
+       * compte des personnes, Ventes compte des affaires ; une étape du milieu qui
+       * compterait des créneaux ne se lirait plus dans la suite des deux autres.
+       * Décision de Chris, 2026-09-06.
+       *
+       * ⚠️ `idsDeContinuation` reçoit TOUS les calls de l'élève, jamais ceux de la
+       * fenêtre : une chaîne peut commencer avant la période affichée, et un jeu tronqué
+       * ferait passer une continuation pour une ouverture. */
+      const continuations = idsDeContinuation(callsEleve);
+      const estOpportunite = (k: { id: string }) => !continuations.has(k.id);
       const callsBookes = pid
-        ? callsEleve.filter(k => isNotCanceled(k) && dansFenetre(k.booked_at, k.scheduled_at, data.debut, data.fin)).length
+        ? callsEleve.filter(k => isNotCanceled(k) && estOpportunite(k) && dansFenetre(k.booked_at, k.scheduled_at, data.debut, data.fin)).length
         : null;
 
       // Leads : la déduplication se fait sur TOUTES les lignes, puis la date la plus
@@ -550,7 +575,7 @@ export default function PageStatsClients() {
           case 'publications': return valeurs('publications');
           case 'callsBookes':
             return repartirParFenetre(
-              callsEleve.filter(k => isNotCanceled(k)),
+              callsEleve.filter(k => isNotCanceled(k) && estOpportunite(k)),
               k => k.booked_at || k.scheduled_at, fenetres, granularite,
             ).map(p => p.length);
           case 'ventes':
@@ -628,7 +653,7 @@ export default function PageStatsClients() {
             dansFenetre(c.booked_at ?? null, c.scheduled_at ?? null, data.debutPrecedent!, data.finPrecedente!)),
         }, data.debutPrecedent.toISOString(), data.finPrecedente.toISOString()) : 0;
         cumulPrec.callsBookes += callsEleve.filter(k =>
-          isNotCanceled(k) && dansFenetre(k.booked_at, k.scheduled_at, data.debutPrecedent!, data.finPrecedente!)).length;
+          isNotCanceled(k) && estOpportunite(k) && dansFenetre(k.booked_at, k.scheduled_at, data.debutPrecedent!, data.finPrecedente!)).length;
         const dealsPrec = dealsEleve.filter(d =>
           d.status !== 'canceled' && d.signed_at &&
           new Date(d.signed_at).getTime() >= data.debutPrecedent!.getTime() &&
