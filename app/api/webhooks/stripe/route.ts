@@ -867,10 +867,19 @@ async function handleEvent(event: Stripe.Event) {
       const perdu = dispute.status === 'lost';
       const somme = ((dispute.amount ?? 0) / 100)
         .toLocaleString('fr-FR', { minimumFractionDigits: 2 });
+      // ⚠️ Ne JAMAIS recopier `dispute.status` dans un libelle : le journal
+      // affichait « Litige clos — won », un mot d'anglais brut sorti de l'API sur
+      // un ecran que l'eleve lit dans un moment de stress. Chaque statut connu a
+      // sa phrase ; l'inconnu tombe sur une formule qui reste vraie sans
+      // inventer, et le statut exact reste dans `meta` pour le diagnostic.
       await journaliser(supabase, dealId, 'dispute',
         perdu
           ? `Litige perdu — ${somme} € definitivement repris par la banque`
-          : `Litige clos — ${dispute.status}`,
+          : dispute.status === 'won'
+            ? `Litige clos — gagne`
+            : dispute.status === 'warning_closed'
+              ? `Demande d'information close, sans litige`
+              : `Litige clos`,
         { charge: chargeId, statut: dispute.status });
 
       await refreshDealStatus(supabase, dealId);
