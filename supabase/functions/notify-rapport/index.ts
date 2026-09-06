@@ -11,6 +11,8 @@ import { CALL_TYPES_VENTE } from '../../../lib/callTypes.ts';
 // `npm run deployer-edge <nom>` juste avant l'envoi : la valeur figee dans le bundle est
 // donc celle du code reellement deploye.
 import { EMPREINTES_EDGE } from '../../../lib/empreintes-edge.generated.ts';
+// Catalogue partagé avec Next.js — voir l'en-tête de lib/notifications.ts.
+import { rapportDeCall } from '../../../lib/notifications.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -116,9 +118,7 @@ Deno.serve(async (req: Request) => {
         },
         body: JSON.stringify({
           profileId: call.coach_id,
-          title: 'Rapport de call',
-          body: `Comment s'est passé ton appel${call.invitee_name ? ` avec ${call.invitee_name}` : ''} ? Remplis ton rapport.`,
-          url: `/client/calls?rapport=${call.id}`,
+          ...rapportDeCall({ callId: call.id, inviteeName: call.invitee_name }),
         }),
       });
 

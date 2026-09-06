@@ -23,6 +23,7 @@ import { ORIGINE_DM_ENTRANT } from './origineLead';
 import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import { pushEvent } from '@/app/api/instagram/webhook-stream/route';
 import { estSortant, estLeCompte, typePieceJointe, estSuppression } from '@/lib/igConversations';
+import { envoiInstagramRefuse } from '@/lib/notifications';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -176,9 +177,7 @@ function alerterExploitant(etape: string, sousCode: number | null, message: stri
       headers: { 'Content-Type': 'application/json', authorization: `Bearer ${process.env.CRON_SECRET}` },
       body: JSON.stringify({
         profileId: destinataire,
-        title: 'Momentum — envoi Instagram refusé',
-        body: `${etape}${sousCode ? ` · code ${sousCode}` : ''} — ${verdict}${message ? `\n${message}` : ''}`,
-        url: '/client/pipeline',
+        ...envoiInstagramRefuse({ etape, sousCode, verdict, message }),
       }),
     });
   })().catch(e => console.error('[IG Webhook] alerte exploitant impossible:', e?.message || e));

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import webpush from 'web-push';
 import { createClient } from '@supabase/supabase-js';
+import { TAG_MESSAGERIE } from '@/lib/notifications';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -111,6 +112,11 @@ export async function POST(req: NextRequest) {
 
     const payload = JSON.stringify({
       title, body: bodyText.substring(0, 100), url, unreadCount: unreadCount ?? 1,
+      // Tag PARTAGÉ, et c'est le seul endroit où on le veut : un nouveau message
+      // remplace le précédent pour ne laisser qu'un badge de conversation.
+      // Désormais explicite — c'était le défaut du service worker, donc hérité
+      // par tous les autres émetteurs, qui s'effaçaient les uns les autres.
+      tag: TAG_MESSAGERIE,
       image: notifImage,
       // Photo de profil de l'expéditeur affichée en icône de la notification (au lieu
       // du logo Momentum générique) — comportement WhatsApp/iMessage. Fallback géré

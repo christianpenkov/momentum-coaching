@@ -25,7 +25,12 @@ export async function POST(req: NextRequest) {
 
   const body_json = await req.json();
   // Accepte recipientUserId (legacy) ou profileId (Edge Function)
-  const { recipientUserId, profileId, title, body, url } = body_json;
+  // `tag` : regroupement de la notification. Deux notifications de même tag se
+  // remplacent — à ne demander que pour un flux dont une seule doit rester
+  // visible (la messagerie). Sans tag, chacune vit sa vie. Ce champ n'était pas
+  // relayé : tout ce qui passait par ici retombait sur le tag par défaut du
+  // service worker, qui était partagé, et s'effaçait mutuellement.
+  const { recipientUserId, profileId, title, body, url, tag } = body_json;
   const targetProfileId = profileId || recipientUserId;
   if (!targetProfileId) return NextResponse.json({ error: 'invalid' }, { status: 400 });
 
@@ -36,7 +41,7 @@ export async function POST(req: NextRequest) {
 
   if (!subs || subs.length === 0) return NextResponse.json({ sent: 0 });
 
-  const payload = JSON.stringify({ title, body: body, url: url || '/' });
+  const payload = JSON.stringify({ title, body: body, url: url || '/', ...(tag ? { tag } : {}) });
 
   const results = await Promise.allSettled(
     subs.map(sub =>

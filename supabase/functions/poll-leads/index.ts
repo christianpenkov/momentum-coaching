@@ -58,6 +58,8 @@ import { CALL_TYPES_VENTE } from '../../../lib/callTypes.ts';
 // `npm run deployer-edge <nom>` juste avant l'envoi : la valeur figee dans le bundle est
 // donc celle du code reellement deploye.
 import { EMPREINTES_EDGE } from '../../../lib/empreintes-edge.generated.ts';
+// Catalogue partagé avec Next.js — voir l'en-tête de lib/notifications.ts.
+import { invitationCall } from '../../../lib/notifications.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -3750,9 +3752,12 @@ Deno.serve(async (req: Request) => {
           method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${CRON_SECRET}` },
           body: JSON.stringify({
             profileId: clientRow.profile_id,
-            title: 'Invitation de call en attente',
-            body: `${coachFirstName || 'Ton coach'} t'a proposé un call à ${timeStr} — n'oublie pas d'accepter ou refuser l'invitation.`,
-            url: '/client/calls',
+            ...invitationCall({
+              callId: call.id,
+              coachPrenom: coachFirstName,
+              heure: timeStr,
+              echeance: due2h ? '2h' : '24h',
+            }),
           }),
           signal: controller.signal,
         });

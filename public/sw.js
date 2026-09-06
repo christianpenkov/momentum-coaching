@@ -247,12 +247,22 @@ self.addEventListener('push', e => {
             // Miniature large affichée dans la notification (photo envoyée, ou
             // miniature PDF pour un document) — absent pour les messages texte/vocal.
             ...(payload.image ? { image: payload.image } : {}),
-            // Un tag PARTAGÉ fait qu'une notification remplace la précédente :
-            // c'est voulu pour la messagerie (un seul badge de conversation),
-            // mais pas pour des rappels distincts — deux échéances tombant le
-            // même jour n'en laisseraient qu'une visible. L'émetteur peut donc
-            // imposer son propre tag ; à défaut on garde l'ancien comportement.
-            tag: payload.tag || 'momentum-msg',
+            // Un tag PARTAGÉ fait qu'une notification REMPLACE la précédente.
+            // C'est voulu pour la messagerie (un seul badge de conversation),
+            // et seulement là.
+            //
+            // Le défaut était `momentum-msg`, donc partagé : tout émetteur qui
+            // n'envoyait pas de tag — et aucun ne le faisait, sauf les rappels
+            // d'échéance — effaçait silencieusement la notification d'un autre.
+            // Trois nouveaux posts n'en laissaient qu'un visible, deux rapports
+            // à remplir qu'un seul, et une alerte pouvait faire disparaître un
+            // message non lu.
+            //
+            // Sans tag, la notification ne remplace rien. C'est donc le bon
+            // défaut : un émetteur qui oublie de se nommer produit une notif de
+            // trop, jamais une notif en moins. Le regroupement se DEMANDE, il ne
+            // s'hérite pas.
+            ...(payload.tag ? { tag: payload.tag } : {}),
             renotify: true,
             // requireInteraction + vibrate — pousse Android à traiter la notif comme
             // prioritaire (heads-up) plutôt que la déposer silencieusement dans le tiroir.

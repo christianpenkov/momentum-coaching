@@ -57,6 +57,12 @@
 // 500 posts. Même motif que la fenêtre d'auto-réparation Short.io.
 
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+// Catalogue des notifications, partagé avec Next.js. Chemin relatif hors de
+// `supabase/functions/` : c'est volontaire et c'est sûr, `lib/notifications.ts`
+// n'importe rien, et la clôture d'imports de `scripts/empreintes-edge.mjs` suit
+// les chemins relatifs — un déploiement en retard sur ce fichier est donc
+// détectable, au lieu de figer une copie muette.
+import { nouvellesPublications, typePublication, typeDuLot } from '../../../lib/notifications.ts';
 
 const GRAPH = 'https://graph.instagram.com/v22.0';
 
@@ -1005,24 +1011,36 @@ export async function snapshotIgPosts(
     // (ça reste un geste manuel de l'élève via "Gérer mes liens"). Pas de flag
     // supplémentaire nécessaire : dès que l'upsert ci-dessus crée la ligne du jour pour
     // ce post_id, il n'apparaîtra plus jamais dans newPostIds au run suivant.
+    // UNE notification pour le lot, pas une par post.
+    //
+    // Avant, un `map` sur newPostIds envoyait autant de notifications que de
+    // posts découverts. Publier trois reels dans la journée réveillait le
+    // téléphone trois fois pour dire trois fois la même chose — et comme aucune
+    // ne portait de tag, elles se remplaçaient : trois envois, une seule visible.
+    //
+    // Le tag dérive du premier post du lot : rejouer le même lot (relance du
+    // cron, réessai) remplace la notification au lieu d'en empiler une seconde,
+    // alors qu'un lot ultérieur, lui, en produit bien une nouvelle.
+    // UNE notification pour le lot, pas une par post — et son texte vient du
+    // catalogue (lib/notifications.ts), pas d'une composition sur place.
     if (newPostIds.length > 0 && notifyConfig) {
-      await Promise.allSettled(newPostIds.map(async (postId) => {
-        try {
-          const res = await fetch(`${notifyConfig.platformUrl}/api/push/send`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${notifyConfig.cronSecret}` },
-            body: JSON.stringify({
-              profileId,
-              title: 'Nouveau post détecté',
-              body: 'Un nouveau post Instagram a été repéré sur ton compte.',
-              url: '/client/liens',
-            }),
-          });
-          if (!res.ok) errors.push(`new_post_push_${postId}: HTTP ${res.status}`);
-        } catch (e: any) {
-          errors.push(`new_post_push_${postId}: ${e?.message || 'unknown'}`);
-        }
-      }));
+      const n = newPostIds.length;
+      const types = newPostIds.map((id) => {
+        const p = posts.find((x: any) => x.id === id);
+        return typePublication({ media_product_type: p?.media_product_type, media_type: p?.media_type });
+      });
+      const notif = nouvellesPublications({ nombre: n, type: typeDuLot(types), premierId: newPostIds[0] });
+
+      try {
+        const res = await fetch(`${notifyConfig.platformUrl}/api/push/send`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${notifyConfig.cronSecret}` },
+          body: JSON.stringify({ profileId, ...notif }),
+        });
+        if (!res.ok) errors.push(`new_post_push: HTTP ${res.status} (${n} posts)`);
+      } catch (e: any) {
+        errors.push(`new_post_push: ${e?.message || 'unknown'} (${n} posts)`);
+      }
     }
   } catch (e: any) { errors.push(`ig_posts_snapshot: ${e?.message || 'unknown'}`); }
   return errors;
