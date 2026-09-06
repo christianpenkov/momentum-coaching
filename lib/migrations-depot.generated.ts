@@ -173,4 +173,9 @@ export const MIGRATIONS_DEPOT: { version: string; nom: string }[] = [
   { version: '20260905190000', nom: 'moyen_encaissement_preuve_positive' },
   { version: '20260905200000', nom: 'clics_calendly_yt' },
   { version: '20260905220000', nom: 'semaphore_worker_par_baux' },
+  { version: '20260906150000', nom: 'ventes_cash_net' },
+  { version: '20260906160000', nom: 'clics_stats_clients_liens_momentum' },
+  { version: '20260906170000', nom: 'retirer_colonnes_shortio_mortes' },
+  { version: '20260906180000', nom: 'get_ig_posts_history_expose_deleted_at' },
+  { version: '20260906190000', nom: 'publications_gardent_les_posts_supprimes' },
 ];
