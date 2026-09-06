@@ -337,17 +337,27 @@ export async function GET(request: Request) {
   // 2026-07-07) — plus besoin de reconstruire à rebours depuis un delta Meta bruité.
   const chartData = dbSnaps.map(r => ({
     date: r.date,
-    reach: r.ig_reach ?? 0,
-    // true seulement si la ligne existe mais que cette métrique précise n'a pas encore
-    // été collectée par le cron (distinct d'un vrai 0) — permet à l'UI d'afficher "Pas
-    // encore de données" plutôt qu'un 0 potentiellement trompeur pour le jour courant.
-    reachPending: r.ig_reach == null,
+    // ⚠️ `?? null` sur toutes les metriques de FLUX — une colonne NULL veut dire « le
+    // collecteur n'a rien rapporte », pas « la valeur etait zero ».
+    //
+    // Ce chemin et la reconstruction depuis la base dans PageClientStats.tsx doivent
+    // produire EXACTEMENT la meme forme : sinon le comportement change selon la periode
+    // consultee (route pour la periode courante, reconstruction pour les autres), et
+    // c'est le genre d'ecart qu'on ne relie jamais a sa cause.
+    //
+    // Les drapeaux `reachPending` / `viewsPending` disparaissent : la valeur porte
+    // desormais l'information, et TypeScript oblige chaque lecteur a la traiter. Un
+    // drapeau parallele a la donnee peut diverger d'elle, pas une valeur.
+    //
+    // ⚠️ `viewsPending` designait DEUX choses selon la plateforme — le graphe des vues
+    // cote YouTube, rien du tout cote Instagram ou personne ne le lisait. L'ambiguite
+    // part avec le drapeau.
+    reach: r.ig_reach ?? null,
     followerCount: r.ig_followers ?? null,
-    views: r.ig_views ?? 0,
-    viewsPending: r.ig_views == null,
-    accountsEngaged: r.ig_accounts_engaged ?? 0,
-    totalInteractions: r.ig_total_interactions ?? 0,
-    websiteClicks: r.ig_website_clicks ?? 0,
+    views: r.ig_views ?? null,
+    accountsEngaged: r.ig_accounts_engaged ?? null,
+    totalInteractions: r.ig_total_interactions ?? null,
+    websiteClicks: r.ig_website_clicks ?? null,
     reachFollower: r.ig_reach_follower ?? null,
     reachNonFollower: r.ig_reach_non_follower ?? null,
   }));

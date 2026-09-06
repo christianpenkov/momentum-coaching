@@ -102,7 +102,7 @@ interface IGStats {
   followsUnfollows30d: number; profileLinksTaps30d: number; websiteClicks30d: number;
   views30d: number;
   viewsFollowerBreakdown: { follower: number; nonFollower: number } | null;
-  chartData: { date: string; reach: number; followerCount?: number | null; views?: number; accountsEngaged?: number; totalInteractions?: number; websiteClicks?: number; reachFollower?: number | null; reachNonFollower?: number | null }[];
+  chartData: { date: string; reach: number | null; followerCount?: number | null; views?: number | null; accountsEngaged?: number | null; totalInteractions?: number | null; websiteClicks?: number | null; reachFollower?: number | null; reachNonFollower?: number | null }[];
   posts: IGPost[]; demographics: Record<string, { label: string; value: number }[]>;
   onlineFollowers: any;
 }
@@ -128,7 +128,7 @@ interface YTStats {
   // (colonnes yt_avg_duration_shorts_sec / _long_sec, alimentées depuis la dimension
   // creatorContentType de l'API). null quand le format n'a eu aucune vue ce jour-là —
   // jamais 0, qui se lirait « personne n'a regardé ».
-  chartData: { date: string; views: number; watchTime: number; subsGained?: number; subsLost?: number; netSubs?: number; likes?: number; comments?: number; shares?: number; subscribers?: number | null; avgViewDurationSec?: number | null; avgDurationShorts?: number | null; avgDurationLong?: number | null; viewsShorts?: number | null; viewsLong?: number | null; watchTimeShorts?: number | null; watchTimeLong?: number | null }[];
+  chartData: { date: string; views: number | null; watchTime: number | null; subsGained?: number | null; subsLost?: number | null; netSubs?: number | null; likes?: number | null; comments?: number | null; shares?: number | null; subscribers?: number | null; avgViewDurationSec?: number | null; avgDurationShorts?: number | null; avgDurationLong?: number | null; viewsShorts?: number | null; viewsLong?: number | null; watchTimeShorts?: number | null; watchTimeLong?: number | null }[];
   videos: YTVideo[]; trafficSources: { source: string; views: number; watchMinutes: number }[];
   devices: { device: string; views: number; watchMinutes: number }[];
   demographics: { ageGroup: string; gender: string; viewerPct: number }[];
@@ -421,6 +421,28 @@ function libelleFenetre(
   return allTimeStart
     ? `depuis le ${new Date(allTimeStart).toLocaleDateString('fr-FR')}`
     : 'depuis la connexion';
+}
+
+/**
+ * Somme un FLUX sur une periode, en distinguant « zero » de « pas mesure ».
+ *
+ * Rend `null` — et non 0 — si AUCUN jour de la fenetre n'a ete collecte. « 0 » y
+ * affirmerait qu'il ne s'est rien passe, alors que la verite est qu'on ne sait pas.
+ * Un seul jour collecte suffit a rendre un total : une fenetre partiellement trouee
+ * garde son chiffre, ce sont les COURBES qui montrent ou sont les trous.
+ *
+ * Mesure du 2026-09-06 qui justifie l'utilitaire : sur les vues Instagram decoupees en
+ * semaines calendaires, 18 fenetres sur 44 sont ENTIEREMENT non collectees. Elles
+ * affichaient toutes « 0 vue », un chiffre invente que rien ne signalait.
+ */
+function sommeFlux(jours: readonly any[], champ: string): number | null {
+  let total = 0;
+  let mesure = false;
+  for (const j of jours) {
+    const v = j?.[champ];
+    if (v != null) { total += v; mesure = true; }
+  }
+  return mesure ? total : null;
 }
 
 function regrouperSerieAffichee(
@@ -1403,8 +1425,8 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
       const existing = ytChartByDate.get(iso);
       // `pending: false` en dur ratait le cas « ligne presente, vues nulles ».
       days.push(existing
-        ? { ...existing, pending: !!(existing as any).viewsPending }
-        : { date: iso, views: 0, pending: true } as any);
+        ? { ...existing, pending: existing.views == null }
+        : { date: iso, views: null, pending: true } as any);
       d = parisAddDays(d, 1);
     }
     return days;
@@ -1422,8 +1444,8 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
       const iso = parisDateStr(d);
       const existing = igChartByDate.get(iso);
       days.push(existing
-        ? { ...existing, pending: (existing as any).reachPending }
-        : { date: iso, reach: 0, pending: true } as any);
+        ? { ...existing, pending: existing.reach == null }
+        : { date: iso, reach: null, pending: true } as any);
       d = parisAddDays(d, 1);
     }
     return days;
@@ -1434,10 +1456,10 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   // C'est ce que faisait la branche `period === 7`, qui affichait « 4 personnes · total »
   // quand on entrait en All-Time depuis le mode 7 jours.
   const igReach = (!sinceConnection && period === 7)
-    ? igChartSlice.reduce((s, d) => s + d.reach, 0)
+    ? igChartSlice.reduce((s, d) => s + (d.reach ?? 0), 0)
     : (ig?.reach30d || 0);
   const ytViews = (!sinceConnection && period === 7)
-    ? ytChartSlice.reduce((s, d) => s + d.views, 0)
+    ? ytChartSlice.reduce((s, d) => s + (d.views ?? 0), 0)
     : (yt?.views30d || 0);
   // ── Abonnes : un ETAT, pas une mesure de periode ──────────────────────────
   // Un nombre d'abonnes ne se cumule pas ; le sous-titre « total » laissait pourtant
@@ -2117,7 +2139,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
   // La somme des journees reste calculee — elle a UN usage legitime, le taux
   // d'engagement ci-dessous. Elle ne doit simplement jamais s'afficher sous le mot
   // « personnes ».
-  const igReachCumuleP = igDaysSlice.reduce((s, d) => s + d.reach, 0);
+  const igReachCumuleP = igDaysSlice.reduce((s, d) => s + (d.reach ?? 0), 0);
   // Bornes qui portent RÉELLEMENT un nombre d'abonnés, pas les bornes de la période.
   // `ig_followers` n'est plus écrit que sur la ligne du jour depuis le 2026-08-30 : une
   // journée comblée par le seul rattrapage n'en porte pas. Avec `?? 0` sur les bornes,
@@ -2153,7 +2175,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
   // Meta sont différentes par définition (cf. bug ig_accounts_engaged/
   // ig_total_interactions identiques corrigé le 2026-07-06 — même confusion ici,
   // côté lecture cette fois plutôt que côté collecte).
-  const igInteractionsP = igDaysSlice.reduce((s, d) => s + (d.totalInteractions ?? 0), 0);
+  const igInteractionsP = sommeFlux(igDaysSlice, 'totalInteractions');
   // Visites de profil sur la periode. Collectee depuis le 2026-08-22 : les journees
   // anterieures valent null, d'ou le `?? 0` qui les traite comme sans consultation
   // plutot que de casser la somme. Le rattrapage les comble progressivement.
@@ -2173,7 +2195,9 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
   //
   // C'est le meme raisonnement que la regle des taux du referentiel — sommer les
   // numerateurs ET les denominateurs, jamais moyenner des pourcentages.
-  const engRate: number | null = igReachCumuleP > 0 ? pct(igInteractionsP, igReachCumuleP) : null;
+  const engRate: number | null = igInteractionsP !== null && igReachCumuleP > 0
+    ? pct(igInteractionsP, igReachCumuleP)
+    : null;
   // Nombre RÉEL de comptes abonnés uniques touchés (pas un ratio recalculé depuis un
   // total de reach mêlé abonnés+non-abonnés) — confirmé via test direct API Meta :
   // period=days_28 + metric_type=total_value + breakdown=follow_type renvoie le vrai
@@ -2271,9 +2295,9 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
     ...d,
     reach: igDaysNoDataSet.has(d.date) ? (null as any) : d.reach,
     // Ligne existe (pas dans igDaysNoDataSet) mais reach pas encore collecté par le
-    // cron pour ce jour précis (voir reachPending, stats/route.ts) — point creux/gris
-    // plutôt qu'un 0 muet, distinct d'un jour vraiment sans ligne (coupé ci-dessus).
-    pending: !igDaysNoDataSet.has(d.date) && (d as any).reachPending,
+    // cron pour ce jour précis — point creux plutôt qu'un 0 muet, distinct d'un jour
+    // vraiment sans ligne (coupé ci-dessus).
+    pending: !igDaysNoDataSet.has(d.date) && d.reach == null,
   }));
 
   // Publications par jour depuis les vrais timestamps des posts
@@ -2385,7 +2409,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
     // toujours 0, la condition `>= 0` etait toujours vraie, et la courbe restait VERTE
     // meme sur une periode ou le compte perdait des abonnes (constate le 2026-08-22).
     })(), color: igFollowerDeltaP >= 0 ? GREEN : RED },
-    "Taux d'engagement": { data: igDays.map(d => ({ date: d.date, v: igDaysNoDataSet.has(d.date) ? (null as any) : (d.reach > 0 ? Math.round((d.totalInteractions ?? 0) / d.reach * 100 * 10) / 10 : 0) })), color: (engRate ?? 0) > 5 ? GREEN : (engRate ?? 0) > 2 ? AMBER : RED, unit: '%' },
+    "Taux d'engagement": { data: igDays.map(d => ({ date: d.date, v: igDaysNoDataSet.has(d.date) || d.reach == null || d.totalInteractions == null ? (null as any) : (d.reach > 0 ? Math.round(d.totalInteractions / d.reach * 100 * 10) / 10 : 0) })), color: (engRate ?? 0) > 5 ? GREEN : (engRate ?? 0) > 2 ? AMBER : RED, unit: '%' },
     // Pas d'entrée "Followers reach rate" ici : Meta n'expose aucun équivalent
     // dédupliqué PAR JOUR (seulement sur la fenêtre glissante totale de 28 jours) —
     // un calcul reach_du_jour/abonnés_totaux serait une approximation non fiable,
@@ -2447,7 +2471,11 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
             value: igReachP !== null ? fmt(igReachP) : '—',
             sub: igReachP !== null ? `${igEtiquettePeriode} · comptées une fois` : 'période non mesurée',
             color: (igReachP !== null ? 'var(--ink)' : 'var(--faint)') as string, key: 'Reach' },
-          { label: 'Interactions posts', value: fmt(igInteractionsP), sub: igEtiquettePeriode, color: 'var(--ink)', key: 'Interactions posts' },
+          { label: 'Interactions posts',
+            value: igInteractionsP !== null ? fmt(igInteractionsP) : 'Non mesuré',
+            sub: igInteractionsP !== null ? igEtiquettePeriode : 'aucun jour collecté',
+            color: (igInteractionsP !== null ? 'var(--ink)' : 'var(--faint)') as string,
+            key: 'Interactions posts' },
         ].map(s => (
           <div key={s.key} onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: s.key ? 'pointer' : 'default', transition: 'background .15s' }}
             onMouseEnter={e => { if (s.key) e.currentTarget.style.background = 'var(--surface-2)'; }}
@@ -3564,25 +3592,17 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   // Critere : aucune activite d'aucune sorte. Une vraie journee a zero vue serait
   // marquee a tort, mais elle produirait le meme rendu qu'un point a zero — un creux
   // dans la courbe — sans jamais affirmer une valeur fausse.
-  // `viewsPending` dit EXACTEMENT ce que l'heuristique ci-dessous devinait : la ligne
-  // existe mais `yt_views` est null. Le drapeau n'existait pas quand ce filet a ete
-  // ecrit ; il est desormais produit par ytHist (2026-08-31). Une vraie journee a zero
-  // vue n'est donc plus marquee a tort.
+  // `d.views === null` dit EXACTEMENT ce que l'heuristique devinait : la ligne existe
+  // mais `yt_views` n'a pas ete collecte.
   //
-  // L'heuristique reste en repli pour le chemin API live, qui ne porte pas le drapeau —
-  // la un jour non traite est simplement ABSENT, et c'est la boucle plus bas qui le voit.
-  //
-  // Et surtout : ce filet ne tournait QUE en All-Time. Sur une periode passee, une ligne
-  // a `yt_views` null redevenait un zero trace. 31 journees dans ce cas sur le profil de
-  // test au 2026-08-31.
+  // L'heuristique qui se trouvait ici — « aucune activite d'aucune sorte, donc
+  // probablement non collecte » — est SUPPRIMEE. Elle etait un repli pour le chemin API
+  // live, qui ne portait pas le drapeau ; les DEUX chemins rendent desormais le trou.
+  // Elle avait un defaut que le trou n'a pas : une vraie journee a zero vue etait
+  // marquee « non mesuree » a tort. Deviner n'est plus necessaire, donc on ne devine
+  // plus.
   for (const d of ytDaysRaw) {
-    const pending = (d as any).viewsPending;
-    if (pending === true) { ytDaysNoDataSet.add(d.date); continue; }
-    if (pending === undefined && sinceConnection) {
-      const vide = (d.views ?? 0) === 0 && (d.watchTime ?? 0) === 0
-        && (d.likes ?? 0) === 0 && (d.subsGained ?? 0) === 0 && (d.subsLost ?? 0) === 0;
-      if (vide) ytDaysNoDataSet.add(d.date);
-    }
+    if (d.views == null) ytDaysNoDataSet.add(d.date);
   }
   const ytDays: typeof ytDaysRaw = sinceConnection ? ytDaysRaw : (() => {
     const days: typeof ytDaysRaw = [];
@@ -3591,7 +3611,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
       const iso = parisDateStr(d);
       const existing = ytDayByDate.get(iso);
       if (!existing) ytDaysNoDataSet.add(iso);
-      days.push(existing ?? { date: iso, views: 0, watchTime: 0, subsGained: 0, subsLost: 0, netSubs: 0 });
+      days.push(existing ?? { date: iso, views: null, watchTime: null, subsGained: null, subsLost: null, netSubs: null });
       d = parisAddDays(d, 1);
     }
     return days;
@@ -3652,8 +3672,8 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
     : null;
 
   // Valeurs sur la période sélectionnée depuis chartData
-  const ytViewsP = ytDays.reduce((s, d) => s + d.views, 0);
-  const ytWatchTimeP = ytDays.reduce((s, d) => s + d.watchTime, 0);
+  const ytViewsP = sommeFlux(ytDays, 'views');
+  const ytWatchTimeP = sommeFlux(ytDays, 'watchTime');
   const ytSubsGainedP = ytDays.reduce((s, d) => s + (d.subsGained ?? 0), 0);
   const ytSubsLostP = ytDays.reduce((s, d) => s + (d.subsLost ?? 0), 0);
   const ytNetSubsP = ytSubsGainedP - ytSubsLostP;
@@ -3681,7 +3701,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   // Toutes les durees de la plateforme passent par lib/duree.ts — voir l'en-tete de
   // ce fichier pour la regle et le bug qui l'a motivee.
   const fmtWatchMin = dureeDepuisMinutes;
-  const watchTimeLabel = dureeDepuisMinutes(ytWatchTimeP);
+  const watchTimeLabel = ytWatchTimeP !== null ? dureeDepuisMinutes(ytWatchTimeP) : 'Non mesuré';
 
   // Vues/sub par type de contenu (depuis les vidéos de la période)
   // Vues par format sur la PERIODE AFFICHEE (colonnes yt_views_shorts / _long, ajoutees
@@ -3797,7 +3817,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
     // 16 minutes, donc Math.round(x / 60) ecrasait toute la courbe a zero. Meme motif
     // que la carte « Watch time » juste au-dessus et que le bug de collecte du
     // 2026-08-20 — une conversion en heures detruit les petites valeurs.
-    'Watch time':         { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : Math.round(d.watchTime) })), color: AMBER, unit: 'min' },
+    'Watch time':         { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) || d.watchTime == null ? (null as any) : Math.round(d.watchTime) })), color: AMBER, unit: 'min' },
     // Vignette : durée moyenne réelle du jour, tous formats confondus
     // (yt_avg_view_duration_sec). La ventilation Shorts / longues est dans la modale,
     // au clic. Remplace mockFromTotalYT, qui étalait le total avec un sinus.
@@ -3826,7 +3846,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
         // (abonnes gagnes / vues) et n'est donc pas dilue par ces jours.
         v: ytDaysNoDataSet.has(d.date)
           ? (null as any)
-          : (d.views > 0 ? Math.round(((d.subsGained ?? 0) / d.views) * 100 * 1000) / 1000 : 0),
+          : (d.views == null || d.subsGained == null ? null : d.views > 0 ? Math.round((d.subsGained / d.views) * 100 * 1000) / 1000 : 0),
       })),
       color: 'var(--accent-brand)', unit: '%',
     },
@@ -3949,7 +3969,11 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
           // reste 'Abonnés nets YT' pour ne pas entrer en collision avec la serie
           // Instagram du meme nom.
           { label: 'Abonnés nets', value: `${ytNetSubsP >= 0 ? '+' : ''}${fmt(ytNetSubsP)}`, sub: ytEtiquettePeriode, color: ytNetSubsP >= 0 ? GREEN : RED, key: 'Abonnés nets YT' },
-          { label: 'Vues', value: fmt(ytViewsP), sub: ytEtiquettePeriode, color: 'var(--ink)', key: 'Vues 30j' },
+          { label: 'Vues',
+            value: ytViewsP !== null ? fmt(ytViewsP) : 'Non mesuré',
+            sub: ytViewsP !== null ? ytEtiquettePeriode : 'aucun jour collecté',
+            color: (ytViewsP !== null ? 'var(--ink)' : 'var(--faint)') as string,
+            key: 'Vues 30j' },
           null, // carte Vues/sub custom Shorts vs Vidéos
         ].map((s, i) => {
           if (s === null) return (
@@ -5144,7 +5168,7 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
   const igNoShows = igCallsLive.noShows;
   const igRendezVous = igCallsLive.rendezVous;
 
-  const ytViewsD  = noData ? 0 : (yt ? yt.chartData.filter(d => inFunnelDateWindow(d.date)).reduce((s, d) => s + d.views, 0) : 0);
+  const ytViewsD  = noData ? 0 : (yt ? yt.chartData.filter(d => inFunnelDateWindow(d.date)).reduce((s, d) => s + (d.views ?? 0), 0) : 0);
   const ytBookes  = ytCallsLive.bookes;
   const ytHonores = ytCallsLive.honores;
   const ytOpportunites = ytCallsLive.opportunitesHonorees;
@@ -5442,8 +5466,8 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
   const fmtRate = (a: number, b: number) => `${fmt((a / b) * 100, 1)}%`;
   type EffMetric = { label: string; value: string; prevValue: string | null; delta: { value: number; label: string; color: string } | null; lowerIsBetter: boolean; aide?: string };
   type EffRow = { platform: string; color: string; metrics: EffMetric[]; platformCalls: CallRecord[]; reachByDate: Map<string, number> };
-  const igReachByDate = new Map<string, number>((ig?.chartData ?? []).filter(dd => inFunnelDateWindow(dd.date)).map(dd => [dd.date, dd.reach]));
-  const ytReachByDate = new Map<string, number>((yt?.chartData ?? []).filter(dd => inFunnelDateWindow(dd.date)).map(dd => [dd.date, dd.views]));
+  const igReachByDate = new Map<string, number>((ig?.chartData ?? []).filter(dd => inFunnelDateWindow(dd.date)).map(dd => [dd.date, dd.reach ?? 0]));
+  const ytReachByDate = new Map<string, number>((yt?.chartData ?? []).filter(dd => inFunnelDateWindow(dd.date)).map(dd => [dd.date, dd.views ?? 0]));
   // ── Efficacité par plateforme (données réelles, pas de comparaison historique) ──
   const effRows: EffRow[] = [
     {
@@ -10255,17 +10279,32 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     followsUnfollows30d:  igFUTotal,
     chartData: snaps.map(r => ({
       date:              r.date,
-      reach:             r.ig_reach ?? 0,
-      // Sans ce drapeau, un jour NON COLLECTE etait trace comme un vrai zero sur tout
-      // le chemin instantane — periodes passees et All-Time. La route API le produit
-      // depuis toujours (stats/route.ts), pas cette reconstruction depuis la base.
-      // Un 0 affirme « personne ne t'a vu », un trou dit « on ne sait pas ».
-      reachPending:      r.ig_reach == null,
-      views:             r.ig_views ?? 0,
+      // ⚠️ `?? null`, JAMAIS `?? 0`, sur toutes les metriques de FLUX.
+      //
+      // Une colonne NULL veut dire « le collecteur n'a rien rapporte ce jour-la ». Elle
+      // ne veut PAS dire « la valeur etait zero ». Un 0 affirme « personne ne t'a vu »,
+      // un trou dit « on ne sait pas ».
+      //
+      // La regle avait ete posee correctement, mais pour la PREMIERE metrique de chaque
+      // plateforme seulement — `reach` ici, `views` cote YouTube. Les quatre autres
+      // tracaient des zeros inventes. Mesure du 2026-09-06 sur `analytics_daily_snapshots` :
+      // 184 journees sans clics site sur 285, 147 sans interactions, 141 sans comptes
+      // engages. Sur les vues IG decoupees en semaines, 18 fenetres sur 44 sont
+      // ENTIEREMENT non collectees — elles affichaient toutes « 0 ».
+      //
+      // Le drapeau `reachPending` qui existait est devenu inutile : la valeur porte
+      // desormais l'information elle-meme, et TypeScript oblige chaque lecteur a la
+      // traiter. Un drapeau parallele a la donnee peut diverger d'elle, pas une valeur.
+      //
+      // ⚠️ Ne PAS toucher aux metriques de NIVEAU (followerCount, reachFollower…) :
+      // elles sont deja en `?? null` et leur lecture « derniere valeur connue » en
+      // depend.
+      reach:             r.ig_reach ?? null,
+      views:             r.ig_views ?? null,
       followerCount:     r.ig_followers ?? null,
-      accountsEngaged:   r.ig_accounts_engaged ?? 0,
-      totalInteractions: r.ig_total_interactions ?? 0,
-      websiteClicks:     r.ig_website_clicks ?? 0,
+      accountsEngaged:   r.ig_accounts_engaged ?? null,
+      totalInteractions: r.ig_total_interactions ?? null,
+      websiteClicks:     r.ig_website_clicks ?? null,
       reachFollower:     r.ig_reach_follower ?? null,
       reachNonFollower:  r.ig_reach_non_follower ?? null,
       // null (pas 0) : collectee seulement depuis le 2026-08-22, les journees
@@ -10346,14 +10385,16 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       // generale deduisait « en attente » de l'absence totale de ligne. Or une ligne
       // peut exister avec des vues nulles — 31 journees dans ce cas sur le profil de
       // test au 2026-08-31, toutes tracees a zero.
-      viewsPending: r.yt_views == null,
-      watchTime:  r.yt_watch_time_min ?? 0,
-      subsGained: r.yt_subs_gained ?? 0,
-      subsLost:   r.yt_subs_lost ?? 0,
-      netSubs:    r.yt_net_subs ?? 0,
-      likes:      r.yt_likes ?? 0,
-      comments:   r.yt_comments ?? 0,
-      shares:     r.yt_shares ?? 0,
+      // Meme regle qu'Instagram ci-dessus : le flux rend le trou, le drapeau disparait.
+      // Mesure du 2026-09-06 : 151 journees sur 285 sans temps de visionnage, sans
+      // abonnes gagnes et sans abonnes nets.
+      watchTime:  r.yt_watch_time_min ?? null,
+      subsGained: r.yt_subs_gained ?? null,
+      subsLost:   r.yt_subs_lost ?? null,
+      netSubs:    r.yt_net_subs ?? null,
+      likes:      r.yt_likes ?? null,
+      comments:   r.yt_comments ?? null,
+      shares:     r.yt_shares ?? null,
       // ?? null et non ?? 0 : un format sans vue ce jour-là n'a pas de durée moyenne,
       // et un 0 se lirait « regardé 0 seconde » au lieu de « pas de vue sur ce format ».
       // Total d'abonnés du jour — équivalent YouTube de followerCount côté Instagram.

@@ -9,6 +9,7 @@ import {
   Tooltip,
   ResponsiveContainer,
   Legend,
+  Line,
 } from 'recharts';
 import { parisDateStr } from '@/lib/period';
 
@@ -191,6 +192,53 @@ export default function AreaChart({ data, areas, xKey, height = 220, formatter, 
           <YAxis tick={{ fontSize: 11, fill: 'var(--muted)', fontFamily: 'var(--font-inter)' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.12 : Math.max(1, Math.abs(dataMax) * 0.1 || 1); const lo = dataMin - margin; return [dataMin >= 0 ? Math.max(0, lo) : lo, dataMax + margin]; }} />
           <Tooltip content={<CustomTooltip formatter={formatter} />} />
           {areas.length > 1 && <Legend wrapperStyle={{ fontSize: 11, color: 'var(--muted)' }} />}
+          {/* ── Le pont en pointillés par-dessus les trous ─────────────────────
+              Tracé AVANT les aires, donc dessous : il ne masque jamais la courbe
+              réelle. `connectNulls` relie les deux bords du trou, là où l'aire
+              pleine s'interrompt (`connectNulls` absent = comportement par défaut).
+
+              Sans lui, un jour non collecté produisait une simple coupure, que rien
+              ne distinguait d'une fin de série. Le pointillé dit la seule chose vraie :
+              on sait où on était avant, où on est après, pas ce qui s'est passé entre
+              les deux.
+
+              Même rendu que les graphiques de Stats Clients (`lib/grapheSvg.ts`,
+              `stroke-dasharray="2 3"`, opacité .45) — deux moteurs de rendu différents,
+              Recharts ici et du SVG là-bas, mais un seul vocabulaire visuel : un
+              pointillé doit vouloir dire la même chose sur les deux écrans. */}
+          {areas.map((a, i) => {
+            const color = a.color || COLORS[i % COLORS.length];
+            // Rien à enjamber si la série n'a aucun trou ENTRE deux valeurs connues.
+            // Les null de tête et de queue (jours futurs, avant la mise en route) ne
+            // sont pas des trous : il n'y a pas d'« après » à relier.
+            const valeurs = safeData.map(d => (d as any)[a.key]);
+            const premier = valeurs.findIndex(v => v !== null && v !== undefined);
+            const dernier = valeurs.length - 1 - [...valeurs].reverse().findIndex(v => v !== null && v !== undefined);
+            const aUnTrou = premier >= 0 && valeurs
+              .slice(premier, dernier + 1)
+              .some(v => v === null || v === undefined);
+            if (!aUnTrou) return null;
+            return (
+              <Line
+                key={`pont-${a.key}`}
+                type="monotone"
+                dataKey={a.key}
+                stroke={color}
+                strokeWidth={1.4}
+                strokeDasharray="2 3"
+                strokeOpacity={0.45}
+                connectNulls
+                dot={false}
+                activeDot={false}
+                isAnimationActive={false}
+                // Hors légende et hors infobulle : ce n'est pas une seconde série,
+                // c'est le même chiffre rendu autrement. L'y faire figurer
+                // afficherait chaque valeur en double au survol.
+                legendType="none"
+                tooltipType="none"
+              />
+            );
+          })}
           {areas.map((a, i) => {
             const color = a.color || COLORS[i % COLORS.length];
             const lastKey = lastRealPointKey(safeData, xKey, a.key);
