@@ -9,15 +9,25 @@ import { useState } from 'react';
  *
  * Un clic ne rafraîchit pas un écran : il déclenche QUATRE routes qui appellent des
  * API externes (Instagram, YouTube, Short.io, Calendly), exactement comme le cron.
- * Deux de ces quotas sont serrés et **partagés entre tous les élèves** :
  *
- *   • Short.io : 50 requêtes / 60 s **par DOMAINE** — et tous les élèves partagent
- *     le même domaine. Trois élèves qui rafraîchissent en même temps se disputent
- *     donc le même budget.
- *   • Calendly : 60 requêtes / minute par jeton.
+ * ⚠️ Distinction qui décide de tout, et qu'il est facile de se tromper : deux natures
+ * de quota coexistent.
  *
- * Sans bride, maintenir le clic sur ce bouton suffit à faire tomber la collecte de
- * tout le monde en 429 — y compris pour les élèves qui n'avaient rien demandé.
+ *   • **Par compte de l'élève** — Instagram (jeton), Calendly (60 req/min par jeton),
+ *     Short.io (50 req/60 s par compte et domaine). En production, chaque élève et
+ *     chaque coach a SON propre compte : un clic n'entame donc que son propre budget.
+ *     ⚠️ Ce n'est pas vrai sur les comptes de TEST, où plusieurs profils partagent le
+ *     même domaine Short.io — ne pas tirer de conclusion de ce que montre la base ici.
+ *
+ *   • **Par PROJET Google Cloud, donc partagé par tout le monde, pour toujours** —
+ *     YouTube. Il n'existe qu'une seule application OAuth, donc un seul quota :
+ *     Data API v3 10 000 unités/jour, Analytics 100 000/jour, Reporting 60/MINUTE.
+ *     Un rafraîchissement coûte 1 unité Data API (`channels?part=statistics`) et
+ *     6 appels Analytics.
+ *
+ * C'est cette seconde nature qui justifie la bride : elle est la seule que le
+ * cloisonnement des comptes ne protège pas, et la seule dont l'épuisement casse la
+ * collecte de TOUS les élèves à la fois.
  *
  * ── Pourquoi 4 sur 2 minutes ──────────────────────────────────────────────────
  *
