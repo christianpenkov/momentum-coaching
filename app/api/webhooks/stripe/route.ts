@@ -938,9 +938,31 @@ async function handleEvent(event: Stripe.Event) {
         .from('deals').select('id, status').eq('stripe_subscription_id', sub.id).maybeSingle();
       if (!deal) break;
 
-      const finPrevue = sub.cancel_at_period_end
-        ? (sub as unknown as { current_period_end?: number }).current_period_end ?? sub.cancel_at
-        : sub.cancel_at;
+      // ⚠️ LA FIN NORMALE D'UN PLAN N'EST PAS UN ARRÊT — constaté sur TestBIO le
+      // 2026-09-06, qui affichait « s'arrête après le 20 novembre » et portait
+      // DEUX lignes « Arrêt des prélèvements programmé » dans son journal, alors
+      // que personne n'avait jamais rien arrêté.
+      //
+      // Le bornage d'un paiement en N fois pose `cancel_at` chez Stripe (c'est
+      // même sa seule façon d'exister : un abonnement s'arrête, il ne se compte
+      // pas). L'ancien calcul retombait dessus dès que `cancel_at_period_end`
+      // était faux — c'est-à-dire sur TOUTE vente en plusieurs fois, dès sa
+      // création. Chaque plan naissait donc « en cours d'arrêt ».
+      //
+      // Le discriminant est une preuve POSITIVE, pas une absence : `schedule`
+      // n'existe que parce que Momentum l'a créé pour borner le plan
+      // (`ajusterNombreEcheances`). Sa présence dit donc que ce `cancel_at` est
+      // la fin prévue, pas une décision d'arrêter.
+      //
+      // Les deux vrais arrêts restent couverts : « à la fin de la période »
+      // lève `cancel_at_period_end`, et un arrêt immédiat émet `.deleted`.
+      const borneParLePlan = !!sub.schedule && !sub.cancel_at_period_end;
+
+      const finPrevue = borneParLePlan
+        ? null
+        : sub.cancel_at_period_end
+          ? (sub as unknown as { current_period_end?: number }).current_period_end ?? sub.cancel_at
+          : sub.cancel_at;
 
       await supabase.from('deals').update({
         stops_at: finPrevue ? new Date(finPrevue * 1000).toISOString() : null,
