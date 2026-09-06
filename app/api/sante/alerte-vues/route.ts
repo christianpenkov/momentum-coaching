@@ -202,16 +202,17 @@ const SURVEILLANCES: Surveillance[] = [
     titre: 'Un statut de paiement que le calcul du cash ne sait pas traiter',
     detection: 'toute_ligne',
     surveille:
-      'Que tout statut présent dans `deal_payments` soit l’un des cinq que la règle du cash connaît : `succeeded`, `refunded`, `disputed`, `dispute_lost`, `failed`.',
+      'Que tout statut présent dans `deal_payments` figure dans `cash_regles_statut`, la table qui dit à quoi chaque statut sert dans la caisse.',
     signifie:
-      'Le cash affiché est FAUX pour les ventes concernées : un montant qui n’est ni compté ni déduit disparaît simplement du calcul. La règle vit dans deux runtimes — `lib/dealCash.ts` pour les écrans, la vue `ventes_cash_net` pour SQL — et un statut ajouté d’un seul côté fait diverger les deux en silence. C’est arrivé le 2026-09-06 : `dispute_lost` a été ajouté au code à 15 h 21, la vue l’ignorait, et l’écart (3 200 € contre 3 000 €) n’a été vu que par une vérification au navigateur trois heures plus tard. Aucun test ni aucun type ne compare deux runtimes.',
+      'Le cash affiché est FAUX pour les ventes concernées : un montant qui n’est ni compté ni déduit disparaît simplement du calcul. C’est le seul angle mort restant — Stripe peut inventer un statut que personne n’a déclaré, et aucune vérification hors ligne ne peut le prévoir. La divergence entre le code et le SQL, elle, est fermée depuis le 2026-09-06 : `npm test` compare `REGLES_CASH` (lib/dealCash.ts) à la table, et refuse de passer si les deux ne coïncident pas.',
     quoiFaire: [
       '`select * from ventes_sante_statut_paiement_inconnu;` — le statut, le nombre de lignes et le montant en jeu.',
-      'Traiter le statut AUX DEUX endroits, jamais un seul : `lib/dealCash.ts` (fonction `calculerCash`, et le type `StatutDeal` si le statut de la vente en dépend) ET la vue `ventes_cash_net`.',
-      'Puis l’ajouter à la liste des cinq dans `ventes_sante_statut_paiement_inconnu` elle-même, sinon l’alerte reste allumée après la correction.',
-      '⚠️ Cette vue ne détecte QUE les statuts nouveaux. Un changement de FORMULE sur un statut déjà connu (par exemple décider que `failed` doit être déduit) reste invisible pour elle : il faut le répercuter à la main dans la vue.',
+      'Décider ce que ce statut fait à la caisse : entre (+1), sort (−1), ou ne la touche pas (0).',
+      'Puis DEUX gestes, et deux seulement : une entrée dans `REGLES_CASH` (les deux copies de dealCash.ts) et une ligne dans `cash_regles_statut` par migration.',
+      '⚠️ Ne PAS toucher à la vue `ventes_cash_net` : elle lit la table et n’a aucune formule de statut. Si vous vous surprenez à y ajouter un `filter (where status = …)`, c’est que la règle est en train de redevenir double.',
+      '`npm test` refuse de passer tant que les deux côtés ne coïncident pas — c’est le contrôle, pas la relecture.',
     ],
-    docs: ['lib/dealCash.ts', 'supabase/migrations/20260906200000_ventes_cash_net_dispute_lost.sql'],
+    docs: ['lib/dealCash.ts (REGLES_CASH)', 'scripts/verifier-cash-sql.mjs', 'supabase/migrations/20260906210000_cash_regles_statut.sql'],
   },
   // ── RETIREE DES E-MAILS le 2026-09-05 — `ventes_sante_sur_encaissement` ─────
   //

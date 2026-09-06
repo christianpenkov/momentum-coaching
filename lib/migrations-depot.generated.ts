@@ -182,4 +182,5 @@ export const MIGRATIONS_DEPOT: { version: string; nom: string }[] = [
   { version: '20260906190000', nom: 'statut_dispute_lost' },
   { version: '20260906200000', nom: 'ventes_cash_net_dispute_lost' },
   { version: '20260906201000', nom: 'retirer_mot_cle_permanent' },
+  { version: '20260906210000', nom: 'cash_regles_statut' },
 ];

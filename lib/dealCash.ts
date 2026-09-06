@@ -93,6 +93,59 @@ export interface Cash {
 }
 
 /**
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
+ * ║ LA SOURCE UNIQUE DES STATUTS DE PAIEMENT ET DE LEUR EFFET SUR LA CAISSE.  ║
+ * ║ Ajouter un statut ICI et nulle part ailleurs : tout le reste en découle.  ║
+ * ╚═══════════════════════════════════════════════════════════════════════════╝
+ *
+ * `+1` entre en caisse, `-1` en sort, `0` ne la touche pas.
+ *
+ * ── Pourquoi une table et pas une suite de `else if` ────────────────────────
+ *
+ * La même règle vit dans DEUX runtimes : ici pour les écrans, et en SQL dans la
+ * vue `ventes_cash_net` pour toute lecture directe de la base. Le 2026-09-06,
+ * `dispute_lost` a été ajouté au code à 15 h 21 ; la vue l'ignorait encore à
+ * 21 h et rendait 3 200 € là où les écrans affichaient 3 000 €. Les deux
+ * implémentations étaient chacune cohérente avec elle-même — aucun test, aucun
+ * type, aucune relecture ne compare deux runtimes.
+ *
+ * Cette table est ce que `scripts/verifier-cash-sql.mjs` compare à la
+ * définition réelle de la vue en base, à chaque `npm test`. Un statut ajouté
+ * ici sans l'être en SQL fait échouer la vérification AVANT qu'une seule ligne
+ * de données ne porte ce statut — donc avant que le moindre chiffre ne soit
+ * faux à l'écran.
+ *
+ * ⚠️ `failed` vaut `0` et ce n'est pas « rien » : c'est la preuve qu'on a
+ * DÉCIDÉ qu'un paiement échoué ne bouge pas la caisse. Un statut absent de la
+ * table est au contraire une omission, et la vérification le refuse.
+ *
+ * ── Les deux colonnes de la table ──────────────────────────────────────────
+ *
+ *   `signe` : l'effet sur le net. C'est ce que le SQL applique, via la table
+ *             `cash_regles_statut` qu'il LIT — il n'en garde aucune copie.
+ *   `champ` : où la somme atterrit dans `Cash`. `null` = on ne somme pas.
+ *
+ * `champ` n'est pas redondant avec `signe` : la vérification contrôle AUSSI
+ * que les deux runtimes rangent la somme au même endroit, pas seulement qu'ils
+ * tombent sur le même total.
+ */
+export const REGLES_CASH: Readonly<Record<string, {
+  signe: -1 | 0 | 1;
+  champ: 'encaisse' | 'rembourse' | 'conteste' | 'perduEnLitige' | null;
+}>> = {
+  succeeded:    { signe:  1, champ: 'encaisse'      },
+  refunded:     { signe: -1, champ: 'rembourse'     },
+  disputed:     { signe: -1, champ: 'conteste'      },
+  dispute_lost: { signe: -1, champ: 'perduEnLitige' },
+  // Un paiement échoué ne bouge pas la caisse ; il sert seulement à distinguer
+  // `past_due` de `open`, via `aEchoue` plus bas. D'où `champ: null`.
+  failed:       { signe:  0, champ: null            },
+};
+
+/** Les statuts connus, dans l'ordre de déclaration. */
+export const STATUTS_CASH = Object.keys(REGLES_CASH);
+
+/**
  * Tolérance d'un centime : un montant divisé en 3 laisse un écart d'arrondi
  * que la comparaison stricte ferait passer pour un impayé.
  */
@@ -128,19 +181,39 @@ export function calculerCash(paiements: LignePaiement[] | null | undefined): Cas
   let perduEnLitige = 0;
   let aEchoue = false;
 
+  // Piloté par `REGLES_CASH`, jamais par une suite de `else if` : un statut
+  // ajouté à la table est pris en compte ici SANS toucher à cette boucle, donc
+  // il ne peut pas être oublié d'un côté. Un statut inconnu de la table est
+  // ignoré — et c'est `ventes_sante_statut_paiement_inconnu` qui le signale,
+  // parce qu'ici on ne peut ni lever ni écrire nulle part (fonction pure,
+  // exécutée dans le rendu d'un écran).
+  const sommes: Record<string, number> = {
+    encaisse: 0, rembourse: 0, conteste: 0, perduEnLitige: 0,
+  };
+
   for (const p of paiements ?? []) {
-    if (p.status === 'succeeded') encaisse += nombre(p.amount);
-    else if (p.status === 'refunded') rembourse += nombre(p.amount);
-    else if (p.status === 'disputed') conteste += nombre(p.amount);
-    else if (p.status === 'dispute_lost') perduEnLitige += nombre(p.amount);
-    else if (p.status === 'failed') aEchoue = true;
+    const regle = REGLES_CASH[p.status ?? ''];
+    if (!regle) continue;
+    if (regle.champ) sommes[regle.champ] += nombre(p.amount);
+    if (p.status === 'failed') aEchoue = true;
   }
 
-  return {
-    encaisse, rembourse, conteste, perduEnLitige,
-    net: encaisse - rembourse - conteste - perduEnLitige,
-    aEchoue,
-  };
+  encaisse = sommes.encaisse;
+  rembourse = sommes.rembourse;
+  conteste = sommes.conteste;
+  perduEnLitige = sommes.perduEnLitige;
+
+  // Le net se recompose depuis les SIGNES de la table, pas depuis une formule
+  // recopiée : `encaisse − rembourse − conteste − perduEnLitige` aurait dû être
+  // réécrite à chaque statut ajouté, et c'est exactement l'oubli qu'on ferme.
+  let net = 0;
+  for (const [statut, regle] of Object.entries(REGLES_CASH)) {
+    if (!regle.champ || regle.signe === 0) continue;
+    net += regle.signe * sommes[regle.champ];
+    void statut;
+  }
+
+  return { encaisse, rembourse, conteste, perduEnLitige, net, aEchoue };
 }
 
 /**
