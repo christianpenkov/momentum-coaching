@@ -1209,6 +1209,50 @@ aucun `grant` y apparaît d'elle-même.
 revoke`) : les tables applicatives en dépendent — le navigateur les lit avec
 `authenticated`, protégé par la RLS.
 
+### Le même défaut existe pour les FONCTIONS, et il est plus discret
+
+`create or replace function` préserve l'ACL — vérifié le 2026-09-06 sur
+`stats_clients_series`, recréée deux fois sans que `anon` réapparaisse. **Mais ajouter
+une colonne à un `returns table` change le type de retour, et Postgres refuse alors le
+`replace` : il faut `drop` puis `create`.** À la recréation, les privilèges par défaut
+du schéma re-accordent `execute` à `anon`, en silence.
+
+⚠️ **`revoke … from public` ne couvre PAS ce cas.** `anon` est un rôle, `PUBLIC` en est
+un autre — constaté à l'exécution : l'ACL portait `{postgres, anon, authenticated,
+service_role}` après le `create`, alors que l'état d'avant n'avait pas `anon`. Après
+tout `drop + create` de fonction, le `revoke … from anon` explicite est **obligatoire**.
+
+La requête de contrôle :
+
+```sql
+select p.proname, p.prosecdef as definer, p.proacl::text
+from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public' and p.proacl::text like '%anon=X%';
+```
+
+**Trier le résultat, ne pas le corriger en bloc.** Elle rend 6 lignes au 2026-09-06, et
+aucune n'est une fuite — trois catégories, une seule à examiner :
+
+- **Fonctions de trigger** (`set_updated_at`, `figer_detected_at`,
+  `edge_empreinte_horodater_si_changee`) : sans argument et de type `trigger`, Postgres
+  refuse de les appeler directement. `anon=X` y est inerte.
+- **Sans argument et `invoker`** (`integrations_obligatoires`) : la RLS s'applique, il
+  n'y a rien à faire fuir.
+- **`SECURITY DEFINER` avec un argument** (`client_can_read_section`,
+  `client_has_resource_access`) : **la seule catégorie à examiner**, parce qu'elle
+  contourne la RLS et répond à une question sur une ressource précise — un oracle
+  potentiel pour qui connaît un uuid.
+
+Ces deux-là sont sûres, et c'est prouvé plutôt que déduit : elles filtrent sur
+`ra.client_id = auth.uid()`, qui vaut NULL pour `anon`. Test joué le 2026-09-06 sur le
+MÊME uuid, avec témoin positif — le propriétaire légitime obtient `true`, `anon` obtient
+`false`. Sans le témoin positif, deux `false` n'auraient rien prouvé.
+
+**Le critère à retenir** : ce qui rend `anon=X` dangereux n'est pas le droit d'exécuter,
+c'est `SECURITY DEFINER` **combiné** à un paramètre qui désigne une ressource. Une
+fonction `invoker` reste tenue par la RLS ; une fonction `definer` bornée par
+`auth.uid()` ne peut rien dire à qui n'a pas de session.
+
 ⚠️ **`cron_runs` couvre désormais aussi `sync-calendly`** (ajouté le 2026-08-31 : ses
 erreurs partaient dans une réponse HTTP que cron-job.org jette). Filtrer par
 `fonction` pour savoir qui a échoué.
