@@ -843,6 +843,27 @@ async function handleEvent(event: Stripe.Event) {
 
       await supabase.from('deals').update({ dispute_due_by: null }).eq('id', dealId);
 
+      // ⚠️ REDONDANT AVEC `funds_reinstated`, ET C'EST LE BUT (2026-09-06).
+      //
+      // Les deux evenements d'une victoire etaient COMPLEMENTAIRES : celui-ci
+      // ecrivait le journal, l'autre rendait l'argent. Un `funds_reinstated` non
+      // delivre laissait donc la ligne `dispute_…` en place pour toujours — le
+      // journal annoncait « litige gagne » pendant que la somme manquait au net,
+      // sans aucun signal. Et le filet quotidien ne rattrape pas ce cas :
+      // `sync-stripe-payments` relit les paiements et les remboursements, jamais
+      // les litiges.
+      //
+      // La suppression est idempotente : si l'autre evenement est deja passe, il
+      // n'y a plus rien a supprimer. Nettoyer deux fois ne coute rien, ne pas
+      // nettoyer coute le montant du litige.
+      //
+      // `won` STRICTEMENT : un litige perdu doit GARDER sa ligne — la banque a
+      // repris la somme pour de bon.
+      if (dispute.status === 'won') {
+        await supabase.from('deal_payments')
+          .delete().eq('deal_id', dealId).eq('stripe_payment_id', `dispute_${chargeId}`);
+      }
+
       const perdu = dispute.status === 'lost';
       const somme = ((dispute.amount ?? 0) / 100)
         .toLocaleString('fr-FR', { minimumFractionDigits: 2 });
