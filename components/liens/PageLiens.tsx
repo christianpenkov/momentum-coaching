@@ -10,7 +10,7 @@ import { LIBELLE_ORIGINE } from '@/lib/origineLead';
 import { createClient } from '@/lib/supabase/client';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import ModalShell from '@/components/ui/ModalShell';
-import { useIsMobile } from '@/lib/useIsMobile';
+import { useIsMobile, isMobileViewport } from '@/lib/useIsMobile';
 import { refusSequence } from '@/lib/sequenceDm';
 import { personnesParContenu } from '@/lib/attribution-roles';
 import { SOURCE_DM_ENTRANT, SOURCE_DM_SORTANT } from '@/lib/canalDm';
@@ -2521,7 +2521,14 @@ function PanneauActions({ post, profileId, activeDomain, domainsLoaded, calendly
           SOULIGNEMENT qui porte l'accent bleu ; le texte de l'onglet actif passe
           en encre et prend du gras. Colorer aussi le texte en bleu dédoublait le
           signal et affaiblissait la lecture. */}
-      <div style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${BORDER}`, background: BG, padding: isMobile ? '0 14px' : '0 24px' }}>
+        <div style={{
+          display: 'flex', gap: 4, borderBottom: `1px solid ${BORDER}`, background: BG,
+          padding: isMobile ? '0 14px' : '0 24px',
+          // Collés en haut : en défilant, c'est le seul repère qui dit dans quel
+          // formulaire on écrit. `zIndex` au-dessus des vignettes du bloc, qui
+          // passeraient sinon par-dessus en remontant.
+          position: 'sticky', top: 0, zIndex: 5,
+        }}>
         {tabs.map(tab => (
           <button key={tab.key} onClick={() => unsavedGuard?.guard(() => setActiveTab(tab.key as 'desc' | 'lm' | 'stats'))} style={{
             minHeight: 44, padding: '0 15px', fontSize: 13,
@@ -2541,6 +2548,56 @@ function PanneauActions({ post, profileId, activeDomain, domainsLoaded, calendly
         {activeTab === 'lm' && <TabLm post={post} profileId={profileId} domain={domain} canGenerate={canGenerate} showDisconnectedWarning={showDisconnectedWarning} leadMagnets={leadMagnets} onLmCreated={onLmCreated} onPostUpdated={onPostUpdated} />}
         {activeTab === 'stats' && <TabStats post={post} profileId={profileId} />}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Choix de la story qui porte le CTA — avec sa miniature.
+ *
+ * C'était un `<select>` natif, qui ne peut pas contenir d'image : on choisissait
+ * « Story 2 — » entre des libellés vides, sans savoir laquelle c'était. Une story
+ * n'a pas de titre ; son image EST son identité.
+ */
+function SelecteurStoryCta({ stories, valeur, onChange, disabled, isMobile }: {
+  stories: Post[]; valeur: string | null;
+  onChange: (id: string) => void; disabled?: boolean; isMobile: boolean;
+}) {
+  const taille = isMobile ? 52 : 44;
+  return (
+    <div style={{ display: 'flex', gap: isMobile ? 10 : 8, flexWrap: 'wrap' }}>
+      {stories.map((s, i) => {
+        const actif = s.id === valeur;
+        return (
+          <button key={s.id} type="button" disabled={disabled} onClick={() => onChange(s.id)}
+            title={`Story ${i + 1}${s.postedAt ? ` · ${new Date(s.postedAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}` : ''}`}
+            style={{
+              position: 'relative', width: taille, height: taille, padding: 0, flexShrink: 0,
+              borderRadius: 7, overflow: 'hidden', background: SURFACE2,
+              // L'anneau bleu dit le choix, le liseré blanc l'en détache du fond :
+              // sans lui, une story sombre avale la bordure et rien ne se voit.
+              border: actif ? `2px solid ${BLUE}` : `1px solid ${BORDER}`,
+              boxShadow: actif ? `0 0 0 2px ${SURFACE}` : 'none',
+              cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.5 : 1,
+              transition: `all var(--dur-instant) var(--ease-out)`,
+            }}>
+            {s.thumbnail && <img loading="lazy" decoding="async" src={s.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+            {/* Le rang, toujours lisible : deux stories d'un même lancement se
+                ressemblent souvent au point qu'on ne les distingue pas. */}
+            <span style={{
+              position: 'absolute', left: 2, top: 2, minWidth: 14, height: 14, borderRadius: 4,
+              background: 'rgba(0,0,0,.62)', color: '#fff', fontSize: 9, fontWeight: 700,
+              lineHeight: '14px', textAlign: 'center', padding: '0 3px',
+            }}>{i + 1}</span>
+            {actif && (
+              <span style={{
+                position: 'absolute', right: 2, bottom: 2, width: 15, height: 15, borderRadius: '50%',
+                background: BLUE, color: '#fff', fontSize: 9, lineHeight: '15px', textAlign: 'center',
+              }}>✓</span>
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -2783,7 +2840,7 @@ function formatDefaultSequenceName(isoDate: string): string {
   return `Séquence du ${dd}/${mm} - ${hh}h${min}`;
 }
 
-function PanneauStorySequence({ story, stories, allStories, profileId, leadMagnets, onSequenceSaved, onNavigateStory, onNavigateToSequencesTab }: {
+function PanneauStorySequence({ story, stories, allStories, profileId, leadMagnets, onSequenceSaved, onNavigateStory, onNavigateToSequencesTab, onChangeGroupSelection }: {
   story?: Post;
   stories?: Post[];
   allStories: Post[];
@@ -2792,6 +2849,8 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
   onSequenceSaved: (affectedPostIds: string[], patch: Partial<Post>) => void;
   onNavigateStory: (post: Post) => void;
   onNavigateToSequencesTab: (sequenceId: string) => void;
+  /** Modifie la sélection en cours de groupement — la séquence n'existe pas encore. */
+  onChangeGroupSelection?: (storyIds: string[]) => void;
 }) {
   const isMobile = useIsMobile();
   const unsavedGuard = useUnsavedGuard();
@@ -2817,6 +2876,11 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
   const [confirmRemoveLast, setConfirmRemoveLast] = useState(false);
   const [blockedRemoveMsg, setBlockedRemoveMsg] = useState<string | null>(null);
   const [deplacementCta, setDeplacementCta] = useState(false);
+  // Bloc de composition replié sur mobile : on ouvre ce panneau pour écrire les
+  // messages, pas pour renommer. `isMobileViewport()` et non le hook, pour être
+  // juste au PREMIER rendu — sinon le bloc s'affiche déplié puis se replie.
+  const [compositionOuverte, setCompositionOuverte] = useState(() => !isMobileViewport());
+  const [renommage, setRenommage] = useState(false);
 
   useEffect(() => {
     setActiveTab('lm');
@@ -2836,6 +2900,11 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
   if (!primary) return null;
 
   const candidateStories = isGroup ? groupStories : [primary];
+
+  // La story porteuse du CTA, d'où qu'elle vienne : l'état local pendant une
+  // création, la valeur enregistrée ensuite. Le bloc de composition est le même
+  // dans les deux cas, il ne doit pas avoir à savoir lequel il affiche.
+  const storyCta = isExistingSequence ? (primary.ctaStoryId || null) : (ctaStoryId || null);
 
   // Retrait d'une story de la séquence — bloqué si c'est la story CTA et qu'il en
   // reste d'autres ; confirmation obligatoire si c'est la dernière restante (supprime
@@ -2884,6 +2953,25 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
     } finally { setDeplacementCta(false); }
   };
 
+  // Le nom se corrige sur place, en quittant le champ — une séquence nommée à la
+  // hâte pendant un lancement se renomme après coup, et il n'y avait aucun moyen
+  // de le faire sans supprimer puis recréer.
+  const renommerSequence = async (nouveau: string) => {
+    if (!primary.sequenceId || renommage) return;
+    setRenommage(true);
+    try {
+      const res = await fetch('/api/client/story-sequences', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: primary.sequenceId, name: nouveau }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setBlockedRemoveMsg(data.error || 'Erreur'); return; }
+      onSequenceSaved(sequenceMates.map(s => s.id), { sequenceName: nouveau });
+    } catch (e: any) {
+      setBlockedRemoveMsg(e.message || 'Erreur réseau');
+    } finally { setRenommage(false); }
+  };
+
   const addStoriesToSequence = async (storyIds: string[]) => {
     const res = await fetch('/api/client/story-sequences', {
       method: 'PATCH',
@@ -2896,21 +2984,61 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
     setAddingStories(false);
   };
 
+  // ── LES STORIES DE LA SÉQUENCE, DANS LES DEUX SITUATIONS ──────────────────
+  //
+  // Le ruban de vignettes n'existait que pour une séquence DÉJÀ créée. Pendant
+  // le groupement — précisément le moment où l'on compose la séquence — on ne
+  // voyait que « Regrouper 4 stories » : impossible de vérifier lesquelles, ni
+  // d'en retirer une cochée par erreur sans tout recommencer.
+  //
+  // Toujours triées par date de publication : une séquence se lit dans l'ordre
+  // où l'audience l'a vue, jamais dans l'ordre où on a coché les cases.
+  const storiesAffichees = (isGroup ? groupStories : sequenceMates)
+    .slice()
+    .sort((a, b) => new Date(a.postedAt || 0).getTime() - new Date(b.postedAt || 0).getTime());
+
+  // Retirer : sur une séquence existante c'est un appel API, pendant un
+  // groupement une simple décoche. Le bouton est le même, l'utilisateur n'a pas
+  // à savoir lequel des deux il déclenche.
+  const retirerStory = (storyId: string) => {
+    if (isGroup) {
+      const restantes = groupStories.filter(s => s.id !== storyId).map(s => s.id);
+      if (restantes.length === 0) { setBlockedRemoveMsg('Une séquence garde au moins une story.'); return; }
+      onChangeGroupSelection?.(restantes);
+      return;
+    }
+    removeStory(storyId);
+  };
+
+  const ajouterStories = (ids: string[]) => {
+    if (isGroup) {
+      onChangeGroupSelection?.([...groupStories.map(s => s.id), ...ids]);
+      setAddingStories(false);
+      return;
+    }
+    addStoriesToSequence(ids);
+  };
+
   // Stories libres du profil éligibles à l'ajout — exclut celles qui violeraient la
   // contiguïté (prévention plutôt que rejet API après coup, cf. décision produit).
   const freeStoriesForAdd = (() => {
-    if (!isExistingSequence || sequenceMates.length === 0) return [] as (Post & { wouldViolateContiguity: boolean })[];
-    const free = allStories.filter(s => s.platform === 'STORY' && !s.sequenceId && s.id !== primary.id);
-    const postedTimes = sequenceMates.map(s => new Date(s.postedAt || 0).getTime());
+    if (storiesAffichees.length === 0) return [] as (Post & { wouldViolateContiguity: boolean })[];
+    const dedans = new Set(storiesAffichees.map(s => s.id));
+    const free = allStories.filter(s => s.platform === 'STORY' && !s.sequenceId && !dedans.has(s.id));
+    const postedTimes = storiesAffichees.map(s => new Date(s.postedAt || 0).getTime());
     const minPosted = Math.min(...postedTimes);
     const maxPosted = Math.max(...postedTimes);
-    return free.map(s => ({
-      ...s,
-      wouldViolateContiguity: (() => {
-        const t = new Date(s.postedAt || 0).getTime();
-        return t > minPosted && t < maxPosted;
-      })(),
-    }));
+    return free
+      .map(s => ({
+        ...s,
+        wouldViolateContiguity: (() => {
+          const t = new Date(s.postedAt || 0).getTime();
+          return t > minPosted && t < maxPosted;
+        })(),
+      }))
+      // Même ordre que le ruban : on choisit une story par sa place dans la
+      // journée, pas par son rang dans une liste arbitraire.
+      .sort((x, y) => new Date(x.postedAt || 0).getTime() - new Date(y.postedAt || 0).getTime());
   })();
 
   return (
@@ -2957,61 +3085,6 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
             </span>
           )}
         </div>
-        {isExistingSequence && (
-          <div style={{ display: 'flex', gap: isMobile ? 10 : 6, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-            {sequenceMates.map(s => {
-              const thumbSize = isMobile ? 40 : 28;
-              const closeSize = isMobile ? 20 : 14;
-              return (
-                <div key={s.id} style={{ position: 'relative' }}>
-                  <div onClick={() => onNavigateStory(s)} style={{ width: thumbSize, height: thumbSize, borderRadius: 5, overflow: 'hidden', cursor: 'pointer', border: s.id === primary.id ? `2px solid ${BLUE}` : `1px solid ${BORDER}`, background: SURFACE2, flexShrink: 0 }}>
-                    {s.thumbnail && <img loading="lazy" decoding="async" src={s.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
-                  </div>
-                  <button onClick={() => removeStory(s.id)} title="Retirer de la séquence" style={{ position: 'absolute', top: -6, right: -6, width: closeSize, height: closeSize, borderRadius: '50%', border: 'none', background: '#d32f2f', color: '#fff', fontSize: isMobile ? 12 : 9, lineHeight: `${closeSize}px`, textAlign: 'center', cursor: 'pointer', padding: 0 }}>×</button>
-                </div>
-              );
-            })}
-            <button onClick={() => setAddingStories(v => !v)} style={{ width: isMobile ? 40 : 28, height: isMobile ? 40 : 28, borderRadius: 5, border: `1px dashed ${BORDER}`, background: 'transparent', color: MUTED, fontSize: 14, cursor: 'pointer', flexShrink: 0 }}>+</button>
-          </div>
-        )}
-        {/* Déplacement du CTA — la seule chose qu'une séquence a de plus qu'un
-            post, avec le choix des stories qui la composent.
-
-            Il n'existait qu'à la CRÉATION. Ensuite, retirer la story porteuse du
-            CTA répondait « Déplace d'abord le CTA sur une autre story » — une
-            action qu'aucun écran ne proposait. Cette story ne pouvait donc plus
-            jamais quitter sa séquence. */}
-        {isExistingSequence && sequenceMates.length > 1 && (
-          <div style={{ marginTop: 10 }}>
-            <label style={{ fontSize: 11.5, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Story qui porte le CTA</label>
-            <select
-              value={primary.ctaStoryId || ''}
-              onChange={e => deplacerCta(e.target.value)}
-              disabled={deplacementCta}
-              style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, boxSizing: 'border-box' }}
-            >
-              {sequenceMates.map((s, i) => <option key={s.id} value={s.id}>Story {i + 1} — {s.caption}</option>)}
-            </select>
-          </div>
-        )}
-        {addingStories && (
-          <div style={{ marginTop: 10, padding: 10, background: SURFACE2, borderRadius: 8 }}>
-            {freeStoriesForAdd.length === 0 ? (
-              <div style={{ fontSize: 11, color: MUTED }}>Toutes tes stories récentes sont déjà dans une séquence.</div>
-            ) : (
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {freeStoriesForAdd.map(s => (
-                  <div key={s.id} onClick={() => !s.wouldViolateContiguity && addStoriesToSequence([s.id])} title={s.wouldViolateContiguity ? 'Chevauche une autre séquence' : ''} style={{
-                    width: 28, height: 28, borderRadius: 5, overflow: 'hidden', border: `1px solid ${BORDER}`, background: SURFACE2,
-                    cursor: s.wouldViolateContiguity ? 'not-allowed' : 'pointer', opacity: s.wouldViolateContiguity ? 0.35 : 1, flexShrink: 0,
-                  }}>
-                    {s.thumbnail && <img loading="lazy" decoding="async" src={s.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
         {blockedRemoveMsg && (
           <div style={{ marginTop: 10, padding: '8px 10px', background: '#d32f2f18', color: '#d32f2f', borderRadius: 8, fontSize: 11, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
             <span>{blockedRemoveMsg}</span>
@@ -3029,21 +3102,134 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
         )}
       </div>
 
-      {/* Nom + story CTA (création uniquement) */}
-      {!isExistingSequence && (
-        <div style={{ padding: isMobile ? '14px 14px 0' : '16px 24px 0' }}>
-          <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Nom de la séquence</label>
-          <input value={name} onChange={e => setName(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box' }} />
-          {candidateStories.length > 1 && (
+      {/* ── LE SEUL CONTENEUR QUI DÉFILE ────────────────────────────────────
+          Le bloc de composition (nom, ruban, CTA) et le formulaire défilaient
+          séparément : le premier restait figé en haut et mangeait la hauteur,
+          si bien qu'on éditait cinq messages dans une fenêtre de moitié. Ici il
+          remonte avec le reste, et ce sont les ONGLETS qui se collent en haut —
+          on garde ainsi le seul repère dont on a besoin en défilant. */}
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+
+        {/* ── Composition de la séquence ─────────────────────────────────────
+            Au-dessus des onglets, et pour une séquence DÉJÀ créée aussi : le
+            nom et la story porteuse du CTA valent pour les deux onglets, Lead
+            magnet comme Calendly. Les enfermer dans un onglet aurait obligé à
+            en sortir pour désigner la story dont on règle justement le lien. */}
+        <div style={{ padding: isMobile ? '12px 14px 0' : '16px 24px 0' }}>
+
+          {/* Sur mobile, replié par défaut : cinq champs de DM tiennent mal sous
+              un bloc de composition déplié, et on ouvre ce panneau pour écrire,
+              pas pour renommer. La ligne de résumé dit tout ce qu'il faut savoir
+              sans rien déplier. */}
+          {isMobile && (
+            <button type="button" onClick={() => setCompositionOuverte(v => !v)}
+              style={{
+                width: '100%', minHeight: 44, marginBottom: compositionOuverte ? 12 : 4,
+                display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left',
+                padding: '8px 12px', borderRadius: 8, border: `1px solid ${BORDER}`,
+                background: SURFACE, color: INK, cursor: 'pointer', fontFamily: 'inherit',
+              }}>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {name || 'Séquence sans nom'}
+                <span style={{ color: MUTED, fontWeight: 400 }}>
+                  {` · ${storiesAffichees.length} story${storiesAffichees.length > 1 ? 's' : ''}`}
+                  {storyCta ? ` · CTA n° ${storiesAffichees.findIndex(s => s.id === storyCta) + 1}` : ''}
+                </span>
+              </span>
+              <span style={{ color: FAINT, fontSize: 11, flexShrink: 0 }}>{compositionOuverte ? '▴' : '▾'}</span>
+            </button>
+          )}
+
+          {(!isMobile || compositionOuverte) && (
             <>
-              <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Story avec le CTA</label>
-              <select value={ctaStoryId} onChange={e => setCtaStoryId(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14 }}>
-                {candidateStories.map((s, i) => <option key={s.id} value={s.id}>Story {i + 1} — {s.caption}</option>)}
-              </select>
+              <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Nom de la séquence</label>
+              <input value={name} onChange={e => setName(e.target.value)}
+                onBlur={() => { if (isExistingSequence && name.trim() && name.trim() !== (primary.sequenceName || '')) renommerSequence(name.trim()); }}
+                style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box' }} />
+
+              {/* Le ruban : toutes les stories de la séquence, dans l'ordre où
+                  elles ont été publiées. Il n'apparaissait pas pendant le
+                  groupement — le moment où l'on compose. */}
+              <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 6 }}>
+                Stories de la séquence <span style={{ color: FAINT, fontWeight: 400 }}>({storiesAffichees.length}, dans l'ordre de publication)</span>
+              </label>
+              <div style={{ display: 'flex', gap: isMobile ? 10 : 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+                {storiesAffichees.map((s, i) => {
+                  const taille = isMobile ? 52 : 44;
+                  const croix = isMobile ? 20 : 16;
+                  return (
+                    <div key={s.id} style={{ position: 'relative', flexShrink: 0 }}>
+                      <div onClick={() => !isGroup && onNavigateStory(s)}
+                        title={s.postedAt ? new Date(s.postedAt).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
+                        style={{
+                          width: taille, height: taille, borderRadius: 7, overflow: 'hidden',
+                          cursor: isGroup ? 'default' : 'pointer', background: SURFACE2,
+                          border: !isGroup && s.id === primary.id ? `2px solid ${BLUE}` : `1px solid ${BORDER}`,
+                        }}>
+                        {s.thumbnail && <img loading="lazy" decoding="async" src={s.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                      </div>
+                      <span style={{
+                        position: 'absolute', left: 2, top: 2, minWidth: 14, height: 14, borderRadius: 4,
+                        background: 'rgba(0,0,0,.62)', color: '#fff', fontSize: 9, fontWeight: 700,
+                        lineHeight: '14px', textAlign: 'center', padding: '0 3px', pointerEvents: 'none',
+                      }}>{i + 1}</span>
+                      <button onClick={() => retirerStory(s.id)} title="Retirer de la séquence"
+                        style={{ position: 'absolute', top: -6, right: -6, width: croix, height: croix, borderRadius: '50%', border: `1.5px solid ${SURFACE}`, background: '#d32f2f', color: '#fff', fontSize: isMobile ? 12 : 10, lineHeight: 1, textAlign: 'center', cursor: 'pointer', padding: 0 }}>×</button>
+                    </div>
+                  );
+                })}
+                <button onClick={() => setAddingStories(v => !v)} title="Ajouter une story"
+                  style={{ width: isMobile ? 52 : 44, height: isMobile ? 52 : 44, borderRadius: 7, border: `1px dashed ${addingStories ? BLUE : BORDER}`, background: 'transparent', color: addingStories ? BLUE : MUTED, fontSize: 18, cursor: 'pointer', flexShrink: 0 }}>+</button>
+              </div>
+
+              {addingStories && (
+                <div style={{ marginBottom: 14, padding: 10, background: SURFACE2, borderRadius: 8 }}>
+                  {freeStoriesForAdd.length === 0 ? (
+                    <div style={{ fontSize: 11.5, color: MUTED }}>Toutes tes stories récentes sont déjà dans une séquence.</div>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 11, color: MUTED, marginBottom: 7 }}>Stories libres, par ordre de publication</div>
+                      <div style={{ display: 'flex', gap: isMobile ? 10 : 8, flexWrap: 'wrap' }}>
+                        {freeStoriesForAdd.map(s => (
+                          <div key={s.id} onClick={() => !s.wouldViolateContiguity && ajouterStories([s.id])}
+                            title={s.wouldViolateContiguity ? 'Chevauche une autre séquence' : (s.postedAt ? new Date(s.postedAt).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '')}
+                            style={{
+                              width: isMobile ? 52 : 44, height: isMobile ? 52 : 44, borderRadius: 7, overflow: 'hidden',
+                              border: `1px solid ${BORDER}`, background: SURFACE2, flexShrink: 0,
+                              cursor: s.wouldViolateContiguity ? 'not-allowed' : 'pointer',
+                              opacity: s.wouldViolateContiguity ? 0.35 : 1,
+                            }}>
+                            {s.thumbnail && <img loading="lazy" decoding="async" src={s.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* La story porteuse du CTA — avec sa miniature. Elle vaut pour le
+                  lead magnet ET pour le lien Calendly, d'où sa place ici et non
+                  dans l'un des deux onglets. */}
+              {storiesAffichees.length > 1 && (
+                <>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 6 }}>
+                    Story qui porte le CTA <span style={{ color: FAINT, fontWeight: 400 }}>— celle où tu poses le sticker</span>
+                  </label>
+                  <div style={{ marginBottom: 14 }}>
+                    <SelecteurStoryCta
+                      stories={storiesAffichees}
+                      valeur={storyCta}
+                      onChange={id => { if (isExistingSequence) deplacerCta(id); else setCtaStoryId(id); }}
+                      disabled={deplacementCta}
+                      isMobile={isMobile}
+                    />
+                  </div>
+                </>
+              )}
             </>
           )}
         </div>
-      )}
 
       {/* Onglets — mêmes règles que les posts : largeur du texte (pas étirés sur
           toute la barre), gras réservé à l'onglet actif, et le SOULIGNEMENT seul
@@ -3077,8 +3263,8 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
         ))}
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '14px' : '18px 24px' }}>
-        {activeTab === 'stats' ? (
+        <div style={{ padding: isMobile ? '14px' : '18px 24px' }}>
+          {activeTab === 'stats' ? (
           // Une séquence se juge sur sa rétention d'une story à l'autre ; une
           // story seule n'a personne à qui se comparer, on montre alors sa
           // propre navigation.
@@ -3097,7 +3283,8 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
             primary={primary} isExistingSequence={isExistingSequence}
             onSaved={onSequenceSaved}
           />
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
@@ -6143,6 +6330,10 @@ export default function PageLiens() {
               ) : rightView.type === 'story-multi' ? (
                 <PanneauStorySequence
                   stories={selectedStoriesForGroup} allStories={posts} profileId={profileId} leadMagnets={leadMagnets}
+                  // La sélection vit dans `rightView.postIds` ; la case cochée dans la liste
+                  // vit dans `selectedStoryIds`. Les deux doivent bouger ensemble, sinon
+                  // retirer une story du ruban la laisse cochée dans la liste.
+                  onChangeGroupSelection={ids => { setRightView({ type: 'story-multi', postIds: ids }); setSelectedStoryIds(new Set(ids)); }}
                   onSequenceSaved={handleStorySequenceSaved} onNavigateStory={post => unsavedGuardApi.guard(() => setRightView({ type: 'story', post }))}
                   onNavigateToSequencesTab={navigateToSequencesTab}
                 />
@@ -6362,6 +6553,10 @@ export default function PageLiens() {
             ) : rightView.type === 'story-multi' ? (
               <PanneauStorySequence
                 stories={selectedStoriesForGroup} allStories={posts} profileId={profileId} leadMagnets={leadMagnets}
+                // La sélection vit dans `rightView.postIds` ; la case cochée dans la liste
+                // vit dans `selectedStoryIds`. Les deux doivent bouger ensemble, sinon
+                // retirer une story du ruban la laisse cochée dans la liste.
+                onChangeGroupSelection={ids => { setRightView({ type: 'story-multi', postIds: ids }); setSelectedStoryIds(new Set(ids)); }}
                 onSequenceSaved={handleStorySequenceSaved} onNavigateStory={post => unsavedGuardApi.guard(() => setRightView({ type: 'story', post }))}
                 onNavigateToSequencesTab={navigateToSequencesTab}
               />
