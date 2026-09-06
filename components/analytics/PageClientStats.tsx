@@ -27,6 +27,7 @@ import PeriodPill, { periodLabel, type Period } from '@/components/ui/PeriodPill
 // donc sans jamais deduire un remboursement.
 import { calculerCash, encaisseRetenu, aRembourser, type LignePaiement } from '@/lib/dealCash';
 import { granulariteFenetre, regrouperComptage, regrouperTaux, regrouperParPas, libelleBucket, type Granularite, type NatureSerie } from '@/lib/chart-buckets';
+import { sommeFlux } from '@/lib/collecte';
 // Listes de catégories : UNE seule définition (lib/shortio-link-category.ts). Elles
 // étaient recopiées trois fois dans ce fichier (TOTAL_CLICS_CATS, SNAP_BUSINESS_CATS,
 // CHART_BUSINESS_CATS) plus trois fois pour bio/contenu — six occasions de diverger à
@@ -421,28 +422,6 @@ function libelleFenetre(
   return allTimeStart
     ? `depuis le ${new Date(allTimeStart).toLocaleDateString('fr-FR')}`
     : 'depuis la connexion';
-}
-
-/**
- * Somme un FLUX sur une periode, en distinguant « zero » de « pas mesure ».
- *
- * Rend `null` — et non 0 — si AUCUN jour de la fenetre n'a ete collecte. « 0 » y
- * affirmerait qu'il ne s'est rien passe, alors que la verite est qu'on ne sait pas.
- * Un seul jour collecte suffit a rendre un total : une fenetre partiellement trouee
- * garde son chiffre, ce sont les COURBES qui montrent ou sont les trous.
- *
- * Mesure du 2026-09-06 qui justifie l'utilitaire : sur les vues Instagram decoupees en
- * semaines calendaires, 18 fenetres sur 44 sont ENTIEREMENT non collectees. Elles
- * affichaient toutes « 0 vue », un chiffre invente que rien ne signalait.
- */
-function sommeFlux(jours: readonly any[], champ: string): number | null {
-  let total = 0;
-  let mesure = false;
-  for (const j of jours) {
-    const v = j?.[champ];
-    if (v != null) { total += v; mesure = true; }
-  }
-  return mesure ? total : null;
 }
 
 function regrouperSerieAffichee(
@@ -2179,7 +2158,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
   // Visites de profil sur la periode. Collectee depuis le 2026-08-22 : les journees
   // anterieures valent null, d'ou le `?? 0` qui les traite comme sans consultation
   // plutot que de casser la somme. Le rattrapage les comble progressivement.
-  const igProfileViewsP = igDaysSlice.reduce((s, d) => s + ((d as any).profileViews ?? 0), 0);
+  const igProfileViewsP = sommeFlux(igDaysSlice as any, 'profileViews');
 
 
   // ⚠️ Ici, et SEULEMENT ici, le denominateur est la somme des journees — pas la
@@ -2508,7 +2487,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
         {[
           // Remplace « Abonnés nets », desormais en badge sur la carte Abonnés.
-          { label: 'Visites de profil', value: fmt(igProfileViewsP), sub: igEtiquettePeriode, color: 'var(--ink)', key: 'Visites de profil' },
+          { label: 'Visites de profil', value: igProfileViewsP !== null ? fmt(igProfileViewsP) : 'Non mesuré', sub: igProfileViewsP !== null ? igEtiquettePeriode : 'aucun jour collecté', color: (igProfileViewsP !== null ? 'var(--ink)' : 'var(--faint)') as string, key: 'Visites de profil' },
           { label: "Taux d'engagement",
             value: engRate !== null ? fmtPct(engRate) : '—',
             sub: engRate !== null ? 'interactions / reach cumulé' : 'aucune portée sur la période',
@@ -3674,17 +3653,17 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   // Valeurs sur la période sélectionnée depuis chartData
   const ytViewsP = sommeFlux(ytDays, 'views');
   const ytWatchTimeP = sommeFlux(ytDays, 'watchTime');
-  const ytSubsGainedP = ytDays.reduce((s, d) => s + (d.subsGained ?? 0), 0);
-  const ytSubsLostP = ytDays.reduce((s, d) => s + (d.subsLost ?? 0), 0);
-  const ytNetSubsP = ytSubsGainedP - ytSubsLostP;
+  const ytSubsGainedP = sommeFlux(ytDays as any, 'subsGained');
+  const ytSubsLostP = sommeFlux(ytDays as any, 'subsLost');
+  const ytNetSubsP = ytSubsGainedP !== null && ytSubsLostP !== null ? ytSubsGainedP - ytSubsLostP : null;
   // Likes / commentaires / partages sur la PERIODE affichee. Les cartes utilisaient
   // yt.likes30d & co — des valeurs figees sur 30 jours — tout en affichant l'etiquette
   // « ${period}j » : sur une vue a 7 jours, elles montraient 30 jours de donnees sous un
   // libelle « 7j ». Les quatre autres cartes de la meme rangee utilisent bien des
   // valeurs de periode (ytViewsP, ytNetSubsP...), d'ou l'incoherence.
-  const ytLikesP = ytDays.reduce((s, d) => s + (d.likes ?? 0), 0);
-  const ytCommentsP = ytDays.reduce((s, d) => s + (d.comments ?? 0), 0);
-  const ytSharesP = ytDays.reduce((s, d) => s + (d.shares ?? 0), 0);
+  const ytLikesP = sommeFlux(ytDays as any, 'likes');
+  const ytCommentsP = sommeFlux(ytDays as any, 'comments');
+  const ytSharesP = sommeFlux(ytDays as any, 'shares');
 
   // (conversionRate supprimé : plus aucun appelant depuis que la courbe « Conv.
   //  vue→abonné » calcule le taux jour par jour au lieu d'étaler un total global.)
@@ -3737,8 +3716,12 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   // format manque (jours anterieurs a sa collecte), shortsViewsP se replie sur des
   // cumuls 30j et le ratio redeviendrait bancal. On ne l'affiche alors pas.
   const ratioFenetreCoherente = hasFormatBreakdown;
-  const viewsPerSubShorts = ratioFenetreCoherente && subsRef > 0 && shortsViewsP > 0 ? Math.round(shortsViewsP / subsRef) : null;
-  const viewsPerSubLong = ratioFenetreCoherente && subsRef > 0 && longViewsP > 0 ? Math.round(longViewsP / subsRef) : null;
+  // `subsRef !== null` explicite : sans abonnes gagnes MESURES, le ratio n'a pas de
+  // denominateur et n'existe pas. Le rendu ne change pas (`null > 0` valait deja
+  // false), mais le test dit maintenant ce qu'il verifie au lieu de s'appuyer sur une
+  // coercition — c'est ce que TypeScript demandait, et il avait raison de le demander.
+  const viewsPerSubShorts = ratioFenetreCoherente && subsRef !== null && subsRef > 0 && shortsViewsP > 0 ? Math.round(shortsViewsP / subsRef) : null;
+  const viewsPerSubLong = ratioFenetreCoherente && subsRef !== null && subsRef > 0 && longViewsP > 0 ? Math.round(longViewsP / subsRef) : null;
 
   // Même correction qu'`postsInPeriod` côté Instagram : en All-Time, `ytPeriodStart` et
   // `ytPeriodEnd` valent le mois en cours. « Vidéos publiées · total » ne comptait donc
@@ -3968,7 +3951,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
           // d'une carte « Abonnés ». Le « YT » etait un reste de la cle technique, qui
           // reste 'Abonnés nets YT' pour ne pas entrer en collision avec la serie
           // Instagram du meme nom.
-          { label: 'Abonnés nets', value: `${ytNetSubsP >= 0 ? '+' : ''}${fmt(ytNetSubsP)}`, sub: ytEtiquettePeriode, color: ytNetSubsP >= 0 ? GREEN : RED, key: 'Abonnés nets YT' },
+          { label: 'Abonnés nets', value: ytNetSubsP !== null ? `${ytNetSubsP >= 0 ? '+' : ''}${fmt(ytNetSubsP)}` : 'Non mesuré', sub: ytNetSubsP !== null ? ytEtiquettePeriode : 'aucun jour collecté', color: (ytNetSubsP === null ? 'var(--faint)' : ytNetSubsP >= 0 ? GREEN : RED) as string, key: 'Abonnés nets YT' },
           { label: 'Vues',
             value: ytViewsP !== null ? fmt(ytViewsP) : 'Non mesuré',
             sub: ytViewsP !== null ? ytEtiquettePeriode : 'aucun jour collecté',
@@ -4035,9 +4018,9 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
               {s.key === 'Abonnés nets YT' && (
                 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>
                   {' ('}
-                  <span style={{ color: GREEN }}>+{fmt(ytSubsGainedP)}</span>
+                  <span style={{ color: GREEN }}>+{fmt(ytSubsGainedP ?? 0)}</span>
                   {' '}
-                  <span style={{ color: RED }}>-{fmt(ytSubsLostP)}</span>
+                  <span style={{ color: RED }}>-{fmt(ytSubsLostP ?? 0)}</span>
                   {')'}
                 </span>
               )}
@@ -4076,9 +4059,9 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
           //
           // Le signe rend la nature de la valeur evidente, comme sur « Abonnés nets ».
           // Le zero n'en prend pas : « +0 » annoncerait un gain nul comme un gain.
-          { label: 'Likes', value: signeVariation(ytIsFallback ? yt.likes30d : ytLikesP), sub: ytIsFallback ? '30j' : ytEtiquettePeriode, color: (ytIsFallback ? yt.likes30d : ytLikesP) < 0 ? RED : 'var(--ink)', key: 'Likes' },
-          { label: 'Commentaires', value: signeVariation(ytIsFallback ? yt.comments30d : ytCommentsP), sub: ytIsFallback ? '30j' : ytEtiquettePeriode, color: (ytIsFallback ? yt.comments30d : ytCommentsP) < 0 ? RED : 'var(--ink)', key: 'Commentaires' },
-          { label: 'Partages', value: signeVariation(ytIsFallback ? yt.shares30d : ytSharesP), sub: ytIsFallback ? '30j' : ytEtiquettePeriode, color: (ytIsFallback ? yt.shares30d : ytSharesP) < 0 ? RED : 'var(--ink)', key: 'Partages' },
+          (() => { const v = ytIsFallback ? yt.likes30d : ytLikesP; return { label: 'Likes', value: v !== null ? signeVariation(v) : 'Non mesuré', sub: v !== null ? (ytIsFallback ? '30j' : ytEtiquettePeriode) : 'aucun jour collecté', color: (v === null ? 'var(--faint)' : v < 0 ? RED : 'var(--ink)') as string, key: 'Likes' }; })(),
+          (() => { const v = ytIsFallback ? yt.comments30d : ytCommentsP; return { label: 'Commentaires', value: v !== null ? signeVariation(v) : 'Non mesuré', sub: v !== null ? (ytIsFallback ? '30j' : ytEtiquettePeriode) : 'aucun jour collecté', color: (v === null ? 'var(--faint)' : v < 0 ? RED : 'var(--ink)') as string, key: 'Commentaires' }; })(),
+          (() => { const v = ytIsFallback ? yt.shares30d : ytSharesP; return { label: 'Partages', value: v !== null ? signeVariation(v) : 'Non mesuré', sub: v !== null ? (ytIsFallback ? '30j' : ytEtiquettePeriode) : 'aucun jour collecté', color: (v === null ? 'var(--faint)' : v < 0 ? RED : 'var(--ink)') as string, key: 'Partages' }; })(),
         ].map((s: any, i) => {
           if (s.custom === 'watch-total') return (
             <div key="wt-total" onClick={() => openStatModal('Watch time', '')} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: 'pointer', transition: 'background .15s' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'} onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}>
