@@ -4762,9 +4762,9 @@ function ActionsStories({ selectionMode, selectedCount, compact, onStartSelectio
         minHeight: compact ? 32 : 34, padding: compact ? '0 11px' : '0 13px',
         fontSize: compact ? 11.5 : 12, fontWeight: 700, borderRadius: 7,
         border: 'none', background: BLUE, color: '#fff', cursor: 'pointer',
-      }}>Nouvelle séquence</button>
+      }}>Séquence pour des stories à venir</button>
       <button onClick={onStartSelection} style={{ ...btn, minHeight: compact ? 32 : 34, borderRadius: 7 }}>
-        À partir de stories publiées
+        Séquence avec des stories publiées
       </button>
     </div>
   );
@@ -6437,13 +6437,13 @@ export default function PageLiens() {
 
               {filterPlatform === 'STORY' && storiesSubTab === 'sequences' && (
                 <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
-                  <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ minHeight: 36, padding: '0 12px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
-                    À partir de stories publiées
-                  </button>
-                  {/* L'autre sens, celui qui manquait : préparer AVANT de
-                      publier, pour avoir le lien à coller dans le sticker. */}
+                  {/* L'ordre suit le moment, comme les libellés : on prépare
+                      AVANT de publier, on regroupe APRÈS. */}
                   <button onClick={() => { setPreparation(true); setErreurPreparation(null); }} style={{ minHeight: 36, padding: '0 13px', fontSize: 12, fontWeight: 700, borderRadius: 7, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer' }}>
-                    Nouvelle séquence
+                    Séquence pour des stories à venir
+                  </button>
+                  <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ minHeight: 36, padding: '0 12px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+                    Séquence avec des stories publiées
                   </button>
                 </div>
               )}
@@ -6452,13 +6452,13 @@ export default function PageLiens() {
                 sequences.length === 0 ? (
                   <div style={{ padding: '20px 16px', fontSize: 12, color: FAINT, textAlign: 'center', lineHeight: 1.5 }}>
                     Aucune séquence pour l'instant.
-                    <div style={{ marginTop: 4 }}>Crée-la avant de publier : son lien Calendly est généré tout de suite, prêt à coller dans le sticker.</div>
+                    <div style={{ marginTop: 4 }}>Pour des stories que tu n'as pas encore publiées : son lien Calendly est généré tout de suite, prêt à coller dans le sticker.</div>
                     <div style={{ display: 'flex', gap: 7, justifyContent: 'center', marginTop: 12, flexWrap: 'wrap' }}>
                       <button onClick={() => { setPreparation(true); setErreurPreparation(null); }} style={{ minHeight: 36, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer' }}>
-                        Nouvelle séquence
+                        Créer une séquence pour des stories à venir
                       </button>
                       <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ minHeight: 36, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
-                        À partir de stories publiées
+                        Créer une séquence avec des stories publiées
                       </button>
                     </div>
                   </div>
@@ -6745,11 +6745,11 @@ export default function PageLiens() {
 
               {filterPlatform === 'STORY' && storiesSubTab === 'sequences' && (
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
-                    À partir de stories publiées
-                  </button>
                   <button onClick={() => { setPreparation(true); setErreurPreparation(null); }} style={{ minHeight: 32, padding: '0 11px', fontSize: 11.5, fontWeight: 700, borderRadius: 7, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer' }}>
-                    Nouvelle séquence
+                    Séquence pour des stories à venir
+                  </button>
+                  <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ minHeight: 32, padding: '0 10px', fontSize: 11.5, fontWeight: 600, borderRadius: 7, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+                    Séquence avec des stories publiées
                   </button>
                 </div>
               )}
@@ -6768,13 +6768,13 @@ export default function PageLiens() {
                 sequences.length === 0 ? (
                   <div style={{ padding: '20px 16px', fontSize: 12, color: FAINT, textAlign: 'center', lineHeight: 1.5 }}>
                     Aucune séquence pour l'instant.
-                    <div style={{ marginTop: 4 }}>Crée-la avant de publier : son lien Calendly est généré tout de suite, prêt à coller dans le sticker.</div>
+                    <div style={{ marginTop: 4 }}>Pour des stories que tu n'as pas encore publiées : son lien Calendly est généré tout de suite, prêt à coller dans le sticker.</div>
                     <div style={{ display: 'flex', gap: 7, justifyContent: 'center', marginTop: 12, flexWrap: 'wrap' }}>
                       <button onClick={() => { setPreparation(true); setErreurPreparation(null); }} style={{ minHeight: 36, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer' }}>
-                        Nouvelle séquence
+                        Créer une séquence pour des stories à venir
                       </button>
                       <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ minHeight: 36, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
-                        À partir de stories publiées
+                        Créer une séquence avec des stories publiées
                       </button>
                     </div>
                   </div>
@@ -6882,7 +6882,7 @@ export default function PageLiens() {
       {preparation && (
         <ModalShell onClose={() => setPreparation(false)} width={420} variant={isMobile ? 'sheet' : 'centered'}>
           <div style={{ padding: 24 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: INK, marginBottom: 6 }}>Nouvelle séquence</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: INK, marginBottom: 6 }}>Séquence pour des stories à venir</div>
             <div style={{ fontSize: 12.5, color: MUTED, lineHeight: 1.5, marginBottom: 16 }}>
               Son lien Calendly est généré tout de suite. Colle-le dans le sticker « Lien » en publiant tes stories — une story publiée ne peut plus recevoir de lien après coup. Tu lui rattacheras les stories ensuite, ici même.
             </div>
