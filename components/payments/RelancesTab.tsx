@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { jourCourantParis } from '@/lib/timezone';
 import Icon from '@/components/ui/Icon';
 import Avatar, { getInitials, seedForPerson } from '@/components/ui/Avatar';
-import { estEnvoye } from './etats';
+import { estEnvoye, moyenDe, libelleDuMoyen } from './etats';
 import type { DealRow, DealDetail } from './types';
 import { fmtEur, fmtDateLong, fmtRelative } from './types';
 
@@ -338,11 +338,22 @@ function buildGroups(deals: DealRow[], details: Record<string, DealDetail>): Gro
     // du backfill (anciens calls closés) n'en ont jamais eu, et « lien envoyé »
     // décrirait une action qui n'a pas eu lieu.
     if (d.collected === 0) {
+      const moyen = moyenDe(d);
       const item: Item = {
         deal: d,
+        // ⚠️ Deux absences DIFFÉRENTES derrière un même « pas de lien », et les
+        // confondre donnait une phrase fausse : depuis le 2026-09-05 le moyen
+        // d'encaisser est enregistré sur la vente, donc « aucun moyen de paiement
+        // enregistré » ment sur une vente par lien dont le lien a été consommé
+        // par un remboursement. Le geste à faire n'est pas le même — décider un
+        // moyen, ou recréer un lien.
+        // `moyenDe` rend `null` quand RIEN n'a été choisi — c'est ce `null`, et
+        // lui seul, qui autorise la phrase « aucun moyen enregistré ».
         sub: d.shortUrl
           ? `Lien créé ${fmtRelative(d.signedAt)} · aucun paiement`
-          : `Signé ${fmtRelative(d.signedAt)} · aucun moyen de paiement enregistré`,
+          : moyen
+            ? `Signé ${fmtRelative(d.signedAt)} · ${libelleDuMoyen(moyen)}, aucun lien en place`
+            : `Signé ${fmtRelative(d.signedAt)} · aucun moyen de paiement enregistré`,
         url: d.shortUrl,
         amount: d.amountTotal,
       };

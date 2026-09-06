@@ -65,7 +65,7 @@ export async function PATCH(
     .from('deals')
     .select(`id, profile_id, status, amount_total, buyer_name, payment_plan, installments_count, refund_explique,
              installment_interval, currency, stripe_subscription_id, stripe_payment_link_id,
-             ig_lead_id, first_touch_content_id,
+             moyen_encaissement, ig_lead_id, first_touch_content_id,
              deal_payments(amount, status),
              deal_installments(id, rank, amount, status, due_on, stripe_payment_link_id)`)
     .eq('id', dealId)
@@ -109,7 +109,13 @@ export async function PATCH(
   //
   // Un `as` sur une donnée venue de la base ne convertit rien : il fait taire le
   // compilateur sur un champ qu'on a oublié de demander.
-  const horsStripe = !deal.stripe_subscription_id
+  // ⚠️ RENOMMÉ le 2026-09-06 : cette variable répond « cette vente porte-t-elle
+  // encore un objet Stripe ? », pas « par quel moyen encaisse-t-on ? ». Elle
+  // servait aux deux, et c'est ce qui la rendait fausse : depuis le 2026-09-05
+  // le moyen est ENREGISTRÉ sur la vente, et une vente par lien dont le lien a
+  // été consommé par un remboursement n'a plus aucun objet Stripe sans être
+  // devenue hors Stripe pour autant. Le nom dit maintenant ce qu'elle mesure.
+  const sansObjetStripe = !deal.stripe_subscription_id
     && !deal.stripe_payment_link_id
     && echeances.every(e => !e.stripe_payment_link_id);
 
@@ -129,7 +135,15 @@ export async function PATCH(
     body?.encaissement === 'offline' ? 'offline'
     : body?.encaissement === 'lien' ? 'lien'
     : null;
-  const enOffline = choixMoyen ? choixMoyen === 'offline' : horsStripe;
+  // Trois niveaux, du plus sûr au moins sûr : ce que l'écran DEMANDE, puis ce
+  // que la vente DÉCLARE, et seulement à défaut ce qu'on peut déduire de son
+  // état. La déduction ne parle que des ventes créées avant `moyen_encaissement`.
+  const moyenDeclare = deal.moyen_encaissement as 'lien' | 'prelevement' | 'offline' | null;
+  const enOffline = choixMoyen
+    ? choixMoyen === 'offline'
+    : moyenDeclare
+      ? moyenDeclare === 'offline'
+      : sansObjetStripe;
 
   const trop = aRembourser(cash, montant);
   const reste = resteAEncaisser(cash, montant);
@@ -185,7 +199,7 @@ export async function PATCH(
       // désactiver ET oublier ses références : un lien resté payable
       // encaisserait un argent que l'élève attend par virement, et la fiche
       // continuerait d'afficher « par lien » alors qu'aucun lien ne vit plus.
-      if (!horsStripe && access) {
+      if (!sansObjetStripe && access) {
         await desactiverLiensDuDeal(supa, dealId, deal.profile_id);
         await supa.from('deals').update({
           stripe_payment_link_id: null, short_url: null,

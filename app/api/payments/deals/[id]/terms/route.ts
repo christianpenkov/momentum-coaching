@@ -286,10 +286,30 @@ export async function PATCH(
     stripe_payment_link_id: null,
   }).eq('id', dealId);
 
+  // ── Nommer ce qui s'est VRAIMENT passé ────────────────────────────────────
+  // Depuis que l'écran laisse revalider des modalités identiques pour remettre
+  // un moyen d'encaisser en place (une vente par lien perd son lien après un
+  // remboursement, le lien étant à usage unique), ce chemin produit un
+  // événement où rien ne change. Le journal disait alors « Modalités modifiées ·
+  // par lien de paiement → par lien de paiement », une phrase qui ne veut rien
+  // dire — relevé par Chris le 2026-09-06.
+  //
+  // L'historique doit montrer ce qui s'est passé, pas le gabarit du geste qui
+  // l'a produit. Ici l'événement réel est la création d'un lien.
+  const rienChange = modeAvant === modeApres
+    && (deal.installments_count ?? 1) === nbEcheances
+    && rythmeAvant === interval;
+
+  const montantsDesLiens = liens
+    .map(l => `${l.amount.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} €`)
+    .join(' + ');
+
   await supa.from('deal_events').insert({
     deal_id: dealId,
     kind: 'terms_changed',
-    label: `Modalités modifiées · ${libelle(modeAvant, deal.installments_count, rythmeAvant)} → ${libelle(modeApres, nbEcheances > 1 ? nbEcheances : null, interval)}`,
+    label: rienChange && liens.length > 0
+      ? `${liens.length > 1 ? 'Liens de paiement recréés' : 'Lien de paiement recréé'} · ${montantsDesLiens}`
+      : `Modalités modifiées · ${libelle(modeAvant, deal.installments_count, rythmeAvant)} → ${libelle(modeApres, nbEcheances > 1 ? nbEcheances : null, interval)}`,
     actor_id: user.id,
     meta: { avant: modeAvant, apres: modeApres, count: nbEcheances, interval },
   });

@@ -1028,8 +1028,16 @@ function LigneEcheance({ inst, total, mode, finDeVie, payeLe, onChange }: {
         {/* Hors Stripe : aucun webhook ne confirmera jamais ce virement.
             Retiré sur une vente terminée : on n'attend plus ce versement, et le
             déclarer ici le ferait rentrer comme un encaissement normal alors
-            qu'un paiement sur une vente close relève du « paiement inattendu ». */}
-        {!payee && !abandonnee && !inst.short_url && (
+            qu'un paiement sur une vente close relève du « paiement inattendu ».
+
+            ⚠️ `mode === 'offline'` et NON `!inst.short_url` seul. Une échéance
+            sans lien sur une vente PAR LIEN ne dit pas qu'on attend un virement :
+            elle dit que le lien n'a pas encore été créé. Proposer « Reçu » y était
+            la mauvaise consigne — et la seule offerte. Constaté par Chris le
+            2026-09-06 sur TestYT : « pourquoi j'ai ça avec le bouton reçu ? ».
+            Même déduction depuis une absence que dans le rappel d'échéance et
+            dans `terms/route.ts`, corrigés le même jour. */}
+        {!payee && !abandonnee && !inst.short_url && mode === 'offline' && (
           <button onClick={declarerRecu} disabled={marque} style={{
             fontSize: 11.5, flexShrink: 0, border: '1px solid var(--border)', borderRadius: 7,
             padding: '4px 9px', background: 'var(--surface)', cursor: marque ? 'default' : 'pointer',
@@ -1043,6 +1051,17 @@ function LigneEcheance({ inst, total, mode, finDeVie, payeLe, onChange }: {
           premierClic={inst.firstClickAt} suivi={inst.tracked !== false}
           mort={abandonnee}
           installmentId={inst.id} onChange={onChange} />
+      )}
+
+      {/* Le cas qui n'avait AUCUNE issue avant le 2026-09-06 : vente par lien,
+          argent encore dû, et plus aucun lien — l'état où retombe toute vente
+          par lien après un remboursement partiel, puisque le lien d'origine est
+          à usage unique. Ne rien afficher laisserait la ligne muette ; dire quoi
+          faire est le minimum, et le geste existe désormais. */}
+      {!payee && !abandonnee && !inst.short_url && mode !== 'offline' && (
+        <div style={{ fontSize: 11.5, color: 'var(--muted)', paddingLeft: 18, marginTop: 2 }}>
+          Aucun lien pour cette échéance — recrée-le avec « Modalités ».
+        </div>
       )}
     </div>
   );
