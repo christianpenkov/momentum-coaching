@@ -1204,6 +1204,64 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
             }
           }
 
+          // ── LE FILET DU LIEN : APRÈS les branches, jamais à leur place ──────
+          //
+          // `if (!lmLink)` et non `else if` : ce n'est pas une troisième branche
+          // parallèle, c'est un rattrapage. Trois situations y mènent, et une
+          // condition en `else if` n'en couvrirait qu'une :
+          //
+          //   • un lead créé par un mot-clé PERMANENT n'a ni `story_sequence_id`
+          //     ni contenu configuré — il ne rentrait dans aucune branche ;
+          //   • un COMMENTAIRE écrit toujours `pending_lm_content_id`, même quand
+          //     le post n'est pas configuré : il entrait donc dans la deuxième
+          //     branche pour n'y rien trouver ;
+          //   • le coach a pu dissocier le lead magnet du contenu ENTRE l'envoi
+          //     de l'accroche et le clic. La branche existait, sa donnée non.
+          //
+          // Dans les trois cas, le prospect a cliqué et attend son lien. Sans ce
+          // rattrapage il n'obtient rien, et personne n'est prévenu.
+          //
+          // Aucune colonne de plus pour retrouver le lead magnet : un mot-clé n'en
+          // désigne qu'UN par élève (index `lead_magnets_mot_cle_unique`), et
+          // `keyword_matched` est déjà sur la fiche.
+          if (!lmLink && leadForDm2.keyword_matched && leadForDm2.ig_username) {
+            const { data: lmPourLien } = await serviceSupabase
+              .from('lead_magnets')
+              .select('id, url, keyword, dm_lien, dm_lien_bouton')
+              .eq('profile_id', pid)
+              .eq('repond_partout', true)
+              .ilike('keyword', leadForDm2.keyword_matched)
+              .maybeSingle();
+
+            if (lmPourLien?.dm_lien_bouton) lmButtonLabel = lmPourLien.dm_lien_bouton;
+            if (lmPourLien?.dm_lien) lmMessageText = lmPourLien.dm_lien;
+
+            if (lmPourLien?.url) {
+              lmLink = await createProspectLmLink({
+                supabase: serviceSupabase,
+                profileId: pid,
+                lmUrl: lmPourLien.url,
+                lmKeyword: lmPourLien.keyword,
+                username: leadForDm2.ig_username,
+                // Le contenu QUAND ON LE CONNAÎT, et seulement alors. Un
+                // commentaire vient bien d'un post, même non configuré :
+                // l'attribuer est juste. Un DM direct n'a rien derrière lui, et
+                // `pending_lm_media_id` y vaut nul — un trou dit « on ne sait
+                // pas », plutôt que de désigner un contenu jamais vu.
+                mediaId: leadForDm2.pending_lm_media_id ?? null,
+                fallbackUrl: lmPourLien.url,
+                pathPrefix: 'lm',
+                utmMedium: 'dm',
+                titlePrefix: 'LM',
+              });
+              if (lmLink) {
+                await serviceSupabase.from('instagram_leads')
+                  .update({ tracking_link: lmLink })
+                  .eq('id', leadForDm2.id);
+              }
+            }
+          }
+
           if (lmLink) {
             const dm2Data = await sendDmWithButton(
               lmLink,
@@ -1844,19 +1902,53 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
       const cls = contentLinks || [];
       pushEvent({ type: 'debug_content_links', mediaId, count: cls.length, keywords: cls.map((c: any) => c.lm_keyword) });
 
-      if (cls.length === 0) {
-        pushEvent({ type: 'no_lm_on_this_post', mediaId });
-        continue;
-      }
-
       // Cherche le content_link dont le keyword matche le commentaire — insensible à la
       // casse ET aux accents ("Méta" doit matcher le mot-clé "Meta" configuré par le
       // coach, demande explicite de Chris le 2026-07-30).
       const text = normalizeForKeywordMatch(commentText);
-      const cl = cls.find((c: any) => text.includes(normalizeForKeywordMatch(c.lm_keyword)));
+      let cl: any = cls.find((c: any) => text.includes(normalizeForKeywordMatch(c.lm_keyword)));
+
+      // ── LE MÊME FILET QUE POUR LES STORIES ET LES DM ─────────────────────
+      //
+      // Un commentaire mot-clé sous un post NON configuré ne déclenchait rien,
+      // et rien ne le signalait : ni au prospect, qui attend son fichier, ni au
+      // coach, qui ne saura jamais qu'on le lui a demandé.
+      //
+      // Le repli n'intervient que si aucun `content_links` ne répond — le
+      // contenu garde la priorité, comme partout ailleurs. Et un mot-clé ne
+      // désigne qu'UN lead magnet, donc il n'y a rien à départager.
+      //
+      // Le lead magnet est transposé dans la FORME d'un `content_link` : tout le
+      // bloc en aval lit `cl`, et lui donner une deuxième forme à comprendre
+      // aurait doublé chaque lecture. `lm_short_url` reste nul — il n'existe pas
+      // de lien générique pour un contenu qu'on n'a pas configuré ; le lien
+      // personnalisé est fabriqué au clic, comme pour les autres chemins.
+      if (!cl) {
+        const { data: lmPermanents } = await serviceSupabase
+          .from('lead_magnets')
+          .select('id, keyword, url, dm_accroche, dm_accroche_bouton, dm_relance')
+          .eq('profile_id', profile_id)
+          .eq('repond_partout', true);
+        const trouve = (lmPermanents ?? []).find((lm: any) =>
+          lm.keyword && text.includes(normalizeForKeywordMatch(lm.keyword)));
+        if (trouve) {
+          cl = {
+            lm_keyword: trouve.keyword,
+            lm_short_url: null,
+            lm_url: trouve.url,
+            dm_opener_message: trouve.dm_relance,
+            dm_lm_message: trouve.dm_accroche,
+            dm_button_text: trouve.dm_accroche_bouton,
+          };
+          pushEvent({ type: 'lm_permanent_sur_commentaire', keyword: trouve.keyword, commenterUsername, mediaId });
+        }
+      }
 
       if (!cl) {
-        pushEvent({ type: 'keyword_no_match', text, available: cls.map((c: any) => c.lm_keyword) });
+        pushEvent({
+          type: cls.length === 0 ? 'no_lm_on_this_post' : 'keyword_no_match',
+          mediaId, text, available: cls.map((c: any) => c.lm_keyword),
+        });
         continue;
       }
 
