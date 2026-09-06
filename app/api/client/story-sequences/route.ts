@@ -53,25 +53,6 @@ export async function GET() {
     countBySeq.set(row.sequence_id, (countBySeq.get(row.sequence_id) || 0) + 1);
   }
 
-  // ── LECTURE DÉFENSIVE DE `closed_at` ──────────────────────────────────────
-  //
-  // Requête SÉPARÉE, et non une colonne de plus dans le select principal : si la
-  // migration n'est pas encore passée, PostgREST échoue avec 42703 et rend `data`
-  // à null — la liste entière des séquences deviendrait vide, sans erreur
-  // visible. Ici l'échec ne coûte que la clôture : toutes les séquences sont
-  // alors considérées ouvertes, ce qui est leur état d'avant.
-  const closedById = new Map<string, string | null>();
-  // `null` tant qu'on ne sait pas : c'est la réponse de cette requête qui le dit,
-  // et l'écran doit pouvoir cacher le bouton « Clôturer » plutôt que de proposer
-  // une action qui échouerait en silence.
-  let clotureDisponible = true;
-  if (seqIds.length) {
-    const { data: closedRows, error: closedErr } = await serviceSupabase
-      .from('story_sequences').select('id, closed_at').in('id', seqIds);
-    if (closedErr) clotureDisponible = false;
-    for (const r of closedRows ?? []) closedById.set(r.id, (r as any).closed_at ?? null);
-  }
-
   // ── UNE SÉQUENCE SANS STORY N'EST PLUS UN FANTÔME ─────────────────────────
   //
   // Elle était filtrée parce qu'une séquence à 0 story ne pouvait signifier
@@ -89,8 +70,8 @@ export async function GET() {
 
   const rows = (sequences || [])
     .filter(s => !fantome(s))
-    .map(s => ({ ...s, story_count: countBySeq.get(s.id) || 0, closed_at: closedById.get(s.id) ?? null }));
-  return NextResponse.json({ sequences: rows, clotureDisponible });
+    .map(s => ({ ...s, story_count: countBySeq.get(s.id) || 0 }));
+  return NextResponse.json({ sequences: rows });
 }
 
 // Vérifie la contiguïté d'une séquence : entre sa première et sa dernière story, il
@@ -315,7 +296,7 @@ export async function PATCH(request: Request) {
 
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
-  const { id, name, ctaStoryId, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage, lmKeyword, generateCalendly, addStoryIds, removeStoryIds, closed } = body;
+  const { id, name, ctaStoryId, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage, lmKeyword, generateCalendly, addStoryIds, removeStoryIds } = body;
   if (!id) return NextResponse.json({ error: 'id requis' }, { status: 400 });
 
   const { data: seq, error: seqFetchErr } = await serviceSupabase
@@ -423,47 +404,10 @@ export async function PATCH(request: Request) {
   if (dm2StoryMessage !== undefined) patch.dm2_story_message = dm2StoryMessage;
   if (lmKeyword !== undefined) patch.lm_keyword = (lmKeyword || '').toUpperCase().trim();
 
-  // Clôture — « j'ai fini de publier ». L'écran cesse alors de proposer les
-  // stories parues. Réversible : une séquence rouverte se remet à proposer, ce
-  // qui évite d'avoir à en recréer une pour une story oubliée.
-  if (closed !== undefined) patch.closed_at = closed ? new Date().toISOString() : null;
-
-  // Une clôture demandée alors que la colonne n'existe pas doit le DIRE. Sans ce
-  // contrôle l'update échoue en 42703, PostgREST rend `data` à null, et le bouton
-  // paraît ne rien faire — le mode de panne le plus coûteux à diagnostiquer.
-  if (closed !== undefined) {
-    const { error: sondeErr } = await serviceSupabase
-      .from('story_sequences').select('closed_at').eq('id', id).limit(1);
-    if (sondeErr) {
-      return NextResponse.json({
-        error: "La clôture manuelle n'est pas encore disponible : la migration `story_sequences_closed_at` n'a pas été appliquée. La séquence cesse d'elle-même de proposer des stories au bout de 24 h.",
-      }, { status: 409 });
-    }
-  }
-
-  // ── Déplacement du CTA ──────────────────────────────────────────────────
-  //
-  // Le retrait d'une story refusait déjà de partir avec le CTA : « Déplace
-  // d'abord le CTA sur une autre story avant de la retirer ». Sauf que rien ne
-  // permettait de le déplacer — ni ici, ni dans l'écran. Le message envoyait
-  // vers une action qui n'existait pas, et la story portant le CTA ne pouvait
-  // plus jamais quitter sa séquence.
-  //
-  // La story visée est relue APRÈS les ajouts/retraits ci-dessus : on veut son
-  // appartenance finale, pas celle d'avant l'opération.
-  if (ctaStoryId !== undefined) {
-    const { data: cible } = await serviceSupabase
-      .from('ig_stories')
-      .select('id')
-      .eq('profile_id', user.id)
-      .eq('sequence_id', id)
-      .eq('id', ctaStoryId)
-      .maybeSingle();
-    if (!cible) {
-      return NextResponse.json({ error: 'Cette story ne fait pas partie de la séquence' }, { status: 409 });
-    }
-    patch.cta_story_id = ctaStoryId;
-  }
+  // La clôture manuelle a été retirée : deux boutons, dont l'un ne servait qu'à
+  // annuler l'autre, pour une proposition qui s'éteint déjà seule au bout de
+  // 24 h sans mouvement. La colonne `closed_at` reste en base, inutilisée — la
+  // supprimer demanderait une migration pour rien, et elle documente l'option.
 
   if (Object.keys(patch).length > 1) {
     const { error } = await serviceSupabase.from('story_sequences').update(patch).eq('id', id).eq('profile_id', user.id);

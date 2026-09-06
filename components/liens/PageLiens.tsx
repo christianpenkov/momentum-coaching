@@ -893,9 +893,19 @@ function ChatBubble({ tag, tagLabel, children }: { tag: string; tagLabel: string
  * rendu est à taille réelle (mobile), en dessous il tient dans la colonne du
  * desktop sans que les proportions bougent.
  */
-function IgFil({ seq, pseudo, avatarUrl, nom, sc, sansCadre }: {
+function IgFil({ seq, pseudo, avatarUrl, nom, sc, sansCadre, story }: {
   seq: { accroche: string; accrocheBtn: string; lien: string; lienBtn: string; relance: string };
   pseudo: string; avatarUrl: string | null; nom: string; sc: number; sansCadre?: boolean;
+  /**
+   * La story à laquelle le prospect répond, quand la séquence en part.
+   *
+   * Instagram montre la story en tête du fil, envoyée par le prospect, suivie
+   * du texte de sa réponse. Sans elle, l'aperçu d'une séquence de stories
+   * commençait par « vous a envoyé un message concernant votre commentaire sur
+   * sa publication » — la ligne d'un commentaire de post, qui n'a jamais eu
+   * lieu ici.
+   */
+  story?: { vignette: string | null; motCle: string } | null;
 }) {
   // Un champ de relance vide n'est pas un message vide : c'est un message qui
   // n'existe pas. L'aperçu doit donc s'arrêter avant, sans horodatage ni bulle.
@@ -951,16 +961,43 @@ function IgFil({ seq, pseudo, avatarUrl, nom, sc, sansCadre }: {
         display: 'flex', flexDirection: 'column',
         gap: Math.round(5 * sc), padding: `${Math.round(10 * sc)}px ${Math.round(9 * sc)}px`,
       }}>
-        {/* Ligne système : Instagram l'insère quand la séquence part d'un commentaire.
-            `marginTop:auto` la colle en bas tant que le fil est court. */}
-        <div style={{
-          marginTop: 'auto', flexShrink: 0,
-          alignSelf: 'center', textAlign: 'center', fontSize: +(13 * sc).toFixed(1), lineHeight: 1.4,
-          color: IG.gris, padding: `${Math.round(6 * sc)}px ${Math.round(16 * sc)}px`,
-        }}>
-          {pseudo} vous a envoyé un message concernant votre commentaire sur sa publication.{' '}
-          <b style={{ color: '#3a3730' }}>Voir la publication</b>
-        </div>
+        {/* Ce qui a déclenché la séquence, tel qu'Instagram le montre.
+            `marginTop:auto` colle le fil en bas tant qu'il est court. */}
+        {story ? (
+          <>
+            <div style={{
+              marginTop: 'auto', flexShrink: 0,
+              alignSelf: 'flex-end', textAlign: 'right', fontSize: +(12.5 * sc).toFixed(1),
+              color: IG.gris, padding: `${Math.round(4 * sc)}px ${Math.round(4 * sc)}px 0`,
+            }}>
+              Vous avez répondu à sa story
+            </div>
+            {/* La story elle-même, envoyée par le prospect. Format 9/16, comme
+                dans l'application. */}
+            <div style={{
+              alignSelf: 'flex-end', flexShrink: 0,
+              width: Math.round(96 * sc), height: Math.round(170 * sc),
+              borderRadius: Math.round(14 * sc), overflow: 'hidden',
+              background: '#000', border: '1px solid #e9e5dc',
+            }}>
+              {story.vignette && (
+                <img loading="lazy" decoding="async" src={story.vignette} alt=""
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              )}
+            </div>
+            {/* Sa réponse : le mot-clé. C'est elle qui déclenche tout le reste. */}
+            {story.motCle.trim() && <IgEnvoye texte={story.motCle} sc={sc} />}
+          </>
+        ) : (
+          <div style={{
+            marginTop: 'auto', flexShrink: 0,
+            alignSelf: 'center', textAlign: 'center', fontSize: +(13 * sc).toFixed(1), lineHeight: 1.4,
+            color: IG.gris, padding: `${Math.round(6 * sc)}px ${Math.round(16 * sc)}px`,
+          }}>
+            {pseudo} vous a envoyé un message concernant votre commentaire sur sa publication.{' '}
+            <b style={{ color: '#3a3730' }}>Voir la publication</b>
+          </div>
+        )}
 
         <IgTemplate texte={seq.accroche} bouton={seq.accrocheBtn} avatar avatarUrl={avatarUrl} sc={sc} />
         <IgEnvoye texte={seq.accrocheBtn} sc={sc} />
@@ -1081,7 +1118,7 @@ function Dm1Editor({ value, onChange, saved, border, amber, bg, ink }: {
  */
 function SequenceDm({
   seq, seqRef, setChamp, declencheur, lmUrl, nbModifs, saving, error, onSave,
-  libelleBouton = 'Enregistrer la séquence', boutonActif, igCompte, vue, setVue,
+  libelleBouton = 'Enregistrer la séquence', boutonActif, igCompte, vue, setVue, story,
 }: {
   seq: SeqDm; seqRef: SeqDm;
   setChamp: (k: keyof SeqDm, v: string) => void;
@@ -1092,6 +1129,8 @@ function SequenceDm({
   libelleBouton?: string;
   /** Force l'activation du bouton — une création n'a encore rien à comparer. */
   boutonActif?: boolean;
+  /** La story de départ, pour les séquences de stories. */
+  story?: { vignette: string | null; motCle: string } | null;
   igCompte: { username?: string; name?: string; profilePicture?: string | null } | undefined;
   vue: 'modifier' | 'apercu'; setVue: (v: 'modifier' | 'apercu') => void;
 }) {
@@ -1132,7 +1171,7 @@ function SequenceDm({
           background: '#fff', display: 'flex', flexDirection: 'column',
           height: 'min(72vh, 620px)', marginBottom: 14,
         }}>
-          <IgFil seq={seq} pseudo={igPseudo} avatarUrl={igPhoto} nom={igNom} sc={1} sansCadre />
+          <IgFil seq={seq} pseudo={igPseudo} avatarUrl={igPhoto} nom={igNom} sc={1} sansCadre story={story} />
         </div>
       )}
       {isMobile && vue === 'apercu' && !igCompte?.username && (
@@ -1280,7 +1319,7 @@ function SequenceDm({
               overflow: 'hidden', background: '#fff', flexShrink: 0,
               display: 'flex', flexDirection: 'column', boxSizing: 'content-box',
             }}>
-              <IgFil seq={seq} pseudo={igPseudo} avatarUrl={igPhoto} nom={igNom} sc={314 / 390} />
+              <IgFil seq={seq} pseudo={igPseudo} avatarUrl={igPhoto} nom={igNom} sc={314 / 390} story={story} />
             </div>
             {!igCompte?.username && (
               <span style={{ fontSize: 10.5, color: FAINT, textAlign: 'center', lineHeight: 1.4 }}>
@@ -2560,18 +2599,18 @@ function PanneauActions({ post, profileId, activeDomain, domainsLoaded, calendly
  * lien, lui rattacher les stories parues, la clôturer. Trois actions recopiées
  * deux fois, c'est une divergence garantie.
  */
-function LigneSequence({ seq, aRattacher, surbrillance, ouverte, occupee, clotureDisponible, onOuvrir, onRattacher, onCloturer }: {
+function LigneSequence({ seq, stories, aRattacher, surbrillance, ouverte, occupee, onOuvrir, onRattacher }: {
   seq: any;
+  /** Les stories qui composent la séquence, triées par date de publication. */
+  stories: Post[];
   /** Stories libres publiées depuis la création de la séquence. */
   aRattacher: Post[];
   surbrillance: boolean;
+  /** La séquence propose encore les stories parues : moins de 24 h sans mouvement. */
   ouverte: boolean;
   occupee: boolean;
-  /** Faux tant que la colonne `closed_at` n'existe pas : le bouton est caché. */
-  clotureDisponible: boolean;
   onOuvrir: () => void;
   onRattacher: (ids: string[]) => void;
-  onCloturer: (fermer: boolean) => void;
 }) {
   const vide = (seq.story_count ?? 0) === 0;
   return (
@@ -2580,6 +2619,22 @@ function LigneSequence({ seq, aRattacher, surbrillance, ouverte, occupee, clotur
       background: surbrillance ? ACCENT_SOFT : SURFACE, transition: 'all .3s',
     }}>
       <div onClick={() => { if (!vide) onOuvrir(); }} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: vide ? 'default' : 'pointer' }}>
+        {/* Les stories de la séquence, à côté de son nom : c'est ce qui la rend
+            reconnaissable d'un coup d'œil. Un nom seul oblige à ouvrir pour
+            savoir de quel lancement il s'agit. */}
+        {stories.length > 0 && (
+          <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
+            {stories.slice(0, 5).map(st => (
+              <div key={st.id} title={st.postedAt ? new Date(st.postedAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : ''}
+                style={{ width: 26, height: 26, borderRadius: 5, overflow: 'hidden', border: `1px solid ${BORDER}`, background: SURFACE2 }}>
+                {st.thumbnail && <img loading="lazy" decoding="async" src={st.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+              </div>
+            ))}
+            {stories.length > 5 && (
+              <span style={{ alignSelf: 'center', fontSize: 10, color: FAINT, marginLeft: 2 }}>+{stories.length - 5}</span>
+            )}
+          </div>
+        )}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: INK, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{seq.name}</div>
           <div style={{ display: 'flex', gap: 5, alignItems: 'center', marginTop: 3, flexWrap: 'wrap' }}>
@@ -2595,7 +2650,7 @@ function LigneSequence({ seq, aRattacher, surbrillance, ouverte, occupee, clotur
             <span style={{ fontSize: 10, color: FAINT }}>
               {vide ? 'en attente de ses stories' : `${seq.story_count} story${seq.story_count > 1 ? 'ies' : ''}`}
             </span>
-            {!ouverte && !vide && <span style={{ fontSize: 10, color: FAINT }}>· clôturée</span>}
+
           </div>
         </div>
       </div>
@@ -2635,12 +2690,7 @@ function LigneSequence({ seq, aRattacher, surbrillance, ouverte, occupee, clotur
               style={{ minHeight: 36, padding: '0 13px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: 'none', background: BLUE, color: '#fff', cursor: occupee ? 'default' : 'pointer', opacity: occupee ? 0.6 : 1 }}>
               {occupee ? 'Rattachement…' : 'Les rattacher'}
             </button>
-            {clotureDisponible && (
-              <button onClick={() => onCloturer(true)} disabled={occupee}
-                style={{ minHeight: 36, padding: '0 13px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: occupee ? 'default' : 'pointer' }}>
-                Non, j'ai fini
-              </button>
-            )}
+
           </div>
         </div>
       )}
@@ -2648,18 +2698,6 @@ function LigneSequence({ seq, aRattacher, surbrillance, ouverte, occupee, clotur
       {/* Clôturer / rouvrir. La réouverture est la porte de sortie du repli
           automatique : une séquence qui a cessé de proposer au bout de 24 h se
           rouvre en un clic pour une story publiée trois jours plus tard. */}
-      {clotureDisponible && (ouverte || vide) && aRattacher.length === 0 && (
-        <button onClick={() => onCloturer(true)} disabled={occupee}
-          style={{ marginTop: 9, minHeight: 34, padding: '0 12px', fontSize: 11.5, fontWeight: 600, borderRadius: 7, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: occupee ? 'default' : 'pointer' }}>
-          Clôturer la séquence
-        </button>
-      )}
-      {clotureDisponible && !ouverte && (
-        <button onClick={() => onCloturer(false)} disabled={occupee}
-          style={{ marginTop: 9, minHeight: 34, padding: '0 12px', fontSize: 11.5, fontWeight: 600, borderRadius: 7, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: occupee ? 'default' : 'pointer' }}>
-          Rouvrir pour y ajouter une story
-        </button>
-      )}
     </div>
   );
 }
@@ -2998,8 +3036,13 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
     setActiveTab('lm');
     setAddingStories(false);
     if (isGroup) {
-      setName(formatDefaultSequenceName(groupStories[0]?.postedAt || new Date().toISOString()));
-      setCtaStoryId(groupStories[groupStories.length - 1]?.id || '');
+      // Triées par date : `groupStories` suit l'ordre des cases cochées, pas
+      // celui de la publication. Sans ce tri, « la dernière » était la dernière
+      // COCHÉE — donc n'importe laquelle.
+      const parDate = [...groupStories].sort((a, b) => new Date(a.postedAt || 0).getTime() - new Date(b.postedAt || 0).getTime());
+      setName(formatDefaultSequenceName(parDate[0]?.postedAt || new Date().toISOString()));
+      // La dernière publiée : on raconte d'abord, on demande à la fin.
+      setCtaStoryId(parDate[parDate.length - 1]?.id || '');
     } else if (isExistingSequence && primary) {
       setName(primary.sequenceName || '');
       setCtaStoryId(primary.ctaStoryId || primary.id);
@@ -3154,7 +3197,7 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
   })();
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
       {/* En-tête — MÊME identité visuelle que les posts : même vignette, même
           ligne de méta, même pastille verte, mêmes tailles. Une story et un post
           sont deux contenus du même écran ; les distinguer par la forme de leur
@@ -3214,13 +3257,16 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
         )}
       </div>
 
-      {/* ── LE SEUL CONTENEUR QUI DÉFILE ────────────────────────────────────
-          Le bloc de composition (nom, ruban, CTA) et le formulaire défilaient
-          séparément : le premier restait figé en haut et mangeait la hauteur,
-          si bien qu'on éditait cinq messages dans une fenêtre de moitié. Ici il
-          remonte avec le reste, et ce sont les ONGLETS qui se collent en haut —
-          on garde ainsi le seul repère dont on a besoin en défilant. */}
-      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+      {/* ── AUCUN DÉFILEMENT PROPRE À CE PANNEAU ────────────────────────────
+          Ce panneau vit dans un conteneur qui porte DÉJÀ `overflowY: auto`. Lui
+          en donner un second ne créait pas un second défilement : l'interne ne
+          bougeait jamais, et les onglets `sticky` posés dedans ne collaient donc
+          à rien — un `sticky` dans un conteneur qui ne défile pas est inerte.
+
+          Tout coule ici dans le flux normal. Le bloc de composition remonte avec
+          le reste, et les onglets se collent au bord du conteneur parent, qui
+          est bien celui qui défile. */}
+      <>
 
         {/* ── Composition de la séquence ─────────────────────────────────────
             Au-dessus des onglets, et pour une séquence DÉJÀ créée aussi : le
@@ -3325,8 +3371,17 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
                   dans l'un des deux onglets. */}
               {storiesAffichees.length > 1 && (
                 <>
+                  {/* La précision dépend du CTA : « poser le sticker » ne veut
+                      rien dire pour un lead magnet, qui se déclenche par un
+                      mot-clé en réponse. */}
                   <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 6 }}>
-                    Story qui porte le CTA <span style={{ color: FAINT, fontWeight: 400 }}>— celle où tu poses le sticker</span>
+                    Story qui porte le CTA <span style={{ color: FAINT, fontWeight: 400 }}>
+                      — {primary.calendlyShortUrl
+                          ? 'celle où tu poses le sticker du lien'
+                          : primary.lmKeyword
+                            ? `celle où tu demandes de répondre « ${primary.lmKeyword} »`
+                            : "celle qui porte l'appel à l'action"}
+                    </span>
                   </label>
                   <div style={{ marginBottom: 14 }}>
                     <SelecteurStoryCta
@@ -3399,7 +3454,7 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
           />
           )}
         </div>
-      </div>
+      </>
     </div>
   );
 }
@@ -3453,6 +3508,9 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const lmName = leadMagnets.find(l => l.id === primary.lmId)?.name;
+  // La story du CTA si elle est connue, sinon celle qu'on regarde : dans les
+  // deux cas c'est celle à laquelle le prospect répondra.
+  const storyCtaVignette = (candidateStories.find(s => s.id === primary.ctaStoryId) ?? primary)?.thumbnail ?? null;
 
   const nbModifs = (Object.keys(seq) as (keyof SeqDm)[]).filter(k => seq[k] !== seqRef[k]).length
     + (lmKeyword !== motCleRef ? 1 : 0);
@@ -3568,6 +3626,9 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
           même téléphone. Seuls le déclencheur et le libellé du bouton changent. */}
       <SequenceDm
         seq={seq} seqRef={seqRef} setChamp={setChamp}
+        // La story qui porte le CTA, celle à laquelle le prospect répond
+        // vraiment. Le mot-clé s'affiche tel qu'il le tapera.
+        story={{ vignette: storyCtaVignette, motCle: lmKeyword || 'MOT-CLÉ' }}
         declencheur="story" lmUrl={primary.lmShortUrl || null}
         nbModifs={nbModifs} saving={saving} error={error}
         onSave={submit} boutonActif={boutonActif}
@@ -4658,14 +4719,14 @@ const SOUS_ONGLETS_STORIES = [
 ];
 
 /** Barre d'actions des stories : sélection en cours, ou création / actualisation. */
-function ActionsStories({ selectionMode, selectedCount, compact, onStartSelection, onCancelSelection, onContinue, onRefresh }: {
+function ActionsStories({ selectionMode, selectedCount, compact, onStartSelection, onCancelSelection, onContinue, onPreparer }: {
   selectionMode: boolean;
   selectedCount: number;
   compact: boolean;
   onStartSelection: () => void;
   onCancelSelection: () => void;
   onContinue: () => void;
-  onRefresh: () => void;
+  onPreparer: () => void;
 }) {
   const btn = {
     padding: compact ? '4px 10px' : '5px 12px',
@@ -4690,9 +4751,21 @@ function ActionsStories({ selectionMode, selectedCount, compact, onStartSelectio
     );
   }
   return (
-    <div style={{ display: 'flex', gap: 6 }}>
-      <button onClick={onStartSelection} style={btn}>Créer une séquence stories</button>
-      <button onClick={onRefresh} style={btn}>↻ Actualiser</button>
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      {/* Les deux manières de créer une séquence, ici aussi et pas seulement
+          dans l'onglet Séquences : c'est en regardant ses stories qu'on décide
+          d'en faire une, pas en consultant la liste de celles qui existent.
+
+          L'ordre suit le moment : on prépare AVANT de publier, on regroupe
+          APRÈS. La première est l'action principale, elle porte l'encre pleine. */}
+      <button onClick={onPreparer} style={{
+        minHeight: compact ? 32 : 34, padding: compact ? '0 11px' : '0 13px',
+        fontSize: compact ? 11.5 : 12, fontWeight: 700, borderRadius: 7,
+        border: 'none', background: BLUE, color: '#fff', cursor: 'pointer',
+      }}>Nouvelle séquence</button>
+      <button onClick={onStartSelection} style={{ ...btn, minHeight: compact ? 32 : 34, borderRadius: 7 }}>
+        À partir de stories publiées
+      </button>
     </div>
   );
 }
@@ -5343,12 +5416,28 @@ export default function PageLiens() {
       const supabase = createClient();
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
-      await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/refresh-ig-posts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ profile_id: profileId }),
-      });
+      // ── UN SEUL BOUTON ACTUALISER ────────────────────────────────────────
+      //
+      // Il y en avait deux : celui-ci, qui ne rafraîchissait QUE les posts, et un
+      // second au-dessus de la grille des stories. Rien ne le disait, et le
+      // premier réflexe — cliquer celui du haut — ne ramenait jamais les stories.
+      //
+      // Les deux appels sont indépendants : en parallèle, et un échec de l'un ne
+      // doit pas empêcher l'autre d'aboutir.
+      await Promise.allSettled([
+        fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/refresh-ig-posts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ profile_id: profileId }),
+        }),
+        fetch('/api/client/stories/live-refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ profileId }),
+        }),
+      ]);
       queryClient.invalidateQueries({ queryKey: ['liens-ig', profileId] });
+      queryClient.invalidateQueries({ queryKey: ['stories', profileId] });
     } catch (e: any) {
       console.error('[refresh-ig-posts]', e?.message);
     } finally {
@@ -5943,10 +6032,6 @@ export default function PageLiens() {
   const menuOuvert = menuEpingle || survolMenu;
 
   const sequences: any[] = sequencesData?.sequences ?? [];
-  // Tant que la migration `story_sequences_closed_at` n'est pas passée, le bouton
-  // « Clôturer » n'a rien où écrire : on le cache plutôt que de le laisser
-  // échouer. Le repli automatique de 24 h assure seul en attendant.
-  const clotureDisponible: boolean = sequencesData?.clotureDisponible !== false;
   const [highlightedSequenceId, setHighlightedSequenceId] = useState<string | null>(null);
   const navigateToSequencesTab = (sequenceId: string) => {
     setFilterPlatform('STORY');
@@ -5964,8 +6049,11 @@ export default function PageLiens() {
   const [sequenceOccupee, setSequenceOccupee] = useState<string | null>(null);
   const FENETRE_OUVERTURE_MS = 24 * 60 * 60 * 1000;
 
+  // Plus de clôture manuelle : deux boutons dont l'un ne servait qu'à annuler
+  // l'autre, pour une proposition qui s'éteint déjà toute seule. Le « + » du
+  // panneau reste le moyen d'ajouter une story n'importe quand, sans état à
+  // gérer ni bouton à comprendre.
   const sequenceOuverte = (seq: any) => {
-    if (seq.closed_at) return false;
     const stories = posts.filter(p => p.sequenceId === seq.id);
     const dernierMouvement = Math.max(
       new Date(seq.created_at).getTime(),
@@ -5976,6 +6064,10 @@ export default function PageLiens() {
 
   // Les stories libres publiées APRÈS la création de la séquence. C'est la seule
   // définition qui n'a rien à deviner : le coach a créé la séquence, puis publié.
+  const storiesDeLaSequence = (seq: any): Post[] => posts
+    .filter(p => p.sequenceId === seq.id)
+    .sort((a, b) => new Date(a.postedAt || 0).getTime() - new Date(b.postedAt || 0).getTime());
+
   const storiesARattacher = (seq: any): Post[] => posts
     .filter(p => p.platform === 'STORY' && !p.sequenceId
       && new Date(p.postedAt || 0).getTime() > new Date(seq.created_at).getTime())
@@ -5995,7 +6087,7 @@ export default function PageLiens() {
     } finally { setSequenceOccupee(null); }
   };
 
-  // Préparer une séquence AVANT de publier — le seul ordre qui fonctionne, une
+  // Nouvelle séquence AVANT de publier — le seul ordre qui fonctionne, une
   // story publiée ne pouvant plus recevoir de sticker.
   const [preparation, setPreparation] = useState(false);
   const [nomPreparation, setNomPreparation] = useState('');
@@ -6203,7 +6295,7 @@ export default function PageLiens() {
             {/* Texte gardé en desktop, icône seule en mobile (la media query
                 masque .liens-btn-label) : l'action est fréquente juste après une
                 publication, un ↻ nu n'aurait pas dit ce qu'il rafraîchit. */}
-            <button onClick={handleRefreshPosts} disabled={refreshingPosts} aria-label="Actualiser les posts" style={{
+            <button onClick={handleRefreshPosts} disabled={refreshingPosts} aria-label="Actualiser les posts et les stories" style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 15px', fontSize: 12.5, fontWeight: 600,
               borderRadius: 8, cursor: refreshingPosts ? 'default' : 'pointer', transition: `all var(--dur-quick) var(--ease-out)`,
               border: `1px solid ${BORDER}`, background: SURFACE, color: INK, opacity: refreshingPosts ? 0.6 : 1, flexShrink: 0,
@@ -6339,19 +6431,19 @@ export default function PageLiens() {
                   onStartSelection={() => setSelectionMode(true)}
                   onCancelSelection={() => { setSelectionMode(false); setSelectedStoryIds(new Set()); }}
                   onContinue={() => openMobileDetail({ type: 'story-multi', postIds: Array.from(selectedStoryIds) })}
-                  onRefresh={refreshStories}
+                  onPreparer={() => { setPreparation(true); setErreurPreparation(null); }}
                 />
               )}
 
               {filterPlatform === 'STORY' && storiesSubTab === 'sequences' && (
                 <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
                   <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ minHeight: 36, padding: '0 12px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
-                    Grouper des stories publiées
+                    À partir de stories publiées
                   </button>
                   {/* L'autre sens, celui qui manquait : préparer AVANT de
                       publier, pour avoir le lien à coller dans le sticker. */}
-                  <button onClick={() => { setPreparation(true); setErreurPreparation(null); }} style={{ minHeight: 36, padding: '0 12px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${BLUE}`, background: 'transparent', color: BLUE, cursor: 'pointer' }}>
-                    Préparer une séquence
+                  <button onClick={() => { setPreparation(true); setErreurPreparation(null); }} style={{ minHeight: 36, padding: '0 13px', fontSize: 12, fontWeight: 700, borderRadius: 7, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer' }}>
+                    Nouvelle séquence
                   </button>
                 </div>
               )}
@@ -6360,30 +6452,29 @@ export default function PageLiens() {
                 sequences.length === 0 ? (
                   <div style={{ padding: '20px 16px', fontSize: 12, color: FAINT, textAlign: 'center', lineHeight: 1.5 }}>
                     Aucune séquence pour l'instant.
-                    <div style={{ marginTop: 4 }}>Prépare-la avant de publier pour avoir son lien à coller dans le sticker.</div>
+                    <div style={{ marginTop: 4 }}>Crée-la avant de publier : son lien Calendly est généré tout de suite, prêt à coller dans le sticker.</div>
                     <div style={{ display: 'flex', gap: 7, justifyContent: 'center', marginTop: 12, flexWrap: 'wrap' }}>
                       <button onClick={() => { setPreparation(true); setErreurPreparation(null); }} style={{ minHeight: 36, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer' }}>
-                        Préparer une séquence
+                        Nouvelle séquence
                       </button>
                       <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ minHeight: 36, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
-                        Grouper des stories publiées
+                        À partir de stories publiées
                       </button>
                     </div>
                   </div>
                 ) : sequences.map(seq => (
                   <LigneSequence
                     key={seq.id} seq={seq}
+                    stories={storiesDeLaSequence(seq)}
                     aRattacher={storiesARattacher(seq)}
                     surbrillance={highlightedSequenceId === seq.id}
                     ouverte={sequenceOuverte(seq)}
-                    clotureDisponible={clotureDisponible}
                     occupee={sequenceOccupee === seq.id}
                     onOuvrir={() => {
                       const ctaStory = posts.find(p => p.id === seq.cta_story_id) ?? posts.find(p => p.sequenceId === seq.id);
                       if (ctaStory) openMobileDetail({ type: 'story', post: ctaStory });
                     }}
                     onRattacher={ids => patchSequence(seq.id, { addStoryIds: ids })}
-                    onCloturer={fermer => patchSequence(seq.id, { closed: fermer })}
                   />
                 ))
               ) : postsLoading ? (
@@ -6648,17 +6739,17 @@ export default function PageLiens() {
                   onStartSelection={() => setSelectionMode(true)}
                   onCancelSelection={() => { setSelectionMode(false); setSelectedStoryIds(new Set()); }}
                   onContinue={() => unsavedGuardApi.guard(() => setRightView({ type: 'story-multi', postIds: Array.from(selectedStoryIds) }))}
-                  onRefresh={refreshStories}
+                  onPreparer={() => { setPreparation(true); setErreurPreparation(null); }}
                 />
               )}
 
               {filterPlatform === 'STORY' && storiesSubTab === 'sequences' && (
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
-                    Grouper des stories publiées
+                    À partir de stories publiées
                   </button>
-                  <button onClick={() => { setPreparation(true); setErreurPreparation(null); }} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${BLUE}`, background: 'transparent', color: BLUE, cursor: 'pointer' }}>
-                    Préparer une séquence
+                  <button onClick={() => { setPreparation(true); setErreurPreparation(null); }} style={{ minHeight: 32, padding: '0 11px', fontSize: 11.5, fontWeight: 700, borderRadius: 7, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer' }}>
+                    Nouvelle séquence
                   </button>
                 </div>
               )}
@@ -6677,30 +6768,29 @@ export default function PageLiens() {
                 sequences.length === 0 ? (
                   <div style={{ padding: '20px 16px', fontSize: 12, color: FAINT, textAlign: 'center', lineHeight: 1.5 }}>
                     Aucune séquence pour l'instant.
-                    <div style={{ marginTop: 4 }}>Prépare-la avant de publier pour avoir son lien à coller dans le sticker.</div>
+                    <div style={{ marginTop: 4 }}>Crée-la avant de publier : son lien Calendly est généré tout de suite, prêt à coller dans le sticker.</div>
                     <div style={{ display: 'flex', gap: 7, justifyContent: 'center', marginTop: 12, flexWrap: 'wrap' }}>
                       <button onClick={() => { setPreparation(true); setErreurPreparation(null); }} style={{ minHeight: 36, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer' }}>
-                        Préparer une séquence
+                        Nouvelle séquence
                       </button>
                       <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ minHeight: 36, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
-                        Grouper des stories publiées
+                        À partir de stories publiées
                       </button>
                     </div>
                   </div>
                 ) : sequences.map(seq => (
                   <LigneSequence
                     key={seq.id} seq={seq}
+                    stories={storiesDeLaSequence(seq)}
                     aRattacher={storiesARattacher(seq)}
                     surbrillance={highlightedSequenceId === seq.id}
                     ouverte={sequenceOuverte(seq)}
-                    clotureDisponible={clotureDisponible}
                     occupee={sequenceOccupee === seq.id}
                     onOuvrir={() => {
                       const ctaStory = posts.find(p => p.id === seq.cta_story_id) ?? posts.find(p => p.sequenceId === seq.id);
                       if (ctaStory) unsavedGuardApi.guard(() => setRightView({ type: 'story', post: ctaStory }));
                     }}
                     onRattacher={ids => patchSequence(seq.id, { addStoryIds: ids })}
-                    onCloturer={fermer => patchSequence(seq.id, { closed: fermer })}
                   />
                 ))
               ) : postsLoading ? (
@@ -6786,13 +6876,13 @@ export default function PageLiens() {
         </div>
       </div>
 
-      {/* Préparer une séquence — le nom suffit. Le lead magnet, les stories et le
+      {/* Nouvelle séquence — le nom suffit. Le lead magnet, les stories et le
           CTA se remplissent quand on les a ; ce qu'on vient chercher ici, c'est
           le lien à coller dans le sticker avant de publier. */}
       {preparation && (
         <ModalShell onClose={() => setPreparation(false)} width={420} variant={isMobile ? 'sheet' : 'centered'}>
           <div style={{ padding: 24 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: INK, marginBottom: 6 }}>Préparer une séquence</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: INK, marginBottom: 6 }}>Nouvelle séquence</div>
             <div style={{ fontSize: 12.5, color: MUTED, lineHeight: 1.5, marginBottom: 16 }}>
               Son lien Calendly est généré tout de suite. Colle-le dans le sticker « Lien » en publiant tes stories — une story publiée ne peut plus recevoir de lien après coup. Tu lui rattacheras les stories ensuite, ici même.
             </div>
