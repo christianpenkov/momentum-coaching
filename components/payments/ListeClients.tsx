@@ -225,7 +225,24 @@ function etatSimple(d: DealRow): string {
   return 'open';
 }
 
+/**
+ * Le sous-titre d'un client en litige.
+ *
+ * ⚠️ Le repli était À L'ENVERS, et c'est le troisième endroit où la même
+ * confusion a été trouvée le 2026-09-06 (avec le bandeau de `PagePaiements` et,
+ * la veille, la fiche) :
+ *
+ *   litige OUVERT      → `status === 'disputed'` : la banque a repris l'argent
+ *   réponse ENCORE DUE → `disputeDueBy` renseigné
+ *
+ * `disputeDueBy` ABSENT signifie que Stripe n'attend plus rien — les preuves
+ * sont parties, le webhook `charge.dispute.updated` a effacé l'échéance. La
+ * ligne affichait pourtant « réponse à donner » précisément dans ce cas-là,
+ * c'est-à-dire exactement quand il n'y avait plus rien à faire.
+ */
 function dateLitige(siennes: DealRow[]): string {
   const d = siennes.find(x => x.disputeDueBy);
-  return d?.disputeDueBy ? `réponse avant le ${fmtEcheanceLitige(d.disputeDueBy)}` : 'réponse à donner';
+  return d?.disputeDueBy
+    ? `réponse avant le ${fmtEcheanceLitige(d.disputeDueBy)}`
+    : 'preuves envoyées, en attente du verdict';
 }
