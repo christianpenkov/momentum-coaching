@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { getIgCreds } from '@/lib/ig-fetch';
+import { sommeFlux } from '@/lib/collecte';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -211,9 +212,18 @@ export async function GET(request: Request) {
     }, { status: 400 });
   }
 
-  const sum = (arr: (number | null)[]) => arr.reduce((a: number, b) => a + (b ?? 0), 0);
-
-  const reach30d = sum(dbSnaps.map(r => r.ig_reach));
+  // ⚠️ `sommeFlux` et non un `reduce(… ?? 0)`.
+  //
+  // Ces totaux sont PRÉ-CALCULÉS ici et envoyés dans la charge utile ; l'écran les
+  // affiche tels quels, sans jamais revoir les journalières. Un `?? 0` transformait
+  // donc une fenêtre entièrement non collectée en « 0 personne touchée » — une mesure
+  // affirmée là où il n'y en a aucune, et le seul endroit de la chaîne où le trou
+  // devenait invisible pour de bon.
+  //
+  // `sommeFlux` ne rend `null` que si AUCUN jour n'a été collecté. Une fenêtre
+  // partiellement trouée garde son total, et un zéro réellement mesuré reste `0` :
+  // c'est toute la distinction, et elle est verrouillée par lib/collecte.test.ts.
+  const reach30d = sommeFlux(dbSnaps, 'ig_reach');
   // Nombre RÉEL de comptes abonnés uniques distincts touchés sur ~28j (pas un ratio
   // statistique ni une somme de reach quotidien qui recompte un même compte touché
   // plusieurs jours) — total_value + breakdown=follow_type de Meta renvoie le vrai
@@ -242,11 +252,15 @@ export async function GET(request: Request) {
       }
     }
   }
-  const accountsEngaged30d = sum(dbSnaps.map(r => r.ig_accounts_engaged));
-  const totalInteractions30d = sum(dbSnaps.map(r => r.ig_total_interactions));
-  const profileLinksTaps30d = sum(dbSnaps.map(r => r.ig_profile_taps));
-  const websiteClicks30d = sum(dbSnaps.map(r => r.ig_website_clicks));
-  const views30d = sum(dbSnaps.map(r => r.ig_views));
+  // Ces quatre-là ne sont lus par aucune carte aujourd'hui (l'onglet Instagram calcule
+  // ses propres totaux de période depuis la série). Ils passent quand même en
+  // `sommeFlux` : laisser quatre voisins de `reach30d` inventer encore des zéros, c'est
+  // garantir que le prochain qui en branche un le fasse sur la version fausse.
+  const accountsEngaged30d = sommeFlux(dbSnaps, 'ig_accounts_engaged');
+  const totalInteractions30d = sommeFlux(dbSnaps, 'ig_total_interactions');
+  const profileLinksTaps30d = sommeFlux(dbSnaps, 'ig_profile_taps');
+  const websiteClicks30d = sommeFlux(dbSnaps, 'ig_website_clicks');
+  const views30d = sommeFlux(dbSnaps, 'ig_views');
   // follows_and_unfollows : pas de colonne dédiée fiable en DB actuellement — approximé
   // par le delta net d'abonnés sur la fenêtre (dernier - premier jour connu).
   const followsUnfollows30d = (() => {

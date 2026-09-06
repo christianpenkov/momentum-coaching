@@ -87,13 +87,17 @@ function Portal({ children }: { children: React.ReactNode }) {
 interface IGStats {
   username: string; name: string; profilePicture: string | null;
   followers: number; following: number; mediaCount: number; biography: string;
-  reach30d: number; reach28dDedupFollowers?: number | null; reach28dDedupNonFollowers?: number | null;
+  /** ⚠️ NULLABLE, et ce n'est pas une precaution de style : `null` veut dire « aucun
+   *  jour de la fenetre n'a ete collecte ». Un total pre-calcule est le dernier endroit
+   *  ou un trou peut encore se faire passer pour un zero, parce que l'ecran l'affiche
+   *  sans jamais revoir les journalieres. Voir docs/handoff-trous-de-collecte.md. */
+  reach30d: number | null; reach28dDedupFollowers?: number | null; reach28dDedupNonFollowers?: number | null;
   /** Portee dedupliquee TOTALE de la periode, mesuree par Meta. Ce n'est PAS la somme
    *  des deux seaux : un compte peut basculer d'un seau a l'autre dans la fenetre et y
    *  etre compte deux fois. Denominateur de « Non-abonnes touches ». */
   reachTotalPeriode?: number | null;
   /** Nombre d'abonnes MOYEN sur la periode, fige par le cron. Absent = periode courante. */
-  abonnesPeriode?: number | null; accountsEngaged30d: number; totalInteractions30d: number;
+  abonnesPeriode?: number | null; accountsEngaged30d: number | null; totalInteractions30d: number | null;
   /** Fenetre reellement interrogee pour les deux cartes de portee, en jours (30 ou 365). */
   fenetreJours?: number;
   /** Bornes de la ligne `analytics_ig_periodes` d'ou viennent REELLEMENT les deux
@@ -101,8 +105,8 @@ interface IGStats {
    *  calcule par une autre requete : deux sources pour une meme fenetre finissent par
    *  decrire deux fenetres differentes. */
   porteeDebut?: string | null; porteeFin?: string | null;
-  followsUnfollows30d: number; profileLinksTaps30d: number; websiteClicks30d: number;
-  views30d: number;
+  followsUnfollows30d: number; profileLinksTaps30d: number | null; websiteClicks30d: number | null;
+  views30d: number | null;
   viewsFollowerBreakdown: { follower: number; nonFollower: number } | null;
   chartData: { date: string; reach: number | null; followerCount?: number | null; views?: number | null; accountsEngaged?: number | null; totalInteractions?: number | null; websiteClicks?: number | null; reachFollower?: number | null; reachNonFollower?: number | null }[];
   posts: IGPost[]; demographics: Record<string, { label: string; value: number }[]>;
@@ -138,8 +142,12 @@ interface IGPost {
 interface YTStats {
   channelName: string; channelThumbnail: string; subscribers: number;
   totalViews: number; videoCount: number;
-  views30d: number; watchTime30d: number; avgViewDurationSec?: number; likes30d: number; comments30d: number;
-  shares30d: number; subsGained30d: number; subsLost30d: number; netSubs30d: number;
+  /** ⚠️ Les cinq totaux ci-dessous sont NULLABLES — voir le meme avertissement sur
+   *  IGStats.reach30d. Cote YouTube le trou a une autre cause, plus frequente que le
+   *  cron manque : l'appel a l'API Analytics echoue (quota, jeton, 5xx Google) et la
+   *  route rendait alors 0 partout. Une panne racontee comme un mois sans audience. */
+  views30d: number | null; watchTime30d: number | null; avgViewDurationSec?: number; likes30d: number | null; comments30d: number | null;
+  shares30d: number | null; subsGained30d: number; subsLost30d: number; netSubs30d: number;
   // avgDurationShorts/Long : durée moyenne de visionnage du jour, par format
   // (colonnes yt_avg_duration_shorts_sec / _long_sec, alimentées depuis la dimension
   // creatorContentType de l'API). null quand le format n'a eu aucune vue ce jour-là —
@@ -1494,12 +1502,19 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   // de test) : le sommer depuis la courbe redonnerait la seule periode du selecteur.
   // C'est ce que faisait la branche `period === 7`, qui affichait « 4 personnes · total »
   // quand on entrait en All-Time depuis le mode 7 jours.
-  const igReach = (!sinceConnection && period === 7)
-    ? igChartSlice.reduce((s, d) => s + (d.reach ?? 0), 0)
-    : (ig?.reach30d || 0);
-  const ytViews = (!sinceConnection && period === 7)
-    ? ytChartSlice.reduce((s, d) => s + (d.views ?? 0), 0)
-    : (yt?.views30d || 0);
+  //
+  // ⚠️ Les DEUX branches passent par `sommeFlux` / `?? null`, jamais par `?? 0`.
+  //
+  // N'en corriger qu'une aurait ete pire que le defaut d'origine : la carte aurait dit
+  // « Non mesuré » en 7 jours et « 0 » en 30 jours, sur la MEME donnee absente. Un
+  // comportement qui change avec le selecteur est indechiffrable, la ou une invention
+  // uniforme est au moins constante.
+  const igReach: number | null = (!sinceConnection && period === 7)
+    ? sommeFlux(igChartSlice, 'reach')
+    : (ig?.reach30d ?? null);
+  const ytViews: number | null = (!sinceConnection && period === 7)
+    ? sommeFlux(ytChartSlice, 'views')
+    : (yt?.views30d ?? null);
   // ── Abonnes : un ETAT, pas une mesure de periode ──────────────────────────
   // Un nombre d'abonnes ne se cumule pas ; le sous-titre « total » laissait pourtant
   // croire a une somme, et la carte changeait de valeur en naviguant (255 en aout,
@@ -1861,8 +1876,8 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
       {/* ── BLOC 2 : Santé contenu — 2 sparklines côte à côte ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         {[
-          { label: 'Reach Instagram', value: fmt(igReach), unit: 'personnes', color: IG_COLOR, ...regrouperSerieAffichee(igChartSlice.map(d => ({ date: d.date, v: d.pending ? null : d.reach })), 'comptage') },
-          { label: 'Vues YouTube', value: fmt(ytViews), unit: 'vues', color: YT_COLOR, ...regrouperSerieAffichee(ytChartSlice.map(d => ({ date: d.date, v: d.pending ? null : d.views })), 'comptage') },
+          { label: 'Reach Instagram', total: igReach, repondu: !!ig, unit: 'personnes', color: IG_COLOR, ...regrouperSerieAffichee(igChartSlice.map(d => ({ date: d.date, v: d.pending ? null : d.reach })), 'comptage') },
+          { label: 'Vues YouTube', total: ytViews, repondu: !!yt, unit: 'vues', color: YT_COLOR, ...regrouperSerieAffichee(ytChartSlice.map(d => ({ date: d.date, v: d.pending ? null : d.views })), 'comptage') },
         ].map((item, i) => {
           // Quand AUCUN jour n'est mesure, le grand chiffre valait « 0 » — il affirmait
           // « zero personne touchee » la ou la courbe disait deja « pas encore de donnees ».
@@ -1870,16 +1885,34 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
           // a NULL, et la carte annoncait « 0 personnes » pour le mois qui commence. Le
           // cas se represente le 1er de chaque mois.
           const allPending = item.data.every(d => d.v === null);
+          // ── Trois etats, pas deux ─────────────────────────────────────────────
+          //
+          // La carte disait « — » dans deux situations qui ne veulent pas dire la meme
+          // chose, et le lecteur ne pouvait pas les distinguer :
+          //
+          //   la reponse n'est pas encore la          → « — »          on ne sait pas ENCORE
+          //   la reponse est la, rien n'a ete collecte → « Non mesuré » on ne saura jamais
+          //   la reponse est la, tout vaut zero        → « 0 »          personne, et c'est mesure
+          //
+          // Le troisieme cas est celui qu'il ne faut surtout pas avaler : un vrai zero
+          // est une information, et le confondre avec un trou revient a refaire le bug
+          // en sens inverse.
+          const nonMesure = item.repondu && (item.total === null || allPending);
+          const enAttente = !item.repondu;
           return (
           <div key={i} className="stats-hover-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 20px 12px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
               <div>
                 <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 4 }}>{item.label}</div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                  <span style={{ fontSize: 26, fontWeight: 800, color: allPending ? 'var(--faint)' : 'var(--ink)', lineHeight: 1 }}>{allPending ? '—' : item.value}</span>
-                  {!allPending && <span style={{ fontSize: 10, color: 'var(--muted)' }}>{item.unit}</span>}
+                  {/* « Non mesuré » descend a 15 px : a 26 px il deborde de la demi-carte
+                      et bouscule la pastille de couleur a droite. */}
+                  <span style={{ fontSize: nonMesure ? 15 : 26, fontWeight: 800, color: (nonMesure || enAttente) ? 'var(--faint)' : 'var(--ink)', lineHeight: 1 }}>
+                    {enAttente ? '—' : nonMesure ? 'Non mesuré' : fmt(item.total!)}
+                  </span>
+                  {!nonMesure && !enAttente && <span style={{ fontSize: 10, color: 'var(--muted)' }}>{item.unit}</span>}
                 </div>
-                <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 2 }}>{ovEtiquettePeriode}</div>
+                <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 2 }}>{nonMesure ? `${ovEtiquettePeriode} · aucun jour collecté` : ovEtiquettePeriode}</div>
               </div>
               <div style={{ width: 8, height: 8, borderRadius: '50%', background: item.color, marginTop: 4 }} />
             </div>
@@ -4143,23 +4176,21 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
           //
           // Le signe rend la nature de la valeur evidente, comme sur « Abonnés nets ».
           // Le zero n'en prend pas : « +0 » annoncerait un gain nul comme un gain.
-          // ⚠️ « Non mesuré » est INATTEIGNABLE dans le mode de repli de ces trois
-          // cartes, et le code ne le dit pas tout seul.
+          // ⚠️ Ces trois lignes n'ont PAS change le 2026-09-06, et c'est le fait
+          // interessant : elles etaient deja ecrites juste. C'est leur source qui
+          // mentait — `yt.likes30d` etait type `number`, donc `v !== null` valait
+          // toujours vrai, et « Non mesuré » etait litteralement inatteignable dans le
+          // mode de repli. Un code correct pose sur un type trop optimiste.
           //
-          // `ytIsFallback` fait lire `yt.likes30d`, type `number` et calcule par un
-          // `reduce(… || 0, 0)` cote route : le test `v !== null` y est donc toujours
-          // vrai, et une fenetre entierement non collectee y affiche encore « 0 ».
-          // Seule la branche `ytLikesP` porte reellement la correction.
+          // La lecon vaut d'etre retenue, parce qu'elle limite la methode employee la
+          // veille : TypeScript enumere les valeurs devenues NULLABLES, jamais celles
+          // qui auraient DU l'etre. `number !== null` est une comparaison legale, donc
+          // muette. Le passage qui a trouve les 13 autres consommateurs ne pouvait pas
+          // trouver ceux-la — il a fallu remonter aux totaux pre-calcules un par un.
           //
-          // Repere par le chat qui a redige le handoff, et la raison vaut d'etre
-          // retenue : TypeScript enumere les valeurs devenues NULLABLES, pas celles qui
-          // auraient DU l'etre. `number !== null` est une comparaison legale, donc
-          // muette. La methode qui a trouve les 13 consommateurs ne pouvait pas trouver
-          // ceux-la.
-          //
-          // Correction complete = rendre `likes30d` / `comments30d` / `shares30d`
-          // nullables cote route, meme lot que `reach30d` / `views30d`. Voir
-          // docs/handoff-trous-de-collecte.md, « Ce qui reste vraiment ».
+          // Depuis, `likes30d` / `comments30d` / `shares30d` sont nullables cote route
+          // (null = l'appel a l'API Analytics a echoue), et le repli dit enfin la
+          // verite. Voir docs/handoff-trous-de-collecte.md.
           (() => { const v = ytIsFallback ? yt.likes30d : ytLikesP; return { label: 'Likes', value: v !== null ? signeVariation(v) : 'Non mesuré', sub: v !== null ? (ytIsFallback ? '30j' : ytEtiquettePeriode) : 'aucun jour collecté', color: (v === null ? 'var(--faint)' : v < 0 ? RED : 'var(--ink)') as string, key: 'Likes' }; })(),
           (() => { const v = ytIsFallback ? yt.comments30d : ytCommentsP; return { label: 'Commentaires', value: v !== null ? signeVariation(v) : 'Non mesuré', sub: v !== null ? (ytIsFallback ? '30j' : ytEtiquettePeriode) : 'aucun jour collecté', color: (v === null ? 'var(--faint)' : v < 0 ? RED : 'var(--ink)') as string, key: 'Commentaires' }; })(),
           (() => { const v = ytIsFallback ? yt.shares30d : ytSharesP; return { label: 'Partages', value: v !== null ? signeVariation(v) : 'Non mesuré', sub: v !== null ? (ytIsFallback ? '30j' : ytEtiquettePeriode) : 'aucun jour collecté', color: (v === null ? 'var(--faint)' : v < 0 ? RED : 'var(--ink)') as string, key: 'Partages' }; })(),
@@ -10293,12 +10324,18 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   const lastSnapWithKeywords = dernierAvec('yt_search_keywords');
 
   // ── IG ──────────────────────────────────────────────────────────────────────
-  const igReachTotal  = snaps.reduce((s, r) => s + (r.ig_reach ?? 0), 0);
-  const igViewsTotal  = snaps.reduce((s, r) => s + (r.ig_views ?? 0), 0);
-  const igEngTotal    = snaps.reduce((s, r) => s + (r.ig_accounts_engaged ?? 0), 0);
-  const igInterTotal  = snaps.reduce((s, r) => s + (r.ig_total_interactions ?? 0), 0);
-  const igTapsTotal   = snaps.reduce((s, r) => s + (r.ig_profile_taps ?? 0), 0);
-  const igWCTotal     = snaps.reduce((s, r) => s + (r.ig_website_clicks ?? 0), 0);
+  // Troisieme et dernier chemin qui pre-calcule ces totaux — celui des periodes
+  // PASSEES. Les deux autres (la route API, et fetchIgCurrentPeriodTotals) sont
+  // corriges ; laisser celui-ci en `?? 0` aurait fait dire a la MEME carte « Non
+  // mesuré » sur le mois courant et « 0 » sur le mois d'avant, pour des donnees
+  // egalement absentes. C'est precisement le defaut que le handoff met en garde de ne
+  // pas creer en corrigeant a moitie.
+  const igReachTotal  = sommeFlux(snaps, 'ig_reach');
+  const igViewsTotal  = sommeFlux(snaps, 'ig_views');
+  const igEngTotal    = sommeFlux(snaps, 'ig_accounts_engaged');
+  const igInterTotal  = sommeFlux(snaps, 'ig_total_interactions');
+  const igTapsTotal   = sommeFlux(snaps, 'ig_profile_taps');
+  const igWCTotal     = sommeFlux(snaps, 'ig_website_clicks');
   const igFUTotal     = snaps.reduce((s, r) => s + (r.ig_follows_unfollows ?? 0), 0);
   // La colonne ig_lead_count a ete supprimee le 2026-08-22 : elle etait ecrite `null`
   // a quatre endroits du code, jamais alimentee, et faisait doublon avec la table
@@ -10441,14 +10478,17 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   } as any as IGStats : null;
 
   // ── YT ──────────────────────────────────────────────────────────────────────
-  const ytViewsTotal   = snaps.reduce((s, r) => s + (r.yt_views ?? 0), 0);
-  const ytWatchTotal   = snaps.reduce((s, r) => s + (r.yt_watch_time_min ?? 0), 0);
+  // Meme regle que du cote Instagram juste au-dessus. Les abonnes gagnes/perdus
+  // gardent leur `?? 0` : ils alimentent `netSubs30d`, qui doit rester la difference
+  // exacte des deux, et la carte « Abonnés nets » lit deja la serie de periode.
+  const ytViewsTotal   = sommeFlux(snaps, 'yt_views');
+  const ytWatchTotal   = sommeFlux(snaps, 'yt_watch_time_min');
   const ytSubsGTotal   = snaps.reduce((s, r) => s + (r.yt_subs_gained ?? 0), 0);
   const ytSubsLTotal   = snaps.reduce((s, r) => s + (r.yt_subs_lost ?? 0), 0);
   const ytNetSubsTotal = snaps.reduce((s, r) => s + (r.yt_net_subs ?? 0), 0);
-  const ytLikesTotal   = snaps.reduce((s, r) => s + (r.yt_likes ?? 0), 0);
-  const ytCommentsTotal= snaps.reduce((s, r) => s + (r.yt_comments ?? 0), 0);
-  const ytSharesTotal  = snaps.reduce((s, r) => s + (r.yt_shares ?? 0), 0);
+  const ytLikesTotal   = sommeFlux(snaps, 'yt_likes');
+  const ytCommentsTotal= sommeFlux(snaps, 'yt_comments');
+  const ytSharesTotal  = sommeFlux(snaps, 'yt_shares');
 
   // Vidéos YT : dédupliquer par video_id (garder le snapshot le plus récent)
   const latestYtVideo = new Map<string, any>();
@@ -10635,15 +10675,22 @@ async function fetchYtCurrentPeriodTotals(profileId: string | undefined, period:
     if (!snaps || snaps.length === 0) return null;
 
     const lastSnap = snaps[snaps.length - 1];
+    // ⚠️ `sommeFlux` : la presence de LIGNES ne prouve pas la presence de MESURES. Une
+    // journee comblee par un rattrapage existe en base avec toutes ses colonnes a NULL,
+    // et le `reduce(… ?? 0)` d'avant la comptait comme un vrai zero. Le garde
+    // `snaps.length === 0` juste au-dessus ne voit que le premier cas.
+    //
+    // Les gains et pertes d'abonnes restent additionnes ainsi : ils ne sont pas
+    // affiches bruts, et `netSubs30d` doit rester coherent avec eux.
     return {
-      views30d: snaps.reduce((s, r) => s + (r.yt_views ?? 0), 0),
-      watchTime30d: snaps.reduce((s, r) => s + (r.yt_watch_time_min ?? 0), 0),
+      views30d: sommeFlux(snaps, 'yt_views'),
+      watchTime30d: sommeFlux(snaps, 'yt_watch_time_min'),
       subsGained30d: snaps.reduce((s, r) => s + (r.yt_subs_gained ?? 0), 0),
       subsLost30d: snaps.reduce((s, r) => s + (r.yt_subs_lost ?? 0), 0),
       netSubs30d: snaps.reduce((s, r) => s + (r.yt_net_subs ?? 0), 0),
-      likes30d: snaps.reduce((s, r) => s + (r.yt_likes ?? 0), 0),
-      comments30d: snaps.reduce((s, r) => s + (r.yt_comments ?? 0), 0),
-      shares30d: snaps.reduce((s, r) => s + (r.yt_shares ?? 0), 0),
+      likes30d: sommeFlux(snaps, 'yt_likes'),
+      comments30d: sommeFlux(snaps, 'yt_comments'),
+      shares30d: sommeFlux(snaps, 'yt_shares'),
       subscribers: lastSnap?.yt_subscribers ?? 0,
       avgViewDurationSec: lastSnap?.yt_avg_view_duration_sec ?? 0,
     };
@@ -10676,9 +10723,13 @@ async function fetchIgCurrentPeriodTotals(profileId: string | undefined, period:
 
     if (!snaps || snaps.length === 0) return null;
 
+    // Meme raison que dans fetchYtCurrentPeriodTotals : une ligne presente n'est pas une
+    // mesure presente. Constate en production le 2026-09-01 — la ligne du jour existe
+    // avec `ig_reach` a NULL, et la carte annoncait « 0 personnes » pour le mois qui
+    // commence. Le cas se represente le 1er de chaque mois.
     return {
-      reach30d: snaps.reduce((s, r) => s + (r.ig_reach ?? 0), 0),
-      views30d: snaps.reduce((s, r) => s + (r.ig_views ?? 0), 0),
+      reach30d: sommeFlux(snaps, 'ig_reach'),
+      views30d: sommeFlux(snaps, 'ig_views'),
     };
   } catch {
     return null;

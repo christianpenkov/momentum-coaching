@@ -375,21 +375,44 @@ export async function GET(request: Request) {
   const stats = channel.statistics;
   const rows: any[] = analyticsData?.rows || [];
 
+  // ⚠️ Ici la mesure ne vient PAS de la base : c'est la réponse live de l'API Analytics.
+  // Le « trou de collecte » y prend une autre forme, plus probable que le cron manqué —
+  // l'appel échoue (quota, jeton expiré, 5xx de Google). `analyticsData?.rows` vaut alors
+  // `undefined`, `rows` devient `[]`, et chaque total tombe à 0. L'écran annonçait
+  // « 0 vue, 0 like, 0 commentaire » : une panne racontée comme un mois sans audience.
+  //
+  // La frontière est le STATUT de la réponse, pas son contenu — c'est la seule chose
+  // qu'on puisse prouver. Un 200 est un témoin positif : Google a répondu, donc la
+  // mesure a eu lieu, et un total de 0 est alors un vrai zéro qu'il faut afficher tel
+  // quel (chaîne neuve, mois sans publication). Un échec ne dit rien, donc `null`.
+  const analytiquesMesurees = analyticsRes.ok && !analyticsData?.error;
+  const somme = (col: number): number | null =>
+    analytiquesMesurees ? rows.reduce((s: number, r: any) => s + (r[col] || 0), 0) : null;
+
   // colonnes : day(0), views(1), estMinutesWatched(2), subsGained(3), subsLost(4), likes(5), comments(6), shares(7), avgViewDuration(8)
-  const views30d = rows.reduce((sum: number, r: any) => sum + (r[1] || 0), 0);
-  const watchTime30d = rows.reduce((sum: number, r: any) => sum + (r[2] || 0), 0);
+  const views30d = somme(1);
+  const watchTime30d = somme(2);
+  const likes30d = somme(5);
+  const comments30d = somme(6);
+  const shares30d = somme(7);
+  // Gains et pertes d'abonnés restent numériques : ils ne sont pas affichés bruts, ils
+  // servent à REMONTER la courbe des abonnés jour par jour depuis le total actuel
+  // (juste en dessous). Un `null` y casserait la reconstitution entière au lieu de
+  // signaler un trou — et la carte « Abonnés nets », elle, lit déjà la série de période.
   const subsGained30d = rows.reduce((sum: number, r: any) => sum + (r[3] || 0), 0);
   const subsLost30d = rows.reduce((sum: number, r: any) => sum + (r[4] || 0), 0);
-  const likes30d = rows.reduce((sum: number, r: any) => sum + (r[5] || 0), 0);
-  const comments30d = rows.reduce((sum: number, r: any) => sum + (r[6] || 0), 0);
-  const shares30d = rows.reduce((sum: number, r: any) => sum + (r[7] || 0), 0);
+
+  // Arithmétique interne : on retombe sur 0 pour ne pas propager `null` dans une
+  // division. La moyenne n'est de toute façon calculable que si des vues existent.
+  const vuesPourMoyenne = views30d ?? 0;
+  const watchPourMoyenne = watchTime30d ?? 0;
   // avgViewDuration : moyenne pondérée par les vues (col 8), fallback watchTime/views
-  const avgViewDurationWeighted = views30d > 0
-    ? Math.round(rows.reduce((sum: number, r: any) => sum + (r[8] || 0) * (r[1] || 0), 0) / views30d)
+  const avgViewDurationWeighted = vuesPourMoyenne > 0
+    ? Math.round(rows.reduce((sum: number, r: any) => sum + (r[8] || 0) * (r[1] || 0), 0) / vuesPourMoyenne)
     : 0;
   const avgViewDurationSec = avgViewDurationWeighted > 0
     ? avgViewDurationWeighted
-    : (views30d > 0 ? Math.round((watchTime30d * 60) / views30d) : 0);
+    : (vuesPourMoyenne > 0 ? Math.round((watchPourMoyenne * 60) / vuesPourMoyenne) : 0);
 
   // Total d'abonnes JOUR PAR JOUR — l'API Analytics ne fournit que les gains et pertes,
   // jamais le total. On le reconstitue en partant du total actuel (Data API v3) et en
@@ -707,7 +730,7 @@ export async function GET(request: Request) {
       subscribers: parseInt(stats?.subscriberCount || '0'),
       totalViews: parseInt(stats?.viewCount || '0'),
       videoCount: parseInt(stats?.videoCount || '0'),
-      views30d, watchTime30d: Math.round(watchTime30d / 60), avgViewDurationSec,
+      views30d, watchTime30d: watchTime30d === null ? null : Math.round(watchTime30d / 60), avgViewDurationSec,
       likes30d, comments30d, shares30d,
       subsGained30d, subsLost30d, netSubs30d: subsGained30d - subsLost30d,
       chartData, videos, retentionCurve,
@@ -721,7 +744,7 @@ export async function GET(request: Request) {
     subscribers: parseInt(stats?.subscriberCount || '0'),
     totalViews: parseInt(stats?.viewCount || '0'),
     videoCount: parseInt(stats?.videoCount || '0'),
-    views30d, watchTime30d: Math.round(watchTime30d / 60), avgViewDurationSec,
+    views30d, watchTime30d: watchTime30d === null ? null : Math.round(watchTime30d / 60), avgViewDurationSec,
     likes30d, comments30d, shares30d,
     subsGained30d, subsLost30d, netSubs30d: subsGained30d - subsLost30d,
     chartData, videos: [], retentionCurve: [],
