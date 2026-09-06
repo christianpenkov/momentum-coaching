@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 import ModalShell from '@/components/ui/ModalShell';
 import ConfirmCheckboxDialog from '@/components/ui/ConfirmCheckboxDialog';
+import RapportChoiceStep from '@/components/ui/RapportChoiceStep';
 import { SESSION_TOPICS, type SessionTopic } from '@/lib/sessionRapport';
 import { useRapportDraftWriter, type RapportDraft } from '@/lib/useRapportDraft';
 
@@ -235,32 +236,25 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
             </div>
           )}
 
+          {/* Même composant que le rapport de vente, et non une copie de son
+              allure : c'est la seule façon que les deux rapports ne divergent
+              jamais sur ce que « voici ta réponse » veut dire. Avant, « Présent »
+              était bleu plein AVANT toute réponse (la réponse attendue mise en
+              avant), et la sélection s'exprimait en fond plein bleu — c'est-à-dire
+              dans la couleur des boutons d'action.
+              La règle est maintenant la même des deux côtés : le cadre dit la
+              sélection (vert), le texte dit la catégorie (rouge pour l'absence). */}
           {step === 'attended' && (
-            <div>
-              <div style={{ fontSize: 16, color: 'var(--ink-2)', marginBottom: 22 }}>
-                L'élève était-il présent à ce call ?
-              </div>
-              <div style={{ display: 'flex', gap: 12 }}>
-                <button
-                  type="button"
-                  onClick={handlePresent}
-                  disabled={saving}
-                  className="btn-primary-brand"
-                  style={{ flex: 1, minHeight: 56, fontSize: 15, gap: 8 }}
-                >
-                  <Icon name="check" size={17} /> Présent
-                </button>
-                <button
-                  type="button"
-                  onClick={handleNoShow}
-                  disabled={saving}
-                  className="btn-ghost"
-                  style={{ flex: 1, minHeight: 56, fontSize: 15, gap: 8, borderColor: 'var(--red)', color: 'var(--red)' }}
-                >
-                  <Icon name="x" size={17} /> Pas présent
-                </button>
-              </div>
-            </div>
+            <RapportChoiceStep
+              question="L'élève était-il présent à ce call ?"
+              disabled={saving}
+              value={attended === true ? 'oui' : attended === false ? 'non' : null}
+              choices={[
+                { value: 'oui', label: 'Présent' },
+                { value: 'non', label: 'Pas présent', tone: 'danger' },
+              ]}
+              onChoose={v => (v === 'oui' ? handlePresent() : handleNoShow())}
+            />
           )}
 
           {step === 'topic_notes' && (
@@ -269,35 +263,26 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
                   première saisie elle a déjà été choisie à l'étape précédente, la
                   redemander ici ferait doublon. Sans cette bascule, une absence
                   saisie par erreur était définitive. */}
+              {/* En correction, la présence redevient modifiable ici : sans cette
+                  bascule, une absence saisie par erreur était définitive. Même
+                  composant qu'à l'étape précédente, donc même façon de montrer la
+                  réponse retenue — c'est le point de l'alignement. */}
               {isEdit && (
                 <div style={{ marginBottom: 24 }}>
                   <label className="eyebrow-sm" style={{ color: 'var(--muted)', display: 'block', marginBottom: 10 }}>
-                    L'élève était-il présent ?
+                    L&apos;élève était-il présent ?
                   </label>
-                  {/* Les DEUX boutons portent toujours une bordure : sans elle,
-                      l'option non retenue perdait son cadre et ne se lisait plus
-                      comme un bouton — impossible de voir qu'elle était cliquable,
-                      ni laquelle des deux était sélectionnée. Le choix actif se
-                      distingue par son fond plein, pas par la présence d'un cadre. */}
-                  {/* Styles en classes et non en ligne : le survol doit teinter
-                      légèrement l'option NON retenue de sa propre couleur, ce qu'un
-                      style inline ne permet pas d'exprimer. */}
-                  <div style={{ display: 'flex', gap: 10 }}>
-                    <button
-                      type="button"
-                      onClick={() => { setAttended(true); setError(''); }}
-                      className={`btn-ghost presence-toggle presence-present${attended === true ? ' is-selected' : ''}`}
-                    >
-                      <Icon name="check" size={15} /> Présent
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setAttended(false); setError(''); }}
-                      className={`btn-ghost presence-toggle presence-absent${attended === false ? ' is-selected' : ''}`}
-                    >
-                      <Icon name="x" size={15} /> Pas présent
-                    </button>
-                  </div>
+                  <RapportChoiceStep
+                    question=""
+                    value={attended === true ? 'oui' : attended === false ? 'non' : null}
+                    choices={[
+                      { value: 'oui', label: 'Présent' },
+                      { value: 'non', label: 'Pas présent', tone: 'danger' },
+                    ]}
+                    // Ici on ne fait QUE noter la réponse : on est déjà sur
+                    // l'écran des notes, il n'y a nulle part où avancer.
+                    onChoose={v => { setAttended(v === 'oui'); setError(''); }}
+                  />
                 </div>
               )}
               {/* Mention de visibilité obligatoire : les notes juste en dessous
@@ -317,12 +302,19 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
                     key={t.value}
                     type="button"
                     onClick={() => { setTopic(t.value); setError(''); }}
+                    // Vert, comme partout ailleurs dans les rapports : c'est une
+                    // réponse retenue, pas un bouton d'action. En bleu, cette
+                    // question parlait une autre langue que celle de la présence
+                    // juste au-dessus, dans la MÊME modale.
+                    // Pas de coche ici, contrairement aux réponses pleine largeur :
+                    // sur une puce de cette taille elle mangerait le libellé, et le
+                    // cadre vert suffit à trancher entre cinq puces courtes.
                     style={{
-                      padding: '10px 14px', borderRadius: 9, fontSize: 13, fontWeight: 600,
+                      padding: '10px 14px', borderRadius: 9, fontSize: 13, fontWeight: topic === t.value ? 700 : 600,
                       cursor: 'pointer', transition: 'all 0.12s', minHeight: 48,
-                      border: `1.5px solid ${topic === t.value ? 'var(--accent-brand)' : 'var(--border)'}`,
-                      background: topic === t.value ? 'var(--accent-brand-soft)' : 'var(--surface-2)',
-                      color: topic === t.value ? 'var(--accent-brand)' : 'var(--muted)',
+                      border: `1.5px solid ${topic === t.value ? 'var(--green)' : 'var(--border)'}`,
+                      background: topic === t.value ? 'var(--green-soft)' : 'var(--surface-2)',
+                      color: topic === t.value ? 'var(--accent)' : 'var(--muted)',
                     }}
                   >
                     {t.label}

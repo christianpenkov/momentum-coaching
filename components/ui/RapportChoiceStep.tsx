@@ -71,8 +71,10 @@ export interface RapportChoice<T extends string> {
    *             pas attirer l'œil avant le choix.
    * `warning` : une bifurcation qui sort du parcours normal (appel reporté).
    *             Vraie catégorie, elle : l'ambre reste, choisie ou non.
+   * `danger`  : une issue négative (« Pas présent »). Même logique que
+   *             `warning`, en rouge.
    */
-  tone?: 'neutral' | 'muted' | 'warning';
+  tone?: 'neutral' | 'muted' | 'warning' | 'danger';
 }
 
 export default function RapportChoiceStep<T extends string>({
@@ -96,7 +98,13 @@ export default function RapportChoiceStep<T extends string>({
 }) {
   return (
     <div>
-      <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>{question}</div>
+      {/* Titre facultatif : la même question posée en sous-section d'un autre
+          écran (la présence, dans le rapport de coaching en correction) porte
+          déjà son intitulé au-dessus. Le rendre ici en 22px/800 écraserait le
+          reste de l'écran. */}
+      {question && (
+        <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>{question}</div>
+      )}
       {hint && (
         <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: children ? 8 : 24, lineHeight: 1.6 }}>{hint}</div>
       )}
@@ -111,8 +119,9 @@ export default function RapportChoiceStep<T extends string>({
           // réponse, et la réponse retenue doit se lire franchement.
           const couleurTexte =
             tone === 'warning' ? 'var(--amber-ink)'
-              : tone === 'muted' && !selected ? 'var(--muted)'
-                : 'var(--accent)';
+              : tone === 'danger' ? 'var(--red)'
+                : tone === 'muted' && !selected ? 'var(--muted)'
+                  : 'var(--accent)';
 
           return (
             <button
@@ -139,7 +148,9 @@ export default function RapportChoiceStep<T extends string>({
                 color: couleurTexte,
                 border: selected
                   ? '1px solid var(--green)'
-                  : tone === 'warning' ? '1px solid #f5d9a3' : '1px solid var(--border)',
+                  : tone === 'warning' ? '1px solid #f5d9a3'
+                    : tone === 'danger' ? '1px solid var(--red)'
+                      : '1px solid var(--border)',
                 // Fond posé seulement sur la réponse retenue : laissé libre, il
                 // garde le survol de `.btn-ghost` sur les autres (un fond en
                 // style inline gagnerait sur le `:hover` de la feuille).

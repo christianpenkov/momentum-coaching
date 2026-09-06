@@ -1670,32 +1670,11 @@ a { color: inherit; text-decoration: none; }
    spécificité égale, la croix et le libellé restaient gris. */
 .session-row-pill-absent { color: var(--red) !important; }
 
-/* ── Bascule Présent / Pas présent (rapport de session) ──
-   Les deux boutons gardent TOUJOURS leur bordure : sans elle, l'option non retenue
-   perdait son cadre et ne se lisait plus comme un bouton. La sélection se marque
-   par le fond plein, et le survol de l'option inactive la teinte légèrement de sa
-   propre couleur — on voit ce qu'on obtiendrait en cliquant, sans à-coup. */
-.presence-toggle {
-  flex: 1;
-  min-height: 44px;
-  font-size: 14px;
-  font-weight: 600;
-  gap: 7px;
-  background: transparent;
-  transition: background var(--dur-quick) var(--ease-out), color var(--dur-quick) var(--ease-out);
-}
-.presence-present { border: 1px solid var(--accent-brand) !important; color: var(--accent-brand) !important; }
-.presence-absent  { border: 1px solid var(--red) !important;          color: var(--red) !important; }
-
-.presence-present:hover { background: var(--accent-brand-soft) !important; }
-.presence-absent:hover  { background: var(--red-soft) !important; }
-
-/* L'option retenue passe en fond plein — y compris au survol, sinon repasser
-   dessus donnerait l'impression de la désélectionner. */
-.presence-present.is-selected,
-.presence-present.is-selected:hover { background: var(--accent-brand) !important; color: #fff !important; }
-.presence-absent.is-selected,
-.presence-absent.is-selected:hover  { background: var(--red) !important;          color: #fff !important; }
+/* La bascule Présent / Pas présent vivait ici en classes dédiées (.presence-*).
+   Supprimée le 2026-09-06 : le rapport de coaching utilise désormais le même
+   RapportChoiceStep que le rapport de vente, donc la même façon de montrer la
+   réponse retenue. Elle marquait la sélection par un fond plein dans la couleur
+   de marque — c'est-à-dire dans la couleur des boutons d'action. */
 
 /* Absence déjà prise en compte : on atténue la date et le sujet, jamais le badge
    ni les boutons. Un bouton à demi transparent se lit comme désactivé alors qu'il
