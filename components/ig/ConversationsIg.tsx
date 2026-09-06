@@ -203,7 +203,7 @@ function ModaleRetrait({
 
 export default function ConversationsIg({
   profileId, prenomEleve, annotable, titre, hauteur = 'min(78vh, 700px)', onFermer,
-  retirable = false,
+  proprietaire = false,
 }: {
   profileId: string;
   prenomEleve: string;
@@ -220,11 +220,17 @@ export default function ConversationsIg({
    */
   onFermer?: () => void;
   /**
-   * L'élève peut retirer une conversation ; le coach non. Ces messages sont
-   * ceux de l'élève, et le partage se révoque par celui qui l'a accordé — pas
-   * par celui qui en bénéficie.
+   * Vrai quand celui qui regarde est le PROPRIÉTAIRE du compte Instagram —
+   * l'élève. Deux conséquences, et une seule notion :
+   *
+   *   - lui seul peut retirer une conversation : un partage se révoque par
+   *     celui qui l'a accordé, pas par celui qui en bénéficie ;
+   *   - lui seul voit « Ouvrir la discussion », parce que le lien mène à SON
+   *     inbox. Chez le coach il ne peut pas fonctionner, et pire, le repli
+   *     `ig.me/m/<pseudo>` ouvrirait un message NEUF vers le prospect de son
+   *     élève, depuis le compte du coach.
    */
-  retirable?: boolean;
+  proprietaire?: boolean;
 }) {
   const supabase = createSupabase();
   const [fils, setFils] = useState<Fil[] | null>(null);
@@ -336,7 +342,7 @@ export default function ConversationsIg({
         {/* ── Le fil ───────────────────────────────────────────────────────── */}
         {actif
           ? <Fil key={actif.id} fil={actif} annotable={annotable} prenomEleve={prenomEleve}
-                 onFermer={onFermer} retirable={retirable}
+                 onFermer={onFermer} proprietaire={proprietaire}
                  onRetire={() => {
                    // Retiré côté serveur : on l'ôte de la liste et on bascule sur
                    // le fil suivant. Pas de rechargement — la réponse fait foi, et
@@ -378,12 +384,12 @@ function Etiquette({ children, ton }: { children: React.ReactNode; ton: 'amber' 
   );
 }
 
-function Fil({ fil, annotable, prenomEleve, onFermer, retirable, onRetire, onNoteFil }: {
+function Fil({ fil, annotable, prenomEleve, onFermer, proprietaire, onRetire, onNoteFil }: {
   fil: Fil; annotable: boolean; prenomEleve: string;
   /** Fournie par l'enveloppe modale seulement — la page de l'élève n'a rien à fermer. */
   onFermer?: () => void;
-  /** Vrai côté élève uniquement. */
-  retirable: boolean;
+  /** Vrai côté élève uniquement : c'est son compte Instagram. */
+  proprietaire: boolean;
   onRetire: () => void;
   onNoteFil: (n: string | null) => void;
 }) {
@@ -549,7 +555,13 @@ function Fil({ fil, annotable, prenomEleve, onFermer, retirable, onRetire, onNot
     }
   }
 
-  const lien = lienDiscussion(fil.id, fil.peer_username);
+  // ⚠️ Le lien mène à l'inbox Instagram de CELUI QUI CLIQUE. Chez le coach il ne
+  // peut donc rien ouvrir : le numéro de fil appartient au compte de l'élève, et
+  // Instagram le renvoie vers sa propre boîte. Le repli `ig.me/m/<pseudo>` est
+  // pire qu'inutile — il ouvrirait un message NEUF vers le prospect de l'élève,
+  // envoyé depuis le compte du coach. Un bouton qui, au mieux, ne fait rien et,
+  // au pire, écrit à la place de quelqu'un d'autre n'a pas à exister.
+  const lien = proprietaire ? lienDiscussion(fil.id, fil.peer_username) : null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, background: 'var(--surface)' }}>
@@ -602,7 +614,7 @@ function Fil({ fil, annotable, prenomEleve, onFermer, retirable, onRetire, onNot
             <Icon name="external" size={13} color="var(--muted)" />
           </a>
         )}
-        {retirable && (
+        {proprietaire && (
           <button
             type="button" onClick={() => setConfirmeRetrait(true)} disabled={retraitEnCours}
             style={{

@@ -116,10 +116,10 @@ export default function PageConversationsIg() {
             // Pleine hauteur utile : c'est une page, il n'y a rien derrière à
             // laisser voir. On réserve la place de l'en-tête et des marges.
             hauteur="calc(100dvh - 210px)"
-            // ⚠️ Le retrait n'est offert QUE d'ici. Le coach lit ces messages,
-            // il ne les efface pas : le partage se révoque par celui qui l'a
-            // accordé, pas par celui qui en bénéficie.
-            retirable
+            // ⚠️ C'est SON compte Instagram. D'où deux choses que le coach n'a
+            // pas : le retrait d'une conversation, et « Ouvrir la discussion »
+            // — un lien qui ne mène qu'à l'inbox de celui qui clique.
+            proprietaire
           />
         </div>
       )}
