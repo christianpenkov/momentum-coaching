@@ -197,6 +197,20 @@ interface LeadMagnet {
   name: string;
   url: string;
   keyword: string;
+  /**
+   * Le mot-clé répond partout : commentaire sous un post, réponse à une story,
+   * DM direct — même quand le contenu n'est configuré nulle part.
+   *
+   * Un contenu qui porte son propre mot-clé garde la priorité : le plus précis
+   * gagne toujours. Voir `lib/declencheurMotCle`.
+   */
+  repond_partout?: boolean;
+  /** Les cinq messages, quand le mot-clé répond partout. Noms explicites. */
+  dm_accroche?: string | null;
+  dm_accroche_bouton?: string | null;
+  dm_lien?: string | null;
+  dm_lien_bouton?: string | null;
+  dm_relance?: string | null;
   created_at?: string;
   bio_ig_url?: string | null;
   bio_yt_url?: string | null;
@@ -1122,7 +1136,7 @@ function SequenceDm({
 }: {
   seq: SeqDm; seqRef: SeqDm;
   setChamp: (k: keyof SeqDm, v: string) => void;
-  declencheur: 'commentaire' | 'story';
+  declencheur: 'commentaire' | 'story' | 'partout';
   lmUrl: string | null;
   nbModifs: number; saving: boolean; error: string | null;
   onSave: () => void;
@@ -1193,7 +1207,11 @@ function SequenceDm({
             <div>
               <ChampSeqLabel
                 libelle="Accroche"
-                precision={declencheur === 'commentaire' ? 'envoyée avec le commentaire' : 'envoyée en réponse à la story'}
+                precision={
+                  declencheur === 'commentaire' ? 'envoyée avec le commentaire'
+                  : declencheur === 'story' ? 'envoyée en réponse à la story'
+                  : 'envoyée dès que le mot-clé est reçu'
+                }
                 modifie={seq.accroche !== seqRef.accroche}
               />
               <Dm1Editor
@@ -4378,8 +4396,8 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
 
 // ─── Panel Lead Magnets ───────────────────────────────────────────────────────
 
-function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted, onUpdated }: {
-  leadMagnets: LeadMagnet[]; lmLoading: boolean;
+function PanneauLeadMagnets({ leadMagnets, lmLoading, profileId, onCreated, onDeleted, onUpdated }: {
+  leadMagnets: LeadMagnet[]; lmLoading: boolean; profileId: string;
   onCreated: (lm: LeadMagnet) => void; onDeleted: (id: string) => void;
   onUpdated: (lm: LeadMagnet) => void;
 }) {
@@ -4395,22 +4413,61 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted, onUp
   const [editName, setEditName] = useState('');
   const [editUrl, setEditUrl] = useState('');
   const [editKeyword, setEditKeyword] = useState('');
+  const [editPartout, setEditPartout] = useState(false);
+  const [editSeq, setEditSeq] = useState<SeqDm>({ accroche: '', accrocheBtn: '', lien: '', lienBtn: '', relance: '' });
+  const [editSeqRef, setEditSeqRef] = useState<SeqDm>({ accroche: '', accrocheBtn: '', lien: '', lienBtn: '', relance: '' });
+  const [vueMobileLm, setVueMobileLm] = useState<'modifier' | 'apercu'>('modifier');
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+
+  // Le même aperçu que partout : le coach doit se reconnaître dans le fil.
+  const { data: igCompteLm } = useQuery({
+    queryKey: ['liens-ig', profileId],
+    queryFn: () => fetch(`/api/instagram/stats?profileId=${profileId}`).then(r => r.json()),
+    enabled: !!profileId,
+    staleTime: 5 * 60 * 1000,
+  });
 
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const startEdit = (lm: LeadMagnet) => {
     setEditingId(lm.id); setEditName(lm.name); setEditUrl(lm.url); setEditKeyword(lm.keyword || ''); setEditError(null);
+    setEditPartout(!!lm.repond_partout);
+    setVueMobileLm('modifier');
+    // Les mêmes valeurs par défaut que les posts et les stories : un lead magnet
+    // qui se met à répondre partout ne doit pas partir avec des textes
+    // différents de ceux qu'on voit ailleurs.
+    const depuisLm: SeqDm = {
+      accroche:    lm.dm_accroche || DM1_DEFAULT_MESSAGE,
+      accrocheBtn: lm.dm_accroche_bouton || DM1_DEFAULT_BUTTON,
+      lien:        lm.dm_lien || DM2_DEFAULT_MESSAGE,
+      lienBtn:     lm.dm_lien_bouton || DM2_DEFAULT_BUTTON,
+      relance:     lm.dm_relance || '',
+    };
+    setEditSeq(depuisLm); setEditSeqRef(depuisLm);
   };
 
   const saveEdit = async () => {
     if (!editingId || !isValidUrl(editUrl)) return;
+    // Un mot-clé qui répond partout DOIT avoir ses messages : sans eux le
+    // webhook retomberait sur ses textes génériques, envoyés au nom du coach.
+    // Même règle exacte que les posts et les stories, même fonction.
+    if (editPartout) {
+      const refus = refusSequence(editSeq);
+      if (refus) { setEditError(refus); return; }
+      if (!editKeyword.trim()) { setEditError("Donne un mot-clé : c'est lui qui déclenche l'envoi."); return; }
+    }
     setEditSaving(true); setEditError(null);
     try {
       const res = await fetch('/api/client/lead-magnets', {
         method: 'PATCH', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: editingId, name: editName, url: editUrl, keyword: editKeyword }),
+        body: JSON.stringify({
+          id: editingId, name: editName, url: editUrl, keyword: editKeyword,
+          repond_partout: editPartout,
+          dm_accroche: editSeq.accroche, dm_accroche_bouton: editSeq.accrocheBtn,
+          dm_lien: editSeq.lien.trim() || null, dm_lien_bouton: editSeq.lienBtn,
+          dm_relance: editSeq.relance,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erreur');
@@ -4512,6 +4569,57 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted, onUp
                       style={{ width: '100%', padding: '7px 10px', fontSize: 12, borderRadius: 7, border: `1px solid ${isValidUrl(editUrl) ? BORDER : AMBER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }} />
                     <input value={editKeyword} onChange={e => setEditKeyword(e.target.value.toUpperCase().replace(/\s+/g, ''))} placeholder="MOT-CLÉ"
                       style={{ width: '100%', padding: '7px 10px', fontSize: 12, fontWeight: 600, letterSpacing: '0.04em', borderRadius: 7, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }} />
+
+                    {/* ── LE MOT-CLÉ QUI RÉPOND PARTOUT ──────────────────────
+                        Sans lui, un mot-clé ne déclenchait rien tant que le
+                        contenu n'était pas configuré. Une story vit 24 h : entre
+                        sa publication et son rattachement, toutes les réponses
+                        tombaient dans le vide. */}
+                    <button type="button" onClick={() => setEditPartout(v => !v)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 11, textAlign: 'left',
+                        padding: '10px 12px', borderRadius: 9, cursor: 'pointer', fontFamily: 'inherit',
+                        border: `1px solid ${editPartout ? 'var(--green)' : BORDER}`,
+                        background: editPartout ? 'var(--green-soft)' : BG,
+                        transition: `all var(--dur-quick) var(--ease-out)`,
+                      }}>
+                      <span style={{
+                        width: 38, height: 22, borderRadius: 999, flexShrink: 0, position: 'relative',
+                        background: editPartout ? 'var(--green)' : BORDER,
+                        transition: `background var(--dur-quick) var(--ease-out)`,
+                      }}>
+                        <span style={{
+                          position: 'absolute', top: 3, left: 3, width: 16, height: 16, borderRadius: '50%',
+                          background: SURFACE, boxShadow: '0 1px 2px rgba(0,0,0,.18)',
+                          transform: editPartout ? 'translateX(16px)' : 'none',
+                          transition: `transform var(--dur-quick) var(--ease-out)`,
+                        }} />
+                      </span>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: INK }}>Répondre partout</span>
+                        <span style={{ display: 'block', fontSize: 11, color: MUTED, marginTop: 2, lineHeight: 1.4 }}>
+                          Commentaire, réponse à une story, DM direct — même si le contenu n'est configuré nulle part. Un contenu qui a son propre mot-clé garde la priorité.
+                        </span>
+                      </span>
+                    </button>
+
+                    {/* Les cinq messages n'apparaissent QUE si le mot-clé répond
+                        partout : sans ça il n'a rien à envoyer de son côté, et
+                        les afficher laisserait croire qu'ils partent. */}
+                    {editPartout && (
+                      <div style={{ marginTop: 4 }}>
+                        <SequenceDm
+                          seq={editSeq} seqRef={editSeqRef}
+                          setChamp={(k, v) => setEditSeq(prev => ({ ...prev, [k]: v }))}
+                          declencheur="partout" lmUrl={editUrl || null}
+                          nbModifs={(Object.keys(editSeq) as (keyof SeqDm)[]).filter(k => editSeq[k] !== editSeqRef[k]).length}
+                          saving={editSaving} error={null}
+                          onSave={saveEdit} boutonActif
+                          libelleBouton="Enregistrer le lead magnet"
+                          igCompte={igCompteLm} vue={vueMobileLm} setVue={setVueMobileLm}
+                        />
+                      </div>
+                    )}
                     {/* Cas 1 — URL changée sur un LM avec lien bio actif */}
                     {urlChanged(lm) && (
                       <div style={{ fontSize: 11, color: AMBER, background: AMBER_SOFT, borderRadius: 6, padding: '7px 10px' }}>
@@ -4538,6 +4646,13 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted, onUp
                         <div style={{ fontSize: 12, fontWeight: 600, color: INK }}>{lm.name}</div>
                         {lm.keyword && (
                           <span style={{ fontSize: 10, fontWeight: 700, color: BLUE, background: BLUE_SOFT, borderRadius: 4, padding: '1px 5px', letterSpacing: '0.04em' }}>#{lm.keyword}</span>
+                        )}
+                        {/* L'état se lit sans ouvrir : c'est ce qu'on vient
+                            vérifier d'un coup d'œil en arrivant sur l'écran. */}
+                        {lm.repond_partout && (
+                          <span style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--green)', background: 'var(--green-soft)', borderRadius: 999, padding: '2px 7px', letterSpacing: '.02em', whiteSpace: 'nowrap' }}>
+                            Répond partout
+                          </span>
                         )}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -6619,7 +6734,7 @@ export default function PageLiens() {
             <div style={{ padding: '16px' }}>
               {rightView.type === 'lm-library' ? (
                 <PanneauLeadMagnets
-                  leadMagnets={leadMagnets} lmLoading={lmLoading}
+                  leadMagnets={leadMagnets} lmLoading={lmLoading} profileId={profileId}
                   onCreated={(lm: LeadMagnet) => setLmOverrides(prev => [lm, ...(prev ?? leadMagnetsFromQuery)])}
                   onDeleted={(id: string) => setLmOverrides(prev => (prev ?? leadMagnetsFromQuery).filter(l => l.id !== id))}
                   onUpdated={(lm: LeadMagnet) => setLmOverrides(prev => (prev ?? leadMagnetsFromQuery).map(l => l.id === lm.id ? lm : l))}
@@ -6840,7 +6955,7 @@ export default function PageLiens() {
           <div style={{ flex: 1, minWidth: 0, background: SURFACE, overflowY: 'auto' }}>
             {rightView.type === 'lm-library' ? (
               <PanneauLeadMagnets
-                leadMagnets={leadMagnets} lmLoading={lmLoading}
+                leadMagnets={leadMagnets} lmLoading={lmLoading} profileId={profileId}
                 onCreated={(lm: LeadMagnet) => setLmOverrides(prev => [lm, ...(prev ?? leadMagnetsFromQuery)])}
                 onDeleted={(id: string) => setLmOverrides(prev => (prev ?? leadMagnetsFromQuery).filter(l => l.id !== id))}
                 onUpdated={(lm: LeadMagnet) => setLmOverrides(prev => (prev ?? leadMagnetsFromQuery).map(l => l.id === lm.id ? lm : l))}
