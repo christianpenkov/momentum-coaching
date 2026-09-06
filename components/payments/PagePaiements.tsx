@@ -108,6 +108,22 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
   // permanent qui deviendrait invisible à force d'être là.
   const litiges = useMemo(() => deals.filter(d => d.status === 'disputed'), [deals]);
 
+  // ⚠️ DEUX FAITS DISTINCTS, et les confondre fait réclamer une action déjà
+  // faite — sur la seule alerte de la plateforme qui doit être crue sans
+  // hésiter.
+  //
+  //   litige OUVERT      → `status === 'disputed'` : la banque a repris l'argent
+  //   réponse ENCORE DUE → `disputeDueBy` renseigné
+  //
+  // Le second s'efface dès que l'élève soumet ses preuves (webhook
+  // `charge.dispute.updated`). Le bandeau, lui, comptait les litiges ouverts et
+  // annonçait « une réponse doit être donnée pour chacun » : relevé par Chris le
+  // 2026-09-06 avec trois litiges dont deux déjà instruits. Ceux-là restent
+  // `disputed` des semaines, donc le bandeau criait pour rien — et un bandeau
+  // rouge qui ne demande rien est un bandeau qu'on cesse de lire.
+  const aRepondre = useMemo(() => litiges.filter(d => !!d.disputeDueBy), [litiges]);
+  const rienAFaire = aRepondre.length === 0;
+
   // ── Ce qui reste dû SANS aucun moyen de l'encaisser ──────────────────────
   // « Reste à encaisser · échéances à venir » décrivait comme un calendrier ce
   // qui n'en a pas : une vente signée sans lien, sans prélèvement et sans
@@ -170,26 +186,36 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
       {litiges.length > 0 && (
         <div style={{
           display: 'flex', alignItems: 'flex-start', gap: 11, marginBottom: 18,
-          background: 'var(--red-soft)', border: '1px solid rgba(205,91,63,.3)',
+          background: rienAFaire ? 'var(--amber-soft)' : 'var(--red-soft)',
+          border: `1px solid ${rienAFaire ? 'rgba(180,140,60,.3)' : 'rgba(205,91,63,.3)'}`,
           borderRadius: 10, padding: '12px 14px',
         }}>
-          <Icon name="alert-triangle" size={16} color="var(--red)" />
+          <Icon name="alert-triangle" size={16} color={rienAFaire ? 'var(--amber-ink)' : 'var(--red)'} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--red)' }}>
-              {litiges.length === 1
-                ? `${litiges[0].buyerName} conteste un paiement`
-                : `${litiges.length} paiements contestés`}
+            <div style={{ fontSize: 13, fontWeight: 600, color: rienAFaire ? 'var(--amber-ink)' : 'var(--red)' }}>
+              {rienAFaire
+                ? (litiges.length === 1
+                  ? `${litiges[0].buyerName} conteste un paiement`
+                  : `${litiges.length} paiements contestés`)
+                : (aRepondre.length === 1
+                  ? `${aRepondre[0].buyerName} conteste un paiement`
+                  : `${aRepondre.length} réponses à donner`)}
             </div>
             <div style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 3, lineHeight: 1.55 }}>
-              {litiges.length === 1 && litiges[0].disputeDueBy
-                ? <>Réponse à donner dans Stripe avant le {fmtEcheanceLitige(litiges[0].disputeDueBy)}. Passé ce délai, l’argent est perdu automatiquement.</>
-                : <>Une réponse doit être donnée dans Stripe pour chacun. Passé le délai, l’argent est perdu automatiquement.</>}
+              {rienAFaire
+                ? <>Tes preuves ont été envoyées : la banque examine. Rien à faire — tu seras prévenu du verdict, et l’argent revient si tu gagnes.</>
+                : aRepondre.length === 1 && aRepondre[0].disputeDueBy
+                  ? <>Réponse à donner dans Stripe avant le {fmtEcheanceLitige(aRepondre[0].disputeDueBy)}. Passé ce délai, l’argent est perdu automatiquement.</>
+                  : <>Une réponse doit être donnée dans Stripe pour chacun. Passé le délai, l’argent est perdu automatiquement.</>}
             </div>
           </div>
           <a href="https://dashboard.stripe.com/disputes" target="_blank" rel="noopener noreferrer"
             className="btn-primary-brand"
-            style={{ fontSize: 12, flexShrink: 0, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--red)', borderColor: 'var(--red)' }}>
-            <Icon name="external" size={13} /> Répondre dans Stripe
+            style={{ fontSize: 12, flexShrink: 0, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6,
+              background: rienAFaire ? 'var(--amber-ink)' : 'var(--red)', borderColor: rienAFaire ? 'var(--amber-ink)' : 'var(--red)' }}>
+            {/* Le libellé suit ce qu'il y a vraiment à faire : « Répondre » sur
+                un litige déjà instruit enverrait vers un formulaire fermé. */}
+            <Icon name="external" size={13} /> {rienAFaire ? 'Voir dans Stripe' : 'Répondre dans Stripe'}
           </a>
         </div>
       )}
