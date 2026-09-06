@@ -1656,7 +1656,7 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
     { key: 'views', label: 'Vues' },
     { key: 'watchTime', label: 'Watch Time' },
     { key: 'calls', label: 'Calls' },
-    { key: 'revenue', label: 'Revenue' },
+    { key: 'revenue', label: 'Revenus' },
   ];
   const sortedContent = [...allContent].sort((a, b) => {
     if (contentSort === 'views') return b.totalViews - a.totalViews;
@@ -1901,7 +1901,7 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
                 if (contentSort === 'views') return [c(''), c('Contenu'), c('Plateforme'), c('Vues totales')];
                 if (contentSort === 'watchTime') return [c(''), c('Contenu'), c('Plateforme'), c('Watch time total'), c('Watch time moyen')];
                 if (contentSort === 'calls') return [c(''), c('Contenu'), c('Plateforme'), c('Calls bookés', AIDE_CALLS_BOOKES), c('Calls honorés', AIDE_CALLS_HONORES), c('No-show', AIDE_NO_SHOW), c('Closé', AIDE_CLOSING)];
-                return [c(''), c('Contenu'), c('Plateforme'), c('Calls bookés', AIDE_CALLS_BOOKES), c('Revenue / call', AIDE_REV_PAR_CALL), c('Cash / vue'), c('Cash contracté total', AIDE_CASH_CONTRACTE)];
+                return [c(''), c('Contenu'), c('Plateforme'), c('Calls bookés', AIDE_CALLS_BOOKES), c('Revenu / call', AIDE_REV_PAR_CALL), c('Cash / vue'), c('Cash contracté total', AIDE_CASH_CONTRACTE)];
               })().map((h, i) => (
                 <th key={i} className="eyebrow-sm" style={{ textAlign: i <= 1 ? 'left' : 'right', color: 'var(--muted)', padding: '0 8px 8px', borderBottom: '1px solid var(--border)' }}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: i <= 1 ? 'flex-start' : 'flex-end' }}>
@@ -5371,7 +5371,7 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
     // seulement quand il y a quelque chose a expliquer.
     { label: 'Deals closés', value: fmt(igCloses), rawValue: igCloses, rate: igOpportunites > 0 ? (igCloses / igOpportunites) * 100 : undefined,
       noteTaux: igOpportunites !== igHonores ? `sur ${igOpportunites} opportunités — un 2ᵉ rendez-vous ne recompte pas` : undefined, aide: AIDE_CLOSING },
-    { label: 'Revenue', value: fmtEur(igRev), rawValue: igRev },
+    { label: 'Revenus', value: fmtEur(igRev), rawValue: igRev },
   ];
 
   const ytFunnelSteps = [
@@ -5398,7 +5398,7 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
     // seulement quand il y a quelque chose a expliquer.
     { label: 'Deals closés', value: fmt(ytCloses), rawValue: ytCloses, rate: ytOpportunites > 0 ? (ytCloses / ytOpportunites) * 100 : undefined,
       noteTaux: ytOpportunites !== ytHonores ? `sur ${ytOpportunites} opportunités — un 2ᵉ rendez-vous ne recompte pas` : undefined, aide: AIDE_CLOSING },
-    { label: 'Revenue', value: fmtEur(ytRev), rawValue: ytRev },
+    { label: 'Revenus', value: fmtEur(ytRev), rawValue: ytRev },
   ];
 
 
@@ -5465,7 +5465,7 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
         // « Cash / vue » : Instagram mesure une portée, pas des vues — la colonne
         // voisine dit déjà « Reach pour 1 call ».
         { label: 'Cash / reach', value: igReachD != null && igReachD > 0 ? fmtEur(igRev / igReachD) : '—', prevValue: null, delta: null, lowerIsBetter: false },
-        { label: 'Revenue total', value: fmtEur(igRev), prevValue: null, delta: null, lowerIsBetter: false },
+        { label: 'Revenus totaux', value: fmtEur(igRev), prevValue: null, delta: null, lowerIsBetter: false },
       ],
     },
     {
@@ -5477,7 +5477,7 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
         { label: 'Close rate', value: ytOpportunites > 0 ? fmtRate(ytCloses, ytOpportunites) : '—', prevValue: null, delta: null, lowerIsBetter: false, aide: AIDE_CLOSING },
         { label: 'Rev / call booké', value: ytBookes > 0 ? fmtEur(Math.round(ytRev / ytBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: false, aide: AIDE_REV_PAR_CALL },
         { label: 'Cash / vue', value: ytViewsD > 0 ? fmtEur(ytRev / ytViewsD) : '—', prevValue: null, delta: null, lowerIsBetter: false },
-        { label: 'Revenue total', value: fmtEur(ytRev), prevValue: null, delta: null, lowerIsBetter: false },
+        { label: 'Revenus totaux', value: fmtEur(ytRev), prevValue: null, delta: null, lowerIsBetter: false },
       ],
     },
   ];
@@ -5574,7 +5574,7 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
               ? `${closingRate}% sur ${totalOpportunites} opportunités`
               : `${closingRate}% closing`,
             aide: AIDE_CLOSING },
-          { label: 'Revenue total', value: fmtEur(totalRev),   sub: 'cumulé' },
+          { label: 'Revenus totaux', value: fmtEur(totalRev),   sub: 'cumulé' },
           { label: 'Rev / call',    value: fmtEur(revPerCall), sub: 'par call booké', aide: AIDE_REV_PAR_CALL },
         ];
 
@@ -5880,7 +5880,7 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
                 : 'aucun rendez-vous',
               aide: AIDE_NO_SHOW },
             { label: 'Closés', value: fmt(filteredActifs.filter(c => c.deal_closed).length), color: 'var(--accent)' },
-            { label: 'Revenue', value: fmtEur(filteredActifs.reduce((acc, c) => acc + (c.revenue || 0), 0)), color: GREEN },
+            { label: 'Revenus', value: fmtEur(filteredActifs.reduce((acc, c) => acc + (c.revenue || 0), 0)), color: GREEN },
           ].map((s, i) => (
             <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <div className="eyebrow-sm" style={{ color: 'var(--muted)', display: 'flex', alignItems: 'center' }}>{s.label}{'aide' in s && s.aide ? <AideColonne texte={s.aide} /> : null}</div>
@@ -5897,7 +5897,7 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
                 {/* « Show-up » et non « No-show » : la cellule porte un ✓ quand le
                     prospect est VENU. Sous un en-tete « No-show », ce ✓ affirmait
                     exactement l'inverse de son titre. */}
-                {['Date', 'Client', 'Source', 'Statut', 'Show-up', 'Closé', 'Revenue'].map((h, i) => (
+                {['Date', 'Client', 'Source', 'Statut', 'Show-up', 'Closé', 'Revenus'].map((h, i) => (
                   <th key={i} className="eyebrow-sm" style={{ textAlign: 'left', color: 'var(--muted)', padding: '12px 14px' }}>{h}</th>
                 ))}
               </tr>
@@ -8647,7 +8647,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 
           const sortLabels: Record<BdSortKey, string> = {
             default: 'Ordre par défaut', clics: 'Clics / Liens', booked: 'Calls bookés',
-            honored: 'Calls honorés', closed: 'Closés', revenue: 'Revenue',
+            honored: 'Calls honorés', closed: 'Closés', revenue: 'Revenus',
           };
 
           return (
@@ -8689,7 +8689,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     <TH right><EnteteColonne nom="callBooke">Calls bookés</EnteteColonne><AideColonne texte={AIDE_CALLS_BOOKES} /></TH>
                     <TH right><EnteteColonne nom="callHonore">Calls honorés</EnteteColonne><AideColonne texte={AIDE_CALLS_HONORES} /></TH>
                     <TH right><EnteteColonne nom="close">Closés</EnteteColonne></TH>
-                    <TH right><EnteteColonne nom="revenue">Revenue</EnteteColonne></TH>
+                    <TH right><EnteteColonne nom="revenue">Revenus</EnteteColonne></TH>
                     {/* « Rev / call » porte le meme billet que « Revenue » : le libelle
                         porte la division, pas l'icone.
                         Le DENOMINATEUR est le call BOOKE, et c'est le meme mot que dans
@@ -8871,7 +8871,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           ['callsBookes', 'Calls bookés', 'min. 1 call booké'],
           ['callsHonores', 'Calls honorés', 'min. 1 call honoré'],
           ['closes', 'Closés', 'min. 1 closé'],
-          ['revenue', 'Revenue', 'min. 1 € de revenue'],
+          ['revenue', 'Revenus', 'min. 1 € de revenus'],
         ];
         const COLONNES_PARCOURS: [string, string, string][] = estYT
           ? [CLICS_DESC, ...FIN_DE_CHAINE]
@@ -9167,7 +9167,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     <th style={thP}><EnteteColonne nom="callHonore">Calls honorés</EnteteColonne><AideColonne texte={AIDE_CALLS_HONORES} /></th>
                     <th style={thP}><EnteteColonne nom="callQualifie">% qualifiés</EnteteColonne></th>
                     <th style={thP}><EnteteColonne nom="close">Closés</EnteteColonne><AideColonne texte={AIDE_CLOSES_PARCOURS} /></th>
-                    <th style={thP}><EnteteColonne nom="revenue">Revenue</EnteteColonne><AideColonne texte={AIDE_REVENUE_PARCOURS} /></th>
+                    <th style={thP}><EnteteColonne nom="revenue">Revenus</EnteteColonne><AideColonne texte={AIDE_REVENUE_PARCOURS} /></th>
                     {parContenu && <th style={{ ...thP, ...filet }}>Vues / call</th>}
                     {parContenu && <th style={thP}>Cash / vue</th>}
                   </tr>
@@ -9329,7 +9329,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             <div><b>Les trois chiffres ne se suivent pas, et on ne les additionne jamais.</b> Combien de personnes ce contenu a fait entrer, combien de conversations il a déclenchées, combien de rendez-vous il a produits : trois questions séparées. Un contenu peut ne faire entrer personne et produire des rendez-vous, quand des gens déjà présents réservent par son lien.</div>
             <div><b>Les rendez-vous d&apos;un contenu viennent de plusieurs origines</b> : le lien Calendly de sa description, celui envoyé en DM après son lead magnet, et d&apos;autres. Ils sont tous comptés ici.</div>
             <div><b>La période porte sur la date de chaque événement.</b> Un rendez-vous de juin apparaît en juin, même si la personne était entrée en mars.</div>
-            <div><b>Un rendez-vous et son argent ne tombent pas toujours dans le même mois.</b> Quelqu&apos;un réserve le <b>29 août</b> pour un appel le <b>2 septembre</b>, et il achète pendant l&apos;appel. Vous verrez ce rendez-vous dans les <b>calls bookés d&apos;août</b>, et son argent dans le <b>revenue de septembre</b>.<br /><br />Ce n&apos;est pas une erreur : ce sont deux faits qui n&apos;ont pas eu lieu le même jour. Le rendez-vous a été décroché en août, la vente s&apos;est faite en septembre. Si on les forçait dans le même mois, on daterait la vente <b>avant</b> l&apos;appel qui l&apos;a produite — et une bonne semaine de prospection en fin de mois vous paraîtrait mauvaise, parce que son argent n&apos;arrive que le mois suivant.</div>
+            <div><b>Un rendez-vous et son argent ne tombent pas toujours dans le même mois.</b> Quelqu&apos;un réserve le <b>29 août</b> pour un appel le <b>2 septembre</b>, et il achète pendant l&apos;appel. Vous verrez ce rendez-vous dans les <b>calls bookés d&apos;août</b>, et son argent dans le <b>revenu de septembre</b>.<br /><br />Ce n&apos;est pas une erreur : ce sont deux faits qui n&apos;ont pas eu lieu le même jour. Le rendez-vous a été décroché en août, la vente s&apos;est faite en septembre. Si on les forçait dans le même mois, on daterait la vente <b>avant</b> l&apos;appel qui l&apos;a produite — et une bonne semaine de prospection en fin de mois vous paraîtrait mauvaise, parce que son argent n&apos;arrive que le mois suivant.</div>
           </>}
         />
 
@@ -9393,7 +9393,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                 <option value="callsBooked">Calls déclenchés</option>
                 <option value="lmDetectes">Leads entrés</option>
                 <option value="lmReponses">Conversations déclenchées</option>
-                <option value="revenue">Revenue</option>
+                <option value="revenue">Revenus</option>
                 <option value="closed">Closés</option>
                 <option value="callsHonored">Calls honorés</option>
                 <option value="views">Vues</option>
@@ -9496,7 +9496,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     <div style={{ display: 'flex', gap: 14, paddingTop: 9, borderTop: '1px solid var(--border)', fontSize: 10.5, color: 'var(--muted)' }}>
                       <span>Honorés<b style={{ display: 'block', fontSize: 13, fontWeight: 700, color: row.callsHonored > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.callsHonored}</b></span>
                       <span>Closés<b style={{ display: 'block', fontSize: 13, fontWeight: 700, color: row.closed > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.closed}</b></span>
-                      <span>Revenue<b style={{ display: 'block', fontSize: 13, fontWeight: 700, color: row.revenue > 0 ? GREEN : 'var(--faint)' }}>{row.revenue > 0 ? fmtEur(row.revenue) : '—'}</b></span>
+                      <span>Revenus<b style={{ display: 'block', fontSize: 13, fontWeight: 700, color: row.revenue > 0 ? GREEN : 'var(--faint)' }}>{row.revenue > 0 ? fmtEur(row.revenue) : '—'}</b></span>
                     </div>
                   </div>
                 );
@@ -9591,7 +9591,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             )}
             <div style={{ background: 'var(--surface-2)', borderRadius: 7, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: 11, color: 'var(--muted)' }}>{label}</span>
-              <span style={{ fontSize: 14, fontWeight: 800, color: value ? 'var(--ink)' : 'var(--faint)' }}>{value != null && value > 0 ? (label === 'Revenue' ? fmtEur(value) : value) : '—'}</span>
+              <span style={{ fontSize: 14, fontWeight: 800, color: value ? 'var(--ink)' : 'var(--faint)' }}>{value != null && value > 0 ? (label === 'Revenus' ? fmtEur(value) : value) : '—'}</span>
             </div>
           </div>
         );
@@ -9727,7 +9727,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                         <FunnelStep label="Calls bookés" value={f1_calls} rate={r1_clicCall} rateThreshold={25} />
                         <FunnelStep label="Calls honorés" value={f1_honored} rate={r1_callHon} rateThreshold={75} />
                         <FunnelStep label="Closés" value={f1_closed} rate={r1_honClosed} rateThreshold={50} />
-                        <FunnelStep label="Revenue" value={f1_revenue} rate={null} />
+                        <FunnelStep label="Revenus" value={f1_revenue} rate={null} />
                       </div>
                     </div>
                     {/* Divider */}
@@ -9741,7 +9741,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                         <FunnelStep label="Calls bookés" value={f2_calls} rate={r2_callSent} rateThreshold={20} />
                         <FunnelStep label="Calls honorés" value={f2_honored} rate={r2_callHon} rateThreshold={75} />
                         <FunnelStep label="Closés" value={f2_closed} rate={r2_honClosed} rateThreshold={50} />
-                        <FunnelStep label="Revenue" value={f2_revenue} rate={null} />
+                        <FunnelStep label="Revenus" value={f2_revenue} rate={null} />
                       </div>
                     </div>
                   </div>
@@ -9756,7 +9756,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                       <div style={{ fontSize: 22, fontWeight: 800, color: row.closed > 0 ? GREEN : 'var(--faint)' }}>{row.closed || '—'}</div>
                     </div>
                     <div style={{ textAlign: 'center' }}>
-                      <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 3 }}>Revenue total</div>
+                      <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 3 }}>Revenus totaux</div>
                       <div style={{ fontSize: 22, fontWeight: 800, color: row.revenue > 0 ? GREEN : 'var(--faint)' }}>{row.revenue > 0 ? fmtEur(row.revenue) : '—'}</div>
                     </div>
                   </div>
@@ -9771,7 +9771,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                           <tr>
-                            {['Prospect', 'Canal', 'Lien créé', 'Statut', 'Revenue'].map((h, i) => (
+                            {['Prospect', 'Canal', 'Lien créé', 'Statut', 'Revenus'].map((h, i) => (
                               <th key={i} className="eyebrow-sm" style={{ textAlign: i >= 3 ? 'right' : 'left', color: 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>{h}</th>
                             ))}
                           </tr>
