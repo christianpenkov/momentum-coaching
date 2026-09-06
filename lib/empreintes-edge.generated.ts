@@ -23,7 +23,7 @@ export const EMPREINTES_EDGE: Record<string, string> = {
   'notify-rapport': '0365a0e355f97c9d', // 3 fichiers
   'poll-leads': '6e5ce7a10aa5c48d', // 9 fichiers
   'poll-stories': '8dec82c5f2fe74e6', // 2 fichiers
-  'refresh-ig-posts': '173cdc23e30e2c01', // 3 fichiers
+  'refresh-ig-posts': '1153f6bde841d876', // 3 fichiers
   'send-pending-dm3': '339fd254c0b8a26e', // 2 fichiers
   'sync-calendly': 'e837bd06b56ba4aa', // 2 fichiers
   'sync-stripe-payments': 'eba10632afc18876', // 3 fichiers

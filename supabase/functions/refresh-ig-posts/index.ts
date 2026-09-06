@@ -14,7 +14,9 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 const CRON_SECRET = Deno.env.get('CRON_SECRET')!;
-const PLATFORM_URL = Deno.env.get('NEXT_PUBLIC_PLATFORM_URL') || 'https://momentum-plateforme.vercel.app';
+// PLATFORM_URL n'est plus lu : cette fonction n'envoie plus de notification (voir
+// l'appel à snapshotIgPosts plus bas). Retiré plutôt que laissé en place — une
+// variable d'environnement qui traîne laisse croire que la fonction s'en sert.
 
 const supa = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -73,7 +75,17 @@ Deno.serve(async (req: Request) => {
   // 100 s sur les 150 s du Edge Runtime et reprennent au passage suivant. Sans ça,
   // un premier clic sur "Actualiser" pour un compte de 500 posts jamais collectés
   // ferait tomber la fonction en plein milieu, sans rien écrire.
-  const errors = await snapshotIgPosts(supa, profileId, creds.token, creds.igAccountId, true, { platformUrl: PLATFORM_URL, cronSecret: CRON_SECRET }, Date.now() + 100_000);
+  //
+  // PAS de `notifyConfig` ici, et c'est délibéré : cette fonction est le bouton
+  // « Actualiser » du frontend. Notifier depuis un clic de l'élève lui envoyait
+  // une notification push pour lui annoncer ce qu'il était en train de regarder,
+  // sur l'écran d'où il venait de la déclencher. Le pire des cas : ouvrir Gérer
+  // mes liens après avoir publié, cliquer Actualiser, et recevoir une alerte qui
+  // dit d'aller sur Gérer mes liens.
+  //
+  // La détection reste faite (les lignes sont écrites, le post n'est donc plus
+  // « nouveau »), seule l'alerte est supprimée. Le cron régulier garde la sienne.
+  const errors = await snapshotIgPosts(supa, profileId, creds.token, creds.igAccountId, true, undefined, Date.now() + 100_000);
   console.log(`[refresh-ig-posts] profileId=${profileId} igAccountId=${creds.igAccountId} errors=${JSON.stringify(errors)}`);
 
   return new Response(JSON.stringify({ ok: errors.length === 0, errors }), { headers: jsonHeaders });
