@@ -12,6 +12,7 @@ import { createPortal } from 'react-dom';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 import { createClient } from '@/lib/supabase/client';
 import { isOnlineNow } from '@/lib/useOnline';
+import { useRefreshCooldown } from '@/lib/useRefreshCooldown';
 import AreaChart, { todayDotFactory, lastRealPointKey } from '@/components/charts/AreaChart';
 import BarChart from '@/components/charts/BarChart';
 import Heatmap from '@/components/charts/Heatmap';
@@ -11204,22 +11205,6 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
   } catch { return null; }
 }
 
-// 4 clics max sur 2 minutes — après ça grise le bouton silencieusement
-function useRefreshCooldown(_key: string) {
-  const [clicks, setClicks] = useState<number[]>([]);
-  const MAX_CLICKS = 4;
-  const WINDOW_MS = 2 * 60 * 1000;
-
-  const isThrottled = clicks.filter(t => Date.now() - t < WINDOW_MS).length >= MAX_CLICKS;
-
-  const startCooldown = () => {
-    const now = Date.now();
-    setClicks(prev => [...prev.filter(t => now - t < WINDOW_MS), now]);
-  };
-
-  return { secondsLeft: 0, inCooldown: isThrottled, startCooldown };
-}
-
 async function fetchIntegrationStatus(profileId?: string) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -11302,8 +11287,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   const [shortioBMetric, setShortioBMetric] = useState<'clics' | 'leads' | 'hookReply' | 'calendlyLinks' | 'activation' | 'calls'>('clics');
   const [shortioBChartFilter, setShortioBChartFilter] = useState<'all' | 'dm' | 'content' | 'bio' | 'story'>('all');
 
-  const refreshKey = `analytics_${profileId || 'me'}`;
-  const { inCooldown, startCooldown } = useRefreshCooldown(refreshKey);
+  const { inCooldown, startCooldown } = useRefreshCooldown();
 
   const q = profileId ? `?profileId=${profileId}` : '';
 

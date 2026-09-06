@@ -38,15 +38,15 @@ import { useState } from 'react';
  * EXACTEMENT les quatre mêmes routes — ne l'avait pas. La recopier aurait créé deux
  * versions d'une même règle, qui finissent toujours par diverger sur ce projet.
  *
- * ⚠️ DETTE ASSUMÉE, à lever : `PageClientStats` porte encore SA PROPRE copie de cette
- * règle (`function useRefreshCooldown(_key)`, juste avant `fetchIntegrationStatus`).
- * Elle n'a pas été migrée parce que ce fichier portait, le 2026-09-06, le travail NON
- * COMMITÉ d'une autre session — on ne mélange pas deux chantiers dans un même fichier.
+ * Les deux appelants sont `PageClientStats` (écran de statistiques d'un élève — servi
+ * aussi bien à l'élève qu'au coach qui le consulte, et à « Mes stats » du coach) et
+ * `PagePipeline`. Un seul endroit, deux appelants.
  *
- * Les deux implémentations sont identiques au mot près aujourd'hui. Dès que
- * `PageClientStats` est libre : supprimer la copie locale, importer celle-ci, et
- * remplacer `useRefreshCooldown(refreshKey)` par `useRefreshCooldown()` — l'argument
- * n'a jamais été lu.
+ * ⚠️ L'ancienne copie locale prenait une clé en argument (`useRefreshCooldown(refreshKey)`)
+ * qui n'était JAMAIS lue — le paramètre s'appelait `_key`. La bride n'a donc jamais été
+ * séparée par élève, et ne l'est toujours pas : c'est volontaire, puisque les quotas
+ * qu'elle protège (Short.io par domaine, Calendly par jeton) sont eux-mêmes partagés.
+ * Ne pas « réparer » ça en croyant retrouver une intention : il n'y en avait pas.
  */
 export function useRefreshCooldown() {
   const [clics, setClics] = useState<number[]>([]);
