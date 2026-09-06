@@ -196,6 +196,23 @@ const SURVEILLANCES: Surveillance[] = [
     ],
     docs: ['docs/stripe-paiements.md', 'docs/perimetre-stats-referentiel.md (règle 7)'],
   },
+  {
+    cle: 'sante_statut_paiement_inconnu',
+    source: 'ventes_sante_statut_paiement_inconnu',
+    titre: 'Un statut de paiement que le calcul du cash ne sait pas traiter',
+    detection: 'toute_ligne',
+    surveille:
+      'Que tout statut présent dans `deal_payments` soit l’un des cinq que la règle du cash connaît : `succeeded`, `refunded`, `disputed`, `dispute_lost`, `failed`.',
+    signifie:
+      'Le cash affiché est FAUX pour les ventes concernées : un montant qui n’est ni compté ni déduit disparaît simplement du calcul. La règle vit dans deux runtimes — `lib/dealCash.ts` pour les écrans, la vue `ventes_cash_net` pour SQL — et un statut ajouté d’un seul côté fait diverger les deux en silence. C’est arrivé le 2026-09-06 : `dispute_lost` a été ajouté au code à 15 h 21, la vue l’ignorait, et l’écart (3 200 € contre 3 000 €) n’a été vu que par une vérification au navigateur trois heures plus tard. Aucun test ni aucun type ne compare deux runtimes.',
+    quoiFaire: [
+      '`select * from ventes_sante_statut_paiement_inconnu;` — le statut, le nombre de lignes et le montant en jeu.',
+      'Traiter le statut AUX DEUX endroits, jamais un seul : `lib/dealCash.ts` (fonction `calculerCash`, et le type `StatutDeal` si le statut de la vente en dépend) ET la vue `ventes_cash_net`.',
+      'Puis l’ajouter à la liste des cinq dans `ventes_sante_statut_paiement_inconnu` elle-même, sinon l’alerte reste allumée après la correction.',
+      '⚠️ Cette vue ne détecte QUE les statuts nouveaux. Un changement de FORMULE sur un statut déjà connu (par exemple décider que `failed` doit être déduit) reste invisible pour elle : il faut le répercuter à la main dans la vue.',
+    ],
+    docs: ['lib/dealCash.ts', 'supabase/migrations/20260906200000_ventes_cash_net_dispute_lost.sql'],
+  },
   // ── RETIREE DES E-MAILS le 2026-09-05 — `ventes_sante_sur_encaissement` ─────
   //
   // La vue existe toujours et reste interrogeable ; elle n'ecrit simplement plus
