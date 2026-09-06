@@ -1127,6 +1127,46 @@ mesure dit qu'elle ne produit aucun faux positif** — le détail et le motif so
 `20260903200000_migrations_sante.sql`. Surveiller tout l'historique donnerait ~200 lignes
 permanentes, c'est-à-dire une alerte qu'on n'ouvre plus.
 
+## ⚠️ « Personne ne lit cette colonne » a une date de péremption
+
+Le 2026-08-28, quatre colonnes de `analytics_daily_snapshots` ont cessé d'être
+alimentées — `shortio_clicks`, `shortio_human_clicks`, `shortio_top_countries`,
+`shortio_top_referrers` — pour économiser deux appels Short.io par élève et par passage.
+La justification écrite dans le code était : « Vérifié : AUCUN code et AUCUNE vue SQL ne
+lit ces quatre colonnes. » **Elle était exacte.**
+
+Le 2026-09-01, soit quatre jours plus tard, `stats_clients_series` a été créée et s'est
+branchée sur `shortio_human_clicks`. Rien ne pouvait le signaler : la colonne existait
+toujours, elle portait un nom parlant, et elle contenait des valeurs — figées au 28 août.
+
+Constaté le 2026-09-06 : la carte « Clics » du portefeuille coach affichait **550 clics
+pour un élève qui en avait 27**, et « aucune donnée » pour un élève qui en avait 20. Neuf
+jours sans que rien n'alerte, pendant que la table vivante (`shortio_link_daily_snapshots`)
+recevait 2 943 lignes.
+
+**Une colonne qu'on cesse d'écrire mais qu'on laisse en place est un piège armé.** Elle
+survit à la vérification qui l'a déclarée morte, et le prochain écran s'y branchera
+d'autant plus volontiers que son nom est le bon. Trois gestes, par ordre de solidité :
+
+1. **La supprimer** dans la même migration que l'arrêt de son écriture. Une colonne
+   absente produit une erreur au premier `select` — le seul signal qui ne se périme pas.
+2. Si elle doit rester (rattrapage possible, coût de migration), **la renommer**
+   `<nom>_abandonnee_AAAAMMJJ`. Le nom porte alors la date, et un futur lecteur ne peut
+   plus s'y brancher par mégarde.
+3. À défaut, **`comment on column`** disant depuis quand elle n'est plus écrite. Le plus
+   faible des trois : rien n'oblige à lire un commentaire.
+
+⚠️ **Le corollaire pour toute nouvelle lecture.** Avant de brancher un écran sur une
+colonne de snapshot, vérifier qu'elle est encore ÉCRITE — pas seulement qu'elle contient
+des valeurs. La requête tient en une ligne, et elle aurait évité ces neuf jours :
+
+```sql
+select max(date) from analytics_daily_snapshots where <colonne> is not null;
+```
+
+Si la date n'est pas d'hier ou d'aujourd'hui, la colonne est morte, quoi qu'en dise son
+contenu.
+
 ## ⚠️ Un `revoke` ne se maintient pas — l'invariant, si
 
 Supabase pose des **privilèges par défaut** sur le schéma `public`
