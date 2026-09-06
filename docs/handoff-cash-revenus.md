@@ -104,6 +104,51 @@ choses différentes et ne doivent pas être interverties :
 
 ---
 
+## Fait le 2026-09-06 — et une correction à mon propre compte rendu
+
+Livré (commits `26fc019` puis le suivant) : les trois montants sont des grands
+chiffres sous un titre qui dit leur question — **Cash contracté**, **Cash arrivé**,
+**Cash rentré** — le taux passe en sous-titre du montant qu'il décrit, et « Panier
+moyen » descend en quatrième position pour cesser de couper les deux cartes qui se
+répondent. La colonne « Encaissé » du tableau devient « Rentré » : elle totalise
+exactement cette carte, elle doit porter son mot. **Aucun calcul modifié.**
+
+### ⚠️ Les valeurs de contrôle de ce document sont fausses, et pas parce qu'elles ont vieilli
+
+Il annonçait « sem. 10 août : 0 € trésorerie, 2 100 € cohorte ». La cohorte y vaut
+**0**.
+
+J'ai d'abord écrit que le document avait été rédigé avant que le litige n'arrive.
+**C'était faux** : les deux lignes de la vente contestée sont créées le 5 septembre à
+19 h 24, donc antérieures aux deux mesures.
+
+La vraie cause est une requête de contrôle qui faisait `succeeded − refunded` **sans
+déduire `disputed`** — l'erreur exacte que `lib/dealCash.ts` existe pour empêcher,
+reproduite dans l'outil censé la vérifier.
+
+Deux leçons, et la seconde est la plus coûteuse à réapprendre :
+
+- **Ne jamais sommer les paiements à la main, y compris dans une requête de
+  vérification.** Une requête qui les somme n'est pas un contrôle, c'est une
+  implémentation de plus de la règle, non testée. Voir `AGENTS.md`, section sur
+  `lib/dealCash.ts`.
+- **Devant deux mesures qui divergent, ne pas accuser l'horloge avant d'avoir comparé
+  les deux requêtes.** « Les données ont bougé depuis » est confortable et
+  invérifiable ; ici c'était faux, et ça masquait le vrai défaut.
+
+### Valeurs à utiliser pour juger le rendu (mesurées avec les trois statuts déduits)
+
+| Fenêtre | Contracté | Arrivé | Rentré |
+|---|---|---|---|
+| sem. 10 août | 2 100 € | 0 € | 0 € |
+| sem. 31 août | 0 € | **300 €** | 0 € |
+
+⚠️ La semaine du 31 août est le meilleur cas de contrôle : **3 600 € encaissés bruts,
+3 300 € remboursés ou contestés, donc 300 € nets**. Si « Cash arrivé » y affiche
+3 600 €, c'est que `.net` a été remplacé par une somme des seuls `succeeded`.
+
+---
+
 ## Pièges
 
 - **Ne pas toucher aux calculs.** `cashCollecte` (`cashParJour`, ~6286) et

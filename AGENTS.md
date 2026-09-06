@@ -1235,6 +1235,29 @@ puis une somme) et n'ont donc JAMAIS déduit un remboursement : 2 800 € affich
 au montant contracté, sinon un trop-perçu fait dépasser 100 % et vient effacer la dette
 d'un autre client dans les totaux.
 
+⚠️ **La règle vaut aussi pour les requêtes de VÉRIFICATION**, et c'est là qu'on l'oublie.
+
+Le 2026-09-06, deux sessions ont contrôlé les mêmes chiffres de l'onglet Revenus avec
+deux requêtes SQL écrites à la main. L'une déduisait `refunded` mais pas `disputed`,
+l'autre les deux — d'où deux « vérités » et une heure passée à chercher laquelle des
+deux avait raison. Personne n'avait touché au code : les cinq écrans passaient déjà
+par `calculerCash`.
+
+C'est exactement l'erreur que ce paragraphe documente depuis le 2026-08-30, reproduite
+dans **l'outil censé la détecter**. Une requête de contrôle qui somme les paiements à
+la main n'est pas une vérification : c'est une sixième implémentation de la règle, non
+testée, et qui contredira les cinq autres au premier statut ajouté par Stripe.
+
+En SQL, les trois statuts qui sortent de la caisse sont `refunded`, `disputed` et — le
+jour où il apparaîtra — celui que Stripe n'a pas encore inventé. Un contrôle honnête
+les énumère explicitement et se relit à côté de `lib/dealCash.ts`, ou n'existe pas.
+
+⚠️ **Corollaire sur le DIAGNOSTIC.** Devant deux mesures qui divergent, la première
+hypothèse tentante est « les données ont bougé depuis ». Elle est confortable et
+invérifiable. Le 2026-09-06, elle a été avancée à tort : les contestations dataient de
+la veille 19h24, donc antérieures aux deux mesures. La divergence venait de la requête,
+pas du temps. **Avant d'accuser l'horloge, comparer les deux requêtes.**
+
 `ventes_sante_montants` compare les DEUX écritures du cash : le montant saisi dans le
 rapport de call et le deal qui en découle. Les écrans lisent `deals` ; une ligne ici
 signifie qu'un élève a saisi un montant que ses stats n'affichent pas.

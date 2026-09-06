@@ -6489,11 +6489,6 @@ function TabRevenues({ encaissementsParJour, cashParVente, deals, period, period
           <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>arrivé sur la période ({nbPaiementsRecus})</div>
         </div>
         <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
-          <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Panier moyen</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmtEur(Math.round(avgBasket))}</div>
-          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>{dealsInPeriod.length > 0 ? `sur ${dealsInPeriod.length} deal${dealsInPeriod.length > 1 ? 's' : ''}` : 'aucun deal'}</div>
-        </div>
-        <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
           <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6, display: 'flex', alignItems: 'center' }}>
             Cash rentré<AideColonne texte={AIDE_CASH_RENTRE} />
           </div>
@@ -6507,6 +6502,11 @@ function TabRevenues({ encaissementsParJour, cashParVente, deals, period, period
               rentré à ce jour · <span style={{ fontWeight: 700, color: cashCollectePct >= 80 ? GREEN : cashCollectePct >= 50 ? AMBER : RED }}>{cashCollectePct} %</span>
             </>)}
           </div>
+        </div>
+        <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
+          <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Panier moyen</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmtEur(Math.round(avgBasket))}</div>
+          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>{dealsInPeriod.length > 0 ? `sur ${dealsInPeriod.length} deal${dealsInPeriod.length > 1 ? 's' : ''}` : 'aucun deal'}</div>
         </div>
       </div>
 
