@@ -442,14 +442,27 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
   // Sans quoi le même argent serait réclamé deux fois sur le même écran.
   const echeancesAPayer = echeances.filter(e => e.status !== 'paid');
 
+  // ⚠️ UN MONTANT CONTESTÉ N'EST PAS UN MONTANT À ENCAISSER, et l'oublier fait
+  // réclamer deux fois le même argent (relevé par Chris le 2026-09-06, une heure
+  // après la correction ci-dessus — donc introduit par elle).
+  //
+  // `collected` est le NET, dont le litige est déjà déduit : sur TestYT il valait
+  // 900 sur 1 100, et la fiche annonçait « 200,00 € encore à encaisser — envoie
+  // ce lien ». Or ces 200 € avaient été payés ; c'est la banque qui les a repris
+  // le temps du litige. Le lien, à usage unique, était déjà consommé.
+  //
+  // Ce qu'un lien peut encore encaisser se compte donc sur l'encaissé BRUT de
+  // remboursements — le contesté rendu à l'ouverture du litige ne s'y déduit pas.
+  const encaissePourUnLien = deal.collected + deal.disputed;
+
   const lienAEnvoyer = echeancesAPayer.length === 0
     && !deal.stripeSubscriptionId
     && !!deal.shortUrl
     && !terminee
-    && deal.collected < deal.amountTotal - 0.005;
+    && encaissePourUnLien < deal.amountTotal - 0.005;
 
   /** Ce que ce lien-là doit encore encaisser — la fiche ne le disait nulle part. */
-  const resteSurLeLien = Math.max(0, Math.round((deal.amountTotal - deal.collected) * 100) / 100);
+  const resteSurLeLien = Math.max(0, Math.round((deal.amountTotal - encaissePourUnLien) * 100) / 100);
   const pct = deal.amountTotal > 0 ? Math.min(100, Math.round((deal.collected / deal.amountTotal) * 100)) : 0;
 
   return (
