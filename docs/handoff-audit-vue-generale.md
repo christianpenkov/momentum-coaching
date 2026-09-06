@@ -6,8 +6,11 @@
 >
 > **Mission 1 — « Vue générale » : CLOSE.** Onze défauts trouvés, tous corrigés,
 > **vérifiés en production**. Le détail et sa méthode sont en §8, qui ne porte plus
-> des pistes mais des résultats mesurés. Trois points restent ouverts, listés en
-> §8bis — deux risques structurels non déclenchés et une décision de cohérence.
+> des pistes mais des résultats mesurés.
+>
+> **Les trois points de §8bis sont fermés eux aussi** (relevé le 2026-09-06) : ils
+> l'étaient déjà par `428c99d` et `f6b720f`, la section ne l'avait simplement pas
+> enregistré. Rien à reprendre — voir §8bis.
 >
 > **Mission 2 — repasse Instagram et YouTube : en cours**, dans une session dédiée.
 > Elle a déjà corrigé deux défauts que l'audit de Vue générale lui a signalés (voir
@@ -323,7 +326,31 @@ de chercher pourquoi on y est arrivé.
 
 ---
 
-## 8bis. Ce qui reste ouvert sur Vue générale
+## 8bis. Ce qui restait ouvert sur Vue générale — ✅ les trois sont fermés
+
+> **État au 2026-09-06.** Cette section a annoncé trois points ouverts pendant cinq
+> jours alors que les trois étaient corrigés. Vérifiés un par un dans le code et en
+> base avant d'écrire cette ligne — pas par relecture du journal des commits.
+>
+> | Point | Fermé par | Preuve |
+> |---|---|---|
+> | « Leads » comptait un prospect écarté | `428c99d` | `PageClientStats.tsx`, `igUsersEcartes` retire les `not_a_lead` de `lmHistory` |
+> | « Calls honorés » pouvait passer sous zéro | `f6b720f` | plus de soustraction : `postCalls.filter(isCallHonored && estOpportunite).length` |
+> | Carte « Abonnés » incohérente entre onglets | `428c99d` | l'onglet Instagram affiche `abonnesAujourdHui`, sous-titre « aujourd'hui » |
+>
+> Contrôle en base du premier point, **avec témoin positif** — un zéro seul n'aurait
+> rien prouvé, la jointure aurait pu simplement ne rien apparier :
+>
+> | Mesure | Valeur |
+> |---|---|
+> | lignes `lm_history` dont le prospect est `not_a_lead` | **0** |
+> | témoin : la même jointure sans le filtre d'exclusion | **44** |
+> | prospects écartés au total | 2 (tous deux issus de cold DM, donc sans ligne LM) |
+>
+> Le trou décrit ci-dessous attendait donc toujours un prospect venu d'un
+> **commentaire** — mais le code ne l'attend plus.
+
+Le constat d'origine, gardé pour la trace :
 
 **Deux risques structurels, aucun déclenché — mesurés à zéro cas le 2026-09-01.**
 
