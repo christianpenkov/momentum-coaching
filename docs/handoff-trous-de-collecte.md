@@ -185,6 +185,33 @@ uniforme qu'on cherche à corriger.
 `const ytViews =` (chercher `reach30d ||`), et `const reach30d = sum(...)` dans la
 route.
 
+### Et trois cartes de plus, même cause (relevé le 2026-09-06 par la session Stats Clients)
+
+**« Likes », « Commentaires » et « Partages » de l'onglet YouTube**, lignes ~4063-4065.
+
+Elles sont écrites correctement — `v !== null ? … : 'Non mesuré'` — et leur valeur de
+période (`ytLikesP`, `ytCommentsP`, `ytSharesP`) passe bien par `sommeFlux`. Mais elles
+choisissent leur source :
+
+```ts
+const v = ytIsFallback ? yt.likes30d : ytLikesP;
+```
+
+`yt.likes30d` est typé `number` dans `YTStats` (ligne ~127), jamais `null`. Donc dès que
+`ytIsFallback` vaut vrai — `!sinceConnection && periodIndex === 0 && !ytCurrentPeriodTotals`,
+ligne ~11629 — la condition `v !== null` est **toujours** satisfaite, « Non mesuré » ne
+peut pas s'afficher, et le zéro inventé passe.
+
+C'est exactement le mode de panne des deux cartes ci-dessus : un total **pré-calculé et
+non nullable** lu à la place de la série. Le même lot doit donc couvrir cinq cartes, pas
+deux — et `likes30d`, `comments30d`, `shares30d` doivent devenir nullables dans `YTStats`
+en même temps que `reach30d` et `views30d`.
+
+⚠️ Le type-checker ne signale rien ici : `number !== null` est une comparaison légale
+qui vaut toujours vrai. C'est pour ça que la correction du 2026-09-06 l'a manqué alors
+qu'elle a trouvé les 13 autres consommateurs — TypeScript énumère les valeurs devenues
+nullables, il ne signale pas celles qui auraient dû l'être.
+
 ---
 
 ## Pièges à connaître avant de commencer
