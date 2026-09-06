@@ -197,20 +197,6 @@ interface LeadMagnet {
   name: string;
   url: string;
   keyword: string;
-  /**
-   * Le mot-clé répond partout : commentaire sous un post, réponse à une story,
-   * DM direct — même quand le contenu n'est configuré nulle part.
-   *
-   * Un contenu qui porte son propre mot-clé garde la priorité : le plus précis
-   * gagne toujours. Voir `lib/declencheurMotCle`.
-   */
-  repond_partout?: boolean;
-  /** Les cinq messages, quand le mot-clé répond partout. Noms explicites. */
-  dm_accroche?: string | null;
-  dm_accroche_bouton?: string | null;
-  dm_lien?: string | null;
-  dm_lien_bouton?: string | null;
-  dm_relance?: string | null;
   created_at?: string;
   bio_ig_url?: string | null;
   bio_yt_url?: string | null;
@@ -437,15 +423,15 @@ function ModalParametres({ open, onClose, profileId, activeDomain, domainsLoaded
 
         {/* Calendly */}
         <div style={{ marginBottom: 20 }}>
-          <div className="eyebrow-sm" style={{ color: MUTED, marginBottom: 6 }}>Lien Calendly</div>
+          <div className="eyebrow-sm" style={{ color: MUTED, marginBottom: 6 }}>Lien Calendly RDV</div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <input value={calendlyUrl} onChange={e => setCalendlyUrl(e.target.value)} placeholder="https://calendly.com/ton-nom/discovery"
+            <input value={calendlyUrl} onChange={e => setCalendlyUrl(e.target.value)} placeholder="https://calendly.com/ton-nom/30min"
               style={{ flex: 1, padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none' }} />
             <button onClick={save} disabled={saving || !isValid} style={{ padding: '8px 14px', fontSize: 12, fontWeight: 700, borderRadius: 8, border: 'none', background: saved ? 'var(--green)' : BLUE, color: '#fff', cursor: !isValid || saving ? 'not-allowed' : 'pointer', opacity: !isValid || saving ? 0.5 : 1, whiteSpace: 'nowrap', transition: 'all .2s' }}>
-              {saving ? '...' : saved ? '✓' : 'Sauver'}
+              {saving ? '...' : saved ? '✓' : 'OK'}
             </button>
           </div>
-          <div style={{ fontSize: 11, color: FAINT, marginTop: 5 }}>Utilisé automatiquement pour tous les liens Calendly générés.</div>
+          <div style={{ fontSize: 11, color: FAINT, marginTop: 5 }}>C'est le lien où tes prospects réservent. Il alimente tous les liens Calendly générés ici.</div>
         </div>
 
         {/* Liens bio */}
@@ -1136,7 +1122,7 @@ function SequenceDm({
 }: {
   seq: SeqDm; seqRef: SeqDm;
   setChamp: (k: keyof SeqDm, v: string) => void;
-  declencheur: 'commentaire' | 'story' | 'partout';
+  declencheur: 'commentaire' | 'story';
   lmUrl: string | null;
   nbModifs: number; saving: boolean; error: string | null;
   onSave: () => void;
@@ -1207,11 +1193,7 @@ function SequenceDm({
             <div>
               <ChampSeqLabel
                 libelle="Accroche"
-                precision={
-                  declencheur === 'commentaire' ? 'envoyée avec le commentaire'
-                  : declencheur === 'story' ? 'envoyée en réponse à la story'
-                  : 'envoyée dès que le mot-clé est reçu'
-                }
+                precision={declencheur === 'commentaire' ? 'envoyée avec le commentaire' : 'envoyée en réponse à la story'}
                 modifie={seq.accroche !== seqRef.accroche}
               />
               <Dm1Editor
@@ -2617,7 +2599,7 @@ function PanneauActions({ post, profileId, activeDomain, domainsLoaded, calendly
  * lien, lui rattacher les stories parues, la clôturer. Trois actions recopiées
  * deux fois, c'est une divergence garantie.
  */
-function LigneSequence({ seq, stories, aRattacher, surbrillance, ouverte, occupee, onOuvrir, onRattacher }: {
+function LigneSequence({ seq, stories, aRattacher, surbrillance, ouverte, occupee, onOuvrir, onRattacher, onEcarter }: {
   seq: any;
   /** Les stories qui composent la séquence, triées par date de publication. */
   stories: Post[];
@@ -2629,6 +2611,8 @@ function LigneSequence({ seq, stories, aRattacher, surbrillance, ouverte, occupe
   occupee: boolean;
   onOuvrir: () => void;
   onRattacher: (ids: string[]) => void;
+  /** Écarter une story de la proposition, sans la rattacher. */
+  onEcarter: (id: string) => void;
 }) {
   const vide = (seq.story_count ?? 0) === 0;
   return (
@@ -2666,7 +2650,7 @@ function LigneSequence({ seq, stories, aRattacher, surbrillance, ouverte, occupe
               <span style={{ fontSize: 10, color: FAINT }}>Aucun CTA</span>
             )}
             <span style={{ fontSize: 10, color: FAINT }}>
-              {vide ? 'en attente de ses stories' : `${seq.story_count} story${seq.story_count > 1 ? 'ies' : ''}`}
+              {vide ? 'en attente de ses stories' : `${seq.story_count} stor${seq.story_count > 1 ? 'ies' : 'y'}`}
             </span>
 
           </div>
@@ -2693,15 +2677,28 @@ function LigneSequence({ seq, stories, aRattacher, surbrillance, ouverte, occupe
       {ouverte && aRattacher.length > 0 && (
         <div style={{ marginTop: 10, padding: 9, borderRadius: 8, background: SURFACE2, border: `1px solid ${BORDER_SOFT}` }}>
           <div style={{ fontSize: 11.5, color: INK, fontWeight: 600, marginBottom: 7 }}>
-            {aRattacher.length} story{aRattacher.length > 1 ? 'ies' : ''} publiée{aRattacher.length > 1 ? 's' : ''} depuis la création
+            {aRattacher.length} stor{aRattacher.length > 1 ? 'ies' : 'y'} publiée{aRattacher.length > 1 ? 's' : ''} depuis la création
           </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 9 }}>
-            {aRattacher.map(st => (
-              <div key={st.id} title={st.postedAt ? new Date(st.postedAt).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
-                style={{ width: 34, height: 34, borderRadius: 6, overflow: 'hidden', border: `1px solid ${BORDER}`, background: SURFACE, flexShrink: 0 }}>
-                {st.thumbnail && <img loading="lazy" decoding="async" src={st.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
-              </div>
-            ))}
+          {/* La croix n'existe qu'aux DEUX BOUTS de la sélection.
+              Une séquence est un bloc continu : écarter une story du milieu
+              laisserait un trou, que l'enregistrement refuserait ensuite. Plutôt
+              que d'accepter le geste puis de le rejeter, on ne le propose pas. */}
+          <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 11 }}>
+            {aRattacher.map((st, i) => {
+              const auBout = i === 0 || i === aRattacher.length - 1;
+              return (
+                <div key={st.id} style={{ position: 'relative', flexShrink: 0 }}>
+                  <div title={st.postedAt ? new Date(st.postedAt).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
+                    style={{ width: 34, height: 34, borderRadius: 6, overflow: 'hidden', border: `1px solid ${BORDER}`, background: SURFACE }}>
+                    {st.thumbnail && <img loading="lazy" decoding="async" src={st.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                  </div>
+                  {auBout && aRattacher.length > 1 && (
+                    <button onClick={() => onEcarter(st.id)} title="Ne pas rattacher celle-ci"
+                      style={{ position: 'absolute', top: -5, right: -5, width: 16, height: 16, borderRadius: '50%', border: `1.5px solid ${SURFACE}`, background: '#d32f2f', color: '#fff', fontSize: 10, lineHeight: 1, textAlign: 'center', cursor: 'pointer', padding: 0 }}>×</button>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
             <button onClick={() => onRattacher(aRattacher.map(st => st.id))} disabled={occupee}
@@ -4396,8 +4393,8 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
 
 // ─── Panel Lead Magnets ───────────────────────────────────────────────────────
 
-function PanneauLeadMagnets({ leadMagnets, lmLoading, profileId, onCreated, onDeleted, onUpdated }: {
-  leadMagnets: LeadMagnet[]; lmLoading: boolean; profileId: string;
+function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted, onUpdated }: {
+  leadMagnets: LeadMagnet[]; lmLoading: boolean;
   onCreated: (lm: LeadMagnet) => void; onDeleted: (id: string) => void;
   onUpdated: (lm: LeadMagnet) => void;
 }) {
@@ -4413,61 +4410,23 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, profileId, onCreated, onDe
   const [editName, setEditName] = useState('');
   const [editUrl, setEditUrl] = useState('');
   const [editKeyword, setEditKeyword] = useState('');
-  const [editPartout, setEditPartout] = useState(false);
-  const [editSeq, setEditSeq] = useState<SeqDm>({ accroche: '', accrocheBtn: '', lien: '', lienBtn: '', relance: '' });
-  const [editSeqRef, setEditSeqRef] = useState<SeqDm>({ accroche: '', accrocheBtn: '', lien: '', lienBtn: '', relance: '' });
-  const [vueMobileLm, setVueMobileLm] = useState<'modifier' | 'apercu'>('modifier');
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
-  // Le même aperçu que partout : le coach doit se reconnaître dans le fil.
-  const { data: igCompteLm } = useQuery({
-    queryKey: ['liens-ig', profileId],
-    queryFn: () => fetch(`/api/instagram/stats?profileId=${profileId}`).then(r => r.json()),
-    enabled: !!profileId,
-    staleTime: 5 * 60 * 1000,
-  });
 
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const startEdit = (lm: LeadMagnet) => {
     setEditingId(lm.id); setEditName(lm.name); setEditUrl(lm.url); setEditKeyword(lm.keyword || ''); setEditError(null);
-    setEditPartout(!!lm.repond_partout);
-    setVueMobileLm('modifier');
-    // Les mêmes valeurs par défaut que les posts et les stories : un lead magnet
-    // qui se met à répondre partout ne doit pas partir avec des textes
-    // différents de ceux qu'on voit ailleurs.
-    const depuisLm: SeqDm = {
-      accroche:    lm.dm_accroche || DM1_DEFAULT_MESSAGE,
-      accrocheBtn: lm.dm_accroche_bouton || DM1_DEFAULT_BUTTON,
-      lien:        lm.dm_lien || DM2_DEFAULT_MESSAGE,
-      lienBtn:     lm.dm_lien_bouton || DM2_DEFAULT_BUTTON,
-      relance:     lm.dm_relance || '',
-    };
-    setEditSeq(depuisLm); setEditSeqRef(depuisLm);
   };
 
   const saveEdit = async () => {
     if (!editingId || !isValidUrl(editUrl)) return;
-    // Un mot-clé qui répond partout DOIT avoir ses messages : sans eux le
-    // webhook retomberait sur ses textes génériques, envoyés au nom du coach.
-    // Même règle exacte que les posts et les stories, même fonction.
-    if (editPartout) {
-      const refus = refusSequence(editSeq);
-      if (refus) { setEditError(refus); return; }
-      if (!editKeyword.trim()) { setEditError("Donne un mot-clé : c'est lui qui déclenche l'envoi."); return; }
-    }
     setEditSaving(true); setEditError(null);
     try {
       const res = await fetch('/api/client/lead-magnets', {
         method: 'PATCH', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          id: editingId, name: editName, url: editUrl, keyword: editKeyword,
-          repond_partout: editPartout,
-          dm_accroche: editSeq.accroche, dm_accroche_bouton: editSeq.accrocheBtn,
-          dm_lien: editSeq.lien.trim() || null, dm_lien_bouton: editSeq.lienBtn,
-          dm_relance: editSeq.relance,
-        }),
+        body: JSON.stringify({ id: editingId, name: editName, url: editUrl, keyword: editKeyword }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erreur');
@@ -4570,56 +4529,6 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, profileId, onCreated, onDe
                     <input value={editKeyword} onChange={e => setEditKeyword(e.target.value.toUpperCase().replace(/\s+/g, ''))} placeholder="MOT-CLÉ"
                       style={{ width: '100%', padding: '7px 10px', fontSize: 12, fontWeight: 600, letterSpacing: '0.04em', borderRadius: 7, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }} />
 
-                    {/* ── LE MOT-CLÉ QUI RÉPOND PARTOUT ──────────────────────
-                        Sans lui, un mot-clé ne déclenchait rien tant que le
-                        contenu n'était pas configuré. Une story vit 24 h : entre
-                        sa publication et son rattachement, toutes les réponses
-                        tombaient dans le vide. */}
-                    <button type="button" onClick={() => setEditPartout(v => !v)}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 11, textAlign: 'left',
-                        padding: '10px 12px', borderRadius: 9, cursor: 'pointer', fontFamily: 'inherit',
-                        border: `1px solid ${editPartout ? 'var(--green)' : BORDER}`,
-                        background: editPartout ? 'var(--green-soft)' : BG,
-                        transition: `all var(--dur-quick) var(--ease-out)`,
-                      }}>
-                      <span style={{
-                        width: 38, height: 22, borderRadius: 999, flexShrink: 0, position: 'relative',
-                        background: editPartout ? 'var(--green)' : BORDER,
-                        transition: `background var(--dur-quick) var(--ease-out)`,
-                      }}>
-                        <span style={{
-                          position: 'absolute', top: 3, left: 3, width: 16, height: 16, borderRadius: '50%',
-                          background: SURFACE, boxShadow: '0 1px 2px rgba(0,0,0,.18)',
-                          transform: editPartout ? 'translateX(16px)' : 'none',
-                          transition: `transform var(--dur-quick) var(--ease-out)`,
-                        }} />
-                      </span>
-                      <span style={{ flex: 1, minWidth: 0 }}>
-                        <span style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: INK }}>Répondre partout</span>
-                        <span style={{ display: 'block', fontSize: 11, color: MUTED, marginTop: 2, lineHeight: 1.4 }}>
-                          Commentaire, réponse à une story, DM direct — même si le contenu n'est configuré nulle part. Un contenu qui a son propre mot-clé garde la priorité.
-                        </span>
-                      </span>
-                    </button>
-
-                    {/* Les cinq messages n'apparaissent QUE si le mot-clé répond
-                        partout : sans ça il n'a rien à envoyer de son côté, et
-                        les afficher laisserait croire qu'ils partent. */}
-                    {editPartout && (
-                      <div style={{ marginTop: 4 }}>
-                        <SequenceDm
-                          seq={editSeq} seqRef={editSeqRef}
-                          setChamp={(k, v) => setEditSeq(prev => ({ ...prev, [k]: v }))}
-                          declencheur="partout" lmUrl={editUrl || null}
-                          nbModifs={(Object.keys(editSeq) as (keyof SeqDm)[]).filter(k => editSeq[k] !== editSeqRef[k]).length}
-                          saving={editSaving} error={null}
-                          onSave={saveEdit} boutonActif
-                          libelleBouton="Enregistrer le lead magnet"
-                          igCompte={igCompteLm} vue={vueMobileLm} setVue={setVueMobileLm}
-                        />
-                      </div>
-                    )}
                     {/* Cas 1 — URL changée sur un LM avec lien bio actif */}
                     {urlChanged(lm) && (
                       <div style={{ fontSize: 11, color: AMBER, background: AMBER_SOFT, borderRadius: 6, padding: '7px 10px' }}>
@@ -4628,8 +4537,10 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, profileId, onCreated, onDe
                     )}
                     {editError && <div style={{ fontSize: 11, color: RED }}>{editError}</div>}
                     <div style={{ display: 'flex', gap: 8 }}>
+                      {/* À gauche et à sa largeur : pleine largeur, il pesait
+                          autant que la carte entière pour une action mineure. */}
                       <button onClick={saveEdit} disabled={editSaving || !isValidUrl(editUrl)}
-                        style={{ flex: 1, minHeight: 44, padding: '7px', fontSize: 13, fontWeight: 700, borderRadius: 7, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: editSaving || !isValidUrl(editUrl) ? 0.5 : 1 }}>
+                        style={{ minHeight: 40, padding: '0 18px', fontSize: 13, fontWeight: 700, borderRadius: 7, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: editSaving || !isValidUrl(editUrl) ? 0.5 : 1 }}>
                         {editSaving ? '...' : 'Sauvegarder'}
                       </button>
                       <button onClick={() => setEditingId(null)}
@@ -4646,13 +4557,6 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, profileId, onCreated, onDe
                         <div style={{ fontSize: 12, fontWeight: 600, color: INK }}>{lm.name}</div>
                         {lm.keyword && (
                           <span style={{ fontSize: 10, fontWeight: 700, color: BLUE, background: BLUE_SOFT, borderRadius: 4, padding: '1px 5px', letterSpacing: '0.04em' }}>#{lm.keyword}</span>
-                        )}
-                        {/* L'état se lit sans ouvrir : c'est ce qu'on vient
-                            vérifier d'un coup d'œil en arrivant sur l'écran. */}
-                        {lm.repond_partout && (
-                          <span style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--green)', background: 'var(--green-soft)', borderRadius: 999, padding: '2px 7px', letterSpacing: '.02em', whiteSpace: 'nowrap' }}>
-                            Répond partout
-                          </span>
                         )}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -4874,12 +4778,12 @@ function ActionsStories({ selectionMode, selectedCount, compact, onStartSelectio
           L'ordre suit le moment : on prépare AVANT de publier, on regroupe
           APRÈS. La première est l'action principale, elle porte l'encre pleine. */}
       <button onClick={onPreparer} style={{
-        minHeight: compact ? 32 : 34, padding: compact ? '0 11px' : '0 13px',
-        fontSize: compact ? 11.5 : 12, fontWeight: 700, borderRadius: 7,
-        border: 'none', background: BLUE, color: '#fff', cursor: 'pointer',
-      }}>Séquence pour des stories à venir</button>
+        minHeight: compact ? 30 : 32, padding: compact ? '0 10px' : '0 11px',
+        fontSize: compact ? 11 : 11.5, fontWeight: 600, borderRadius: 7,
+        border: `1px solid ${BLUE}`, background: 'transparent', color: BLUE, cursor: 'pointer',
+      }}>Nouvelle séquence · stories à venir</button>
       <button onClick={onStartSelection} style={{ ...btn, minHeight: compact ? 32 : 34, borderRadius: 7 }}>
-        Séquence avec des stories publiées
+        Nouvelle séquence · stories publiées
       </button>
     </div>
   );
@@ -6162,6 +6066,10 @@ export default function PageLiens() {
   // automatique : « Rouvrir » ramène une séquence dormante en un clic, pour une
   // story publiée trois jours plus tard.
   const [sequenceOccupee, setSequenceOccupee] = useState<string | null>(null);
+  // Les stories qu'on a choisi de NE PAS rattacher. En mémoire seulement : la
+  // proposition s'éteint d'elle-même au bout de 24 h, et une story écartée par
+  // erreur se retrouve dans l'onglet Stories, où le « + » du panneau la reprend.
+  const [storiesEcartees, setStoriesEcartees] = useState<Set<string>>(new Set());
   const FENETRE_OUVERTURE_MS = 24 * 60 * 60 * 1000;
 
   // Plus de clôture manuelle : deux boutons dont l'un ne servait qu'à annuler
@@ -6184,7 +6092,7 @@ export default function PageLiens() {
     .sort((a, b) => new Date(a.postedAt || 0).getTime() - new Date(b.postedAt || 0).getTime());
 
   const storiesARattacher = (seq: any): Post[] => posts
-    .filter(p => p.platform === 'STORY' && !p.sequenceId
+    .filter(p => p.platform === 'STORY' && !p.sequenceId && !storiesEcartees.has(p.id)
       && new Date(p.postedAt || 0).getTime() > new Date(seq.created_at).getTime())
     .sort((a, b) => new Date(a.postedAt || 0).getTime() - new Date(b.postedAt || 0).getTime());
 
@@ -6550,15 +6458,16 @@ export default function PageLiens() {
                 />
               )}
 
+              {/* Poussés à DROITE et allégés : alignés à gauche et en encre pleine,
+                  ils se lisaient comme une seconde rangée de filtres juste sous la
+                  vraie. Un bouton d'action ne doit pas avoir la forme d'un onglet. */}
               {filterPlatform === 'STORY' && storiesSubTab === 'sequences' && (
-                <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
-                  {/* L'ordre suit le moment, comme les libellés : on prépare
-                      AVANT de publier, on regroupe APRÈS. */}
-                  <button onClick={() => { setPreparation(true); setErreurPreparation(null); }} style={{ minHeight: 36, padding: '0 13px', fontSize: 12, fontWeight: 700, borderRadius: 7, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer' }}>
-                    Séquence pour des stories à venir
+                <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginLeft: 'auto' }}>
+                  <button onClick={() => { setPreparation(true); setErreurPreparation(null); }} style={{ minHeight: 32, padding: '0 11px', fontSize: 11.5, fontWeight: 600, borderRadius: 7, border: `1px solid ${BLUE}`, background: 'transparent', color: BLUE, cursor: 'pointer' }}>
+                    Nouvelle séquence · stories à venir
                   </button>
-                  <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ minHeight: 36, padding: '0 12px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
-                    Séquence avec des stories publiées
+                  <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ minHeight: 32, padding: '0 11px', fontSize: 11.5, fontWeight: 600, borderRadius: 7, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+                    Nouvelle séquence · stories publiées
                   </button>
                 </div>
               )}
@@ -6570,10 +6479,10 @@ export default function PageLiens() {
                     <div style={{ marginTop: 4 }}>Pour des stories que tu n'as pas encore publiées : son lien Calendly est généré tout de suite, prêt à coller dans le sticker.</div>
                     <div style={{ display: 'flex', gap: 7, justifyContent: 'center', marginTop: 12, flexWrap: 'wrap' }}>
                       <button onClick={() => { setPreparation(true); setErreurPreparation(null); }} style={{ minHeight: 36, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer' }}>
-                        Créer une séquence pour des stories à venir
+                        Nouvelle séquence · stories à venir
                       </button>
                       <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ minHeight: 36, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
-                        Créer une séquence avec des stories publiées
+                        Nouvelle séquence · stories publiées
                       </button>
                     </div>
                   </div>
@@ -6590,6 +6499,7 @@ export default function PageLiens() {
                       if (ctaStory) openMobileDetail({ type: 'story', post: ctaStory });
                     }}
                     onRattacher={ids => patchSequence(seq.id, { addStoryIds: ids })}
+                    onEcarter={id => setStoriesEcartees(prev => new Set([...prev, id]))}
                   />
                 ))
               ) : postsLoading ? (
@@ -6734,7 +6644,7 @@ export default function PageLiens() {
             <div style={{ padding: '16px' }}>
               {rightView.type === 'lm-library' ? (
                 <PanneauLeadMagnets
-                  leadMagnets={leadMagnets} lmLoading={lmLoading} profileId={profileId}
+                  leadMagnets={leadMagnets} lmLoading={lmLoading}
                   onCreated={(lm: LeadMagnet) => setLmOverrides(prev => [lm, ...(prev ?? leadMagnetsFromQuery)])}
                   onDeleted={(id: string) => setLmOverrides(prev => (prev ?? leadMagnetsFromQuery).filter(l => l.id !== id))}
                   onUpdated={(lm: LeadMagnet) => setLmOverrides(prev => (prev ?? leadMagnetsFromQuery).map(l => l.id === lm.id ? lm : l))}
@@ -6859,12 +6769,12 @@ export default function PageLiens() {
               )}
 
               {filterPlatform === 'STORY' && storiesSubTab === 'sequences' && (
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  <button onClick={() => { setPreparation(true); setErreurPreparation(null); }} style={{ minHeight: 32, padding: '0 11px', fontSize: 11.5, fontWeight: 700, borderRadius: 7, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer' }}>
-                    Séquence pour des stories à venir
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginLeft: 'auto' }}>
+                  <button onClick={() => { setPreparation(true); setErreurPreparation(null); }} style={{ minHeight: 30, padding: '0 10px', fontSize: 11, fontWeight: 600, borderRadius: 7, border: `1px solid ${BLUE}`, background: 'transparent', color: BLUE, cursor: 'pointer' }}>
+                    Nouvelle séquence · stories à venir
                   </button>
                   <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ minHeight: 32, padding: '0 10px', fontSize: 11.5, fontWeight: 600, borderRadius: 7, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
-                    Séquence avec des stories publiées
+                    Nouvelle séquence · stories publiées
                   </button>
                 </div>
               )}
@@ -6886,10 +6796,10 @@ export default function PageLiens() {
                     <div style={{ marginTop: 4 }}>Pour des stories que tu n'as pas encore publiées : son lien Calendly est généré tout de suite, prêt à coller dans le sticker.</div>
                     <div style={{ display: 'flex', gap: 7, justifyContent: 'center', marginTop: 12, flexWrap: 'wrap' }}>
                       <button onClick={() => { setPreparation(true); setErreurPreparation(null); }} style={{ minHeight: 36, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer' }}>
-                        Créer une séquence pour des stories à venir
+                        Nouvelle séquence · stories à venir
                       </button>
                       <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ minHeight: 36, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
-                        Créer une séquence avec des stories publiées
+                        Nouvelle séquence · stories publiées
                       </button>
                     </div>
                   </div>
@@ -6906,6 +6816,7 @@ export default function PageLiens() {
                       if (ctaStory) unsavedGuardApi.guard(() => setRightView({ type: 'story', post: ctaStory }));
                     }}
                     onRattacher={ids => patchSequence(seq.id, { addStoryIds: ids })}
+                    onEcarter={id => setStoriesEcartees(prev => new Set([...prev, id]))}
                   />
                 ))
               ) : postsLoading ? (
@@ -6955,7 +6866,7 @@ export default function PageLiens() {
           <div style={{ flex: 1, minWidth: 0, background: SURFACE, overflowY: 'auto' }}>
             {rightView.type === 'lm-library' ? (
               <PanneauLeadMagnets
-                leadMagnets={leadMagnets} lmLoading={lmLoading} profileId={profileId}
+                leadMagnets={leadMagnets} lmLoading={lmLoading}
                 onCreated={(lm: LeadMagnet) => setLmOverrides(prev => [lm, ...(prev ?? leadMagnetsFromQuery)])}
                 onDeleted={(id: string) => setLmOverrides(prev => (prev ?? leadMagnetsFromQuery).filter(l => l.id !== id))}
                 onUpdated={(lm: LeadMagnet) => setLmOverrides(prev => (prev ?? leadMagnetsFromQuery).map(l => l.id === lm.id ? lm : l))}
@@ -6997,9 +6908,26 @@ export default function PageLiens() {
       {preparation && (
         <ModalShell onClose={() => setPreparation(false)} width={420} variant={isMobile ? 'sheet' : 'centered'}>
           <div style={{ padding: 24 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: INK, marginBottom: 6 }}>Séquence pour des stories à venir</div>
-            <div style={{ fontSize: 12.5, color: MUTED, lineHeight: 1.5, marginBottom: 16 }}>
-              Son lien Calendly est généré tout de suite. Colle-le dans le sticker « Lien » en publiant tes stories — une story publiée ne peut plus recevoir de lien après coup. Tu lui rattacheras les stories ensuite, ici même.
+            <div style={{ fontSize: 15, fontWeight: 700, color: INK, marginBottom: 6 }}>Nouvelle séquence · stories à venir</div>
+            <div style={{ fontSize: 12.5, color: MUTED, lineHeight: 1.6, marginBottom: 14 }}>
+              <b style={{ color: INK }}>Uniquement si tu veux un lien Calendly comme CTA.</b> Pour un lead magnet, tu n'as rien à préparer : il se configure après avoir publié.
+            </div>
+            {/* Les trois temps, numérotés : c'est un ordre imposé par Instagram,
+                pas une suggestion. En prose, on croyait pouvoir revenir en arrière. */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16, padding: '12px 13px', background: SURFACE2, borderRadius: 9 }}>
+              {[
+                ['1', 'Tu crées la séquence ici', 'Son lien Calendly est généré immédiatement.'],
+                ['2', 'Tu publies tes stories avec le sticker « Lien »', "Une story déjà publiée ne peut plus recevoir de lien — c'est pour ça qu'on passe avant."],
+                ['3', 'Tu reviens ici rattacher tes stories', 'Elles apparaîtront sur cette séquence, prêtes à être ajoutées.'],
+              ].map(([n, titre, detail]) => (
+                <div key={n} style={{ display: 'grid', gridTemplateColumns: '20px 1fr', gap: 10, alignItems: 'start' }}>
+                  <span style={{ font: "600 10px/20px 'IBM Plex Mono', monospace", textAlign: 'center', background: BLUE_SOFT, color: BLUE, borderRadius: 6, height: 20 }}>{n}</span>
+                  <span style={{ fontSize: 12, color: INK, lineHeight: 1.45 }}>
+                    {titre}
+                    <span style={{ display: 'block', color: MUTED, fontSize: 11.5, marginTop: 1 }}>{detail}</span>
+                  </span>
+                </div>
+              ))}
             </div>
             <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Nom de la séquence</label>
             <input autoFocus value={nomPreparation} onChange={e => setNomPreparation(e.target.value)}
@@ -7016,7 +6944,7 @@ export default function PageLiens() {
               </button>
               <button onClick={preparerSequence} disabled={preparationEnCours || !nomPreparation.trim()}
                 style={{ order: isMobile ? 1 : 2, minHeight: 44, padding: '8px 16px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: 'none', background: nomPreparation.trim() ? BLUE : SURFACE2, color: nomPreparation.trim() ? '#fff' : MUTED, cursor: preparationEnCours || !nomPreparation.trim() ? 'default' : 'pointer', opacity: preparationEnCours ? 0.7 : 1 }}>
-                {preparationEnCours ? 'Création…' : 'Créer et générer le lien'}
+                {preparationEnCours ? 'Création…' : 'Créer cette séquence et générer le lien'}
               </button>
             </div>
           </div>

@@ -65,6 +65,9 @@ export async function GET(request: NextRequest) {
   });
   const meData = await meRes.json();
   const accountLabel = meData?.resource?.name || meData?.resource?.email || null;
+  // L'URL de réservation, dans la MÊME réponse. Voir plus bas : c'est elle qui
+  // manquait à tout l'écran « Gérer mes liens ».
+  const schedulingUrl: string | null = meData?.resource?.scheduling_url || null;
 
   const expiresAt = tokenData.expires_in
     ? new Date(Date.now() + tokenData.expires_in * 1000).toISOString()
@@ -97,6 +100,43 @@ export async function GET(request: NextRequest) {
     connected_at: now,
     first_connected_at: existingIntegration?.first_connected_at || now,
   }, { onConflict: 'profile_id,provider' });
+
+  // ── L'URL DE RÉSERVATION SE CAPTURE, ELLE NE SE DEMANDE PAS ───────────────
+  //
+  // Deux choses différentes portent le nom « Calendly » : la CONNEXION, qui
+  // synchronise les rendez-vous, et le LIEN DE RÉSERVATION, celui qu'on colle
+  // dans un sticker de story ou un DM. Seule la première était demandée.
+  //
+  // Conséquence : on terminait l'onboarding sans lien de réservation, et plus
+  // rien dans « Gérer mes liens » ne pouvait générer de Calendly — sans qu'aucun
+  // écran ne dise pourquoi. Le champ existait, dans un coin des Paramètres.
+  //
+  // Calendly renvoie `scheduling_url` dans la réponse `/users/me` qu'on fait
+  // DÉJÀ juste au-dessus, pour le libellé du compte. Il n'y a donc rien à
+  // demander à personne : on la pose au moment de la connexion.
+  //
+  // ⚠️ Seulement si le champ est VIDE. `scheduling_url` est la page générale du
+  // compte ; un élève qui a délibérément choisi un type de rendez-vous précis
+  // (« /30min ») a une raison de l'avoir fait, et l'écraser à chaque
+  // reconnexion effacerait ce choix en silence.
+  if (schedulingUrl) {
+    const { data: profil } = await serviceSupabase
+      .from('profiles').select('role').eq('id', user.id).maybeSingle();
+
+    if (profil?.role === 'coach') {
+      const { data: actuel } = await serviceSupabase
+        .from('profiles').select('calendly_url').eq('id', user.id).maybeSingle();
+      if (!actuel?.calendly_url) {
+        await serviceSupabase.from('profiles').update({ calendly_url: schedulingUrl }).eq('id', user.id);
+      }
+    } else {
+      const { data: actuel } = await serviceSupabase
+        .from('clients').select('calendly_url').eq('profile_id', user.id).maybeSingle();
+      if (actuel && !actuel.calendly_url) {
+        await serviceSupabase.from('clients').update({ calendly_url: schedulingUrl }).eq('profile_id', user.id);
+      }
+    }
+  }
 
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
 

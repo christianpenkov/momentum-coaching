@@ -253,8 +253,23 @@ async function generateCalendlyLink(profileId: string, sequenceId: string, name:
   const apiKey = shortioInteg.api_key;
   const domain = (shortioInteg.metadata as any).domain;
 
+  // ── LE LIEN NE DIT PAS CE QU'IL Y A DERRIÈRE ────────────────────────────
+  //
+  // Il portait le nom de la séquence : « story-calendly-s-quence-test-lien ».
+  // Ce lien est collé dans un sticker Instagram, donc lu par des inconnus — il
+  // exposait le vocabulaire interne du coach, et ressemblait moins à une prise
+  // de rendez-vous qu'à un lien qu'on n'ouvre pas.
+  //
+  // Même forme que les liens des posts : « prendre-rdv-XXXX ». Court, discret,
+  // et il dit ce qu'on obtient en cliquant.
+  //
+  // Le suffixe vient de l'identifiant de la séquence : stable — régénérer ne
+  // fabrique pas un second lien — et sans rapport avec le nom, qui peut changer.
+  const suffixe = sequenceId.replace(/[^a-z0-9]/gi, '').slice(0, 4).toLowerCase();
+  const path = `prendre-rdv-${suffixe}`;
+  // La campagne UTM, elle, garde le nom : elle n'est jamais montrée à personne
+  // et c'est ce qui rend la séquence reconnaissable dans les statistiques.
   const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
-  const path = `story-calendly-${slug}`;
 
   const destUrl = new URL(calendlyUrl);
   destUrl.searchParams.set('utm_source', 'ig');
@@ -273,7 +288,7 @@ async function generateCalendlyLink(profileId: string, sequenceId: string, name:
   const linkRes = await fetch('https://api.short.io/links', {
     method: 'POST',
     headers: { authorization: apiKey, 'content-type': 'application/json', accept: 'application/json' },
-    body: JSON.stringify({ domain, originalURL: destFinale, title: `Story — ${name}`, path }),
+    body: JSON.stringify({ domain, originalURL: destFinale, title: `Prendre RDV — ${name}`, path }),
   });
   const linkData = await linkRes.json().catch(() => ({}));
   if (linkRes.ok || linkRes.status === 409) {
