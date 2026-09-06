@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   CORPS_MAX,
   nouvellesPublications,
+  nouvellesStories,
+  PARAM_STORIES_A_GROUPER,
   typePublication,
   typeDuLot,
   rapportDeCall,
@@ -25,6 +27,8 @@ import {
 const CAS_LES_PLUS_LONGS: [string, NotifPush][] = [
   ['publications — 3 chiffres', nouvellesPublications({ nombre: 999, type: 'mixte', premierId: 'p1' })],
   ['publications — une seule', nouvellesPublications({ nombre: 1, type: 'reel', premierId: 'p1' })],
+  ['stories — 2', nouvellesStories({ storyIds: ['s1', 's2'] })],
+  ['stories — 12', nouvellesStories({ storyIds: Array.from({ length: 12 }, (_, i) => `story${i}`) })],
   ['rapport — nom à rallonge', rapportDeCall({ callId: 'c1', inviteeName: 'Jean-Baptiste de La Rochefoucauld-Montmorency' })],
   ['invitation — coach au nom long', invitationCall({ callId: 'c1', coachPrenom: 'Maximilien-Alexandre', heure: '14:30', echeance: '24h' })],
 ];
@@ -108,6 +112,36 @@ test('aucun titre ne contient de forme mal accordée', () => {
       assert.ok(!/nouvelles? (posts?|reels?)/.test(t), `accord féminin sur un mot masculin : ${t}`);
     }
   }
+});
+
+// ── Stories ─────────────────────────────────────────────────────────────────
+
+test('la notification stories emmène sur la création de séquence, pré-remplie', () => {
+  // Tout l'intérêt est là : le clic remplace sept gestes. Si le paramètre
+  // disparaît de l'URL, la notification tombe sur un écran vide et personne ne
+  // s'en aperçoit — la notification part quand même.
+  const n = nouvellesStories({ storyIds: ['aaa', 'bbb', 'ccc'] });
+  assert.ok(n.url.startsWith('/client/liens?'), n.url);
+  assert.ok(n.url.includes(`${PARAM_STORIES_A_GROUPER}=aaa,bbb,ccc`), n.url);
+});
+
+test('le titre porte le nombre réel de stories', () => {
+  assert.equal(nouvellesStories({ storyIds: ['a', 'b'] }).title, '2 stories publiées');
+  assert.equal(nouvellesStories({ storyIds: ['a', 'b', 'c', 'd'] }).title, '4 stories publiées');
+});
+
+test('deux lots de stories différents ne s’effacent pas', () => {
+  const matin = nouvellesStories({ storyIds: ['a', 'b'] });
+  const soir = nouvellesStories({ storyIds: ['x', 'y'] });
+  assert.notEqual(matin.tag, soir.tag);
+});
+
+test('rejouer le même lot de stories remplace au lieu d’empiler', () => {
+  assert.equal(
+    nouvellesStories({ storyIds: ['a', 'b'] }).tag,
+    nouvellesStories({ storyIds: ['a', 'b', 'c'] }).tag,
+    'le tag suit la première story : un lot qui s’agrandit met à jour la même notification'
+  );
 });
 
 // ── Le type d'une publication ───────────────────────────────────────────────

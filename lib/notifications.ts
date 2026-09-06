@@ -115,6 +115,48 @@ export function typePublication(media: { media_product_type?: string | null; med
   return media.media_product_type === 'REELS' || media.media_type === 'VIDEO' ? 'reel' : 'post';
 }
 
+// ── Instagram : stories ─────────────────────────────────────────────────────
+
+/**
+ * Le paramètre d'URL qui ouvre « Gérer mes liens » directement sur la création
+ * d'une séquence, avec ces stories déjà sélectionnées.
+ *
+ * Nommé ici plutôt que dans la page, parce qu'il est écrit d'un côté (la
+ * notification) et lu de l'autre (PageLiens) : une chaîne recopiée aux deux
+ * bouts finit par diverger d'un côté seulement, et le lien tombe alors sur un
+ * écran vide sans que rien ne le signale.
+ */
+export const PARAM_STORIES_A_GROUPER = 'grouper';
+
+/**
+ * Plusieurs stories viennent d'être publiées, et aucune n'est encore rattachée
+ * à une séquence.
+ *
+ * POURQUOI UNE QUESTION, ET NON UN ORDRE : on ne sait pas si c'en est une.
+ * Plusieurs stories dans le même créneau le sont souvent, pas toujours. Une
+ * phrase affirmative (« associe-leur une séquence ») affirmerait quelque chose
+ * de possiblement faux et se lirait comme une corvée assignée ; la question se
+ * décline en l'ignorant, à coût nul, et quand la réponse est oui le travail est
+ * déjà préparé de l'autre côté du clic.
+ *
+ * POURQUOI JAMAIS POUR UNE STORY SEULE (le seuil vit chez l'appelant) : c'est le
+ * geste le plus quotidien de la plateforme. Alerter dessus tous les jours est
+ * exactement ce qui fait couper les notifications — après quoi plus aucune n'est
+ * lue, y compris celles qui comptent.
+ */
+export function nouvellesStories(opts: { storyIds: readonly string[] }): NotifPush {
+  const n = opts.storyIds.length;
+  return {
+    // Toujours au pluriel : l'appelant ne notifie qu'à partir de deux.
+    title: `${n} stories publiées`,
+    body: "C'est une séquence ? Crée-la pour capter les leads qui répondent.",
+    // Le clic remplace sept gestes (onglet, « Sélectionner », taper chaque
+    // story, « Continuer ») par un seul.
+    url: `/client/liens?${PARAM_STORIES_A_GROUPER}=${opts.storyIds.join(',')}`,
+    tag: `nouvelles-stories-${opts.storyIds[0]}`,
+  };
+}
+
 /** Le type d'un LOT : « mixte » dès que les deux cohabitent. */
 export function typeDuLot(types: readonly ('reel' | 'post')[]): TypePublication {
   const distincts = new Set(types);

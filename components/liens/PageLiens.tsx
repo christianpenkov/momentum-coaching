@@ -16,6 +16,7 @@ import { personnesParContenu } from '@/lib/attribution-roles';
 import { SOURCE_DM_ENTRANT, SOURCE_DM_SORTANT } from '@/lib/canalDm';
 
 import { IG, IgAvatar, IgRecu, IgTemplate, IgEnvoye } from '@/components/ig/primitivesInstagram';
+import { PARAM_STORIES_A_GROUPER } from '@/lib/notifications';
 // ─── Garde de navigation — bloque un changement de post/onglet si des DMs ne sont pas sauvegardés ──
 interface UnsavedGuardApi {
   setHasUnsaved: (v: boolean) => void;
@@ -5653,6 +5654,56 @@ export default function PageLiens() {
       setMobileDetailOpen(true);
     });
   };
+
+  // ── Arrivée depuis la notification « N stories publiées » ──────────────────
+  //
+  // La notification porte les stories du lot dans l'URL (`?grouper=id1,id2,…`,
+  // cf. PARAM_STORIES_A_GROUPER). On ouvre ici directement l'écran de
+  // regroupement avec ces stories sélectionnées : le clic remplace sept gestes
+  // (onglet Stories, « Sélectionner », taper chaque story, « Continuer »).
+  //
+  // Attendre `posts` est obligatoire : le paramètre porte des identifiants
+  // Instagram, pas des stories. Tant que la liste n'est pas chargée, il n'y a
+  // rien à sélectionner — sans cette garde, le lien ouvrait un écran vide.
+  //
+  // Le paramètre est retiré de l'URL une fois consommé : sans ça, un
+  // rafraîchissement de la page rouvrirait l'écran de regroupement sur des
+  // stories peut-être déjà groupées, et l'URL mise en favori porterait une
+  // intention qui n'a plus de sens.
+  const grouperConsomme = useRef(false);
+  useEffect(() => {
+    // `posts.length` autant que `postsLoading` : le drapeau de chargement peut
+    // être faux AVANT que la première requête ait rendu quoi que ce soit. On
+    // consommait alors le paramètre sur une liste vide, sans rien trouver et
+    // sans jamais réessayer — l'écran s'ouvrait vide et rien ne le signalait.
+    if (grouperConsomme.current || postsLoading || posts.length === 0) return;
+    const brut = new URLSearchParams(window.location.search).get(PARAM_STORIES_A_GROUPER);
+    if (!brut) return;
+    grouperConsomme.current = true;
+
+    const demandes = new Set(brut.split(',').map(s => s.trim()).filter(Boolean));
+    // ⚠️ Rapprochement sur `igStoryId` et non sur `id` : la notification est
+    // émise par le cron, qui ne connaît que l'identifiant INSTAGRAM, alors que
+    // `Post.id` porte ici l'identifiant interne (`ig_stories.id`, un uuid). Les
+    // deux existent côte à côte sur le même objet, et se tromper ne lève aucune
+    // erreur — le lien ouvre simplement un écran vide.
+    //
+    // On ne garde que les stories réellement présentes ET non déjà groupées :
+    // entre l'envoi de la notification et le clic, l'élève a pu en grouper une
+    // partie, ou une story a pu expirer.
+    const cibles = posts.filter(p => p.platform === 'STORY' && p.igStoryId && demandes.has(p.igStoryId) && !p.sequenceId);
+
+    window.history.replaceState({}, '', window.location.pathname);
+
+    // En dessous de deux, il n'y a plus de séquence à créer : on se contente
+    // d'amener sur l'onglet Stories plutôt que d'ouvrir un regroupement vide.
+    setFilterPlatform('STORY');
+    if (cibles.length < 2) return;
+
+    const vue: RightView = { type: 'story-multi', postIds: cibles.map(p => p.id) };
+    if (isMobile) openMobileDetail(vue);
+    else setRightView(vue);
+  }, [postsLoading, posts, isMobile]);
 
   const closeMobileDetail = () => {
     setDrawerClosing(true);

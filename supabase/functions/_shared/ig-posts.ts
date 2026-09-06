@@ -1024,6 +1024,26 @@ export async function snapshotIgPosts(
     // UNE notification pour le lot, pas une par post — et son texte vient du
     // catalogue (lib/notifications.ts), pas d'une composition sur place.
     if (newPostIds.length > 0 && notifyConfig) {
+      // Publications déjà traitées entre leur parution et ce passage : on ne les
+      // compte pas. L'élève a pu associer son lead magnet dans l'intervalle, et
+      // lui annoncer qu'il lui reste à faire ce qu'il vient de faire est le
+      // meilleur moyen de lui apprendre à ignorer les notifications.
+      //
+      // ⚠️ Le critère de « nouveau » reste `jamais vu en base`, PAS `sans lead
+      // magnet`. La distinction est essentielle : la plupart des posts n'auront
+      // jamais de lead magnet, et grouper là-dessus ferait revenir la
+      // notification indéfiniment sur les mêmes publications.
+      const { data: dejaTraites } = await supa.from('content_links')
+        .select('content_id')
+        .eq('profile_id', profileId)
+        .in('content_id', newPostIds)
+        .is('archived_at', null)
+        .not('lm_id', 'is', null);
+      const traites = new Set((dejaTraites || []).map((r: any) => r.content_id));
+      newPostIds = newPostIds.filter((id) => !traites.has(id));
+    }
+
+    if (newPostIds.length > 0 && notifyConfig) {
       const n = newPostIds.length;
       const types = newPostIds.map((id) => {
         const p = posts.find((x: any) => x.id === id);

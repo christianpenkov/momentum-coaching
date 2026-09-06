@@ -17,10 +17,14 @@ import { mapWithConcurrency } from '../_shared/rate-limit.ts';
 // `npm run deployer-edge <nom>` juste avant l'envoi : la valeur figee dans le bundle est
 // donc celle du code reellement deploye.
 import { EMPREINTES_EDGE } from '../../../lib/empreintes-edge.generated.ts';
+// Catalogue partagé avec Next.js — voir l'en-tête de lib/notifications.ts.
+import { nouvellesStories } from '../../../lib/notifications.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const CRON_SECRET = Deno.env.get('CRON_SECRET')!;
+
+const PLATFORM_URL = Deno.env.get('NEXT_PUBLIC_PLATFORM_URL') || 'https://momentum-plateforme.vercel.app';
 
 const supa = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -175,12 +179,21 @@ async function pollProfileStories(profileId: string, token: string, igAccountId:
   const activeStories: any[] = storiesData?.data || [];
   const activeIds = new Set(activeStories.map(s => String(s.id)));
 
+  // Stories jamais vues jusqu'ici : c'est ce lot, et lui seul, qui peut donner
+  // lieu a une notification. `existingRow` le dit deja pour chaque story, on ne
+  // fait que le retenir. Rempli en parallele, d'ou le tableau partage.
+  const nouvellesIds: string[] = [];
+
   await Promise.allSettled(activeStories.map(async (story) => {
     try {
       const igStoryId = String(story.id);
       const { data: existingRow } = await supa.from('ig_stories')
-        .select('id, storage_path, first_seen_at')
+        .select('id, storage_path, first_seen_at, sequence_id')
         .eq('profile_id', profileId).eq('ig_story_id', igStoryId).maybeSingle();
+      // Deja rattachee a une sequence : le geste est fait, rien a proposer.
+      // Concerne le cas ou l'eleve a groupe ses stories a la main entre la
+      // publication et ce passage.
+      if (!existingRow) nouvellesIds.push(igStoryId);
 
       let storagePath = existingRow?.storage_path ?? null;
       let storageUrl: string | null = null;
@@ -297,6 +310,49 @@ async function pollProfileStories(profileId: string, token: string, igAccountId:
     }
   } catch (e: any) {
     errors.push(`expire_stale: ${e?.message || 'unknown'}`);
+  }
+
+  // ── Proposer une séquence ───────────────────────────────────────────────────
+  //
+  // UNE notification pour le lot, et seulement à partir de DEUX stories.
+  //
+  // Le seuil est la pièce maîtresse. Une story isolée est le geste le plus
+  // quotidien de la plateforme : alerter dessus chaque jour est exactement ce
+  // qui fait couper les notifications — après quoi plus aucune n'est lue, y
+  // compris celles qui comptent. À deux, en revanche, il y a quelque chose à
+  // proposer : un regroupement en séquence, avec son mot-clé et son DM.
+  //
+  // La rafale se règle d'elle-même par la cadence : ce cron passe toutes les
+  // 30 min, donc cinq stories publiées en dix minutes arrivent dans le MÊME
+  // passage et donnent une seule notification.
+  //
+  // On ne notifie pas si tout le lot est déjà rattaché à une séquence : l'élève
+  // a pu les grouper à la main entre la publication et ce passage, et lui dire
+  // de faire ce qu'il vient de faire est le meilleur moyen de lui apprendre à
+  // ignorer les notifications.
+  try {
+    if (nouvellesIds.length >= 2) {
+      const { data: dejaGroupees } = await supa.from('ig_stories')
+        .select('ig_story_id')
+        .eq('profile_id', profileId)
+        .in('ig_story_id', nouvellesIds)
+        .not('sequence_id', 'is', null);
+      const groupees = new Set((dejaGroupees || []).map((r: any) => r.ig_story_id));
+      const aProposer = nouvellesIds.filter((id) => !groupees.has(id));
+
+      if (aProposer.length >= 2) {
+        const res = await fetch(`${PLATFORM_URL}/api/push/send`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CRON_SECRET}` },
+          body: JSON.stringify({ profileId, ...nouvellesStories({ storyIds: aProposer }) }),
+        });
+        if (!res.ok) errors.push(`stories_push: HTTP ${res.status} (${aProposer.length} stories)`);
+      }
+    }
+  } catch (e: any) {
+    // Jamais bloquant : une notification manquée ne doit pas faire échouer la
+    // collecte, qui est la vraie raison d'être de ce cron.
+    errors.push(`stories_push: ${e?.message || 'unknown'}`);
   }
 
   return { found, errors };
