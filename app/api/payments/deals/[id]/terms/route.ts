@@ -7,6 +7,7 @@ import {
   ajusterPrelevements, ajusterNombreEcheances,
 } from '@/lib/stripe-payment-links';
 import { calculerCash, resteAEncaisser, type LignePaiement } from '@/lib/dealCash';
+import { modeDe as modeDePartage } from '@/components/payments/etats';
 
 /**
  * Modifier les modalités d'une vente : le mode, le rythme, le nombre de fois.
@@ -75,7 +76,7 @@ export async function PATCH(
     .from('deals')
     .select(`id, profile_id, status, amount_total, buyer_name, payment_plan, installments_count,
              installment_interval, currency, stripe_subscription_id, stripe_payment_link_id,
-             ig_lead_id, first_touch_content_id,
+             moyen_encaissement, ig_lead_id, first_touch_content_id,
              deal_payments(amount, status),
              deal_installments(id, rank, amount, status, due_on, stripe_payment_link_id)`)
     .eq('id', dealId)
@@ -296,18 +297,28 @@ export async function PATCH(
   return NextResponse.json({ ok: true, liens, echeances: nbEcheances });
 }
 
-/** Le mode réel d'une vente, déduit de ses objets Stripe plutôt que du seul plan. */
+/**
+ * Le mode réel d'une vente, dans la forme que renvoie la base (snake_case).
+ *
+ * ⚠️ **La règle elle-même n'est PAS ici** : elle vit dans `components/payments/etats.ts`
+ * et cette fonction ne fait que traduire les noms de colonnes. C'est tout ce qui
+ * reste d'une seconde copie qui avait divergé — voir l'en-tête de `modeDe` là-bas
+ * pour ce que la divergence a coûté. Ne jamais réintroduire de logique ici.
+ */
 function modeDe(deal: {
   payment_plan: string | null;
+  moyen_encaissement: string | null;
   stripe_subscription_id: string | null;
   stripe_payment_link_id: string | null;
   deal_installments?: Array<{ stripe_payment_link_id: string | null }> | null;
 }): Plan {
-  if (deal.stripe_subscription_id) return 'installments_auto';
-  const aDesLiens = !!deal.stripe_payment_link_id
-    || (deal.deal_installments ?? []).some(e => !!e.stripe_payment_link_id);
-  if (!aDesLiens) return 'offline';
-  return deal.payment_plan === 'installments_manual' ? 'installments_manual' : 'one_shot';
+  return modeDePartage({
+    stripeSubscriptionId: deal.stripe_subscription_id,
+    moyenChoisi: deal.moyen_encaissement as 'lien' | 'prelevement' | 'offline' | null,
+    paymentPlan: deal.payment_plan ?? '',
+    hasLinks: !!deal.stripe_payment_link_id
+      || (deal.deal_installments ?? []).some(e => !!e.stripe_payment_link_id),
+  });
 }
 
 const libelleRythme = (i: string) => (i === 'week' ? 'hebdomadaire' : 'mensuel');

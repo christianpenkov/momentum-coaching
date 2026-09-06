@@ -127,13 +127,35 @@ export const compteDansLesTotaux = (d: DealRow) => d.status !== 'canceled';
  */
 export type Mode = 'one_shot' | 'installments_auto' | 'installments_manual' | 'offline';
 
-export function modeDe(d: DealRow): Mode {
+/**
+ * ⚠️ Le parametre est un SOUS-ENSEMBLE de `DealRow`, pas `DealRow` entier, et
+ * c'est deliberé : la route `payments/deals/[id]/terms` lit la ligne de base
+ * (snake_case) et doit appeler CETTE fonction, pas une copie.
+ *
+ * Elle en portait une, restee au stade « deduction depuis les liens » quand
+ * celle-ci a ete corrigee le 2026-09-05. Consequence mesuree sur TestYT le
+ * 2026-09-06 : l'ecran proposait « En une fois · Lien de paiement » (moyen
+ * declare = `lien`), le serveur lisait « hors Stripe » faute de lien vivant,
+ * en deduisait un changement de mode, et refusait en reclamant **700 EUR de
+ * remboursement** pour une modification qui n'en etait pas une.
+ *
+ * Une regle et son complement doivent lire le meme predicat. Un `Pick` coute
+ * quatre champs a l'appelant et supprime la seconde copie.
+ */
+export function modeDe(
+  d: Pick<DealRow, 'stripeSubscriptionId' | 'moyenChoisi' | 'paymentPlan' | 'hasLinks'>,
+): Mode {
   if (d.stripeSubscriptionId) return 'installments_auto';
   // ⚠️ Le CHOIX enregistre prime sur la deduction — meme raison que dans
   // `moyenDefini`. Sans ca, une vente payee par lien puis remboursee affichait
   // « hors Stripe » des que son lien avait disparu : « comment ca se fait qu'on
   // peut rembourser sur Stripe ? » (Chris, 2026-09-05, sur TestYT).
   if (d.moyenChoisi === 'offline') return 'offline';
+  // `prelevement` sans abonnement : le lien recurrent existe mais n'a pas encore
+  // ete paye, ou il a ete consomme. Le moyen reste celui qui a ete choisi — sans
+  // cette ligne, un tel deal retombait en « hors Stripe » par le test `hasLinks`
+  // ci-dessous, exactement le defaut que ce bloc corrige.
+  if (d.moyenChoisi === 'prelevement') return 'installments_auto';
   if (d.moyenChoisi === 'lien') {
     return d.paymentPlan === 'installments_manual' ? 'installments_manual' : 'one_shot';
   }
