@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { CALL_TYPES_VENTE } from '@/lib/callTypes';
+import { compterLeads } from '@/lib/salesCallStats';
 import { CALL_COLUMNS } from '@/lib/supabase/types';
 import { parcoursDesLeads, parcoursDesLiensPartages, type RefsParcours, type CallParcours, type PriseParcours, type CallPartage } from '@/lib/parcoursLeads';
 import InlineLoader from '@/components/ui/InlineLoader';
@@ -1219,11 +1220,36 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   // que le pipeline quand il n'a ni prospect_id ni chaîne de reprogrammation.
   const prospectKeyOf = (c: CallRecord) =>
     ((c as any).invitee_email || (c as any).invitee_name || (c as any).id || '').toLowerCase();
-  const directIgProspects = new Set(directIgCallsInPeriod.map(prospectKeyOf));
-  const ytBookedProspects = new Set(ytBookedCallsInPeriod.map(prospectKeyOf));
-  const leadsCount = new Set(
-    (lmHistory ?? []).filter(h => isLeadInPeriod(h.detected_at)).map(h => h.ig_user_id)
-  ).size + directIgProspects.size + ytBookedProspects.size;
+  /* ⚠️ `compterLeads`, la règle partagée — et non un comptage local.
+   *
+   * Cet écran comptait les personnes ayant au moins une ligne dans
+   * `instagram_lead_lm_history`, c'est-à-dire celles ENTRÉES DANS LA SÉQUENCE de DM.
+   * Stats Clients compte celles qui se sont MANIFESTÉES : présentes dans
+   * `instagram_leads` (elles ont commenté) ou dans `prospect_links`.
+   *
+   * Mesuré sur le compte de test le 2026-09-05 : 7 contre 4. Les trois personnes
+   * manquantes avaient commenté et n'avaient jamais reçu le moindre DM — donc l'écran
+   * de l'élève masquait une fuite du tunnel au lieu de la montrer. Tranché par Chris :
+   * un lead est quelqu'un qui s'est manifesté.
+   *
+   * ⚠️ `compterLeads` ajoute LUI-MÊME les calls Instagram directs et les calls YouTube
+   * bookés. Les deux ensembles calculés séparément ici les auraient donc comptés deux
+   * fois — c'est pour ça qu'ils disparaissent.
+   *
+   * ⚠️ Le filtre de date s'applique APRÈS le dédoublonnage, sur la date la plus
+   * ancienne connue. Filtrer chaque source d'abord recompterait comme « nouveau ce
+   * mois » un prospect vu en juillet dans `instagram_leads` et revu en août dans
+   * `prospect_links` — le défaut que cette fonction existe pour empêcher.
+   *
+   * Les sources étaient DÉJÀ alignées (`archived_at is null`, `not_a_lead = false`
+   * des deux côtés) : seule la règle de comptage divergeait. Aucune requête ajoutée,
+   * les lignes sont celles que cet écran chargeait déjà. */
+  const leadsCount = compterLeads({
+    leads: (leads ?? []).map(l => ({ ig_username: l.igUsername, detected_at: l.commentedAt })),
+    liens: (prospectLinksData ?? []).map((p: any) => ({ ig_username: p.ig_username, created_at: p.created_at })),
+    callsIgDirects: directIgCallsInPeriod as any,
+    callsYoutube: ytBookedCallsInPeriod as any,
+  }, ovPeriodStart.toISOString(), _ovPIdx === 0 ? null : ovPeriodEnd.toISOString());
   // Les calls directs comptent aussi comme "nouveaux" dans le badge : par construction
   // (ig_lead_id null), ils n'ont jamais été vus ailleurs avant ce call. Idem pour les
   // calls YouTube bookés — pas de notion de "lead" préalable pour cette source.
