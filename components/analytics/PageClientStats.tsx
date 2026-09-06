@@ -3460,13 +3460,32 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
         setJobCreatedAt(jca);
         const videoOlderThanJob = jca && publishedAt && new Date(publishedAt) < new Date(jca);
         if (!videoOlderThanJob) {
-          // Job récent (<72h) et aucun rapport encore reçu → "Bientôt dispo"
           const jobAgentH = jca ? (Date.now() - new Date(jca).getTime()) / 3600000 : 999;
           const noReports = (ctrData.reportsProcessed ?? 0) === 0;
-          if (noReports && jobAgentH < 72) {
+          const ctrPct: number | null = ctrData.ctrPct ?? null;
+          const ageVideoH = publishedAt ? (Date.now() - new Date(publishedAt).getTime()) / 3600000 : 999;
+
+          // ── Deux raisons DIFFERENTES de ne pas avoir encore de CTR ──────────
+          //
+          // 1. Le JOB vient d'etre cree et n'a produit aucun rapport (<72 h).
+          // 2. La VIDEO vient d'etre publiee. C'est le cas courant en regime de
+          //    croisiere, et il n'etait pas couvert : YouTube ne met le rapport
+          //    d'un jour a disposition qu'un a deux jours plus tard, donc une
+          //    video fraiche tombait dans le `else` et affichait « — ».
+          //
+          // Or « — » veut dire « aucune impression » et se lit comme une panne,
+          // alors que la verite est « pas encore mesure ». Un trou doit dire
+          // qu'on ne sait pas ENCORE, pas qu'il n'y a rien.
+          //
+          // 96 h et non 48 : le delai de YouTube (1 a 2 jours) plus la marge d'un
+          // rapport saute. Passe ce delai, un CTR toujours absent est une vraie
+          // absence d'impressions, et « — » redevient le bon affichage.
+          const rapportPasEncoreArrive = ctrPct === null && ageVideoH < 96;
+
+          if ((noReports && jobAgentH < 72) || rapportPasEncoreArrive) {
             setCtrPending(true);
           } else {
-            setVideoCtr(ctrData.ctrPct ?? null);
+            setVideoCtr(ctrPct);
           }
         }
       }
@@ -4669,7 +4688,14 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                       </span>
                     );
                   }
-                  if (ctrPending) return <span style={{ color: 'var(--muted)' }}>Bientôt</span>;
+                  if (ctrPending) return (
+                    <span
+                      title="YouTube ne met le rapport d'impressions d'une journée à disposition qu'un à deux jours plus tard. Le CTR de cette vidéo apparaîtra tout seul, sans action de ta part."
+                      style={{ cursor: 'help', color: 'var(--muted)', borderBottom: '1px dotted var(--muted)' }}
+                    >
+                      Bientôt
+                    </span>
+                  );
                   return videoCtr !== null ? `${videoCtr}%` : '—';
                 })()] as [string, React.ReactNode]] : []),
                 ['Likes', fmt(retentionSummary?.likes ?? (loadingRetention ? selectedVideo.likes : 0))],
