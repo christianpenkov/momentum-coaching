@@ -543,7 +543,14 @@ export async function GET(request: Request) {
     .from('migrations_du_depot')
     .upsert(
       MIGRATIONS_DEPOT.map(m => ({ ...m, mis_a_jour_le: new Date().toISOString() })),
-      // ⚠️ Sur le NOM : cinq horodatages de fichiers sont en double dans le dépôt.
+      // ⚠️ Sur le NOM, jamais sur la version : des horodatages de fichiers sont en
+      // double dans le dépôt, et ce sera de plus en plus vrai — plusieurs sessions
+      // travaillent en parallèle et choisissent toutes des horodatages ronds. Le
+      // commentaire disait « cinq » ; ils étaient 18 au 2026-09-06. Le nombre est donc
+      // volontairement absent ici, il ne peut que vieillir. Pour le relever :
+      //   ls supabase/migrations/*.sql | sed 's/.*\///' | cut -c1-14 | sort | uniq -d
+      // Sans conséquence : la base horodate elle-même à l'application, donc deux
+      // fichiers de même préfixe restent deux lignes distinctes dans le registre.
       { onConflict: 'nom' },
     );
   if (erreurMigrations) {
