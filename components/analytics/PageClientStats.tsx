@@ -4060,6 +4060,23 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
           //
           // Le signe rend la nature de la valeur evidente, comme sur « Abonnés nets ».
           // Le zero n'en prend pas : « +0 » annoncerait un gain nul comme un gain.
+          {/* ⚠️ « Non mesuré » est INATTEIGNABLE dans le mode de repli de ces trois
+              cartes, et le code ne le dit pas tout seul.
+
+              `ytIsFallback` fait lire `yt.likes30d`, type `number` et calcule par un
+              `reduce(… || 0, 0)` cote route : le test `v !== null` y est donc toujours
+              vrai, et une fenetre entierement non collectee y affiche encore « 0 ».
+              Seule la branche `ytLikesP` porte reellement la correction.
+
+              Repere par le chat qui a redige le handoff, et la raison vaut d'etre
+              retenue : TypeScript enumere les valeurs devenues NULLABLES, pas celles
+              qui auraient DU l'etre. `number !== null` est une comparaison legale, donc
+              muette. La methode qui a trouve les 13 consommateurs ne pouvait pas trouver
+              ceux-la.
+
+              Correction complete = rendre `likes30d` / `comments30d` / `shares30d`
+              nullables cote route, meme lot que `reach30d` / `views30d`. Voir
+              docs/handoff-trous-de-collecte.md, « Ce qui reste vraiment ». */}
           (() => { const v = ytIsFallback ? yt.likes30d : ytLikesP; return { label: 'Likes', value: v !== null ? signeVariation(v) : 'Non mesuré', sub: v !== null ? (ytIsFallback ? '30j' : ytEtiquettePeriode) : 'aucun jour collecté', color: (v === null ? 'var(--faint)' : v < 0 ? RED : 'var(--ink)') as string, key: 'Likes' }; })(),
           (() => { const v = ytIsFallback ? yt.comments30d : ytCommentsP; return { label: 'Commentaires', value: v !== null ? signeVariation(v) : 'Non mesuré', sub: v !== null ? (ytIsFallback ? '30j' : ytEtiquettePeriode) : 'aucun jour collecté', color: (v === null ? 'var(--faint)' : v < 0 ? RED : 'var(--ink)') as string, key: 'Commentaires' }; })(),
           (() => { const v = ytIsFallback ? yt.shares30d : ytSharesP; return { label: 'Partages', value: v !== null ? signeVariation(v) : 'Non mesuré', sub: v !== null ? (ytIsFallback ? '30j' : ytEtiquettePeriode) : 'aucun jour collecté', color: (v === null ? 'var(--faint)' : v < 0 ? RED : 'var(--ink)') as string, key: 'Partages' }; })(),
