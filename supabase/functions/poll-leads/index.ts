@@ -1741,6 +1741,25 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
   // du clic). C'est ce qui rend le coût indépendant du nombre de liens ET supprime le
   // décalage d'un jour.
   const snapshotLink = async (l: any, date: string) => {
+    // ⚠️ UN LIEN NE PEUT PAS AVOIR ZERO CLIC UN JOUR OU IL N'EXISTAIT PAS.
+    //
+    // La boucle appelante croise TOUS les liens avec TOUS les jours de la fenetre
+    // (7 jours, davantage en reparation). Un lien cree ce matin recevait donc six
+    // lignes anterieures a sa naissance, chacune affirmant « personne n'a clique
+    // ce jour-la » — une affirmation sur une journee ou il n'y avait rien a
+    // cliquer. Releve par Chris le 2026-09-06, verifie systematique : les quatre
+    // liens de paiement examines portaient tous une ligne a 0 la veille de leur
+    // creation.
+    //
+    // C'est la regle permanente du projet, cote donnee : « un 0 affirme quelque
+    // chose, un trou dit qu'on ne sait pas ». Ici le trou est la verite.
+    //
+    // ⚠️ `createdAt` ABSENT ne fait rien sauter : une absence de date n'est pas
+    // une date. Sauter par prudence effacerait de vraies journees sur un lien
+    // dont Short.io ne rend pas la date de creation.
+    const creeLe = l.createdAt ? isoDateFromInstant(String(l.createdAt)) : null;
+    if (creeLe && date < creeLe) return;
+
     const linkId = String(l.id);
     const path = l.path || '';
     const shortUrl = l.secureShortURL || l.shortURL || `https://${creds.domain}/${path}`;
