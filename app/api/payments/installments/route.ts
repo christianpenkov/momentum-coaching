@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { resolveTargetProfile } from '@/lib/stripe-account';
-import { calculerCash, statutDeal, type LignePaiement } from '@/lib/dealCash';
+import { refreshDealStatus } from '@/lib/dealStatus';
 
 /**
  * Marquer une échéance comme envoyée (ou revenir en arrière).
@@ -108,25 +108,24 @@ export async function POST(request: NextRequest) {
       await supa.from('deal_installments').update({ status: 'paid' }).eq('id', full.id);
     }
 
-    // ── Le statut de la vente suit la même règle que partout ailleurs ────────
+    // ── Le statut de la vente suit la règle commune, EFFETS COMPRIS ─────────
+    //
     // Compter les échéances restantes disait « soldée » dès la dernière ligne
-    // cochée, même si les montants déclarés n'atteignaient pas le total.
-    const { data: deal } = await supa
-      .from('deals')
-      .select('status, amount_total, deal_payments(amount, status)')
-      .eq('id', full.deal_id)
-      .single();
-
-    if (deal) {
-      const suivant = statutDeal(
-        calculerCash(deal.deal_payments as LignePaiement[]),
-        Number(deal.amount_total),
-        deal.status,
-      );
-      if (suivant && suivant !== deal.status) {
-        await supa.from('deals').update({ status: suivant }).eq('id', full.deal_id);
-      }
-    }
+    // cochée, même si les montants déclarés n'atteignaient pas le total. D'où le
+    // recalcul depuis le cash.
+    //
+    // ⚠️ Mais ce recalcul était fait ICI, à la main, au lieu d'appeler la source
+    // unique. Il ne gardait donc que la moitié de la règle : le statut, sans
+    // aucun de ses effets. Un virement déclaré sur une vente CLÔTURÉE ne levait
+    // pas `unexpected_payment_at`, n'écrivait rien au journal et n'envoyait
+    // aucune notification — alors que le chemin Stripe fait les trois.
+    //
+    // Une partition corrigée d'un seul côté : l'argent qui entre par Stripe
+    // était signalé, celui qui entre par virement dormait en silence sur une
+    // vente que plus personne ne regarde. Relevé le 2026-09-06.
+    //
+    // `argentEntrant: true` — c'est bien un encaissement, pas un remboursement.
+    await refreshDealStatus(supa, full.deal_id, { argentEntrant: true });
 
     const { count: restantes } = await supa
       .from('deal_installments')
