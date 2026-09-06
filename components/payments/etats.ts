@@ -17,7 +17,9 @@ import type { DealRow } from './types';
  */
 
 export type EtatVente =
-  | 'open' | 'paid' | 'past_due' | 'ended' | 'canceled' | 'disputed' | 'unexpected';
+  | 'open' | 'paid' | 'past_due' | 'ended' | 'canceled' | 'disputed' | 'unexpected'
+  /** Litige TRANCHÉ contre l'élève — voir `dispute_lost` dans lib/dealCash.ts. */
+  | 'dispute_lost';
 
 interface Etat {
   label: string;
@@ -39,6 +41,12 @@ export const ETATS: Record<EtatVente, Etat> = {
   unexpected: { label: 'Paiement inattendu', color: 'var(--amber-ink)',    bg: 'var(--amber-soft)' },
   canceled:   { label: 'Annulée',            color: 'var(--red)',          bg: 'var(--red-soft)' },
   disputed:   { label: 'Contestée',          color: 'var(--red)',          bg: 'var(--red-soft)' },
+  // Ocre comme « Arrêtée », et volontairement PAS rouge. Le rouge appelle une
+  // action ; ici il n'y en a plus aucune — la banque a tranché, l'argent est
+  // parti, l'affaire est close. Une vente laissée « Contestée » en rouge pour
+  // toujours après une défaite, c'est une alerte permanente qui ne demande
+  // rien : celle qu'on apprend à ne plus ouvrir.
+  dispute_lost: { label: 'Litige perdu',     color: 'var(--taupe)',        bg: 'var(--taupe-soft)' },
 };
 
 /**
@@ -50,6 +58,9 @@ export const ETATS: Record<EtatVente, Etat> = {
  */
 export function etatDe(d: DealRow): EtatVente {
   if (d.status === 'disputed') return 'disputed';
+  // Après `disputed` : un nouveau litige ouvert sur la même vente reprend la
+  // main, parce que lui réclame une réponse sous quelques jours.
+  if (d.status === 'dispute_lost') return 'dispute_lost';
   if (d.unexpectedPaymentAt) return 'unexpected';
   if (d.status === 'canceled') return 'canceled';
   if (d.status === 'ended') return 'ended';
@@ -81,6 +92,12 @@ export function precisionEtat(d: DealRow): string | null {
     return d.disputeDueBy
       ? `réponse à donner avant le ${jour(d.disputeDueBy)}`
       : 'preuves envoyées, en attente du verdict';
+  }
+  if (d.status === 'dispute_lost') {
+    // Le montant, et pas seulement le fait : « Litige perdu » sans chiffre
+    // oblige à aller le chercher dans l'historique, au moment précis où l'on
+    // veut savoir ce que ça a coûté.
+    return `${d.perduEnLitige.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} € repris par la banque`;
   }
   if (d.unexpectedPaymentAt) return 'de l’argent est arrivé après la fin';
   if (d.status === 'ended') {
@@ -125,7 +142,10 @@ export function estEnvoye(inst: { sent_at?: string | null; clicks?: number }): b
 
 /** L'ordre d'urgence — sert à choisir l'état d'une personne qui a plusieurs ventes. */
 export const URGENCE: EtatVente[] =
-  ['disputed', 'unexpected', 'past_due', 'open', 'ended', 'paid', 'canceled'];
+  // `dispute_lost` se range avec les fins de vie, PAS avec les urgences : il
+  // n'appelle aucune action. Placé en tête, il aurait masqué une vraie
+  // contestation en cours sur une autre vente de la même personne.
+  ['disputed', 'unexpected', 'past_due', 'open', 'dispute_lost', 'ended', 'paid', 'canceled'];
 
 /** Une vente annulée est sortie des chiffres : elle ne compte plus nulle part. */
 export const compteDansLesTotaux = (d: DealRow) => d.status !== 'canceled';

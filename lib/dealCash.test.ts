@@ -17,7 +17,7 @@ const p = (amount: number, status: string) => ({ amount, status });
 
 test('aucun paiement — tout est à zéro', () => {
   const c = calculerCash([]);
-  assert.deepEqual(c, { encaisse: 0, rembourse: 0, conteste: 0, net: 0, aEchoue: false });
+  assert.deepEqual(c, { encaisse: 0, rembourse: 0, conteste: 0, perduEnLitige: 0, net: 0, aEchoue: false });
   assert.deepEqual(calculerCash(null), c);
   assert.deepEqual(calculerCash(undefined), c);
 });
@@ -279,4 +279,56 @@ test('les deux copies du module donnent exactement le même résultat', () => {
     assert.equal(copieDeno.aRembourser(laBas, j.total), aRembourser(ici, j.total));
     assert.equal(copieDeno.encaisseRetenu(laBas, j.total), encaisseRetenu(ici, j.total));
   }
+});
+
+// ── Le litige PERDU : l'argent est parti, mais l'instruction est close ───────
+//
+// Éprouvé en réel le 2026-09-06 sur TestYT (200 € perdus sur 1 100 €). Sans
+// `dispute_lost`, la ligne restait `disputed` et la vente affichait « Contestée »
+// pour toujours : le calcul ne pouvait pas distinguer une instruction EN COURS
+// d'un verdict rendu.
+
+test('un litige perdu sort de la caisse, comme un remboursement', () => {
+  const c = calculerCash([p(1000, 'succeeded'), p(200, 'dispute_lost')]);
+  assert.equal(c.encaisse, 1000);
+  assert.equal(c.perduEnLitige, 200);
+  assert.equal(c.net, 800);
+});
+
+test('un litige perdu ne compte PAS comme un remboursement', () => {
+  // La fiche affiche « X € remboursés » avec la raison donnée par l'élève. Y
+  // verser un litige perdu présenterait comme un geste volontaire de l'argent
+  // que la banque a repris de force.
+  const c = calculerCash([p(1000, 'succeeded'), p(200, 'dispute_lost')]);
+  assert.equal(c.rembourse, 0);
+  assert.equal(c.conteste, 0);
+});
+
+test('un litige perdu donne son propre état, pas « Contestée »', () => {
+  const c = calculerCash([p(1000, 'succeeded'), p(200, 'dispute_lost')]);
+  assert.equal(statutDeal(c, 1100, 'disputed'), 'dispute_lost');
+});
+
+test('un litige EN COURS prime sur un litige déjà perdu', () => {
+  // Deux litiges sur la même vente : le second réclame une réponse sous
+  // quelques jours, le premier ne réclame plus rien.
+  const c = calculerCash([p(1000, 'succeeded'), p(200, 'dispute_lost'), p(300, 'disputed')]);
+  assert.equal(statutDeal(c, 1500, 'open'), 'disputed');
+});
+
+test('tout repris par la banque n’est PAS une vente annulée', () => {
+  // Sans la règle, `net <= 0` faisait tomber la vente en « annulée » : or
+  // l'élève n'a rien annulé et n'a rien rendu.
+  const c = calculerCash([p(1000, 'succeeded'), p(1000, 'dispute_lost')]);
+  assert.equal(c.net, 0);
+  assert.equal(statutDeal(c, 1000, 'open'), 'dispute_lost');
+});
+
+test('les deux copies s’accordent sur le litige perdu', () => {
+  const lignes = [p(1000, 'succeeded'), p(200, 'dispute_lost'), p(100, 'refunded')];
+  assert.deepEqual(copieDeno.calculerCash(lignes), calculerCash(lignes));
+  assert.equal(
+    copieDeno.statutDeal(copieDeno.calculerCash(lignes), 1100, 'open'),
+    statutDeal(calculerCash(lignes), 1100, 'open'),
+  );
 });

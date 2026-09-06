@@ -864,6 +864,23 @@ async function handleEvent(event: Stripe.Event) {
           .delete().eq('deal_id', dealId).eq('stripe_payment_id', `dispute_${chargeId}`);
       }
 
+      // ── Une DÉFAITE cesse d'être un litige ───────────────────────────────
+      //
+      // La ligne reste — l'argent est parti pour de bon — mais elle change de
+      // nature. Laissée en `disputed`, elle faisait rendre `disputed` à
+      // `statutDeal` pour toujours : la vente affichait « Contestée » en rouge
+      // des semaines après le verdict, sur une affaire close qui ne réclamait
+      // plus rien. Éprouvé en réel sur TestYT le 2026-09-06.
+      //
+      // `dispute_lost` se déduit du cash exactement pareil (lib/dealCash.ts),
+      // et n'est PAS versé dans les remboursements : l'élève n'a rien rendu,
+      // la banque a repris.
+      if (dispute.status === 'lost') {
+        await supabase.from('deal_payments')
+          .update({ status: 'dispute_lost' })
+          .eq('deal_id', dealId).eq('stripe_payment_id', `dispute_${chargeId}`);
+      }
+
       const perdu = dispute.status === 'lost';
       const somme = ((dispute.amount ?? 0) / 100)
         .toLocaleString('fr-FR', { minimumFractionDigits: 2 });

@@ -86,8 +86,15 @@ export interface DealRow {
    * question. C'est l'écart, et lui seul, qui en appelle une.
    */
   refundInexplique: number;
-  /** Somme reprise par Stripe le temps d'un litige. */
+  /** Somme reprise par Stripe le temps d'un litige — instruction EN COURS. */
   disputed: number;
+  /**
+   * Somme perdue sur un litige TRANCHÉ : la banque la garde définitivement.
+   *
+   * Distincte de `disputed` (en suspens, peut revenir) et de `refunded` (rendu
+   * volontairement, avec une raison). Voir lib/dealCash.ts.
+   */
+  perduEnLitige: number;
   /**
    * Argent qu'on attendait DÉJÀ et qui n'est pas arrivé.
    *
@@ -327,6 +334,7 @@ export async function GET(request: NextRequest) {
         return Math.max(0, Math.round((partQuiCreuse - Number(d.refund_explique ?? 0)) * 100) / 100);
       })(),
       disputed: cash.conteste,
+      perduEnLitige: cash.perduEnLitige,
       // Versé AU-DELÀ du montant de la vente. Le ruban plafonne (`collectedRetenu`),
       // donc sans ce chiffre affiché sur la vente, l'argent en trop disparaîtrait de
       // l'écran : le total ne le compterait plus et rien ne dirait où il est passé.
@@ -644,6 +652,9 @@ export async function GET(request: NextRequest) {
  */
 function etatAffiche(r: DealRow): string {
   if (r.status === 'disputed') return 'disputed';
+  // Un litige tranché n'appelle plus rien : il ne prime donc sur rien, mais il
+  // doit se distinguer de « Contestée », qui décrit une instruction en cours.
+  if (r.status === 'dispute_lost') return 'dispute_lost';
   if (r.unexpectedPaymentAt) return 'unexpected';
   if (r.status === 'open' && r.overdue > 0) return 'past_due';
   return r.status;

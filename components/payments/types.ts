@@ -51,6 +51,11 @@ export interface DealRow {
   unexpectedPaymentAt: string | null;
   refunded: number;
   disputed: number;
+  /**
+   * Perdu sur un litige TRANCHÉ. Compté à part de `refunded` : l'élève n'a pas
+   * choisi de rendre cet argent, la banque l'a repris. Voir lib/dealCash.ts.
+   */
+  perduEnLitige: number;
   /** Versé au-delà du montant de la vente — à rendre au client. Voir aRembourser(). */
   aRendre: number;
   /** Argent attendu à ce jour et non rentré — échéance dépassée ou prélèvement refusé. */

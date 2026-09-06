@@ -39,7 +39,18 @@
  */
 
 /** Les statuts que la contrainte `deals_status_check` accepte aujourd'hui. */
-export type StatutDeal = 'open' | 'paid' | 'past_due' | 'canceled' | 'ended' | 'disputed';
+export type StatutDeal =
+  | 'open' | 'paid' | 'past_due' | 'canceled' | 'ended' | 'disputed'
+  /**
+   * Litige TRANCHÉ en faveur du client : l'argent est parti pour de bon.
+   *
+   * Distinct de `disputed`, qui décrit une instruction EN COURS. Sans lui, une
+   * vente restait « Contestée » pour toujours après une défaite — la ligne
+   * contestée devant rester (l'argent est réellement parti), le calcul
+   * continuait d'en déduire un litige actif. Une pastille rouge d'alerte sur
+   * une affaire close depuis des semaines est une alerte qu'on cesse de lire.
+   */
+  | 'dispute_lost';
 
 /**
  * Une ligne de `deal_payments`, telle que Supabase la renvoie.
@@ -62,7 +73,20 @@ export interface Cash {
    * un litige peut se gagner et les fonds revenir, un remboursement non.
    */
   conteste: number;
-  /** Ce qui reste réellement dans la caisse : encaissé − remboursé − contesté. */
+  /**
+   * Somme des litiges PERDUS. L'argent est parti définitivement, comme un
+   * remboursement — mais l'élève ne l'a pas rendu, la banque l'a repris.
+   *
+   * ⚠️ Compté à part de `rembourse`, et ce n'est pas cosmétique : la fiche
+   * affiche « X € remboursés » avec la raison que l'élève a donnée (geste
+   * commercial, rétractation…). Y verser un litige perdu ferait apparaître
+   * comme un geste volontaire de l'argent qu'on n'a jamais choisi de rendre.
+   */
+  perduEnLitige: number;
+  /**
+   * Ce qui reste réellement dans la caisse :
+   * encaissé − remboursé − contesté − perdu en litige.
+   */
   net: number;
   /** Au moins un paiement en échec — sert à distinguer `past_due` de `open`. */
   aEchoue: boolean;
@@ -101,16 +125,22 @@ export function calculerCash(paiements: LignePaiement[] | null | undefined): Cas
   let encaisse = 0;
   let rembourse = 0;
   let conteste = 0;
+  let perduEnLitige = 0;
   let aEchoue = false;
 
   for (const p of paiements ?? []) {
     if (p.status === 'succeeded') encaisse += nombre(p.amount);
     else if (p.status === 'refunded') rembourse += nombre(p.amount);
     else if (p.status === 'disputed') conteste += nombre(p.amount);
+    else if (p.status === 'dispute_lost') perduEnLitige += nombre(p.amount);
     else if (p.status === 'failed') aEchoue = true;
   }
 
-  return { encaisse, rembourse, conteste, net: encaisse - rembourse - conteste, aEchoue };
+  return {
+    encaisse, rembourse, conteste, perduEnLitige,
+    net: encaisse - rembourse - conteste - perduEnLitige,
+    aEchoue,
+  };
 }
 
 /**
@@ -150,6 +180,16 @@ export function statutDeal(
   const total = nombre(montantTotal);
 
   if (cash.conteste > CENTIME) return 'disputed';
+  // ⚠️ APRÈS le litige en cours, et AVANT la règle « tout reparti → annulée ».
+  //
+  // Après, parce qu'un second litige ouvert sur la même vente doit primer : lui
+  // réclame une réponse sous quelques jours, celui-ci ne réclame plus rien.
+  //
+  // Avant, parce qu'une vente dont TOUT a été repris par la banque tomberait
+  // sinon en « annulée » — or l'élève n'a rien annulé et n'a rien rendu. Il
+  // s'est fait reprendre l'argent, ce qui n'est pas la même histoire et ne se
+  // raconte pas pareil au client.
+  if (cash.perduEnLitige > CENTIME) return 'dispute_lost';
   if (cash.encaisse > 0 && cash.net <= CENTIME) return 'canceled';
   if (cash.net >= total - CENTIME) return 'paid';
   if (statutActuel === 'paid' && cash.net > 0) return 'paid';
