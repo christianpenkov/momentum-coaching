@@ -8,7 +8,9 @@ import PipelineListeMobile from './PipelineListeMobile';
 import PipelineListView from './PipelineListView';
 import PipelineFilters, { FILTRES_VIDES, FILTRES_SANS_LM, type EtatsFiltres, type EtatFiltre, type FiltreKey } from './PipelineFilters';
 import Icon from '@/components/ui/Icon';
-import { mutate } from '@/lib/mutate';
+import { mutate, notifyError } from '@/lib/mutate';
+import { isOnlineNow } from '@/lib/useOnline';
+import { useRefreshCooldown } from '@/lib/useRefreshCooldown';
 import Image from 'next/image';
 import { useQuery } from '@tanstack/react-query';
 import InlineLoader from '@/components/ui/InlineLoader';
@@ -2667,10 +2669,26 @@ export default function PagePipeline() {
     staleTime: 0,
   });
 
+  const { inCooldown, startCooldown } = useRefreshCooldown();
+
+  // ⚠️ Ce bouton ne relit pas un écran : il déclenche les QUATRE mêmes routes que le
+  // cron, donc de vrais appels vers Instagram, YouTube, Short.io et Calendly. Il porte
+  // les deux mêmes protections que celui de l'écran Stats, qui les avait déjà et que
+  // celui-ci n'avait jamais reçues.
   async function handleRefresh() {
-    if (refreshing) return;
+    if (refreshing || inCooldown) return;
+
+    // Hors connexion, les `fetch` échouent — mais `Promise.allSettled` ne rejette
+    // jamais. Sans ce contrôle, le bouton reprenait son état normal comme si tout
+    // s'était bien passé : l'utilisateur croyait avoir rafraîchi. Défaut déjà corrigé
+    // sur l'écran Stats, jamais porté ici.
+    if (!isOnlineNow()) {
+      notifyError('Pas de connexion — réessaie une fois le réseau revenu.');
+      return;
+    }
+
     setRefreshing(true);
-    await Promise.allSettled([
+    const resultats = await Promise.allSettled([
       fetch('/api/instagram/refresh-today', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }),
       fetch('/api/youtube/refresh-today',   { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }),
       fetch('/api/shortio/refresh-today',   { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }),
@@ -2678,6 +2696,15 @@ export default function PagePipeline() {
     ]);
     await refetch();
     setRefreshing(false);
+
+    // ⚠️ Le réseau a pu tomber PENDANT. Si tout a échoué, on ne déclenche pas la bride :
+    // sinon l'utilisateur serait bloqué sans avoir rien obtenu. Un échec partiel reste
+    // un succès — les autres sources ont répondu.
+    if (resultats.every(r => r.status === 'rejected')) {
+      notifyError('Rafraîchissement impossible — vérifie ta connexion.');
+      return;
+    }
+    startCooldown();
   }
 
   useEffect(() => {
@@ -4009,12 +4036,12 @@ export default function PagePipeline() {
           <div style={{ width: 1, height: 22, background: 'var(--border)', flexShrink: 0, margin: '0 2px' }} className="pipeline-desktop" />
           <button
             onClick={handleRefresh}
-            disabled={refreshing}
+            disabled={refreshing || inCooldown}
             className="pipeline-refresh"
             style={{
               padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8,
               border: '1px solid var(--border)', background: 'var(--surface)',
-              color: refreshing ? 'var(--muted)' : 'var(--ink)', cursor: refreshing ? 'not-allowed' : 'pointer',
+              color: refreshing || inCooldown ? 'var(--muted)' : 'var(--ink)', cursor: refreshing || inCooldown ? 'not-allowed' : 'pointer',
               display: 'flex', alignItems: 'center', gap: 6, transition: 'all .12s',
             }}
           >
