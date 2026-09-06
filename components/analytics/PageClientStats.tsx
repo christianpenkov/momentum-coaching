@@ -660,6 +660,26 @@ const AIDE_ECART_DEDUP = (abo: number, non: number, total: number) =>
   + "Les pourcentages se rapportent aux parts, pour qu'ils fassent exactement 100 %. "
   + "Le reach total, lui, reste le nombre réel de personnes touchées.";
 
+const AIDE_CASH_ARRIVE =
+  "L'argent réellement arrivé sur votre compte pendant cette période, quelle que soit "
+  + "la date de la vente. C'est le chiffre qui correspond à votre relevé bancaire.\n\n"
+  + "Il ne bouge plus une fois la période passée.\n\n"
+  + "Il peut être NÉGATIF : un remboursement porte la date du paiement qu'il annule, "
+  + "donc un mois ancien peut sortir plus d'argent qu'il n'en a fait entrer. C'est "
+  + "affiché tel quel, sans plancher à zéro — le trou est réel.";
+
+const AIDE_CASH_RENTRE =
+  "Sur les ventes signées PENDANT cette période, ce qui est rentré à ce jour — même si "
+  + "les échéances sont tombées plus tard.\n\n"
+  + "⚠️ C'est le seul des trois montants qui BOUGE avec le temps : la même période "
+  + "affichera davantage le mois prochain, à mesure que les paiements en plusieurs fois "
+  + "sont prélevés.\n\n"
+  + "Il se rapporte au cash contracté juste à côté, et les deux portent sur les MÊMES "
+  + "ventes — c'est ce qui rend le pourcentage recomposable de tête, et l'empêche de "
+  + "dépasser 100 %.\n\n"
+  + "À ne pas confondre avec « arrivé sur la période », qui compte l'argent entré "
+  + "pendant la période sans regarder quand la vente a été signée.";
+
 const AIDE_REACH_STORY =
   "Le nombre de PERSONNES qui ont vu cette story, chacune comptée une seule fois "
   + "même si elle l'a rouverte.\n\n"
@@ -6441,13 +6461,24 @@ function TabRevenues({ encaissementsParJour, cashParVente, deals, period, period
         </button>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+        {/* ── Trois montants, trois questions differentes ─────────────────────
+            La rangee portait DEUX nombres appeles « collecte », sur des ensembles
+            differents, separes par « Panier moyen » — et celui de la cohorte vivait
+            en 10 px dans le sous-titre d'une carte de POURCENTAGE, la place la moins
+            lisible de la rangee pour un montant en euros.
+            Le commentaire d'alors nommait deja le probleme et y repondait par une
+            glose. Chris a tranche le 2026-09-06 : il faut une structure.
+            Chaque montant est desormais un GRAND chiffre, sous un titre qui dit sa
+            question. Aucun calcul n'a change. */}
         <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
           <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Cash contracté</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmtEur(cashContracte)}</div>
-          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>deals signés ({dealsInPeriod.length})</div>
+          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>ventes de la période ({dealsInPeriod.length})</div>
         </div>
         <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
-          <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Cash collecté</div>
+          <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6, display: 'flex', alignItems: 'center' }}>
+            Cash arrivé<AideColonne texte={AIDE_CASH_ARRIVE} />
+          </div>
           {/* La couleur suit le SIGNE, pas le libellé de la carte. Depuis qu'un
               remboursement porte la date du paiement qu'il annule, une période peut
               sortir plus d'argent qu'elle n'en fait entrer — typiquement un mois
@@ -6455,7 +6486,7 @@ function TabRevenues({ encaissementsParJour, cashParVente, deals, period, period
               en vert le ferait lire comme une bonne nouvelle. On n'y met pas non plus
               de plancher à 0 : le trou est réel et doit se voir. */}
           <div style={{ fontSize: 22, fontWeight: 800, color: cashCollecte < 0 ? AMBER : GREEN, lineHeight: 1 }}>{fmtEur(cashCollecte)}</div>
-          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>paiements reçus ({nbPaiementsRecus})</div>
+          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>arrivé sur la période ({nbPaiementsRecus})</div>
         </div>
         <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
           <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Panier moyen</div>
@@ -6463,13 +6494,19 @@ function TabRevenues({ encaissementsParJour, cashParVente, deals, period, period
           <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>{dealsInPeriod.length > 0 ? `sur ${dealsInPeriod.length} deal${dealsInPeriod.length > 1 ? 's' : ''}` : 'aucun deal'}</div>
         </div>
         <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
-          <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Taux de cash collecté</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: cashCollectePct === null ? 'var(--muted)' : cashCollectePct >= 80 ? GREEN : cashCollectePct >= 50 ? AMBER : RED, lineHeight: 1 }}>{cashCollectePct === null ? '—' : `${cashCollectePct}%`}</div>
-          {/* Le sous-titre dit quels deals sont comptés : sans ça, deux nombres
-              « collectés » différents cohabitent sur la même rangée de cartes — celui
-              de la carte voisine (rentré pendant la période) et celui du taux (rentré
-              sur les ventes de la période). */}
-          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>{cashCollectePct === null ? 'aucune vente à collecter' : `${fmtEur(cashCollecteCohorte)} sur les deals signés`}</div>
+          <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6, display: 'flex', alignItems: 'center' }}>
+            Cash rentré<AideColonne texte={AIDE_CASH_RENTRE} />
+          </div>
+          {/* Le MONTANT en grand, le taux en dessous — l'inverse d'avant.
+              Un montant en euros relegue en 10 px sous un pourcentage etait
+              illisible, alors que c'est lui la reponse a « combien est rentre ». Le
+              taux garde sa couleur : c'est lui qui porte le jugement. */}
+          <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmtEur(cashCollecteCohorte)}</div>
+          <div style={{ fontSize: 10, marginTop: 4, color: 'var(--faint)' }}>
+            {cashCollectePct === null ? 'aucune vente sur la période' : (<>
+              rentré à ce jour · <span style={{ fontWeight: 700, color: cashCollectePct >= 80 ? GREEN : cashCollectePct >= 50 ? AMBER : RED }}>{cashCollectePct} %</span>
+            </>)}
+          </div>
         </div>
       </div>
 
@@ -6496,8 +6533,18 @@ function TabRevenues({ encaissementsParJour, cashParVente, deals, period, period
 
           Surtout, ce tableau rend les deux chiffres du haut VÉRIFIABLES ligne à
           ligne : la colonne « Contracté » totalise la carte « Cash contracté », et
-          la colonne « Encaissé » totalise le numérateur du taux de collecte. Deux
-          invariants qu'on ne pouvait contrôler qu'en requêtant la base.
+          la colonne « Rentré » totalise la carte « Cash rentré ». Deux invariants
+          qu'on ne pouvait contrôler qu'en requêtant la base.
+
+          ⚠️ La colonne s'appelait « Encaissé » : le même nombre portait donc deux
+          noms selon qu'on regardait la carte ou le tableau. Et « encaissé » est
+          justement le mot qui prête à confusion ici, puisque la carte voisine —
+          « Cash arrivé » — compte, elle aussi, de l'argent encaissé, mais sur une
+          autre population. Un total qui vérifie une carte doit porter son mot.
+
+          ⚠️ Ce tableau ne totalise PAS « Cash arrivé » et ne le peut pas : il liste
+          les VENTES de la période, alors que la trésorerie compte des paiements qui
+          peuvent se rapporter à des ventes d'un autre mois.
 
           Un remboursement reste visible : il se lit dans l'écart entre les deux
           colonnes (800 € encaissés sur une vente de 1 000 €), et le détail
@@ -6515,7 +6562,7 @@ function TabRevenues({ encaissementsParJour, cashParVente, deals, period, period
         <table className="table" style={{ width: '100%' }}>
           <thead>
             <tr>
-              {['Date', 'Client', 'Contracté', 'Encaissé', 'Statut'].map((h, i) => (
+              {['Date', 'Client', 'Contracté', 'Rentré', 'Statut'].map((h, i) => (
                 <th key={i} className="eyebrow-sm" style={{ textAlign: i >= 2 && i <= 3 ? 'right' : 'left', color: 'var(--muted)', padding: '8px 10px' }}>{h}</th>
               ))}
             </tr>
