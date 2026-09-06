@@ -2888,26 +2888,36 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
               </>}
             </div>
             <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border-soft)' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                {[
-                  ['ER', selectedPost.totalInteractions != null && selectedPost.reach ? fmtPct(pct(selectedPost.totalInteractions, selectedPost.reach)) : '—', 'Engagement rate'],
-                  ['Save rate', selectedPost.saved != null && selectedPost.reach ? fmtPct(pct(selectedPost.saved, selectedPost.reach)) : '—', 'Saves / Reach'],
-                  // Combien de vues il a fallu pour convertir UNE personne en abonné.
-                  //
-                  // ⚠️ Sera vide la plupart du temps, et ce n'est pas un defaut de
-                  // collecte. `follows` est bien rendu par media par l'API Meta —
-                  // verifie contre l'API reelle le 2026-09-03 sur le compte de test —
-                  // mais Meta le RAMENE A ZERO au bout de quelques semaines. Mesure du
-                  // meme jour : sur 32 posts, un seul portait encore un `follows` non
-                  // nul, neuf etaient a zero, vingt-deux n'avaient rien de collecte.
-                  //
-                  // Le tiret est donc le bon affichage : a `follows` nul la division
-                  // est indefinie, et repondre « 0 vue par abonne » serait faux. Un
-                  // trou dit « on ne sait pas », un zero affirmerait quelque chose.
-                  ['Vues / abonné',
-                    selectedPost.follows ? fmt(Math.round((selectedPost.views ?? 0) / selectedPost.follows)) : '—',
-                    'Vues par abonné gagné'],
-                ].map(([label, value, desc], i) => (
+              {(() => {
+              const cartesTaux: [string, string, string][] = [
+                ['ER', selectedPost.totalInteractions != null && selectedPost.reach ? fmtPct(pct(selectedPost.totalInteractions, selectedPost.reach)) : '—', 'Engagement rate'],
+                ['Save rate', selectedPost.saved != null && selectedPost.reach ? fmtPct(pct(selectedPost.saved, selectedPost.reach)) : '—', 'Saves / Reach'],
+              ];
+              // Combien de vues il a fallu pour convertir UNE personne en abonné.
+              //
+              // ⚠️ La carte n'apparait QUE si Meta fournit `follows` pour ce media —
+              // c'est-a-dire jamais sur un REEL. Verifie contre l'API reelle le
+              // 2026-09-03, metrique par metrique et sur cinq versions d'API :
+              // « The Media Insights API does not support the follows metric for this
+              // media product type ». Sur les 14 publications du compte de test, 9 sont
+              // des Reels : la carte y affichait un tiret perpetuel qui n'apprenait
+              // rien. Meme traitement que le bloc des compteurs bruts au-dessus, qui
+              // masque deja les metriques absentes au lieu d'aligner des tirets.
+              //
+              // ⚠️ NE PAS confondre les deux absences, c'est tout l'interet du `!= null` :
+              //   `follows === null` → Meta ne le dit pas       → carte retiree
+              //   `follows === 0`    → mesure, personne ne s'est → carte gardee, tiret
+              //                        abonne ; la division par    (la division n'a pas
+              //                        zero n'a pas de resultat    de resultat, elle
+              //                                                    n'est pas inconnue)
+              if (selectedPost.follows != null) {
+                cartesTaux.push(['Vues / abonné',
+                  selectedPost.follows ? fmt(Math.round((selectedPost.views ?? 0) / selectedPost.follows)) : '—',
+                  'Vues par abonné gagné']);
+              }
+              return (
+              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cartesTaux.length}, 1fr)`, gap: 8 }}>
+                {cartesTaux.map(([label, value, desc], i) => (
                   <div key={i} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 12px', textAlign: 'center' }}>
                     <div style={{ fontSize: 10, color: 'var(--muted)' }}>{label}</div>
                     <div style={{ fontSize: 20, fontWeight: 700 }}>{value}</div>
@@ -2915,6 +2925,8 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
                   </div>
                 ))}
               </div>
+              );
+              })()}
             </div>
             <a href={selectedPost.permalink} target="_blank" rel="noreferrer" style={{ display: 'block', marginTop: 14, textAlign: 'center', fontSize: 12, color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
               Voir sur Instagram →
