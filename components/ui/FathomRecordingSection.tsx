@@ -254,6 +254,11 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
                 // Fathom ne fournit aucune miniature (vérifié sur /meetings et sur
                 // /recordings/{id}/download) : sans ce fragment il n'y a pas
                 // d'aperçu du tout.
+                //
+                // ✅ Confirmé sur un vrai iPhone le 2026-09-06 : image d'aperçu
+                // présente et lecture correcte. La vérification comptait
+                // doublement — Chromium sans tête n'a pas le défaut qu'on corrige
+                // ici, il ne pouvait donc ni le reproduire ni prouver le correctif.
                 src={`${videoUrl}#t=0.1`}
                 controls
                 playsInline
