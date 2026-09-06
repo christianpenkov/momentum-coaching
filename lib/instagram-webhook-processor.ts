@@ -24,7 +24,6 @@ import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import { pushEvent } from '@/app/api/instagram/webhook-stream/route';
 import { estSortant, estLeCompte, typePieceJointe, estSuppression } from '@/lib/igConversations';
 import { envoiInstagramRefuse } from '@/lib/notifications';
-import { choisirDeclencheur, gardeDejaRecuRequise, messageContientMotCle, type LeadMagnetPermanent } from './declencheurMotCle';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -1204,64 +1203,6 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
             }
           }
 
-          // ── LE FILET DU LIEN : APRÈS les branches, jamais à leur place ──────
-          //
-          // `if (!lmLink)` et non `else if` : ce n'est pas une troisième branche
-          // parallèle, c'est un rattrapage. Trois situations y mènent, et une
-          // condition en `else if` n'en couvrirait qu'une :
-          //
-          //   • un lead créé par un mot-clé PERMANENT n'a ni `story_sequence_id`
-          //     ni contenu configuré — il ne rentrait dans aucune branche ;
-          //   • un COMMENTAIRE écrit toujours `pending_lm_content_id`, même quand
-          //     le post n'est pas configuré : il entrait donc dans la deuxième
-          //     branche pour n'y rien trouver ;
-          //   • le coach a pu dissocier le lead magnet du contenu ENTRE l'envoi
-          //     de l'accroche et le clic. La branche existait, sa donnée non.
-          //
-          // Dans les trois cas, le prospect a cliqué et attend son lien. Sans ce
-          // rattrapage il n'obtient rien, et personne n'est prévenu.
-          //
-          // Aucune colonne de plus pour retrouver le lead magnet : un mot-clé n'en
-          // désigne qu'UN par élève (index `lead_magnets_mot_cle_unique`), et
-          // `keyword_matched` est déjà sur la fiche.
-          if (!lmLink && leadForDm2.keyword_matched && leadForDm2.ig_username) {
-            const { data: lmPourLien } = await serviceSupabase
-              .from('lead_magnets')
-              .select('id, url, keyword, dm_lien, dm_lien_bouton')
-              .eq('profile_id', pid)
-              .eq('repond_partout', true)
-              .ilike('keyword', leadForDm2.keyword_matched)
-              .maybeSingle();
-
-            if (lmPourLien?.dm_lien_bouton) lmButtonLabel = lmPourLien.dm_lien_bouton;
-            if (lmPourLien?.dm_lien) lmMessageText = lmPourLien.dm_lien;
-
-            if (lmPourLien?.url) {
-              lmLink = await createProspectLmLink({
-                supabase: serviceSupabase,
-                profileId: pid,
-                lmUrl: lmPourLien.url,
-                lmKeyword: lmPourLien.keyword,
-                username: leadForDm2.ig_username,
-                // Le contenu QUAND ON LE CONNAÎT, et seulement alors. Un
-                // commentaire vient bien d'un post, même non configuré :
-                // l'attribuer est juste. Un DM direct n'a rien derrière lui, et
-                // `pending_lm_media_id` y vaut nul — un trou dit « on ne sait
-                // pas », plutôt que de désigner un contenu jamais vu.
-                mediaId: leadForDm2.pending_lm_media_id ?? null,
-                fallbackUrl: lmPourLien.url,
-                pathPrefix: 'lm',
-                utmMedium: 'dm',
-                titlePrefix: 'LM',
-              });
-              if (lmLink) {
-                await serviceSupabase.from('instagram_leads')
-                  .update({ tracking_link: lmLink })
-                  .eq('id', leadForDm2.id);
-              }
-            }
-          }
-
           if (lmLink) {
             const dm2Data = await sendDmWithButton(
               lmLink,
@@ -1323,159 +1264,37 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
       // hook_replied=true (sinon la card bascule prématurément en "En conversation" dans le
       // pipeline) — awaiting_story_followup=true bloque ça, et seul le message SUIVANT du
       // prospect (capté par le bloc générique hook_replied plus bas) fera basculer la card.
-      // ── LE MOT-CLÉ RÉPOND, MÊME SANS SÉQUENCE ─────────────────────────────
-      //
-      // Ce bloc ne servait qu'aux réponses de story appartenant à une séquence.
-      // Une story vit 24 h : entre sa publication et son rattachement, toutes
-      // les réponses tombaient dans le vide, sans que rien ne le signale. Et un
-      // DM direct portant le mot-clé ne déclenchait jamais rien.
-      //
-      // Trois cas, un seul bloc. L'ORDRE est la règle entière :
-      //
-      //   message reçu (non-écho)
-      //     │
-      //     ├─ réponse à une story rattachée ? ──► le mot-clé de SA séquence
-      //     │                                       (réglé pour ce lancement,
-      //     │                                        porte ses propres messages)
-      //     │
-      //     └─ sinon ──────────────────────────► le mot-clé PERMANENT du
-      //                                           lead magnet, s'il en a un
-      //
-      // Le plus précis gagne toujours. Et un mot-clé ne peut désigner qu'UN lead
-      // magnet (index `lead_magnets_mot_cle_unique`), donc le second cas n'a
-      // jamais à départager quoi que ce soit : pas d'ordre de liste à maintenir,
-      // contrairement à ManyChat.
-      // L'identifiant du message, stable d'une redelivery Meta à l'autre : c'est
-      // lui qui rend l'écriture du journal idempotente quand il n'y a pas de
-      // contenu — un DM direct n'a ni média ni commentaire.
-      const messageId: string | undefined = messaging.message?.mid;
       const storyReplyId: string | undefined = messaging.message?.reply_to?.story?.id;
-      if (senderId && msgText && !isEcho) {
-        const { data: story } = storyReplyId
-          ? await serviceSupabase
-              .from('ig_stories')
-              .select('id, sequence_id')
-              .eq('ig_story_id', storyReplyId)
-              .eq('profile_id', pid)
-              .maybeSingle()
-          : { data: null as { id: string; sequence_id: string | null } | null };
+      if (storyReplyId && senderId && msgText && !isEcho) {
+        const { data: story } = await serviceSupabase
+          .from('ig_stories')
+          .select('id, sequence_id')
+          .eq('ig_story_id', storyReplyId)
+          .eq('profile_id', pid)
+          .maybeSingle();
 
-        const { data: seqBrute } = story?.sequence_id
-          ? await serviceSupabase
-              .from('story_sequences')
-              .select('*')
-              .eq('id', story.sequence_id)
-              .maybeSingle()
-          : { data: null as any };
+        if (story?.sequence_id) {
+          const { data: seq } = await serviceSupabase
+            .from('story_sequences')
+            .select('*')
+            .eq('id', story.sequence_id)
+            .maybeSingle();
 
-        /**
-         * La configuration retenue — une seule forme, quelle que soit sa source.
-         *
-         * `mediaId` et `storyId` sont nuls pour un DM direct : il n'y a pas de
-         * contenu derrière. Les écrire quand même écraserait le dernier contenu
-         * commenté de la personne, exactement la classe de bug que ce fichier
-         * documente déjà trois fois.
-         */
-        let conf: {
-          keyword: string;
-          accroche: string | null;
-          accrocheBtn: string | null;
-          relance: string | null;
-          sequenceId: string | null;
-          storyId: string | null;
-          mediaId: string | null;
-          origine: 'sequence' | 'permanent';
-        } | null = null;
-
-        // La règle de priorité vit dans `lib/declencheurMotCle`, avec ses tests :
-        // c'est elle qui porte la promesse de zéro maintenance, et une règle
-        // qu'on ne peut pas tester n'est pas une garantie mais une intention.
-        //
-        // Les lead magnets permanents ne sont lus que si la séquence n'a PAS
-        // répondu : une requête de plus seulement dans le cas qui en a besoin.
-        const { data: lmPermanents } = seqBrute && messageContientMotCle(msgText, seqBrute.lm_keyword)
-          ? { data: [] as LeadMagnetPermanent[] }
-          : await serviceSupabase
-              .from('lead_magnets')
-              .select('id, name, keyword, dm_accroche, dm_accroche_bouton, dm_relance')
-              .eq('profile_id', pid)
-              .eq('repond_partout', true);
-
-        const choix = choisirDeclencheur(msgText, seqBrute, (lmPermanents ?? []) as LeadMagnetPermanent[]);
-
-        if (choix?.origine === 'sequence') {
-          conf = {
-            keyword: choix.keyword,
-            accroche: choix.accroche,
-            accrocheBtn: choix.accrocheBtn,
-            relance: choix.relance,
-            // Non nuls par construction : `choisirDeclencheur` ne rend
-            // « sequence » que si `seqBrute` existait, ce qui exige une story
-            // rattachée. TypeScript ne peut pas suivre ce lien, nous si.
-            sequenceId: story!.sequence_id,
-            storyId: story!.id,
-            mediaId: storyReplyId ?? null,
-            origine: 'sequence',
-          };
-        } else if (choix) {
-          // ⚠️ UNE FOIS PAR PERSONNE ET PAR LEAD MAGNET.
-          //
-          // Sans cette garde, le cas le PLUS courant d'un message contenant le
-          // mot-clé — « merci pour le GUIDE ! » — renverrait le fichier et
-          // ferait reculer la carte du prospect à « LM envoyé » alors qu'il est
-          // en pleine conversation. Le bloc se termine par `continue` : il
-          // sauterait aussi l'enregistrement de `hook_replied` juste en dessous,
-          // et la conversation n'existerait jamais.
-          //
-          // Le journal porte déjà la réponse, il n'y a rien à stocker de plus.
-          // Et la garde est par MOT-CLÉ : réclamer un AUTRE lead magnet reste
-          // possible, y compris six mois plus tard.
-          const { data: dejaRecu } = gardeDejaRecuRequise(choix)
-            ? await serviceSupabase
-                .from('instagram_lead_lm_history')
-                .select('id')
-                .eq('profile_id', pid)
-                .eq('ig_user_id', senderId)
-                .eq('keyword_matched', choix.keyword)
-                .eq('lead_magnet_sent', true)
-                .limit(1)
-                .maybeSingle()
-            : { data: null };
-
-          if (dejaRecu) {
-            pushEvent({ type: 'lm_permanent_deja_recu', ig_user_id: senderId, keyword: choix.keyword });
-          } else {
-            conf = {
-              keyword: choix.keyword,
-              accroche: choix.accroche,
-              accrocheBtn: choix.accrocheBtn,
-              relance: choix.relance,
-              sequenceId: null,
-              storyId: null,
-              // Un DM direct n'a pas de contenu. Une réponse à une story non
-              // rattachée en a un, et il mérite d'être gardé : il dit d'où la
-              // personne vient, même si aucune séquence ne la revendique.
-              mediaId: storyReplyId ?? null,
-              origine: 'permanent',
-            };
-          }
-        }
-
-        if (conf) {
+          if (seq?.lm_keyword && normalizeForKeywordMatch(msgText).includes(normalizeForKeywordMatch(seq.lm_keyword))) {
             // Cooldown 1 min — même garde anti-doublon que le flux commentaires
             const cooldownCutoff = new Date(Date.now() - 60 * 1000).toISOString();
             const { data: recentDm } = await serviceSupabase
               .from('instagram_lead_lm_history')
               .select('id')
               .eq('ig_user_id', senderId)
-              .eq('keyword_matched', conf.keyword)
+              .eq('keyword_matched', seq.lm_keyword)
               .eq('profile_id', pid)
               .gte('detected_at', cooldownCutoff)
               .limit(1)
               .maybeSingle();
 
             if (recentDm) {
-              pushEvent({ type: 'cooldown_skip', ig_user_id: senderId, keyword: conf.keyword });
+              pushEvent({ type: 'cooldown_skip', ig_user_id: senderId, keyword: seq.lm_keyword });
               continue;
             }
 
@@ -1507,11 +1326,11 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
             // pour le detail du quota).
             const shortLink: string | null = null;
 
-            const accrocheText = (conf.accroche || DM1_DEFAULT_MESSAGE)
+            const accrocheText = (seq.dm_lm_message || DM1_DEFAULT_MESSAGE)
               .replace(/{{username}}/gi, `@${senderUsername || 'toi'}`)
               .replace(/\s{2,}/g, ' ')
               .trim();
-            const accrocheBtn = (conf.accrocheBtn || DM2_DEFAULT_BUTTON).slice(0, 20);
+            const accrocheBtn = (seq.dm_button_text || DM2_DEFAULT_BUTTON).slice(0, 20);
 
             // Gabarit generique a bouton postback, comme le DM1 des posts : c'est
             // le clic sur un postback qui ouvre la fenetre de 24 h cote Meta. Un
@@ -1561,9 +1380,7 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
             // deja.
             const { data: existingLead } = await serviceSupabase
               .from('instagram_leads')
-              // `media_id` relu pour la même raison que les trois autres : cet
-              // upsert réécrit la ligne entière.
-              .select('id, detected_at, source, hook_replied, media_id')
+              .select('id, detected_at, source, hook_replied')
               .eq('profile_id', pid)
               .eq('ig_user_id', senderId)
               .maybeSingle();
@@ -1588,15 +1405,8 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
                 ig_username: senderUsername || null,
                 ig_user_id: senderId,
                 message: msgText.slice(0, 500),
-                // ⚠️ NE JAMAIS EFFACER LE CONTENU D'ORIGINE.
-                //
-                // Un DM direct n'a pas de contenu derrière lui : `conf.mediaId`
-                // est alors nul. Cet upsert réécrit la ligne entière, donc
-                // l'écrire tel quel effacerait le dernier contenu commenté par
-                // la personne — la même classe de bug que `source` et
-                // `hook_replied` juste au-dessus, déjà corrigée deux fois ici.
-                media_id: conf.mediaId ?? existingLead?.media_id ?? null,
-                keyword_matched: conf.keyword,
+                media_id: storyReplyId,
+                keyword_matched: seq.lm_keyword,
                 detected_at: existingLead?.detected_at ?? nowIso,
                 // Jamais de rétrogradation true → false : au retry d'une entry (throw
                 // transitoire sur un AUTRE commentaire du même lot), Meta refuse le 2e
@@ -1607,9 +1417,9 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
                 // La relance est mise de côté ici et programmée au clic, comme
                 // pour un post : la planifier dès maintenant l'enverrait à
                 // quelqu'un qui n'a jamais demandé le lien.
-                pending_dm3: conf.relance || null,
-                story_sequence_id: conf.sequenceId,
-                story_id: conf.storyId,
+                pending_dm3: seq.dm2_story_message || null,
+                story_sequence_id: story.sequence_id,
+                story_id: story.id,
                 awaiting_story_followup: true,
                 // ── NE PAS POSER `true` N'EST PAS EFFACER UN `true` ──────────
                 // L'intention, expliquee plus haut : ce premier message ne doit
@@ -1659,20 +1469,9 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
                   profile_id: pid,
                   ig_username: senderUsername || '',
                   ig_user_id: senderId,
-                  keyword_matched: conf.keyword,
-                  // ⚠️ `null` NE DÉDOUBLONNE PAS EN POSTGRES.
-                  //
-                  // L'unicité porte sur (profile_id, ig_user_id, media_id,
-                  // comment_id). Deux `null` ne sont jamais « égaux » pour un
-                  // index unique : une redelivery Meta d'un DM direct écrirait
-                  // donc DEUX lignes de journal, et « Commentaires LM » compterait
-                  // cette personne deux fois.
-                  //
-                  // L'identifiant du message tient le rôle du commentaire : il est
-                  // unique, et Meta le renvoie à l'identique lors d'une redelivery,
-                  // ce qui est exactement la propriété recherchée.
-                  media_id: conf.mediaId,
-                  comment_id: conf.mediaId ?? messageId ?? senderId,
+                  keyword_matched: seq.lm_keyword,
+                  media_id: storyReplyId,
+                  comment_id: storyReplyId,
                   lm_url: shortLink || null,
                   lead_magnet_sent: leadMagnetSent,
                   detected_at: nowIso,
@@ -1681,9 +1480,10 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
               if (lmStoryErr) console.error('[IG Webhook] instagram_lead_lm_history (story):', lmStoryErr.message);
             }
 
-            console.log(`[IG Webhook] Lead stocké — @${senderUsername}, mot-clé: ${conf.keyword}, origine: ${conf.origine}${conf.sequenceId ? `, séquence: ${conf.sequenceId}` : ''}`);
-            pushEvent({ type: 'story_lead_stored', ig_username: senderUsername, keyword: conf.keyword, sequence_id: conf.sequenceId, origine: conf.origine });
+            console.log(`[IG Webhook] Lead story stocké — @${senderUsername}, mot-clé: ${seq.lm_keyword}, séquence: ${story.sequence_id}`);
+            pushEvent({ type: 'story_lead_stored', ig_username: senderUsername, keyword: seq.lm_keyword, sequence_id: story.sequence_id });
             continue;
+          }
         }
       }
 
@@ -1902,53 +1702,19 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
       const cls = contentLinks || [];
       pushEvent({ type: 'debug_content_links', mediaId, count: cls.length, keywords: cls.map((c: any) => c.lm_keyword) });
 
+      if (cls.length === 0) {
+        pushEvent({ type: 'no_lm_on_this_post', mediaId });
+        continue;
+      }
+
       // Cherche le content_link dont le keyword matche le commentaire — insensible à la
       // casse ET aux accents ("Méta" doit matcher le mot-clé "Meta" configuré par le
       // coach, demande explicite de Chris le 2026-07-30).
       const text = normalizeForKeywordMatch(commentText);
-      let cl: any = cls.find((c: any) => text.includes(normalizeForKeywordMatch(c.lm_keyword)));
-
-      // ── LE MÊME FILET QUE POUR LES STORIES ET LES DM ─────────────────────
-      //
-      // Un commentaire mot-clé sous un post NON configuré ne déclenchait rien,
-      // et rien ne le signalait : ni au prospect, qui attend son fichier, ni au
-      // coach, qui ne saura jamais qu'on le lui a demandé.
-      //
-      // Le repli n'intervient que si aucun `content_links` ne répond — le
-      // contenu garde la priorité, comme partout ailleurs. Et un mot-clé ne
-      // désigne qu'UN lead magnet, donc il n'y a rien à départager.
-      //
-      // Le lead magnet est transposé dans la FORME d'un `content_link` : tout le
-      // bloc en aval lit `cl`, et lui donner une deuxième forme à comprendre
-      // aurait doublé chaque lecture. `lm_short_url` reste nul — il n'existe pas
-      // de lien générique pour un contenu qu'on n'a pas configuré ; le lien
-      // personnalisé est fabriqué au clic, comme pour les autres chemins.
-      if (!cl) {
-        const { data: lmPermanents } = await serviceSupabase
-          .from('lead_magnets')
-          .select('id, keyword, url, dm_accroche, dm_accroche_bouton, dm_relance')
-          .eq('profile_id', profile_id)
-          .eq('repond_partout', true);
-        const trouve = (lmPermanents ?? []).find((lm: any) =>
-          lm.keyword && text.includes(normalizeForKeywordMatch(lm.keyword)));
-        if (trouve) {
-          cl = {
-            lm_keyword: trouve.keyword,
-            lm_short_url: null,
-            lm_url: trouve.url,
-            dm_opener_message: trouve.dm_relance,
-            dm_lm_message: trouve.dm_accroche,
-            dm_button_text: trouve.dm_accroche_bouton,
-          };
-          pushEvent({ type: 'lm_permanent_sur_commentaire', keyword: trouve.keyword, commenterUsername, mediaId });
-        }
-      }
+      const cl = cls.find((c: any) => text.includes(normalizeForKeywordMatch(c.lm_keyword)));
 
       if (!cl) {
-        pushEvent({
-          type: cls.length === 0 ? 'no_lm_on_this_post' : 'keyword_no_match',
-          mediaId, text, available: cls.map((c: any) => c.lm_keyword),
-        });
+        pushEvent({ type: 'keyword_no_match', text, available: cls.map((c: any) => c.lm_keyword) });
         continue;
       }
 

@@ -8,23 +8,6 @@ const serviceSupabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-/**
- * Les cinq messages, extraits du corps sans jamais en inventer.
- *
- * Chaque champ n'est écrit que s'il est PRÉSENT : un appel qui ne parle que du
- * mot-clé ne doit pas effacer les messages au passage. C'est la même prudence
- * que partout ailleurs dans ce fichier — un patch ne touche que ce qu'on lui a
- * donné.
- */
-function messagesDuCorps(body: any): Record<string, string | null> {
-  const champs = ['dm_accroche', 'dm_accroche_bouton', 'dm_lien', 'dm_lien_bouton', 'dm_relance'] as const;
-  const patch: Record<string, string | null> = {};
-  for (const c of champs) {
-    if (body[c] !== undefined) patch[c] = body[c] === null ? null : String(body[c]);
-  }
-  return patch;
-}
-
 function normalizeUrl(url: string): string {
   const trimmed = url.trim();
   if (!trimmed) return trimmed;
@@ -107,32 +90,6 @@ async function propagateLmUrlChange(profileId: string, lmId: string, newUrl: str
   }
 }
 
-/**
- * Traduit le refus de l'index unique en phrase utile.
- *
- * `lead_magnets_mot_cle_unique` garantit qu'un mot-clé ne désigne qu'UN lead
- * magnet par élève. C'est cette contrainte qui rend la résolution déterministe
- * à la réception d'un message : sans elle, il faudrait départager deux lead
- * magnets par un ordre de liste — la solution de ManyChat, et une chose de plus
- * à maintenir.
- *
- * Le message brut de Postgres (« duplicate key value violates unique
- * constraint ») ne dit rien à un élève. Celui-ci nomme le mot et l'action.
- */
-async function messageErreur(profileId: string, erreur: { code?: string; message: string }, motCle: string | undefined) {
-  if (erreur.code !== '23505') return erreur.message;
-  const { data: rival } = await serviceSupabase
-    .from('lead_magnets')
-    .select('name')
-    .eq('profile_id', profileId)
-    .ilike('keyword', (motCle || '').trim())
-    .limit(1)
-    .maybeSingle();
-  return rival?.name
-    ? `Le mot-clé « ${motCle} » désigne déjà « ${rival.name} ». Un mot-clé ne peut pointer que vers un seul lead magnet — choisis-en un autre.`
-    : `Le mot-clé « ${motCle} » est déjà utilisé par un autre lead magnet.`;
-}
-
 export async function GET() {
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -140,7 +97,7 @@ export async function GET() {
 
   const { data, error } = await serviceSupabase
     .from('lead_magnets')
-    .select('id, name, url, keyword, repond_partout, dm_accroche, dm_accroche_bouton, dm_lien, dm_lien_bouton, dm_relance, bio_ig_url, bio_yt_url, bio_ig_source_url, bio_yt_source_url, created_at')
+    .select('id, name, url, keyword, bio_ig_url, bio_yt_url, bio_ig_source_url, bio_yt_source_url, created_at')
     .eq('profile_id', user.id)
     .order('created_at', { ascending: false });
 
@@ -156,7 +113,7 @@ export async function POST(request: Request) {
 
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
-  const { name, url, keyword, repond_partout } = body;
+  const { name, url, keyword } = body;
 
   if (!url?.trim()) return NextResponse.json({ error: 'URL requise' }, { status: 400 });
 
@@ -165,15 +122,11 @@ export async function POST(request: Request) {
 
   const { data, error } = await serviceSupabase
     .from('lead_magnets')
-    .insert({
-      profile_id: user.id, name: name?.trim() || normalizedUrl, url: normalizedUrl, keyword: cleanKeyword,
-      repond_partout: !!repond_partout,
-      ...messagesDuCorps(body),
-    })
-    .select('id, name, url, keyword, repond_partout, dm_accroche, dm_accroche_bouton, dm_lien, dm_lien_bouton, dm_relance, bio_ig_url, bio_yt_url, bio_ig_source_url, bio_yt_source_url, created_at')
+    .insert({ profile_id: user.id, name: name?.trim() || normalizedUrl, url: normalizedUrl, keyword: cleanKeyword })
+    .select('id, name, url, keyword, bio_ig_url, bio_yt_url, bio_ig_source_url, bio_yt_source_url, created_at')
     .single();
 
-  if (error) return NextResponse.json({ error: await messageErreur(user.id, error, cleanKeyword) }, { status: error.code === '23505' ? 409 : 500 });
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json({ lead_magnet: data });
 }
@@ -185,7 +138,7 @@ export async function PATCH(request: Request) {
 
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
-  const { id, name, url, keyword, repond_partout, bio_ig_url, bio_yt_url, bio_ig_source_url, bio_yt_source_url } = body;
+  const { id, name, url, keyword, bio_ig_url, bio_yt_url, bio_ig_source_url, bio_yt_source_url } = body;
   if (!id) return NextResponse.json({ error: 'id requis' }, { status: 400 });
 
   // Récupérer l'ancienne URL pour détecter si elle a changé
@@ -200,8 +153,6 @@ export async function PATCH(request: Request) {
   if (url !== undefined) { patch.url = normalizeUrl(url); patch.name = name?.trim() || normalizeUrl(url); }
   if (name !== undefined && url === undefined) patch.name = name.trim();
   if (keyword !== undefined) patch.keyword = (keyword || '').toUpperCase().trim().replace(/\s+/g, '');
-  if (repond_partout !== undefined) patch.repond_partout = !!repond_partout;
-  Object.assign(patch, messagesDuCorps(body));
   if (bio_ig_url !== undefined) patch.bio_ig_url = bio_ig_url;
   if (bio_yt_url !== undefined) patch.bio_yt_url = bio_yt_url;
   if (bio_ig_source_url !== undefined) patch.bio_ig_source_url = bio_ig_source_url;
@@ -212,10 +163,10 @@ export async function PATCH(request: Request) {
     .update(patch)
     .eq('id', id)
     .eq('profile_id', user.id)
-    .select('id, name, url, keyword, repond_partout, dm_accroche, dm_accroche_bouton, dm_lien, dm_lien_bouton, dm_relance, bio_ig_url, bio_yt_url, bio_ig_source_url, bio_yt_source_url, created_at')
+    .select('id, name, url, keyword, bio_ig_url, bio_yt_url, bio_ig_source_url, bio_yt_source_url, created_at')
     .single();
 
-  if (error) return NextResponse.json({ error: await messageErreur(user.id, error, patch.keyword), lead_magnet: null }, { status: error.code === '23505' ? 409 : 500 });
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // Propagation asynchrone si l'URL a changé — ne bloque pas la réponse
   const newUrl = patch.url;
