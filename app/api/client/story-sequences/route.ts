@@ -327,6 +327,9 @@ export async function PATCH(request: Request) {
   if (seqFetchErr) return NextResponse.json({ error: seqFetchErr.message }, { status: 500 });
   if (!seq) return NextResponse.json({ error: 'Séquence introuvable' }, { status: 404 });
 
+  // Rempli par le bloc d'ajout quand la séquence n'avait pas encore de CTA.
+  let patchCta: string | null = null;
+
   // ── Retrait de stories ──────────────────────────────────────────────────
   if (Array.isArray(removeStoryIds) && removeStoryIds.length > 0) {
     const { data: currentStories } = await serviceSupabase
@@ -384,10 +387,34 @@ export async function PATCH(request: Request) {
       .in('id', addStoryIds)
       .eq('profile_id', user.id);
     if (addErr) return NextResponse.json({ error: addErr.message }, { status: 500 });
+
+    // ── UNE SÉQUENCE PRÉPARÉE REÇOIT SON CTA À SON PREMIER RATTACHEMENT ──────
+    //
+    // Elle naît sans `cta_story_id` — elle n'a pas encore de stories. Sans ce
+    // passage, elle en resterait dépourvue : le sélecteur de CTA ne s'affiche
+    // qu'à partir de deux stories, donc une séquence d'UNE seule story n'aurait
+    // jamais eu l'occasion d'en désigner une.
+    //
+    // La DERNIÈRE publiée, parce que c'est là qu'on pose le CTA : on raconte
+    // d'abord, on demande à la fin. C'est aussi le défaut proposé lors d'un
+    // groupement manuel — les deux chemins doivent donner le même résultat.
+    if (!seq.cta_story_id) {
+      const { data: apres } = await serviceSupabase
+        .from('ig_stories')
+        .select('id, posted_at')
+        .eq('profile_id', user.id)
+        .eq('sequence_id', id)
+        .order('posted_at', { ascending: false })
+        .limit(1);
+      const derniere = apres?.[0]?.id;
+      if (derniere) patchCta = derniere;
+    }
   }
 
   // ── Champs simples + génération Calendly après coup ────────────────────
   const patch: Record<string, any> = { updated_at: new Date().toISOString() };
+  // Posé plus haut quand un rattachement dote enfin la séquence d'un CTA.
+  if (patchCta) patch.cta_story_id = patchCta;
   if (name !== undefined) patch.name = name.trim();
   if (dmLmMessage !== undefined) patch.dm_lm_message = dmLmMessage;
   if (dmButtonText !== undefined) patch.dm_button_text = dmButtonText;
