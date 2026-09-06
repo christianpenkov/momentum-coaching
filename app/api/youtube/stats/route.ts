@@ -5,6 +5,8 @@ import { getYtToken } from '@/lib/yt-fetch';
 import { gunzipSync } from 'zlib';
 import { parisDateStr } from '@/lib/period';
 import { formaterDureeVideo } from '@/lib/duree';
+// Short ou video longue : regle unique, partagee avec le cron. Voir l'en-tete.
+import { estUnShort, dureeIsoEnSecondes, parametresClassification } from '@/lib/youtubeShorts';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -532,7 +534,7 @@ export async function GET(request: Request) {
       return { rows };
     };
 
-    const [detailsData, analyticsVideosData, views30dData, subsAllTimeRes, ctrByVideo] = await Promise.all([
+    const [detailsData, analyticsVideosData, views30dData, subsAllTimeRes, ctrByVideo, formatsParVideo] = await Promise.all([
       (async () => {
         const items: any[] = [];
         for (const lot of lots(videoIds, 50)) {
@@ -571,6 +573,34 @@ export async function GET(request: Request) {
       // cache. Passer l'identifiant du coach ferait servir le CTR d'un élève pour un
       // autre — une fuite entre comptes, pas une simple imprécision.
       fetchCtrByVideo(targetProfileId, accessToken),
+      // ── Short ou video longue : la reponse de l'API, pas une devinette ────
+      //
+      // Ce chemin decidait avec `durSecs <= 60`, le cron avec une regex exigeant
+      // une terminaison en « S ». Une video de 60 s pile (« PT1M ») etait donc
+      // « Short » ici et « longue » la-bas : la MEME video changeait d'etiquette
+      // selon la periode consultee. Et le seuil de 60 s est perime depuis fin
+      // 2024, YouTube autorisant 3 minutes — 10 videos sur 32 fausses, mesure.
+      //
+      // Deux requetes filtrees, une par format : l'API refuse de croiser
+      // `creatorContentType` avec `dimensions=video`. Tout est verrouille dans
+      // lib/youtubeShorts.ts, avec ce qui a ete verifie contre l'API reelle.
+      //
+      // Depuis 2020 comme les metriques all-time voisines : une video doit garder
+      // sa classification meme quand elle cesse d'etre vue.
+      (async () => {
+        const verdict = { shorts: new Set<string>(), longues: new Set<string>() };
+        await Promise.all(([['shorts', verdict.shorts], ['videoOnDemand', verdict.longues]] as const).map(async ([format, cible]) => {
+          const r = await fetch(
+            `https://youtubeanalytics.googleapis.com/v2/reports?${parametresClassification(format, '2020-01-01', getToday())}`,
+            { headers: authHeader },
+          );
+          // Un echec laisse le verdict vide : on retombe sur la duree, jamais sur
+          // une erreur qui viderait tout le tableau.
+          if (!r.ok) return;
+          for (const row of ((await r.json())?.rows || [])) cible.add(row[0]);
+        }));
+        return verdict;
+      })(),
     ]);
 
     // `maxResults` passe de 50 a 500 sur les TROIS requetes Analytics ci-dessus : il
@@ -624,7 +654,11 @@ export async function GET(request: Request) {
       // Un direct EN COURS ou PROGRAMME n'est pas une video : ni duree finale, ni
       // retention, ni performance a analyser. Sur le profil de test, un live jamais
       // demarre remontait avec « duration: P0D » — soit 0 seconde, donc classe SHORT par
-      // la regle `durSecs <= 60` ci-dessous, et affiche avec une ligne entierement vide.
+      // l'ancienne regle de duree, et affiche avec une ligne entierement vide.
+      //
+      // Ce filtre reste la premiere ligne de defense, mais `P0D` ne peut plus
+      // produire un Short : `dureeIsoEnSecondes` rend `null` sur une duree nulle,
+      // et non 0 (cf. lib/youtubeShorts.ts, defaut trouve par un test).
       //
       // Une REDIFFUSION reste comptee : YouTube repasse liveBroadcastContent a « none »
       // une fois la diffusion terminee, elle redevient alors une video normale. La
@@ -637,9 +671,9 @@ export async function GET(request: Request) {
       const a = analyticsByVideo[v.id] || { views30d: 0, viewsAllTime: 0, watchTime30d: 0, avgViewPct: 0, likes30d: 0, comments30d: 0, shares30d: 0, subsGained30d: 0 };
       const st = subsAllTimeByVideo[v.id] || { subsGainedTotal: 0, subsLostTotal: 0 };
       const rawDuration = v.contentDetails?.duration || 'PT0S';
-      const durMatch = rawDuration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-      const durSecs = (parseInt(durMatch?.[1] || '0') * 3600) + (parseInt(durMatch?.[2] || '0') * 60) + parseInt(durMatch?.[3] || '0');
-      const isShort = durSecs <= 60;
+      // Le verdict de l'API d'abord, la duree seulement en repli — pour une video
+      // sans aucune vue, dont l'Analytics ne dit rien.
+      const isShort = estUnShort(v.id, dureeIsoEnSecondes(rawDuration), formatsParVideo);
       return {
         id: v.id,
         title: v.snippet?.title,

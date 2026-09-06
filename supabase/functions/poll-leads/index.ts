@@ -60,6 +60,9 @@ import { CALL_TYPES_VENTE } from '../../../lib/callTypes.ts';
 import { EMPREINTES_EDGE } from '../../../lib/empreintes-edge.generated.ts';
 // Catalogue partagé avec Next.js — voir l'en-tête de lib/notifications.ts.
 import { invitationCall } from '../../../lib/notifications.ts';
+// Short ou video longue : la regle et les parametres de requete, verifies contre
+// l'API. Voir l'en-tete de lib/youtubeShorts.ts.
+import { estUnShort, dureeIsoEnSecondes, parametresClassification, MAX_RESULTS_CLASSIFICATION } from '../../../lib/youtubeShorts.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -2348,6 +2351,38 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
       }
     }
 
+    // ── Short ou vidéo longue : la réponse de l'API, pas une devinette ────────
+    //
+    // Deux requêtes filtrées, une par format : l'API refuse de croiser
+    // `creatorContentType` avec `dimensions=video` (400 « query is not
+    // supported »), et refuse aussi la casse majuscule. Tout est verrouillé dans
+    // lib/youtubeShorts.ts, avec ce qui a été vérifié contre l'API réelle.
+    //
+    // Depuis 2020 et non 30 jours : une vidéo publiée l'an dernier doit garder sa
+    // classification, sinon elle basculerait « longue » dès qu'elle cesse d'être
+    // vue — c'est le même piège de fenêtre que la rétention, deux blocs plus haut.
+    //
+    // Un échec n'interrompt pas : on retombe sur la durée, qui reste approximative
+    // mais ne bloque pas le snapshot.
+    const verdictFormats = { shorts: new Set<string>(), longues: new Set<string>() };
+    for (const [format, cible] of [['shorts', verdictFormats.shorts], ['videoOnDemand', verdictFormats.longues]] as const) {
+      const res = await fetch(
+        `https://youtubeanalytics.googleapis.com/v2/reports?${parametresClassification(format, '2020-01-01', yesterday)}`,
+        { headers: auth },
+      );
+      if (!res.ok) {
+        errors.push(`yt_videos_format_${format}: HTTP ${res.status}`);
+        console.error(`[poll-leads] profile=${profileId} yt_videos_format_${format}: HTTP ${res.status}`);
+        continue;
+      }
+      for (const row of (await safeJson(res)).rows || []) cible.add(row[0]);
+    }
+    // Le plafond de l'API est de 200 par format. Au-delà, les vidéos manquantes
+    // retombent sur la durée sans que rien ne le dise — d'où cette trace.
+    if (verdictFormats.shorts.size >= MAX_RESULTS_CLASSIFICATION || verdictFormats.longues.size >= MAX_RESULTS_CLASSIFICATION) {
+      errors.push(`yt_videos_format_plafond: ${verdictFormats.shorts.size} shorts / ${verdictFormats.longues.size} longues (plafond ${MAX_RESULTS_CLASSIFICATION})`);
+    }
+
     // CTR depuis youtube_video_ctr
     const { data: ctrRows } = await supa.from('youtube_video_ctr')
       .select('video_id, impressions, clicks')
@@ -2376,10 +2411,11 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
         const diffusionEnCours = detail?.snippet?.liveBroadcastContent === 'live'
           || detail?.snippet?.liveBroadcastContent === 'upcoming';
         if (diffusionEnCours) continue;
-        const isShort = detail?.contentDetails?.duration
-          ? /^PT(?:\d+S|[0-5]?\dS|[0-5]?\d[Ss])$/.test(detail.contentDetails.duration) ||
-            /^PT0?[0-5]?\d[Ss]$/.test(detail.contentDetails.duration)
-          : false;
+        // Une regex sur la durée décidait ici du format, avec un seuil de 60 s
+        // périmé (YouTube autorise 3 min depuis fin 2024) et une terminaison en
+        // « S » exigée — donc « PT1M » classé « vidéo longue » quand la route en
+        // direct, elle, disait « Short ». 10 vidéos sur 32 fausses, mesuré.
+        // La règle vit maintenant dans lib/youtubeShorts.ts, une seule fois.
         // Duree en secondes, depuis le meme champ ISO 8601 qui sert deja a detecter les
         // Shorts juste au-dessus.
         //
@@ -2390,11 +2426,10 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
         // courbe de retention basculait silencieusement en pourcentage au lieu
         // d'afficher « 0:45 », « 1:30 » — la meme courbe changeait d'unite selon la
         // periode consultee (constate le 2026-08-21).
-        const durIso: string | undefined = detail?.contentDetails?.duration;
-        const durMatch = durIso ? durIso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/) : null;
-        const durationSec = durMatch
-          ? parseInt(durMatch[1] || '0') * 3600 + parseInt(durMatch[2] || '0') * 60 + parseInt(durMatch[3] || '0')
-          : null;
+        const durationSec = dureeIsoEnSecondes(detail?.contentDetails?.duration);
+        // Le verdict de l'API d'abord, la durée seulement en repli — pour une
+        // vidéo sans aucune vue, dont l'Analytics ne dit rien.
+        const isShort = estUnShort(videoId, durationSec, verdictFormats);
 
         const row: Record<string, any> = {
           profile_id: profileId,

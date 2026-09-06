@@ -11,6 +11,12 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - **Filtrer `calls` par « propriétaire »** → `docs/calls-coach-id-piege.md`.
   `calls.coach_id` n'est pas le coach humain.
 - **Afficher une heure** → `docs/fuseaux-horaires.md`.
+- **Dire si une vidéo YouTube est un Short** → `lib/youtubeShorts.ts`, jamais un
+  seuil de durée écrit sur place. La durée ne distingue pas le format, elle le
+  suggère : un seuil même bien réglé (180 s) se trompe encore 3 fois sur 32,
+  mesuré. La source autoritaire est `creatorContentType`, en MINUSCULES, sans
+  croisement possible avec `dimensions=video` — donc deux requêtes filtrées,
+  plafonnées à 200.
 - **Enregistrements Fathom** (qui voit quoi, avec quel compte, où c'est stocké) →
   `docs/replays-fathom.md`, et la règle d'accès seule dans `lib/replayAccess.ts`.
   Chacun connecte son propre Fathom : un call de coaching peut donc avoir DEUX
