@@ -144,7 +144,7 @@ Deno.serve(async (req) => {
   // échéances par jour tout au plus), inutile de multiplier les allers-retours.
   const { data: rows, error } = await sb
     .from('deal_installments')
-    .select('id, rank, amount, due_on, status, short_url, sent_at, reminder_before_sent_at, reminder_late_sent_at, deals!inner(id, profile_id, buyer_name, installments_count, payment_plan, status)')
+    .select('id, rank, amount, due_on, status, short_url, sent_at, reminder_before_sent_at, reminder_late_sent_at, deals!inner(id, profile_id, buyer_name, installments_count, payment_plan, status, moyen_encaissement)')
     // L'EXISTENCE d'une échéance suffit : c'est elle qui dit qu'un versement
     // est attendu et que l'élève devra agir. Filtrer sur
     // payment_plan = 'installments_manual' excluait un cas réel — un paiement
@@ -177,12 +177,34 @@ Deno.serve(async (req) => {
     const d = r.deals;
     if (!d?.profile_id) continue;
 
-    const total = d.installments_count ?? '?';
+    // ⚠️ `installments_count` est NUL sur un comptant — la contrainte
+    // deals_installments_count_check impose > 1 dès qu'il est posé — et un
+    // comptant peut porter une échéance (un virement convenu pour plus tard,
+    // c'est le cas prévu par le filtre ci-dessus). Un `?? '?'` produisait
+    // alors « Échéance 1/? », un rappel qui a l'air cassé au moment précis où
+    // il faut qu'on lui fasse confiance. Sans plan, le rang n'apprend rien :
+    // il n'y a qu'une échéance, on la nomme sans la numéroter.
+    const titre = d.installments_count
+      ? `Échéance ${r.rank}/${d.installments_count}`
+      : 'Échéance';
     const qui = d.buyer_name ?? 'ton client';
     const montant = fmtEur(Number(r.amount));
-    // Sans lien Stripe, l'échéance est encaissée hors plateforme : il n'y a
-    // rien à envoyer, seulement un virement à constater.
-    const horsStripe = !r.short_url;
+    // ⚠️ Le moyen d'encaissement est DÉCLARÉ sur la vente. C'est une preuve
+    // positive, et elle prime sur toute déduction tirée d'un manque — la règle
+    // posée par la migration `moyen_encaissement_preuve_positive`.
+    //
+    // `!short_url` seul disait « hors Stripe » dès qu'une échéance n'avait pas
+    // de lien. Or sur une vente PAR LIEN, un lien absent ne dit pas que
+    // l'argent arrive par virement : il dit qu'il n'a pas encore été créé. Le
+    // rappel demandait donc « vérifie si tu l'as reçu » là où la vraie action
+    // est d'envoyer un lien — et la branche d'à côté pose déjà exactement
+    // cette question. Constaté sur TestYT le 2026-09-06.
+    //
+    // On ne retombe sur l'absence que si le moyen n'a JAMAIS été choisi : là,
+    // il n'y a rien d'autre à interroger.
+    const horsStripe = d.moyen_encaissement
+      ? d.moyen_encaissement === 'offline'
+      : !r.short_url;
 
     try {
       // ── J-2 : l'échéance approche ────────────────────────────────────────
@@ -194,7 +216,7 @@ Deno.serve(async (req) => {
         const dejaEnvoye = !!r.sent_at;
         const livres = await sendPushToProfile(
           d.profile_id,
-          `Échéance ${r.rank}/${total} dans 2 jours`,
+          `${titre} dans 2 jours`,
           horsStripe
             ? `${qui} · ${montant} à encaisser hors Stripe le ${fmtJour(r.due_on)}`
             : dejaEnvoye
@@ -230,7 +252,7 @@ Deno.serve(async (req) => {
           // L'ancienneté du retard se saisit d'un coup d'œil, là où une date
           // seule demande de la comparer mentalement à aujourd'hui. Recalculé
           // à chaque passage du cron, donc jamais figé.
-          `Échéance ${r.rank}/${total} due il y a ${joursDeRetard} jour${joursDeRetard > 1 ? 's' : ''}`,
+          `${titre} due il y a ${joursDeRetard} jour${joursDeRetard > 1 ? 's' : ''}`,
           // La date vient AVANT le motif : le service worker tronque le corps à
           // 100 caractères, et un nom long la ferait sauter en fin de phrase.
           // « le virement » présumait un moyen que Momentum ignore : hors
