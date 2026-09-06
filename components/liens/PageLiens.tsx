@@ -6070,19 +6070,82 @@ export default function PageLiens() {
   // proposition s'éteint d'elle-même au bout de 24 h, et une story écartée par
   // erreur se retrouve dans l'onglet Stories, où le « + » du panneau la reprend.
   const [storiesEcartees, setStoriesEcartees] = useState<Set<string>>(new Set());
-  const FENETRE_OUVERTURE_MS = 24 * 60 * 60 * 1000;
+  // 48 h après la publication de la dernière story : elle vit 24 h, puis on
+  // laisse une journée de plus pour rattacher ce qu'on vient de publier.
+  const FENETRE_OUVERTURE_MS = 48 * 60 * 60 * 1000;
 
   // Plus de clôture manuelle : deux boutons dont l'un ne servait qu'à annuler
   // l'autre, pour une proposition qui s'éteint déjà toute seule. Le « + » du
   // panneau reste le moyen d'ajouter une story n'importe quand, sans état à
   // gérer ni bouton à comprendre.
+  // ── JUSQU'À QUAND UNE SÉQUENCE PROPOSE-T-ELLE ? ───────────────────────────
+  //
+  // 48 h après la publication de sa DERNIÈRE story — c'est-à-dire 24 h après son
+  // expiration, une story vivant une journée.
+  //
+  // Pourquoi ce délai : tant que la dernière story est en ligne, on peut encore
+  // en publier une à la suite, la séquence n'est pas finie. Une fois expirée, on
+  // laisse une journée pour rattacher ce qu'on vient de publier, puis la
+  // proposition se tait.
+  //
+  // On compte depuis `postedAt`, PAS depuis `expiredAt`. Vérifié en base le
+  // 2026-09-06 : `expired_at` vaut publication + 48 h sur la story du 25/07 et
+  // + 24 h sur celles d'aujourd'hui — c'est l'heure où le cron a CONSTATÉ la
+  // disparition, pas l'expiration réelle. S'y fier ferait varier la fenêtre au
+  // gré du passage d'un cron.
+  //
+  // Une séquence PRÉPARÉE n'a pas encore de story : sa création tient lieu de
+  // repère, avec la même fenêtre.
   const sequenceOuverte = (seq: any) => {
     const stories = posts.filter(p => p.sequenceId === seq.id);
-    const dernierMouvement = Math.max(
-      new Date(seq.created_at).getTime(),
-      ...stories.map(p => new Date(p.postedAt || 0).getTime()),
-    );
-    return Date.now() - dernierMouvement <= FENETRE_OUVERTURE_MS;
+    const derniereParution = stories.length > 0
+      ? Math.max(...stories.map(p => new Date(p.postedAt || 0).getTime()))
+      : new Date(seq.created_at).getTime();
+    return Date.now() - derniereParution <= FENETRE_OUVERTURE_MS;
+  };
+
+  // ── UNE STORY N'EST PROPOSÉE QU'À UNE SEULE SÉQUENCE ─────────────────────
+  //
+  // Chaque séquence ouverte proposait TOUTES les stories libres parues depuis sa
+  // création. Avec deux séquences préparées, les deux réclamaient les mêmes
+  // stories : deux bandeaux identiques, et rien pour dire laquelle choisir.
+  //
+  // Le geste réel est toujours le même — on prépare une séquence, on publie, on
+  // revient rattacher. Une story appartient donc à la séquence préparée JUSTE
+  // AVANT elle, et à aucune autre. La plus récente créée avant sa publication.
+  //
+  // Déterministe, sans doublon, et sans rien demander de plus au coach.
+  const sequenceProprietaire = (story: Post): string | null => {
+    const t = new Date(story.postedAt || 0).getTime();
+    const candidates = sequences
+      .filter(sq => sequenceCollecte(sq) && new Date(sq.created_at).getTime() < t && sequenceOuverte(sq))
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    return candidates[0]?.id ?? null;
+  };
+
+  // ── SEULE UNE SÉQUENCE PRÉPARÉE RAMASSE LES STORIES QUI SUIVENT ──────────
+  //
+  // Une séquence naît de deux façons, et une seule attend des stories :
+  //
+  //   PRÉPARÉE   créée AVANT ses stories, pour obtenir son lien Calendly.
+  //              Elle est en attente : ramasser est sa raison d'être.
+  //
+  //   GROUPÉE    créée À PARTIR de stories déjà publiées. Elle naît complète :
+  //              elle clôt un passé, elle n'ouvre pas une collecte.
+  //
+  // Sans cette distinction, une séquence groupée hier réclamait les stories
+  // publiées aujourd'hui — elle avait été créée avant elles, ça suffisait. Le
+  // coach se voyait proposer de rattacher un lancement à une séquence qui n'a
+  // rien à voir.
+  //
+  // Aucune colonne n'est nécessaire : la différence est déjà dans les dates. Une
+  // séquence préparée est créée AVANT sa première story ; une groupée, après.
+  // Et une séquence qui n'a encore aucune story attend forcément les siennes.
+  const sequenceCollecte = (seq: any) => {
+    const stories = posts.filter(p => p.sequenceId === seq.id);
+    if (stories.length === 0) return true;
+    const premiereParution = Math.min(...stories.map(p => new Date(p.postedAt || 0).getTime()));
+    return new Date(seq.created_at).getTime() < premiereParution;
   };
 
   // Les stories libres publiées APRÈS la création de la séquence. C'est la seule
@@ -6093,7 +6156,7 @@ export default function PageLiens() {
 
   const storiesARattacher = (seq: any): Post[] => posts
     .filter(p => p.platform === 'STORY' && !p.sequenceId && !storiesEcartees.has(p.id)
-      && new Date(p.postedAt || 0).getTime() > new Date(seq.created_at).getTime())
+      && sequenceProprietaire(p) === seq.id)
     .sort((a, b) => new Date(a.postedAt || 0).getTime() - new Date(b.postedAt || 0).getTime());
 
   const patchSequence = async (id: string, corps: Record<string, unknown>) => {
