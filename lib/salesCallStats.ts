@@ -20,7 +20,11 @@ import { lireTout } from './supabase/lireTout.ts';
 // Calls annulés exclus de tout calcul de funnel de vente (booking, show-up, closing).
 // Même filtre que PageClientDetail.tsx (8 KPI all-time), extrait ici pour être
 // réutilisé tel quel par tout calcul batch (liste clients) sans risque de divergence.
-export function isNotCanceled(c: Call): boolean {
+// Signature volontairement large : la regle ne lit QUE `status`. L'exiger sur un `Call`
+// complet forcait les appelants qui ne selectionnent que quelques colonnes a passer par
+// un `as any` — et un `as any` sur un filtre d'annulation ferait taire exactement
+// l'erreur qu'on veut voir. Tout objet qui porte un statut suffit.
+export function isNotCanceled(c: Pick<Call, 'status'> | { status?: string | null }): boolean {
   return !['cancelled', 'canceled', 'declined'].includes(c.status ?? '');
 }
 

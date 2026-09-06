@@ -11,7 +11,7 @@ import {
 } from '@/lib/sourcesStatsClients';
 import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import { calculerCash, type LignePaiement } from '@/lib/dealCash';
-import { fetchLignesLeadsBatch, compterLeads, type LignesLeads, type LigneCallLead } from '@/lib/salesCallStats';
+import { fetchLignesLeadsBatch, compterLeads, isNotCanceled, type LignesLeads, type LigneCallLead } from '@/lib/salesCallStats';
 import { getClientSignals, watchList, phraseSignaux, type ClientSignals } from '@/lib/clientSignals';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import Avatar, { getInitials, seedForPerson, colorFromSeed } from '@/components/ui/Avatar';
@@ -348,7 +348,18 @@ function dansFenetre(booked: string | null, scheduled: string | null, debut: Dat
   return !Number.isNaN(t) && t >= debut.getTime() && t <= fin.getTime();
 }
 
-const EST_ANNULE = (s: string | null) => s === 'canceled' || s === 'cancelled';
+/* Annulation : `isNotCanceled` de lib/salesCallStats, pas une copie locale.
+ *
+ * Cet ecran portait sa propre version (`s === 'canceled' || s === 'cancelled'`), qui
+ * avait deja diverge de l'originale : il lui manquait `declined`. L'ecart de resultat
+ * etait nul — `declined` n'est ecrit que par la synchro Google Calendar, donc sur des
+ * calls `call_type = 'google'`, alors que cet ecran ne charge que la vente
+ * (`CALL_TYPES_VENTE`, ligne ~219). La copie ne pouvait donc jamais rencontrer le cas
+ * ou elle differait, et rien ne l'aurait signalee.
+ *
+ * C'est precisement pour ca qu'elle est remplacee : une regle recopiee qui diverge en
+ * silence attend seulement que le perimetre bouge. Le jour ou un statut s'ajoute, ou
+ * ou cet ecran lit un autre `call_type`, la divergence deviendrait un chiffre faux. */
 
 interface Agregats {
   cashCollecte: number;
@@ -452,7 +463,7 @@ export default function PageStatsClients() {
 
       const callsEleve = pid ? data.calls.filter(k => k.coach_id === pid) : [];
       const callsBookes = pid
-        ? callsEleve.filter(k => !EST_ANNULE(k.status) && dansFenetre(k.booked_at, k.scheduled_at, data.debut, data.fin)).length
+        ? callsEleve.filter(k => isNotCanceled(k) && dansFenetre(k.booked_at, k.scheduled_at, data.debut, data.fin)).length
         : null;
 
       // Leads : la déduplication se fait sur TOUTES les lignes, puis la date la plus
@@ -501,7 +512,7 @@ export default function PageStatsClients() {
           case 'publications': return valeurs('publications');
           case 'callsBookes':
             return repartirParFenetre(
-              callsEleve.filter(k => !EST_ANNULE(k.status)),
+              callsEleve.filter(k => isNotCanceled(k)),
               k => k.booked_at || k.scheduled_at, fenetres, granularite,
             ).map(p => p.length);
           case 'ventes':
@@ -575,7 +586,7 @@ export default function PageStatsClients() {
             dansFenetre(c.booked_at ?? null, c.scheduled_at ?? null, data.debutPrecedent!, data.finPrecedente!)),
         }, data.debutPrecedent.toISOString(), data.finPrecedente.toISOString()) : 0;
         cumulPrec.callsBookes += callsEleve.filter(k =>
-          !EST_ANNULE(k.status) && dansFenetre(k.booked_at, k.scheduled_at, data.debutPrecedent!, data.finPrecedente!)).length;
+          isNotCanceled(k) && dansFenetre(k.booked_at, k.scheduled_at, data.debutPrecedent!, data.finPrecedente!)).length;
         const dealsPrec = dealsEleve.filter(d =>
           d.status !== 'canceled' && d.signed_at &&
           new Date(d.signed_at).getTime() >= data.debutPrecedent!.getTime() &&
