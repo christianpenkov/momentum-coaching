@@ -102,7 +102,7 @@ function tracerEchecEnvoi(etape: string, profileId: string | null, erreur: any, 
     },
   }).then(({ error }) => {
     if (error) console.error('[IG Webhook] trace cron_runs impossible:', error.message);
-    else alerterExploitant(etape, sousCode, erreur?.message ?? null);
+    else alerterExploitant(etape, sousCode);
   });
 }
 
@@ -137,7 +137,9 @@ const SOUS_CODES_BENINS = new Set([2534014]);
  * Sans ALERT_PROFILE_ID la fonction ne fait rien : la trace en base reste, seule
  * la notification est desactivee.
  */
-function alerterExploitant(etape: string, sousCode: number | null, message: string | null) {
+// `message` retire : le texte brut de Meta ne partait que dans la notification,
+// qui ne le porte plus. Il reste dans la ligne `cron_runs` ecrite juste avant.
+function alerterExploitant(etape: string, sousCode: number | null) {
   const destinataire = process.env.ALERT_PROFILE_ID;
   const base = process.env.NEXT_PUBLIC_PLATFORM_URL;
   if (!destinataire || !base || !process.env.CRON_SECRET) return;
@@ -164,20 +166,17 @@ function alerterExploitant(etape: string, sousCode: number | null, message: stri
     // On ne parle qu'aux deux moments ou la conclusion change.
     if (count !== 1 && count !== seuilRepetition) return;
 
-    const verdict = count === 1
-      ? (benin
-          ? 'isolé — probablement un même commentaire traité deux fois, rien à faire'
-          : 'première occurrence — à surveiller')
-      : (benin
-          ? `${count} fois en 24 h — les deux chemins se marchent dessus, à regarder`
-          : `${count} fois en 24 h — récurrent, à corriger maintenant`);
-
+    // Le texte est composé par le catalogue, à partir du SENS de l'incident
+    // (étape, bénin ou non, nombre d'occurrences) et non de la mécanique. Le
+    // sous-code Meta et le message brut ne partent plus dans la notification :
+    // ils ne veulent rien dire pour qui la lit, et ils sont déjà dans la ligne
+    // `cron_runs` écrite juste au-dessus — c'est là qu'on diagnostique.
     await fetch(`${base}/api/push/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', authorization: `Bearer ${process.env.CRON_SECRET}` },
       body: JSON.stringify({
         profileId: destinataire,
-        ...envoiInstagramRefuse({ etape, sousCode, verdict, message }),
+        ...envoiInstagramRefuse({ etape, benin, repetitions: count, sousCode }),
       }),
     });
   })().catch(e => console.error('[IG Webhook] alerte exploitant impossible:', e?.message || e));

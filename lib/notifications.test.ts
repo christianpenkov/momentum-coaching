@@ -73,14 +73,14 @@ test('rejouer le même lot de publications remplace, un lot suivant ajoute', () 
 });
 
 test('deux pannes différentes restent deux alertes', () => {
-  const a = envoiInstagramRefuse({ etape: 'dm1', sousCode: 2534, verdict: 'récurrent' });
-  const b = envoiInstagramRefuse({ etape: 'dm3', sousCode: 2534, verdict: 'récurrent' });
+  const a = envoiInstagramRefuse({ etape: 'dm1_commentaire', sousCode: 2534014, benin: false, repetitions: 5 });
+  const b = envoiInstagramRefuse({ etape: 'dm2_lien', sousCode: 2534014, benin: false, repetitions: 5 });
   assert.notEqual(a.tag, b.tag);
 });
 
 test('la même panne répétée remplace son alerte', () => {
-  const a = envoiInstagramRefuse({ etape: 'dm1', sousCode: 2534, verdict: '3 fois en 24 h' });
-  const b = envoiInstagramRefuse({ etape: 'dm1', sousCode: 2534, verdict: '7 fois en 24 h' });
+  const a = envoiInstagramRefuse({ etape: 'dm1_commentaire', sousCode: 2534014, benin: false, repetitions: 1 });
+  const b = envoiInstagramRefuse({ etape: 'dm1_commentaire', sousCode: 2534014, benin: false, repetitions: 7 });
   assert.equal(a.tag, b.tag);
 });
 
@@ -186,8 +186,65 @@ test('un coach sans prénom devient « Ton coach »', () => {
   assert.ok(invitationCall({ callId: 'c', coachPrenom: '  ', heure: '9:00', echeance: '2h' }).body.startsWith('Ton coach'));
 });
 
-test('une alerte sans sous-code ne montre pas « code null »', () => {
-  const n = envoiInstagramRefuse({ etape: 'dm1', sousCode: null, verdict: 'à regarder' });
-  assert.ok(!n.body.includes('null'), n.body);
-  assert.ok(!n.body.includes('code'), n.body);
+// ── L'alerte Instagram : ce qu'elle dit, et où elle emmène ─────────────────
+
+test("aucune alerte ne montre de jargon : ni code Meta, ni nom d'étape", () => {
+  // LE defaut d'origine : « dm1_commentaire · code 2534014 — a surveiller ».
+  // Le code est deja dans `cron_runs`, ou l'on diagnostique ; une banniere de
+  // 100 caracteres doit dire quoi faire.
+  for (const benin of [true, false]) {
+    for (const repetitions of [1, 5, 20]) {
+      for (const etape of ['dm1_commentaire', 'dm1_accroche_story', 'dm2_lien']) {
+        const n = envoiInstagramRefuse({ etape, sousCode: 2534014, benin, repetitions });
+        const texte = `${n.title} ${n.body}`;
+        assert.ok(!texte.includes('2534014'), texte);
+        assert.ok(!/code/i.test(texte), texte);
+        assert.ok(!texte.includes('dm1') && !texte.includes('dm2'), texte);
+        assert.ok(!texte.includes('null') && !texte.includes('undefined'), texte);
+        assert.ok(n.body.length <= CORPS_MAX, `${n.body.length} car. : ${n.body}`);
+      }
+    }
+  }
+});
+
+test("l'action et la destination changent entre une fois et la répétition", () => {
+  // C'est le coeur de la correction : « a surveiller » ne dit rien. Une fois, un
+  // prospect est reste sans reponse et on va le repecher ; repete, ce n'est plus
+  // un accident mais la connexion.
+  const uneFois = envoiInstagramRefuse({ etape: 'dm2_lien', benin: false, repetitions: 1 });
+  const repete = envoiInstagramRefuse({ etape: 'dm2_lien', benin: false, repetitions: 7 });
+
+  assert.match(uneFois.body, /Pipeline Leads/);
+  assert.equal(uneFois.url, '/client/pipeline');
+
+  assert.match(repete.body, /^7 fois en 24 h/);
+  assert.match(repete.body, /Réglages/);
+  assert.equal(repete.url, '/client/settings', 'la répétition emmène là où on répare');
+});
+
+test('un incident bénin isolé dit franchement qu’il n’y a rien à faire', () => {
+  // Meta refuse une seconde reponse privee sur le meme commentaire : le premier
+  // envoi est bien parti. Envoyer chercher une panne inexistante est pire que
+  // se taire.
+  const n = envoiInstagramRefuse({ etape: 'dm1_commentaire', benin: true, repetitions: 1 });
+  assert.match(n.body, /Rien à faire/);
+  assert.ok(!/Retrouve-le/.test(n.body), n.body);
+});
+
+test('le titre nomme ce que le prospect n’a pas reçu', () => {
+  assert.equal(envoiInstagramRefuse({ etape: 'dm2_lien', benin: false, repetitions: 1 }).title,
+    "Un lead magnet n'est pas parti");
+  assert.equal(envoiInstagramRefuse({ etape: 'dm1_commentaire', benin: false, repetitions: 1 }).title,
+    "Un message automatique n'est pas parti");
+});
+
+test('le titre ne contredit jamais le corps', () => {
+  // Une premiere version titrait « n'est pas parti » au-dessus de « le prospect
+  // a bien recu son message » : une fausse alerte fabriquee par le texte.
+  for (const etape of ['dm1_commentaire', 'dm1_accroche_story', 'dm2_lien']) {
+    const n = envoiInstagramRefuse({ etape, benin: true, repetitions: 1 });
+    const annonceUnEchec = /n'est pas parti|n’est pas parti/.test(n.title);
+    const ditQueCaMarche = /a bien reçu/.test(n.body);
+    assert.ok(!(annonceUnEchec && ditQueCaMarche), `${n.title} / ${n.body}`);
+  }
 });

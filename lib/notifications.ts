@@ -223,23 +223,91 @@ export const TAG_MESSAGERIE = 'momentum-msg';
 // ── Exploitation ────────────────────────────────────────────────────────────
 
 /**
- * Un envoi Instagram a été refusé (alerte destinée à l'exploitant).
+ * Un envoi Instagram automatique a été refusé (alerte destinée à l'exploitant).
  *
- * Tag par nature d'incident : la même panne qui se répète remplace son alerte —
- * le corps porte déjà le compteur « N fois en 24 h » — mais deux pannes
- * différentes restent deux alertes distinctes.
+ * ── CE QUI A CHANGÉ, ET POURQUOI ────────────────────────────────────────────
+ *
+ * Le texte disait « dm1_commentaire · code 2534014 — première occurrence — à
+ * surveiller ». Trois défauts en une phrase :
+ *
+ *   • `dm1_commentaire` est un nom de variable, pas un fait ;
+ *   • le code Meta ne veut rien dire pour qui le lit, et il est DÉJÀ dans
+ *     `cron_runs` — c'est là qu'on diagnostique, pas dans une bannière de 100
+ *     caractères ;
+ *   • « à surveiller » n'est pas une action. Surveiller quoi, où ?
+ *
+ * Ce qu'il faut savoir en voyant la bannière : ce qui est cassé côté PRODUIT,
+ * ce que ça coûte, et le geste à faire.
+ *
+ * ── L'ACTION N'EST PAS LA MÊME SELON LE CAS ─────────────────────────────────
+ *
+ * C'est le point. L'appelant distingue déjà deux moments — la première fois, et
+ * le franchissement du seuil de répétition — mais leur donnait le même texte.
+ * Or la conclusion diffère :
+ *
+ *   • une fois   → UN prospect est resté sans réponse. On va le repêcher à la
+ *                  main, dans le pipeline.
+ *   • répété     → ce n'est plus un accident, c'est la connexion. On va dans
+ *                  les Réglages.
+ *
+ * La destination suit l'action : le clic n'emmène pas au même endroit.
  */
 export function envoiInstagramRefuse(opts: {
+  /** `dm1_commentaire`, `dm1_accroche_story` ou `dm2_lien`. */
   etape: string;
+  /** Sous-code Meta connu comme sans conséquence (doublon de réponse privée). */
+  benin: boolean;
+  /** Nombre d'occurrences sur 24 h. 1 = première fois. */
+  repetitions: number;
+  /** Conservé pour le tag seul — jamais affiché. */
   sousCode?: string | number | null;
-  verdict: string;
-  message?: string | null;
 }): NotifPush {
-  const code = opts.sousCode == null ? '' : ` · code ${opts.sousCode}`;
+  const { etape, benin, repetitions } = opts;
+  const repete = repetitions > 1;
+
+  // Ce qui est cassé, nommé par ce que le prospect n'a pas reçu.
+  // `dm2_lien` est le plus coûteux : le prospect a déjà répondu, il attend son
+  // lead magnet et reste en plan.
+  //
+  // ⚠️ Le titre ne peut PAS annoncer un échec dans le cas bénin isolé : là, rien
+  // n'a échoué du point de vue du prospect. Une première version titrait « n'est
+  // pas parti » au-dessus d'un corps disant « le prospect a bien reçu son
+  // message » — une contradiction dans la même bannière, c'est-à-dire une fausse
+  // alerte fabriquée par le texte lui-même.
+  let title: string;
+  let body: string;
+  let url: string;
+
+  if (benin && !repete) {
+    // Meta refuse une seconde réponse privée sur le même commentaire : le
+    // premier envoi est bien parti. Le dire franchement évite de partir
+    // chercher une panne qui n'existe pas.
+    title = 'Un commentaire traité deux fois';
+    body = 'Le prospect a bien reçu son message — Momentum a juste essayé une seconde fois. Rien à faire.';
+    url = '/client/pipeline';
+  } else if (repete) {
+    title = etape === 'dm2_lien'
+      ? "Un lead magnet n'est pas parti"
+      : "Un message automatique n'est pas parti";
+    body = `${repetitions} fois en 24 h. Vérifie ta connexion Instagram dans Réglages.`;
+    // `/client/settings` et non `/settings` : le destinataire est désigné par
+    // ALERT_PROFILE_ID et l'alerte visait déjà l'espace élève (`/client/pipeline`).
+    // Les deux destinations restent donc dans le même espace.
+    url = '/client/settings';
+  } else {
+    title = etape === 'dm2_lien'
+      ? "Un lead magnet n'est pas parti"
+      : "Un message automatique n'est pas parti";
+    body = "Le prospect n'a rien reçu. Retrouve-le dans Pipeline Leads et écris-lui.";
+    url = '/client/pipeline';
+  }
+
   return {
-    title: 'Momentum — envoi Instagram refusé',
-    body: `${opts.etape}${code} — ${opts.verdict}${opts.message ? `\n${opts.message}` : ''}`,
-    url: '/client/pipeline',
-    tag: `alerte-ig-${opts.etape}-${opts.sousCode ?? 'sans-code'}`,
+    title,
+    body,
+    url,
+    // Tag par nature d'incident : la même panne qui se répète remplace son
+    // alerte, deux pannes différentes restent deux alertes.
+    tag: `alerte-ig-${etape}-${opts.sousCode ?? 'sans-code'}`,
   };
 }
