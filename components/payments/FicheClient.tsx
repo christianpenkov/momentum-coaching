@@ -429,11 +429,27 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
   // Le cas du comptant, et celui du prélèvement automatique PAS ENCORE
   // DÉMARRÉ : tant qu'aucun abonnement n'existe chez Stripe, il n'y a qu'un
   // lien, et c'est en le payant que le client saisit sa carte.
-  const lienAEnvoyer = echeances.length === 0
+  // ⚠️ `echeances.length === 0` était TROP STRICT, et ça coûtait de l'argent
+  // (relevé par Chris le 2026-09-06) : relever le montant d'une vente déjà payée
+  // crée un lien de COMPLÉMENT porté par la vente, pas par une échéance. Les
+  // anciennes échéances, toutes payées, suffisaient à masquer ce lien — la fiche
+  // n'affichait plus que « 1/1 payée le 6 septembre », sans le lien des 200 €
+  // encore dus, sans dire qu'il fallait l'envoyer, ni s'il avait été ouvert.
+  // Le seul chemin restant était de rouvrir la modale du montant.
+  //
+  // Ce qu'il faut écarter, ce ne sont pas les échéances : ce sont les échéances
+  // ENCORE À PAYER, qui portent déjà chacune leur propre lien juste au-dessus.
+  // Sans quoi le même argent serait réclamé deux fois sur le même écran.
+  const echeancesAPayer = echeances.filter(e => e.status !== 'paid');
+
+  const lienAEnvoyer = echeancesAPayer.length === 0
     && !deal.stripeSubscriptionId
     && !!deal.shortUrl
     && !terminee
     && deal.collected < deal.amountTotal - 0.005;
+
+  /** Ce que ce lien-là doit encore encaisser — la fiche ne le disait nulle part. */
+  const resteSurLeLien = Math.max(0, Math.round((deal.amountTotal - deal.collected) * 100) / 100);
   const pct = deal.amountTotal > 0 ? Math.min(100, Math.round((deal.collected / deal.amountTotal) * 100)) : 0;
 
   return (
@@ -763,6 +779,18 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
                   Les prélèvements ne démarreront qu’à la première échéance :
                   c’est en payant ce lien que {deal.buyerName.split(' ')[0]} saisit
                   sa carte, et Stripe met en place les suivants tout seul.
+                </div>
+              )}
+              {/* Un lien seul ne dit ni COMBIEN il encaisse, ni qu'il faut
+                  l'envoyer. Sur une vente neuve le montant est celui du titre
+                  juste au-dessus, mais dès qu'une partie est déjà payée —
+                  complément après une hausse — il ne se lit plus nulle part :
+                  la fiche montrait un lien sans montant sous des échéances
+                  toutes payées. */}
+              {echeances.length > 0 && resteSurLeLien > 0 && (
+                <div style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.6, paddingBottom: 4 }}>
+                  <strong>{fmtEurExact(resteSurLeLien)}</strong> encore à encaisser —
+                  envoie ce lien à {deal.buyerName.split(' ')[0]}.
                 </div>
               )}
               <LigneLien url={deal.shortUrl!} clics={detail?.clicks ?? 0} envoye={false}
