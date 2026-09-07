@@ -1318,7 +1318,23 @@ function PanneauIssue({
   // grille unique avec `display: contents` sur les lignes marcherait aussi, mais
   // une ligne cesse alors d'être une boîte : plus de fond au survol, plus de
   // bordure basse, plus de zone cliquable d'un bloc.
-  const grille = avecRelances ? '1fr 66px 74px 116px' : '1fr 66px 116px';
+  // Deux cellules d'action : le geste du moment (« Relance » ou « Modifier »)
+  // et « Historique », qui ne bouge jamais de place. Une colonne unique dont le
+  // bouton change de sens selon la ligne obligeait a LIRE le libelle avant de
+  // viser ; deux colonnes fixes se visent sans lire.
+  const grille = avecRelances ? '1fr 66px 74px 92px 96px' : '1fr 66px 92px 96px';
+
+  // Les deux boutons de la ligne portent le MEME cadre : ce sont deux actions de
+  // meme rang, l'une menant au rapport, l'autre a la fiche. Seule la couleur du
+  // texte les distingue — l'ardoise pour celle qui agit, l'encre estompee pour
+  // celle qui montre.
+  const boutonEncadre = (couleur: string): React.CSSProperties => ({
+    fontSize: 11, fontWeight: 600, padding: '6px 8px', width: '100%',
+    borderRadius: 7, cursor: 'pointer', whiteSpace: 'nowrap',
+    background: 'var(--surface)', color: couleur,
+    border: `1px solid ${couleur === 'var(--muted)' ? 'var(--border)' : couleur}`,
+    transition: 'all .12s',
+  });
 
   return (
     <>
@@ -1379,6 +1395,7 @@ function PanneauIssue({
                 <span>Lead</span>
                 <span>{avecRelances ? 'Classé le' : 'Date'}</span>
                 {avecRelances && <span>Relances</span>}
+                <span />
                 <span />
               </div>
 
@@ -1468,16 +1485,20 @@ function PanneauIssue({
                         bleus saturés qui criait plus fort que les noms des
                         leads : le panneau ne se lisait plus, il se subissait.
                         Le contour se remplit au survol, au moment où il sert. */}
-                    {c.relanceDue && onRelancer ? (
+                    {/* DEUX boutons, tous deux encadrés. « Historique » ouvre la
+                        fiche, « Modifier » rouvre le rapport : deux destinations
+                        différentes, donc deux boutons, et non un seul dont le sens
+                        change selon la ligne.
+
+                        Le contour sur les deux, pas le remplissage : rempli, le
+                        premier donnait une colonne de rectangles bleus saturés qui
+                        criait plus fort que les noms des leads. Il se remplit au
+                        survol, au moment où il sert. */}
+                    {(c.relanceDue && onRelancer) ? (
                       <button
                         type="button"
                         onClick={() => onRelancer(c.key)}
-                        style={{
-                          fontSize: 11, fontWeight: 600, padding: '6px 10px',
-                          borderRadius: 7, cursor: 'pointer', whiteSpace: 'nowrap',
-                          background: 'var(--surface)', color: 'var(--accent-brand)',
-                          border: '1px solid var(--accent-brand)', transition: 'all .12s',
-                        }}
+                        style={boutonEncadre('var(--accent-brand)')}
                         onMouseEnter={e => {
                           e.currentTarget.style.background = 'var(--accent-brand)';
                           e.currentTarget.style.color = '#fff';
@@ -1486,41 +1507,39 @@ function PanneauIssue({
                           e.currentTarget.style.background = 'var(--surface)';
                           e.currentTarget.style.color = 'var(--accent-brand)';
                         }}
-                      >Je l&rsquo;ai relancé</button>
-                    ) : (
+                      >Relancé</button>
+                    ) : (c.callId && c.callOutcome && onModifierRapport) ? (
                       <button
                         type="button"
-                        // « Historique » faisait DOUBLON : cliquer le nom du lead,
-                        // deux colonnes à gauche, ouvre déjà sa fiche. La place
-                        // servait donc à rien, alors qu'un lead classé n'avait aucun
-                        // moyen de rouvrir son rapport — le bouton du board ne
-                        // s'affiche qu'à l'étape « RDV pris », et un lead classé
-                        // porte son issue, jamais cette étape.
-                        //
-                        // Quand une relance est due, la place est prise par « Je
-                        // l'ai relancé » (116 px, deux boutons n'y tiennent pas) :
-                        // le rapport reste alors accessible au clic droit, qui
-                        // porte la même action sur les trois surfaces.
-                        onClick={() => {
-                          if (c.callId && c.callOutcome && onModifierRapport) onModifierRapport(c.key);
-                          else onOuvrirFiche(c.key);
-                        }}
-                        style={{
-                          fontSize: 11, fontWeight: 600, padding: '6px 10px',
-                          borderRadius: 7, cursor: 'pointer', whiteSpace: 'nowrap',
-                          background: 'transparent', color: 'var(--muted)',
-                          border: '1px solid transparent', transition: 'all .12s',
-                        }}
+                        // Un lead classé n'avait AUCUN moyen de rouvrir son rapport :
+                        // le bouton du board ne s'affiche qu'à l'étape « RDV pris »,
+                        // et un lead classé porte son issue, jamais cette étape.
+                        onClick={() => onModifierRapport(c.key)}
+                        style={boutonEncadre('var(--accent-brand)')}
                         onMouseEnter={e => {
-                          e.currentTarget.style.background = 'var(--surface-2)';
-                          e.currentTarget.style.color = 'var(--ink)';
+                          e.currentTarget.style.background = 'var(--accent-brand)';
+                          e.currentTarget.style.color = '#fff';
                         }}
                         onMouseLeave={e => {
-                          e.currentTarget.style.background = 'transparent';
-                          e.currentTarget.style.color = 'var(--muted)';
+                          e.currentTarget.style.background = 'var(--surface)';
+                          e.currentTarget.style.color = 'var(--accent-brand)';
                         }}
-                      >{c.callId && c.callOutcome ? 'Modifier' : 'Historique'}</button>
-                    )}
+                      >Modifier</button>
+                    ) : <span />}
+
+                    <button
+                      type="button"
+                      onClick={() => onOuvrirFiche(c.key)}
+                      style={boutonEncadre('var(--muted)')}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.background = 'var(--surface-2)';
+                        e.currentTarget.style.color = 'var(--ink)';
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.background = 'var(--surface)';
+                        e.currentTarget.style.color = 'var(--muted)';
+                      }}
+                    >Historique</button>
                   </div>
                 );
               })}

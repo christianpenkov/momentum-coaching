@@ -2379,7 +2379,11 @@ a { color: inherit; text-decoration: none; }
   top: var(--h-topbar);
   right: 0;
   bottom: 0;
-  width: min(520px, 94vw);
+  /* 610 et non 520 : la ligne d'une issue porte desormais DEUX boutons
+     encadres (l'action du moment, puis « Historique »). A 520 ils se
+     chevauchaient le nom du lead. Le panneau grandit vers la gauche, son bord
+     droit etant colle a l'ecran. */
+  width: min(610px, 94vw);
   z-index: 91;
   display: flex;
   flex-direction: column;
