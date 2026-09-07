@@ -5116,6 +5116,7 @@ function RailContenus({ posts, rightView, ouvert, epingle, onRetour, onEpingler,
 function Entonnoir({ data, ouvert, onToggle, compact, mobile = false }: {
   data: { contenus: number; commentaires: number; conversations: number; callsBookes: number;
           callsViaDm: number; callsDirects: number;
+          personnesManifestees: number; callsDirectsPersonnes: number;
           tauxConversations: number | null; tauxCalls: number | null; pret: boolean };
   ouvert: boolean;
   onToggle: () => void;
@@ -5128,7 +5129,12 @@ function Entonnoir({ data, ouvert, onToggle, compact, mobile = false }: {
   // croire à un décompte brut, et le chiffre ne collerait pas avec Instagram.
   const etapes: { libelle: string; valeur: number; taux: number | null; precision?: string }[] = [
     { libelle: 'Contenus', valeur: data.contenus, taux: null },
-    { libelle: 'Leads', valeur: data.commentaires, taux: null },
+    // Deux populations très différentes sous un seul chiffre : les gens qui se
+    // sont manifestés, et ceux qui ont réservé sans jamais écrire. Le dire évite
+    // de chercher pourquoi « Leads » dépasse « Conversations » — c'est le cas
+    // normal, pas une anomalie.
+    { libelle: 'Leads', valeur: data.commentaires, taux: null,
+      precision: `${data.personnesManifestees} ont écrit · ${data.callsDirectsPersonnes} ont réservé directement` },
     // Pas de taux : « 75 % » sous Conversations invitait a lire une performance,
     // alors que l'ecran repond a « ou en sont mes leads », pas a « est-ce que je
     // convertis bien ». La performance vit dans Mes Stats.
@@ -6012,6 +6018,8 @@ export default function PageLiens() {
     );
 
     const commentaires = personnesLm.size + personnesCallsDirects.size;
+    const personnesManifestees = personnesLm.size;
+    const callsDirectsPersonnes = personnesCallsDirects.size;
 
     // « Conversations » et non « Accroches ». L'ancienne marche comptait les DM1
     // envoyes (lead_magnet_sent), or le DM1 part a la detection : elle valait
@@ -6078,6 +6086,8 @@ export default function PageLiens() {
       callsBookes,
       callsViaDm,
       callsDirects,
+      personnesManifestees,
+      callsDirectsPersonnes,
       tauxConversations: taux(conversations, commentaires),
       // Pas de taux sur la derniere marche : les calls directs n'ont jamais ete
       // des conversations, un rapport entre les deux donnerait 600 %.
