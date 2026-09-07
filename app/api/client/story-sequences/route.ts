@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { construireDestinationShortio } from '@/lib/click-redirect';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
+import { bornerArbitrage } from '@/lib/rattachementStories';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -35,7 +36,7 @@ export async function GET() {
     // messages historiques : `dm1_message` est le message du lien et
     // `dm2_story_message` la relance, malgré leurs noms (voir la migration
     // story_sequences_dm_unification).
-    .select('id, name, cta_story_id, lm_id, lm_keyword, lm_url, dm_lm_message, dm_button_text, dm1_message, dm_link_button_text, dm2_story_message, calendly_short_url, created_at')
+    .select('id, name, cta_story_id, lm_id, lm_keyword, lm_url, dm_lm_message, dm_button_text, dm1_message, dm_link_button_text, dm2_story_message, calendly_short_url, created_at, stories_arbitrees_jusqua')
     .eq('profile_id', user.id)
     .order('created_at', { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -311,12 +312,12 @@ export async function PATCH(request: Request) {
 
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
-  const { id, name, ctaStoryId, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage, lmKeyword, generateCalendly, addStoryIds, removeStoryIds } = body;
+  const { id, name, ctaStoryId, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage, lmKeyword, generateCalendly, addStoryIds, removeStoryIds, ecarteesIds } = body;
   if (!id) return NextResponse.json({ error: 'id requis' }, { status: 400 });
 
   const { data: seq, error: seqFetchErr } = await serviceSupabase
     .from('story_sequences')
-    .select('id, name, cta_story_id, calendly_short_url')
+    .select('id, name, cta_story_id, calendly_short_url, stories_arbitrees_jusqua')
     .eq('id', id)
     .eq('profile_id', user.id)
     .maybeSingle();
@@ -325,6 +326,8 @@ export async function PATCH(request: Request) {
 
   // Rempli par le bloc d'ajout quand la séquence n'avait pas encore de CTA.
   let patchCta: string | null = null;
+  // Rempli par le bloc d'ajout : la parution la plus récente arbitrée.
+  let patchArbitrage: string | null = null;
 
   // ── Retrait de stories ──────────────────────────────────────────────────
   if (Array.isArray(removeStoryIds) && removeStoryIds.length > 0) {
@@ -347,6 +350,10 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ ok: true, sequenceDeleted: true });
     }
 
+    // Une story retirée redevient libre, mais sa parution précède la borne
+    // `stories_arbitrees_jusqua` : elle ne se reproposera donc pas au bandeau de
+    // cette séquence. C'est voulu — on vient de la retirer exprès. Elle reste
+    // regroupable ailleurs depuis l'onglet Stories, il n'y a pas de cul-de-sac.
     const { error: removeErr } = await serviceSupabase
       .from('ig_stories')
       .update({ sequence_id: null })
@@ -383,6 +390,43 @@ export async function PATCH(request: Request) {
       .in('id', addStoryIds)
       .eq('profile_id', user.id);
     if (addErr) return NextResponse.json({ error: addErr.message }, { status: 500 });
+
+    // ── LE RATTACHEMENT DIT AUSSI CE QU'ON A ÉCARTÉ ─────────────────────────
+    //
+    // Au moment où le coach clique « Les rattacher », les stories qui lui étaient
+    // proposées et qu'il n'a pas cochées sont celles dont il ne veut pas. Une
+    // borne suffit donc à ne plus les proposer : il n'y a rien à mémoriser du
+    // refus lui-même, l'acceptation le dit déjà.
+    //
+    // Elle remplace un `localStorage` par appareil — un refus cliqué sur
+    // l'ordinateur réapparaissait sur le téléphone.
+    //
+    // ⚠️ CETTE BORNE EST UNE PARUTION, PAS L'HEURE DU CLIC. Le raisonnement est
+    // dans `lib/rattachementStories.ts` ; en un mot : la parution est datée par
+    // Instagram, le clic par notre serveur, et le cron a du retard entre les deux.
+    // Une story publiée pendant que l'écran est ouvert n'est donc pas affichée au
+    // moment du clic tout en le précédant — `now()` l'écarterait à vie sans
+    // l'avoir jamais montrée.
+    //
+    // Les ÉCARTÉES comptent autant que les rattachées : sans elles, écarter la
+    // story la plus récente la ferait revenir aussitôt, la borne s'arrêtant à la
+    // dernière rattachée. Le client n'envoie que des identifiants — les `posted_at`
+    // sont relus ici, dans le périmètre du profil.
+    const idsArbitres = [...new Set([
+      ...addStoryIds,
+      ...(Array.isArray(ecarteesIds) ? ecarteesIds : []),
+    ])].filter((v): v is string => typeof v === 'string');
+
+    const { data: parutions } = await serviceSupabase
+      .from('ig_stories')
+      .select('posted_at')
+      .eq('profile_id', user.id)
+      .in('id', idsArbitres);
+
+    patchArbitrage = bornerArbitrage(
+      (parutions || []).map(p => p.posted_at),
+      seq.stories_arbitrees_jusqua,
+    );
 
     // ── UNE SÉQUENCE PRÉPARÉE REÇOIT SON CTA À SON PREMIER RATTACHEMENT ──────
     //
@@ -426,6 +470,31 @@ export async function PATCH(request: Request) {
 
   if (Object.keys(patch).length > 1) {
     const { error } = await serviceSupabase.from('story_sequences').update(patch).eq('id', id).eq('profile_id', user.id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // ── LA BORNE S'ÉCRIT À PART, ET NE RECULE PAS ─────────────────────────────
+  //
+  // Écriture SÉPARÉE et CONDITIONNELLE, parce que `patchArbitrage` a été calculé
+  // à partir d'une valeur lue en début de requête. Entre cette lecture et
+  // l'écriture, un autre appareil peut avoir arbitré plus loin — le glisser dans
+  // le patch général le ferait reculer, et des refus déjà prononcés là-bas
+  // seraient reproposés ici.
+  //
+  // Le `.or(...)` déplace la comparaison dans le UPDATE lui-même : Postgres
+  // l'évalue sur la ligne au moment où il la modifie, donc la borne ne peut plus
+  // que monter, quel que soit l'entrelacement. Zéro ligne touchée n'est pas une
+  // erreur — cela veut dire qu'une borne plus récente tient déjà.
+  //
+  // La garde en mémoire de `bornerArbitrage` reste utile : elle évite d'émettre
+  // cette requête quand rien n'a progressé.
+  if (patchArbitrage) {
+    const { error } = await serviceSupabase
+      .from('story_sequences')
+      .update({ stories_arbitrees_jusqua: patchArbitrage })
+      .eq('id', id)
+      .eq('profile_id', user.id)
+      .or(`stories_arbitrees_jusqua.is.null,stories_arbitrees_jusqua.lt.${patchArbitrage}`);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   }
 

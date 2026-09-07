@@ -15,6 +15,7 @@ import { compterLeadsDuContenu, compterConversationsDuContenu } from '@/lib/ento
 import { refusSequence } from '@/lib/sequenceDm';
 import { personnesParContenu } from '@/lib/attribution-roles';
 import { SOURCE_DM_ENTRANT, SOURCE_DM_SORTANT } from '@/lib/canalDm';
+import { storiesARattacher as storiesARattacherPur } from '@/lib/rattachementStories';
 
 import { IG, IgAvatar, IgRecu, IgTemplate, IgEnvoye } from '@/components/ig/primitivesInstagram';
 import { PARAM_STORIES_A_GROUPER } from '@/lib/notifications';
@@ -2680,8 +2681,13 @@ function LigneSequence({ seq, stories, aRattacher, surbrillance, ouverte, occupe
           publiée au mauvais moment ne doit pas entrer sans qu'on l'ait vue. */}
       {ouverte && aRattacher.length > 0 && (
         <div style={{ marginTop: 10, padding: 9, borderRadius: 8, background: SURFACE2, border: `1px solid ${BORDER_SOFT}` }}>
+          {/* « depuis la création » ne vaut que la PREMIÈRE fois. Dès qu'un
+              rattachement a eu lieu, la séquence ne propose plus que ce qui a
+              paru après lui — l'annoncer autrement ferait chercher au coach des
+              stories qu'il a déjà tranchées. */}
           <div style={{ fontSize: 11.5, color: INK, fontWeight: 600, marginBottom: 7 }}>
-            {aRattacher.length} stor{aRattacher.length > 1 ? 'ies' : 'y'} publiée{aRattacher.length > 1 ? 's' : ''} depuis la création
+            {aRattacher.length} stor{aRattacher.length > 1 ? 'ies' : 'y'} publiée{aRattacher.length > 1 ? 's' : ''}
+            {seq.stories_arbitrees_jusqua ? ' depuis le dernier rattachement' : ' depuis la création'}
           </div>
           {/* La croix n'existe qu'aux DEUX BOUTS de la sélection.
               Une séquence est un bloc continu : écarter une story du milieu
@@ -6185,66 +6191,34 @@ export default function PageLiens() {
   // laisse une journée de plus pour rattacher ce qu'on vient de publier.
   const FENETRE_OUVERTURE_MS = 48 * 60 * 60 * 1000;
 
-  /* Les stories qu'on a choisi de NE PAS rattacher.
+  /* Les stories qu'on a choisi de NE PAS rattacher, le temps de la décision.
    *
-   * ── Pourquoi ça survit désormais au rechargement ──────────────────────────
+   * ── Rien à mémoriser du refus : l'acceptation le dit déjà ─────────────────
    *
-   * C'était un état de mémoire vive : la croix disait « non », et recharger la
-   * page ramenait la proposition. Assumé à l'écriture — elle s'éteint seule en
-   * 48 h — mais c'est une promesse à moitié tenue : le geste est explicite, et
-   * l'écran l'oubliait.
+   * Au moment où le coach clique « Les rattacher », les stories qui lui étaient
+   * proposées et qu'il n'a pas cochées sont celles dont il ne veut pas.
+   * `story_sequences.stories_arbitrees_jusqua` retient la plus récente PARUTION
+   * sur laquelle il a tranché, et ce qui précède cesse d'être proposé. Le refus
+   * est donc porté par la base, pour tous ses appareils.
    *
-   * ── Pourquoi `localStorage` et pas une colonne ────────────────────────────
+   * Une parution, et pas l'heure du clic : `lib/rattachementStories.ts` dit
+   * pourquoi, et le test qui le prouve s'appelle « une story JAMAIS montrée n'est
+   * jamais écartée ».
    *
-   * L'état est PERSONNEL (celui qui écarte), ÉPHÉMÈRE (48 h, la durée de vie de
-   * la proposition) et sans conséquence sur les chiffres. Une colonne
-   * demanderait une migration, une purge, et porterait en base un état qui
-   * n'intéresse aucun autre écran. Même usage que la position de lecture des
-   * audios (`PageChat`, `PageClientMessages`), avec le même `try/catch`.
+   * Cette croix ne sert plus qu'à composer la sélection avant de cliquer. Elle
+   * n'a plus besoin de survivre à un rechargement : recharger sans avoir cliqué,
+   * c'est n'avoir rien décidé — et tout reproposer est alors le bon comportement.
    *
-   * ⚠️ LA CLÉ PORTE LE `profileId`. Sans lui, deux comptes ouverts dans le même
-   * navigateur partageraient leurs stories écartées — exactement la classe de
-   * défaut corrigée le 2026-09-07 sur `calls`, où une clé sans profil laissait
-   * un compte écraser les rendez-vous d'un autre.
+   * ── Ce qui occupait cette place, et pourquoi c'était insuffisant ──────────
    *
-   * ⚠️ Chaque entrée porte SA date. Sans elle, `localStorage` grossirait
-   * indéfiniment et une story écartée il y a six mois resterait écartée si son
-   * identifiant réapparaissait. On relit en filtrant sur la même fenêtre que la
-   * proposition : au-delà, l'oubli est le bon comportement. */
-  const CLE_ECARTEES = `stories-ecartees:${profileId}`;
+   * Un `localStorage` tenait le refus jusqu'au 2026-09-07. Il le tenait par
+   * NAVIGATEUR : écarter une story sur l'ordinateur la reproposait sur le
+   * téléphone. Et il lui fallait une clé par profil, une date par entrée et une
+   * purge à la lecture pour se tenir — beaucoup de mécanique pour mémoriser un
+   * refus que le geste d'accepter exprime déjà. */
   const [storiesEcartees, setStoriesEcartees] = useState<Set<string>>(new Set());
+  const ecarterStory = (id: string) => setStoriesEcartees(prev => new Set([...prev, id]));
 
-  // Relecture au montage, jamais à l'initialisation du `useState` : `localStorage`
-  // n'existe pas au rendu serveur, et y toucher pendant l'hydratation ferait
-  // diverger le premier rendu client du HTML envoyé.
-  useEffect(() => {
-    if (!profileId) return;
-    try {
-      const brut = localStorage.getItem(CLE_ECARTEES);
-      if (!brut) return;
-      const limite = Date.now() - FENETRE_OUVERTURE_MS;
-      const entrees = JSON.parse(brut) as Record<string, number>;
-      const vivantes = Object.entries(entrees).filter(([, t]) => t > limite);
-      setStoriesEcartees(new Set(vivantes.map(([id]) => id)));
-      // Ménage à la lecture : le seul moment où on tient la liste complète, et
-      // il ne coûte rien. Sans lui, rien ne purgerait jamais les entrées mortes.
-      if (vivantes.length !== Object.keys(entrees).length) {
-        localStorage.setItem(CLE_ECARTEES, JSON.stringify(Object.fromEntries(vivantes)));
-      }
-    } catch { /* navigation privée, quota plein : on repart d'un ensemble vide */ }
-  }, [profileId, CLE_ECARTEES, FENETRE_OUVERTURE_MS]);
-
-  /** Écarte une story, et s'en souvient. */
-  const ecarterStory = (id: string) => {
-    setStoriesEcartees(prev => new Set([...prev, id]));
-    if (!profileId) return;
-    try {
-      const brut = localStorage.getItem(CLE_ECARTEES);
-      const entrees = brut ? (JSON.parse(brut) as Record<string, number>) : {};
-      entrees[id] = Date.now();
-      localStorage.setItem(CLE_ECARTEES, JSON.stringify(entrees));
-    } catch { /* l'écran reste juste pour cette session, c'est le repli acceptable */ }
-  };
 
   // Plus de clôture manuelle : deux boutons dont l'un ne servait qu'à annuler
   // l'autre, pour une proposition qui s'éteint déjà toute seule. Le « + » du
@@ -6326,10 +6300,19 @@ export default function PageLiens() {
     .filter(p => p.sequenceId === seq.id)
     .sort((a, b) => new Date(a.postedAt || 0).getTime() - new Date(b.postedAt || 0).getTime());
 
-  const storiesARattacher = (seq: any): Post[] => posts
-    .filter(p => p.platform === 'STORY' && !p.sequenceId && !storiesEcartees.has(p.id)
-      && sequenceProprietaire(p) === seq.id)
-    .sort((a, b) => new Date(a.postedAt || 0).getTime() - new Date(b.postedAt || 0).getTime());
+  // ── CE QUI A DÉJÀ ÉTÉ REFUSÉ NE REVIENT PLUS ─────────────────────────────
+  //
+  // La règle et ses tests vivent dans `lib/rattachementStories.ts`. Ici, on ne
+  // fait que lui donner les stories dont CETTE séquence est propriétaire.
+  //
+  // Les écartées sont rendues à part, et pas seulement retirées : c'est sur elles
+  // aussi que le coach a tranché, et le serveur en a besoin pour poser sa borne —
+  // sans quoi écarter la story la plus récente la ferait revenir aussitôt.
+  const arbitrageSequence = (seq: any) => storiesARattacherPur(
+    posts.filter(p => p.platform === 'STORY' && !p.sequenceId && sequenceProprietaire(p) === seq.id),
+    seq.stories_arbitrees_jusqua,
+    storiesEcartees,
+  );
 
   const patchSequence = async (id: string, corps: Record<string, unknown>) => {
     setSequenceOccupee(id);
@@ -6722,7 +6705,7 @@ export default function PageLiens() {
                   <LigneSequence
                     key={seq.id} seq={seq}
                     stories={storiesDeLaSequence(seq)}
-                    aRattacher={storiesARattacher(seq)}
+                    aRattacher={arbitrageSequence(seq).proposees}
                     surbrillance={highlightedSequenceId === seq.id}
                     ouverte={sequenceOuverte(seq)}
                     occupee={sequenceOccupee === seq.id}
@@ -6730,7 +6713,13 @@ export default function PageLiens() {
                       const ctaStory = posts.find(p => p.id === seq.cta_story_id) ?? posts.find(p => p.sequenceId === seq.id);
                       if (ctaStory) openMobileDetail({ type: 'story', post: ctaStory });
                     }}
-                    onRattacher={ids => patchSequence(seq.id, { addStoryIds: ids })}
+                    onRattacher={ids => patchSequence(seq.id, {
+                      addStoryIds: ids,
+                      // Ce que le coach a écarté d'un clic sur la croix. Le serveur
+                      // en a besoin pour borner : sans elles, écarter la story la
+                      // plus récente la ferait revenir au rechargement suivant.
+                      ecarteesIds: arbitrageSequence(seq).ecartees.map(st => st.id),
+                    })}
                     onEcarter={ecarterStory}
                   />
                 ))
@@ -7036,7 +7025,7 @@ export default function PageLiens() {
                   <LigneSequence
                     key={seq.id} seq={seq}
                     stories={storiesDeLaSequence(seq)}
-                    aRattacher={storiesARattacher(seq)}
+                    aRattacher={arbitrageSequence(seq).proposees}
                     surbrillance={highlightedSequenceId === seq.id}
                     ouverte={sequenceOuverte(seq)}
                     occupee={sequenceOccupee === seq.id}
@@ -7044,7 +7033,13 @@ export default function PageLiens() {
                       const ctaStory = posts.find(p => p.id === seq.cta_story_id) ?? posts.find(p => p.sequenceId === seq.id);
                       if (ctaStory) unsavedGuardApi.guard(() => setRightView({ type: 'story', post: ctaStory }));
                     }}
-                    onRattacher={ids => patchSequence(seq.id, { addStoryIds: ids })}
+                    onRattacher={ids => patchSequence(seq.id, {
+                      addStoryIds: ids,
+                      // Ce que le coach a écarté d'un clic sur la croix. Le serveur
+                      // en a besoin pour borner : sans elles, écarter la story la
+                      // plus récente la ferait revenir au rechargement suivant.
+                      ecarteesIds: arbitrageSequence(seq).ecartees.map(st => st.id),
+                    })}
                     onEcarter={ecarterStory}
                   />
                 ))

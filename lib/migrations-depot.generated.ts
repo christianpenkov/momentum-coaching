@@ -194,4 +194,6 @@ export const MIGRATIONS_DEPOT: { version: string; nom: string }[] = [
   { version: '20260907130000', nom: 'ig_periodes_dernier_essai' },
   { version: '20260907140000', nom: 'fusion_auto_email_calls_manuels' },
   { version: '20260907140000', nom: 'ventes_sante_date_ne_pas_accuser_la_date' },
+  { version: '20260907190000', nom: 'story_sequences_stories_rattachees_le' },
+  { version: '20260907203000', nom: 'story_sequences_arbitrage_parution' },
 ];
