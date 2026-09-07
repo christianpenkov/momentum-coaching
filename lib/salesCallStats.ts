@@ -157,8 +157,21 @@ export interface LigneCallLead {
 }
 
 export interface LignesLeads {
-  /** `instagram_leads` — leads détectés automatiquement. */
-  leads: { ig_username: string | null; detected_at: string | null }[];
+  /** `instagram_leads` — leads détectés automatiquement.
+   *
+   *  ⚠️ PLUSIEURS lignes par personne : chaque reprise de lead magnet, réponse de story
+   *  ou cold DM en crée une nouvelle. `ig_username` est donc la clé de la PERSONNE, pas
+   *  de la ligne — c'est ce qui rend l'agrégation ci-dessous nécessaire.
+   *
+   *  `source` et `hook_replied_at` sont OPTIONNELS : un appelant qui ne les fournit pas
+   *  obtient exactement le comportement d'avant le 2026-09-07. Ils ne servent qu'à la
+   *  règle du cold DM (voir `personnesDemarcheesSansReponse`). */
+  leads: {
+    ig_username: string | null;
+    detected_at: string | null;
+    source?: string | null;
+    hook_replied_at?: string | null;
+  }[];
   /** `prospect_links` — dédupliqués par `ig_username` avec les précédents. */
   liens: { ig_username: string | null; created_at: string | null }[];
   /** Calls IG directs sans lead : clic bio/description sans jamais avoir commenté.
@@ -181,6 +194,28 @@ export function clefPersonne(c: LigneCallLead): string {
   return (c.invitee_email || c.invitee_name || c.id).toLowerCase();
 }
 
+/**
+ * La date à laquelle une fiche `instagram_leads` fait de quelqu'un un LEAD.
+ *
+ * Pour presque toutes les sources, c'est `detected_at` : la personne s'est manifestée
+ * (elle a commenté un mot-clé), et cette date est gelée en base par le déclencheur
+ * `figer_detected_at` depuis le 2026-09-03 — c'est bien sa PREMIÈRE détection.
+ *
+ * ⚠️ Le cold DM est l'exception, et c'est une règle produit : *« un cold DM, c'est pas
+ * un lead tant qu'il n'a pas répondu »* (Chris, 2026-09-07). Là, `detected_at` est la
+ * date où NOUS l'avons démarchée — elle ne dit rien d'elle. Ce qui la fait entrer, c'est
+ * sa réponse. Tant qu'il n'y en a pas, cette fiche ne vaut pas lead : on rend `null`.
+ *
+ * Sans cette règle, le compteur était pilotable par l'élève : démarcher cinquante
+ * dormants créait cinquante « leads » sans qu'aucun n'ait répondu. Et c'était l'inverse
+ * du réel — mesuré le 2026-09-07, le seul cold DM compté était le seul à n'avoir jamais
+ * répondu, les deux qui avaient répondu étant écartés à la main.
+ */
+function dateDeLead(r: LignesLeads['leads'][number]): string | null {
+  if (r.source === 'cold_dm') return r.hook_replied_at ?? null;
+  return r.detected_at;
+}
+
 /** `since` seul répond à « combien depuis telle date ». `jusqua` ferme la fenêtre et
  *  répond à « combien DANS cette fenêtre » — ce dont le graphe a besoin, un point par
  *  fenêtre. Le filtre porte toujours sur la date la plus ancienne connue, après
@@ -197,16 +232,52 @@ export function compterLeads(l: LignesLeads, since: string | null, jusqua?: stri
   // instagram_leads en juillet et dans prospect_links en août (un lien est recréé à
   // chaque envoi) : filtrer chaque source séparément le recomptait comme « nouveau ce
   // mois » alors qu'il était déjà ancien.
+  // ── État du cold DM, agrégé par PERSONNE et jamais par ligne ───────────────
+  //
+  // `instagram_leads` porte plusieurs fiches pour la même personne : chaque reprise de
+  // lead magnet, réponse de story ou cold DM en crée une. Sa réponse peut donc être
+  // portée par une AUTRE fiche que celle qu'on est en train de lire — juger ligne par
+  // ligne écarterait quelqu'un qui a bel et bien répondu.
+  //
+  // ⚠️ Rétro-compatible par construction : un appelant qui ne fournit pas `source` laisse
+  // `tousDemarches` à faux dès la première fiche, donc n'exclut personne. Le comportement
+  // d'avant le 2026-09-07 est conservé à l'octet près pour qui ne passe pas ces colonnes.
+  const etatCold = new Map<string, { tousDemarches: boolean; aRepondu: boolean }>();
+  for (const r of l.leads) {
+    if (!r.ig_username) continue;
+    const cle = r.ig_username.toLowerCase();
+    const etat = etatCold.get(cle) ?? { tousDemarches: true, aRepondu: false };
+    if (r.source !== 'cold_dm') etat.tousDemarches = false;
+    if (r.hook_replied_at) etat.aRepondu = true;
+    etatCold.set(cle, etat);
+  }
+
   const plusAncienneParUsername = new Map<string, string>();
   for (const r of l.leads) {
-    if (!r.ig_username || !r.detected_at) continue;
+    const date = dateDeLead(r);
+    if (!r.ig_username || !date) continue;
     const cle = r.ig_username.toLowerCase();
     const prec = plusAncienneParUsername.get(cle);
-    if (!prec || r.detected_at < prec) plusAncienneParUsername.set(cle, r.detected_at);
+    if (!prec || date < prec) plusAncienneParUsername.set(cle, date);
   }
+
+  // ⚠️ Un lien ne doit pas RESSUSCITER un démarché sans réponse.
+  //
+  // `prospect_links` continue d'entrer une personne par lui-même — c'est la règle
+  // d'origine, et elle ne change pas ici. Une seule exception, sans quoi la règle du
+  // cold DM fuirait par la fenêtre : quelqu'un dont TOUTES les fiches sont des cold DM
+  // sans réponse redeviendrait un lead au seul motif qu'on lui a envoyé un Calendly,
+  // c'est-à-dire encore une action de notre côté.
+  //
+  // Mesuré le 2026-09-07 : zéro personne dans ce cas, donc aucun chiffre ne bouge.
+  // C'est un chemin qu'on ferme, pas un compte qu'on corrige.
+  const demarchesSansReponse = new Set<string>();
+  for (const [cle, etat] of etatCold) if (etat.tousDemarches && !etat.aRepondu) demarchesSansReponse.add(cle);
+
   for (const r of l.liens) {
     if (!r.ig_username || !r.created_at) continue;
     const cle = r.ig_username.toLowerCase();
+    if (demarchesSansReponse.has(cle)) continue;
     const prec = plusAncienneParUsername.get(cle);
     if (!prec || r.created_at < prec) plusAncienneParUsername.set(cle, r.created_at);
   }
@@ -263,8 +334,21 @@ function requetesLeads(supabase: SupabaseClient, profileIds: string[], since: st
   // dépassent 1 000 lignes bien avant 40 élèves — PostgREST tronquait sans erreur,
   // et le comptage de leads / le CA sous-comptaient en silence (balayage du
   // 2026-09-05). Tri sur `id` pour des pages déterministes.
+  // `source` et `hook_replied_at` servent la règle du cold DM (voir `dateDeLead`) :
+  // une personne démarchée n'est un lead qu'à partir de sa réponse.
+  //
+  // ⚠️ Deux COLONNES, jamais une requête de plus. La question « a-t-elle répondu ? »
+  // pouvait aussi se lire dans le journal `prospect_events`, plus durable — mais ce
+  // journal n'est chargé que par Mes Stats, donc l'ajouter ici coûterait +1 requête sur
+  // Stats Clients et +2 PAR ÉLÈVE sur l'accueil coach, qui appelle en boucle.
+  //
+  // Vérifié en base le 2026-09-07 : au niveau PERSONNE, l'horodatage des fiches et le
+  // journal désignent exactement les six mêmes gens, zéro divergence. Et l'horodatage a
+  // une propriété que le journal n'a pas : il suit le « reset » manuel du pipeline. Un
+  // prospect qu'on remet en arrière redevient cohéremment « pas encore répondu », là où
+  // le journal, immuable, continuerait de le compter.
   const leads = () => supabase.from('instagram_leads')
-    .select('profile_id, ig_username, detected_at')
+    .select('profile_id, ig_username, detected_at, source, hook_replied_at')
     .in('profile_id', profileIds).is('archived_at', null).eq('not_a_lead', false)
     .order('id', { ascending: true });
 

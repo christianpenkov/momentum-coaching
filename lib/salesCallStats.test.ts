@@ -143,6 +143,76 @@ test('un username ne dédoublonne PAS avec un call de la même personne', () => 
   assert.equal(n, 2);
 });
 
+/* ─── La règle du cold DM ─────────────────────────────────────────────────────
+ *
+ * « Un cold DM, ce n'est pas un lead tant qu'il n'a pas répondu » (Chris, 2026-09-07).
+ * Le compteur faisait l'inverse : le seul cold DM compté était le seul à n'avoir jamais
+ * répondu. Ce n'est pas une règle de période mais la définition même d'un lead, donc
+ * elle vit dans `compterLeads` et vaut pour les six lecteurs. */
+
+const coldDm = (u: string, envoyeLe: string, repondudLe: string | null = null) =>
+  ({ ig_username: u, detected_at: envoyeLe, source: 'cold_dm', hook_replied_at: repondudLe });
+const commentaire = (u: string, le: string) =>
+  ({ ig_username: u, detected_at: le, source: 'comment', hook_replied_at: null });
+
+test('un cold DM sans réponse n\'est PAS un lead', () => {
+  // Le cas réel : `dolphin.2089562`, démarchée le 5 septembre, jamais répondu, et
+  // pourtant comptée. Sans cette règle le chiffre est pilotable — démarcher cinquante
+  // dormants créerait cinquante leads.
+  assert.equal(compterLeads(lignes({ leads: [coldDm('dolphin', '2026-09-05T00:00:00Z')] }), null), 0);
+});
+
+test('un cold DM qui répond devient un lead, à la date de sa RÉPONSE', () => {
+  // Envoyé en juillet, répond en août : il appartient à août, pas à juillet. C'est sa
+  // réponse qui le fait entrer, pas notre envoi.
+  const l = lignes({ leads: [coldDm('zoe', '2026-07-10T00:00:00Z', '2026-08-20T00:00:00Z')] });
+  assert.equal(compterLeads(l, null), 1);
+  assert.equal(compterLeads(l, '2026-08-01T00:00:00Z'), 1, 'compte en août');
+  assert.equal(compterLeads(l, '2026-07-01T00:00:00Z', '2026-07-31T23:59:59Z'), 0, 'pas en juillet');
+});
+
+test('la réponse peut être portée par une AUTRE fiche de la même personne', () => {
+  // ⚠️ Le piège central : `instagram_leads` a plusieurs lignes par personne. Juger
+  // ligne par ligne écarterait quelqu'un qui a répondu sur une fiche voisine.
+  const l = lignes({
+    leads: [
+      coldDm('ana', '2026-07-01T00:00:00Z'),                          // sans réponse
+      coldDm('ana', '2026-08-01T00:00:00Z', '2026-08-05T00:00:00Z'),  // celle-ci répond
+    ],
+  });
+  assert.equal(compterLeads(l, null), 1);
+});
+
+test('une personne connue autrement n\'est pas écartée par une fiche cold DM', () => {
+  // Elle a commenté en juin ; on l'a aussi démarchée en août sans réponse. Elle reste
+  // un lead, et sa date reste celle du commentaire.
+  const l = lignes({
+    leads: [commentaire('bea', '2026-06-01T00:00:00Z'), coldDm('bea', '2026-08-01T00:00:00Z')],
+  });
+  assert.equal(compterLeads(l, null), 1);
+  assert.equal(compterLeads(l, '2026-07-01T00:00:00Z'), 0, 'sa date reste celle du commentaire');
+});
+
+test('un lien ne ressuscite pas un démarché sans réponse', () => {
+  // Sans cette garde, la règle fuirait par la fenêtre : lui envoyer un Calendly — encore
+  // une action de notre côté — le rendrait lead.
+  const l = lignes({
+    leads: [coldDm('caro', '2026-08-01T00:00:00Z')],
+    liens: [{ ig_username: 'caro', created_at: '2026-08-02T00:00:00Z' }],
+  });
+  assert.equal(compterLeads(l, null), 0);
+});
+
+test('⚠️ rétro-compatible : sans `source`, personne n\'est écarté', () => {
+  // Les colonnes sont optionnelles. Un appelant qui ne les fournit pas obtient le
+  // comportement d'avant le 2026-09-07 à l'octet près — c'est ce qui a permis de poser
+  // la règle sans toucher aux cinq autres lecteurs le jour même.
+  const n = compterLeads(lignes({
+    leads: [{ ig_username: 'sans_source', detected_at: '2026-08-01T00:00:00Z' }],
+  }), null);
+  assert.equal(n, 1);
+});
+
 /* ─── Caractérisation des REQUÊTES ────────────────────────────────────────────
  *
  * Tout ce qui précède teste la règle PURE. Mais `requetesLeads` — les quatre lectures
@@ -205,7 +275,10 @@ test('caractérisation — les colonnes lues ne bougent pas', async () => {
   const journal: Lecture[] = [];
   await fetchAllLeadsCount(supabaseEspion(journal), 'p1', SINCE);
   const [leads, liens, callsIg, callsYt] = journal;
-  assert.equal(leads.select, 'profile_id, ig_username, detected_at');
+  // `source` et `hook_replied_at` ajoutés le 2026-09-07 pour la règle du cold DM.
+  // Deux colonnes de plus sur une lecture qui existait déjà : zéro requête ajoutée,
+  // ce qui compte parce que cette lecture est appelée EN BOUCLE par élève.
+  assert.equal(leads.select, 'profile_id, ig_username, detected_at, source, hook_replied_at');
   assert.equal(liens.select, 'profile_id, ig_username, created_at');
   assert.equal(callsIg.select, 'coach_id, id, invitee_email, invitee_name, booked_at, scheduled_at');
   assert.equal(callsYt.select, callsIg.select);
