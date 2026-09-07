@@ -63,6 +63,10 @@ import { invitationCall } from '../../../lib/notifications.ts';
 // Short ou video longue : la regle et les parametres de requete, verifies contre
 // l'API. Voir l'en-tete de lib/youtubeShorts.ts.
 import { estUnShort, dureeIsoEnSecondes, parametresClassification, MAX_RESULTS_CLASSIFICATION } from '../../../lib/youtubeShorts.ts';
+// Quelles fenetres l'API Insights accepte reellement — mesure du 2026-09-07, tests
+// dans lib/meta-fenetre.test.ts. Une seule regle pour les quatre points d'appel de
+// majPeriodesIg : c'est de son absence qu'est venu le lundi a 288 appels perdus.
+import { fenetreMesurable } from '../../../lib/meta-fenetre.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -2567,7 +2571,22 @@ async function majPeriodesIg(profileId: string, token: string, igAccountId: stri
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await safeJson(res);
     const tv = data?.data?.[0]?.total_value;
-    if (!tv) throw new Error('total_value absent');
+    // ⚠️ `servi: false` n'est PAS une erreur, et ne doit pas lever.
+    //
+    // Meta rend un jeu de donnees VIDE — pas un zero, pas un echec — tant qu'il n'a
+    // rien traite pour la fenetre demandee. Sa doc l'ecrit : « If insights data you
+    // are requesting does not exist or is currently unavailable the API will return
+    // an empty data set instead of 0 ».
+    //
+    // Mesure du 2026-09-07 : le meme appel sur le jour en cours rend un jeu vide le
+    // matin, puis `valeur = 0` quelques heures plus tard. C'est donc transitoire, et
+    // imprevisible — on ne peut ni le traiter en panne, ni s'abstenir d'appeler.
+    //
+    // Lever ici coutait cher : aucune ligne n'etant ecrite, la regle de fraicheur des
+    // 6 h n'avait rien a comparer et l'appel repartait a CHAQUE passage. 81 appels
+    // perdus entre minuit et 06h40 le 2026-09-07, sur une trajectoire de 288, par
+    // profil — plus une fausse alerte de sante chaque lundi.
+    if (!tv) return { total: null, abonnes: null, nonAbonnes: null, servi: false };
     let abonnes: number | null = null, nonAbonnes: number | null = null;
     for (const b of tv.breakdowns || []) {
       for (const r of b.results || []) {
@@ -2591,7 +2610,7 @@ async function majPeriodesIg(profileId: string, token: string, igAccountId: stri
       else if (nonAbonnes === null && abonnes !== null && abonnes === total) nonAbonnes = 0;
       else if (abonnes === null && nonAbonnes === null && total === 0) { abonnes = 0; nonAbonnes = 0; }
     }
-    return { total, abonnes, nonAbonnes };
+    return { total, abonnes, nonAbonnes, servi: true };
   }
 
   // Denominateur de « abonnes touches ». Fige avec la periode : sans ca, un taux
@@ -2643,8 +2662,49 @@ async function majPeriodesIg(profileId: string, token: string, igAccountId: stri
     return null;
   }
 
-  async function ecrire(type: 'semaine' | 'mois' | 'all_time', debut: string, fin: string, figee: boolean) {
+  async function ecrire(
+    type: 'semaine' | 'mois' | 'all_time', debut: string, fin: string, figee: boolean,
+    ligneExistante = false,
+  ) {
     const m = await mesurer(debut, fin);
+
+    // ⚠️ Meta n'a rien servi pour cette fenetre. TROIS conduites, pas deux.
+    //
+    // 1. A LA CLOTURE (`figee`) : on LEVE. Figer une ligne vide la rendrait
+    //    indiscernable d'une vraie absence de portee, definitivement. La cloture est
+    //    rejouee au passage suivant, et la periode etant terminee, Meta finira par la
+    //    servir.
+    //
+    // 2. EN COURS, ligne DEJA PRESENTE : on ne touche a RIEN.
+    //    ⚠️ C'est la garde la plus importante des trois, et la plus facile a oublier :
+    //    l'ecriture ci-dessous est un `delete` suivi d'un `insert`. Sans ce retour
+    //    anticipe, un simple hoquet de Meta — un jeu de donnees vide au mauvais
+    //    moment — EFFACERAIT une mesure reelle pour la remplacer par du vide, toutes
+    //    les 6 h. On perdrait la donnee au lieu de la conserver.
+    //
+    // 3. EN COURS, aucune ligne : on ECRIT la ligne avec des valeurs NULLES. C'est ce
+    //    qui arrete la boucle d'appels — la ligne existe, donc la regle de fraicheur
+    //    des 6 h s'applique et l'appel ne repart plus a chaque passage. Et c'est
+    //    honnete : `null` dit « pas encore mesure » la ou un `0` affirmerait
+    //    « personne touche ». Les ecrans affichent deja « Non mesuré » sur cette
+    //    valeur, et la ligne sera reecrite des que Meta sert la mesure.
+    const maintenant = new Date().toISOString();
+    if (!m.servi) {
+      if (figee) throw new Error('total_value absent a la cloture');
+      if (ligneExistante) {
+        // On n'ecrase RIEN : on note seulement qu'on a essaye. C'est ce qui ramene la
+        // cadence a 4 tentatives par jour au lieu de 288 — sans toucher `mesure_le`,
+        // qui doit continuer de dire quand la portee a REELLEMENT ete obtenue, sans
+        // quoi la branche « periode courante figee » de ig_sante_periodes ne se
+        // declencherait plus jamais.
+        const { error: errEssai } = await supa.from('analytics_ig_periodes')
+          .update({ dernier_essai_le: maintenant })
+          .eq('profile_id', profileId).eq('type', type).eq('debut', debut)
+          .is('archived_at', null);
+        if (errEssai) throw new Error(errEssai.message);
+        return;
+      }
+    }
 
     // delete + insert, et NON upsert.
     //
@@ -2673,22 +2733,46 @@ async function majPeriodesIg(profileId: string, token: string, igAccountId: stri
       profile_id: profileId, ig_account_id: igAccountId,
       type, debut, fin,
       reach_total: m.total, reach_abonnes: m.abonnes, reach_non_abonnes: m.nonAbonnes,
-      abonnes: await abonnesFinDePeriode(debut, fin), figee, mesure_le: new Date().toISOString(),
+      abonnes: await abonnesFinDePeriode(debut, fin), figee,
+      mesure_le: maintenant, dernier_essai_le: maintenant,
     });
     if (error) throw new Error(error.message);
   }
 
   // Une seule lecture pour les deux etapes : elle sert a trouver les periodes a
   // cloturer ET a savoir si celles en cours ont besoin d'etre rafraichies.
-  let existantes: { type: string; debut: string; fin: string; figee: boolean; mesure_le: string }[] = [];
+  let existantes: { type: string; debut: string; fin: string; figee: boolean; mesure_le: string; dernier_essai_le: string | null }[] = [];
   try {
     const { data, error } = await supa
       .from('analytics_ig_periodes')
-      .select('type, debut, fin, figee, mesure_le')
+      .select('type, debut, fin, figee, mesure_le, dernier_essai_le')
       .eq('profile_id', profileId)
       .is('archived_at', null)
       .eq('figee', false)
-      .limit(20);
+      // ⚠️ `order` avant `limit`, sinon la troncature est ARBITRAIRE — et cette
+      // lecture sert DEUX questions qui n'ont pas la meme urgence.
+      //
+      // Sans tri, PostgREST rend des lignes que rien ne designe. Les etapes 2 et 4 y
+      // cherchent les periodes EN COURS (« faut-il rafraichir ? ») : si l'une d'elles
+      // tombe hors du lot, `dejaLa` vaut `undefined` et la periode est reecrite a
+      // CHAQUE passage au lieu de toutes les 6 h — 288 appels Meta par jour au lieu
+      // de 4. L'etape 1 y cherche les periodes TERMINEES a cloturer.
+      //
+      // `fin` decroissant sert donc les deux dans le bon ordre : les periodes en cours
+      // ont la `fin` la plus lointaine, elles sont toujours en tete et ne peuvent pas
+      // etre tronquees. Le reste des places va aux cloturs les plus recentes.
+      //
+      // ⚠️ Le tri inverse serait le piege : il ferait sortir les vieilles periodes en
+      // premier et pourrait evincer la semaine en cours. Une periode ancienne non
+      // cloturee est cosmetique ; une periode courante non rafraichie est un chiffre
+      // faux a l'ecran et une alerte de sante.
+      //
+      // 50 plutot que 20 : le cout d'une requete PostgREST est dans la requete, pas
+      // dans ses lignes (~1,4 ko d'en-tetes, cf. AGENTS.md). Elargir le lot ne coute
+      // rien et rend la famine impossible en pratique — il n'y a normalement que
+      // 3 lignes non figees par profil.
+      .order('fin', { ascending: false })
+      .limit(50);
     if (error) throw new Error(error.message);
     existantes = data || [];
   } catch (e: any) {
@@ -2700,6 +2784,28 @@ async function majPeriodesIg(profileId: string, token: string, igAccountId: stri
   //    jamais une periode encore en cours. Toujours evalue, quelle que soit la
   //    fraicheur : une cloture manquee ne se rattrape pas d'elle-meme.
   for (const p of existantes.filter((p) => p.fin < aujourdhui)) {
+    // Une periode sortie de la retention Meta (729 jours) ne peut plus etre
+    // remesuree : l'appel rendrait HTTP 400 a chaque passage, indefiniment, puisque
+    // la ligne reste `figee = false` tant que la cloture echoue.
+    //
+    // On la fige alors SANS remesurer, en conservant sa derniere valeur connue.
+    // C'est la seule issue qui ne perd rien et ne boucle pas : effacer perdrait un
+    // historique que Meta ne sert plus, et reessayer ne rendra jamais rien.
+    //
+    // Le cas ne peut se produire qu'apres ~2 ans sans cloture reussie — il n'est pas
+    // attendu, mais son cout d'oubli serait une boucle d'appels perpetuelle.
+    if (!fenetreMesurable(p.debut, aujourdhui).mesurable) {
+      try {
+        const { error } = await supa.from('analytics_ig_periodes')
+          .update({ figee: true })
+          .eq('profile_id', profileId).eq('type', p.type).eq('debut', p.debut)
+          .is('archived_at', null);
+        if (error) throw new Error(error.message);
+      } catch (e: any) {
+        errors.push(`ig_periode_figeage_hors_retention_${p.type}_${p.debut}: ${e?.message || 'unknown'}`);
+      }
+      continue;
+    }
     try { await ecrire(p.type as 'semaine' | 'mois', p.debut, p.fin, true); }
     catch (e: any) { errors.push(`ig_periode_cloture_${p.type}_${p.debut}: ${e?.message || 'unknown'}`); }
   }
@@ -2716,37 +2822,27 @@ async function majPeriodesIg(profileId: string, token: string, igAccountId: stri
   // peut donc etre appelee a chaque passage horaire sans emettre le moindre appel
   // reseau tant que la donnee est fraiche.
   const FRAICHEUR_MS = 6 * 60 * 60 * 1000;
+  // Le dernier moment ou on a REGARDE cette periode : une mesure reussie, ou un essai
+  // qui n'a rien rapporte. Les deux valent passage pour la cadence — c'est la seule
+  // facon de ne pas rappeler Meta toutes les 5 minutes sur une periode qu'il ne sert
+  // pas encore, sans pour autant maquiller `mesure_le` en mesure fraiche.
+  const dernierRegard = (p: { mesure_le: string; dernier_essai_le: string | null }) =>
+    Math.max(Date.parse(p.mesure_le) || 0, p.dernier_essai_le ? Date.parse(p.dernier_essai_le) || 0 : 0);
   for (const type of ['semaine', 'mois'] as const) {
     try {
       const { debut, fin } = bornes(type, aujourdhui);
-      // ⚠️ Le PREMIER JOUR d'une periode ne se mesure pas, et ce n'est pas une panne.
+      // ⚠️ Pas de garde « le premier jour d'une periode ne se mesure pas » ici, et
+      // c'est une correction : elle a existe quelques heures le 2026-09-07 avant que
+      // la mesure ne la refute. Meta sert bien la semaine en cours des le lundi, une
+      // fois qu'il a traite quelque chose pour la journee. S'abstenir retarderait la
+      // mesure d'un jour entier chaque lundi. Voir lib/meta-fenetre.ts.
       //
-      // `mesurer` borne la fenetre a aujourd'hui. Le lundi, la semaine demandee vaut
-      // donc [aujourd'hui → aujourd'hui] : une fenetre qui ne contient AUCUNE journee
-      // terminee. Meta repond 200 avec un corps sans `total_value`, et `mesurer` leve
-      // « total_value absent ».
-      //
-      // Mesure contre l'API reelle le 2026-09-07, avec temoin positif — c'est la
-      // presence d'une journee TERMINEE qui decide, pas la taille de la fenetre ni le
-      // fait que `until` soit dans le futur :
-      //
-      //   [hier → hier]            → total_value PRESENT
-      //   [aujourd'hui → aujourd'hui] → total_value ABSENT
-      //   [hier → aujourd'hui]     → total_value PRESENT
-      //
-      // Sans cette garde, l'echec se rejouait a CHAQUE passage : aucune ligne n'existe
-      // encore, donc la regle de fraicheur des 6 h ne peut pas freiner la relance.
-      // Mesure du 2026-09-07 a 06h40 : 81 appels Meta perdus depuis minuit, sur la
-      // trajectoire de 288 pour la journee — par profil, chaque lundi, et autant
-      // chaque 1er du mois.
-      //
-      // Attendre est la seule conduite juste : la donnee n'existe pas encore chez
-      // Meta. Le lendemain, la fenetre contient une journee terminee et la periode
-      // s'ecrit normalement, en couvrant retroactivement son premier jour.
-      if (debut >= aujourdhui) continue;
+      // La boucle d'appels du lundi est fermee ailleurs, et mieux : `ecrire` inscrit
+      // desormais une ligne a valeurs nulles quand Meta ne sert rien, ce qui rend la
+      // regle de fraicheur ci-dessous applicable des le premier passage.
       const dejaLa = existantes.find((p) => p.type === type && p.debut === debut);
-      if (dejaLa && Date.now() - new Date(dejaLa.mesure_le).getTime() < FRAICHEUR_MS) continue;
-      await ecrire(type, debut, fin, false);
+      if (dejaLa && Date.now() - dernierRegard(dejaLa) < FRAICHEUR_MS) continue;
+      await ecrire(type, debut, fin, false, !!dejaLa);
     } catch (e: any) {
       errors.push(`ig_periode_${type}: ${e?.message || 'unknown'}`);
     }
@@ -2824,6 +2920,16 @@ async function majPeriodesIg(profileId: string, token: string, igAccountId: stri
             if (fin < departHistorique) break;
           }
           if (connus.has(debut)) continue;
+          // Une periode que Meta ne peut pas servir ne doit pas devenir le candidat :
+          // le rattrapage n'en traite qu'UNE par passage, donc un candidat qui echoue
+          // toujours bloquerait definitivement tous ceux qui le suivent — la file ne
+          // repartirait jamais.
+          //
+          // Aucun `reculMax` actuel (12 mois, 53 semaines) n'atteint la retention de
+          // 729 jours : cette garde ne se declenche pas aujourd'hui. Elle existe pour
+          // que le jour ou quelqu'un elargit la fenetre, la file continue d'avancer au
+          // lieu de se figer en silence.
+          if (!fenetreMesurable(debut, aujourdhui).mesurable) continue;
           if (!aEcrire) aEcrire = { debut, fin }; else restants++;
         }
 
@@ -2847,19 +2953,18 @@ async function majPeriodesIg(profileId: string, token: string, igAccountId: stri
   //
   // Jamais figee : elle grandit tant que le compte vit. `existantes` suffit ici,
   // justement parce qu'une ligne all_time n'est jamais figee.
-  // `<` et non `<=` : meme raison que pour la semaine et le mois ci-dessus. Un eleve
-  // qui connecte son compte AUJOURD'HUI a `departHistorique = aujourd'hui`, donc une
-  // fenetre sans journee terminee — Meta ne rend rien, et l'echec se rejouait a chaque
-  // passage jusqu'au lendemain. Le cas ne s'etait jamais presente ici parce qu'aucun
-  // eleve n'est arrive depuis que ce code existe ; il se presentera 40 fois le jour de
-  // la bascule chez Quennel.
-  if (departHistorique && departHistorique < aujourdhui) {
+  // Meme garde que partout ailleurs. Un eleve qui connecte son compte AUJOURD'HUI a
+  // `departHistorique = aujourd'hui`, donc une fenetre sans journee terminee : Meta ne
+  // rend rien, et l'echec se rejouait a chaque passage jusqu'au lendemain. Le cas ne
+  // s'etait jamais presente ici parce qu'aucun eleve n'est arrive depuis que ce code
+  // existe ; il se presentera 40 fois le jour de la bascule chez Quennel.
+  if (departHistorique && fenetreMesurable(departHistorique, aujourdhui).mesurable) {
     try {
       const dejaLa = existantes.find((p) => p.type === 'all_time');
       const fraiche = !!dejaLa
         && dejaLa.debut === departHistorique
-        && Date.now() - new Date(dejaLa.mesure_le).getTime() < FRAICHEUR_MS;
-      if (!fraiche) await ecrire('all_time', departHistorique, aujourdhui, false);
+        && Date.now() - dernierRegard(dejaLa) < FRAICHEUR_MS;
+      if (!fraiche) await ecrire('all_time', departHistorique, aujourdhui, false, !!dejaLa);
     } catch (e: any) {
       errors.push(`ig_periode_all_time: ${e?.message || 'unknown'}`);
     }
