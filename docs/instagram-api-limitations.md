@@ -32,6 +32,91 @@ Nuance additionnelle : les métriques **compte/user** (niveau profil, pas média
 
 ---
 
+## ⚠️ Une réponse VIDE n'est pas une panne — et pas non plus définitive (2026-09-07)
+
+**Le fait le plus coûteux de ce document, et le plus contre-intuitif.**
+
+Meta rend `HTTP 200` avec un corps SANS `total_value` tant qu'il n'a rien traité pour la
+fenêtre demandée. Sa doc l'écrit : *« If insights data you are requesting does not exist
+or is currently unavailable the API will return an empty data set instead of `0` »*.
+
+### L'erreur de raisonnement à ne pas refaire
+
+Mesure du lundi 2026-09-07 au matin, sur les **trois** comptes connectés :
+
+```
+[hier        → hier]        → total_value PRÉSENT
+[aujourd'hui → aujourd'hui] → total_value ABSENT
+[hier        → aujourd'hui] → total_value PRÉSENT
+```
+
+Conclusion tirée : « une fenêtre sans journée TERMINÉE ne rend rien ». Trois lignes
+cohérentes, trois comptes concordants, et les deux hypothèses concurrentes (la taille de
+la fenêtre, `until` dans le futur) réfutées par les lignes 1 et 3.
+
+**C'était faux.** Quelques heures plus tard, le même appel `[aujourd'hui → aujourd'hui]`
+sur le même compte rend `valeur = 0`. Un balayage de `until` seconde par seconde, de
+`00:00:00` à J+2, donne exactement la même réponse partout — donc ce n'est ni `until`,
+ni la fenêtre, ni la journée terminée.
+
+**C'est l'HEURE.** Le seau du jour en cours devient disponible au fil de la journée, à un
+moment qu'on ne peut pas prédire.
+
+> ⚠️ **Trois observations concordantes prises au même instant ne distinguent pas une
+> règle d'un état transitoire.** La seule variable qu'on n'avait pas fait varier était le
+> temps. Devant un comportement d'API : rejouer la même sonde plus tard avant d'en tirer
+> une loi.
+
+### Ce que le code doit en faire
+
+Ni traiter la réponse vide comme une erreur, ni renoncer à appeler. La **stocker** comme
+« pas encore mesuré » — `null`, jamais `0`. Détail dans `lib/meta-fenetre.ts` et
+`AGENTS.md`.
+
+---
+
+## La rétention des USER insights est de 729 jours, sur `since` (2026-09-07)
+
+⚠️ **La doc se contredit elle-même, et la page « Insights » est fausse** : elle annonce
+*« User Metrics data is stored for up to 90 days »*. Mesuré jour par jour :
+
+```
+J-726 … J-729 → ACCEPTÉ
+J-730 …       → HTTP 400, code 100
+                « since param is not valid. Metrics data is available for the last 2 years »
+```
+
+Le message d'erreur de Meta dit donc « 2 ans » là où sa doc dit « 90 jours ». C'est le
+message d'erreur qui a raison. Le code s'arrête à **J-728**, un jour de marge, parce que
+la borne se déplace à chaque minuit et qu'un appel parti à cheval sur minuit prendrait un
+400 qu'il rejouerait indéfiniment.
+
+### Trois non-limites, mesurées aussi
+
+- **Pas de longueur maximale de fenêtre.** Testé jusqu'à 500 jours : `HTTP 200`, et la
+  valeur reste dédupliquée (elle ne croît pas linéairement, donc elle n'est pas tronquée
+  en silence).
+- **Le seuil des 100 abonnés ne s'applique PAS** à `reach` + `breakdown=follow_type` :
+  deux comptes à **0 abonné** rendent leur mesure normalement. Il ne concerne que
+  `follower_count`, `online_followers` et les métriques démographiques.
+- **Une fenêtre entièrement dans le futur** est refusée (`HTTP 400`, code 100), avec le
+  même message que la rétention — le seul cas où `until` compte.
+
+### ⚠️ Au-delà d'environ un an, la ventilation disparaît sans prévenir
+
+`total_value.value` reste servi, mais `breakdowns[0].results` revient **vide** :
+
+| Fenêtre | `total_value.value` | lignes de ventilation |
+|---|---|---|
+| J-7 à J-365 | servi | 1 ou 2 |
+| J-500, J-700, J-729 | **servi** | **0** |
+
+C'est ce qui justifie le plafond de 12 mois du rattrapage : au-delà, la ligne serait
+écrite avec un total juste et une ventilation muette. Le parsing laisse alors
+`abonnes` / `nonAbonnes` à `null` — un trou, jamais un zéro.
+
+---
+
 ## Perte de groupe sur les appels `/insights`
 
 Un appel groupé `metric=a,b,c` sur `/insights` échoue **entièrement** si Meta refuse ne serait-ce qu'une seule métrique du groupe (`d.error` non-null, aucune donnée récupérable même pour les métriques qui auraient individuellement répondu). C'est le cas fréquent avec des posts proches de la limite des 2 ans.

@@ -1303,50 +1303,123 @@ plateforme a déjà encaissé la perte toute seule, c'est une information, pas u
 panne. `posts_muets_definitif` n'est **pas** une anomalie : Meta ne rend aucune
 statistique sur les publications antérieures au passage en compte pro.
 
-## ⚠️ Meta ne mesure rien sur une fenêtre sans journée TERMINÉE
+## ⚠️ Ce que l'API Insights d'Instagram accepte vraiment (mesuré, pas déduit)
 
-Règle établie contre l'API réelle le 2026-09-07, avec témoin positif — elle n'est
-documentée nulle part chez Meta et coûte cher à redécouvrir :
+La doc officielle ne suffit pas : elle annonce « User Metrics data is stored for up to
+90 days » alors que l'API en sert **729**, et elle ne dit rien du cas d'une période en
+cours. Tout ce qui suit a été mesuré contre l'API réelle le 2026-09-07, sur trois
+comptes. La règle vit dans **`lib/meta-fenetre.ts`**, avec ses tests.
+
+### La seule borne dure : 729 jours, sur `since`
+
+```
+J-726 … J-729 → ACCEPTÉ
+J-730 …       → HTTP 400, code 100
+                « since param is not valid. Metrics data is available for the last 2 years »
+```
+
+Testé jour par jour de J-726 à J-732. C'est la **seule** condition qui fasse échouer
+l'appel, donc la seule à éviter avant d'appeler : un HTTP 400 est rejoué indéfiniment
+par un appelant qui réessaie. Le code s'arrête à J-728, un jour de marge, parce que la
+borne se déplace à minuit.
+
+Deux non-limites, également mesurées : **pas de longueur maximale de fenêtre** (testé à
+500 jours, valeur dédupliquée, aucune troncature silencieuse), et **le seuil des
+100 abonnés ne s'applique pas** à `reach` + `breakdown=follow_type` — deux comptes à
+0 abonné rendent leur mesure. Il ne concerne que `follower_count`, `online_followers` et
+la démographie.
+
+⚠️ Au-delà d'environ un an, `total_value.value` reste servi mais **la ventilation
+`follow_type` revient VIDE** (0 ligne à J-500, J-700, J-729 ; 1 ou 2 lignes en deçà).
+C'est ce qui justifie le plafond de 12 mois du rattrapage. Le parsing laisse alors
+`abonnes` / `nonAbonnes` à `null` — un trou, jamais un zéro.
+
+### ⚠️ Une réponse VIDE n'est pas une panne, et n'est pas définitive
+
+C'est le piège qui a coûté le plus cher, et il s'est doublé d'une **erreur de
+raisonnement qu'il faut connaître pour ne pas la refaire**.
+
+Première mesure, un lundi matin, sur les trois comptes :
 
 ```
 [hier        → hier]        → total_value PRÉSENT
-[aujourd'hui → aujourd'hui] → total_value ABSENT   ← 200, corps sans total_value
+[aujourd'hui → aujourd'hui] → total_value ABSENT
 [hier        → aujourd'hui] → total_value PRÉSENT
 ```
 
-Ce n'est **ni** la taille de la fenêtre, **ni** le fait que `until` soit dans le futur :
-c'est la présence d'au moins une journée terminée qui décide. Les deux autres hypothèses
-sont réfutées par les lignes 1 et 3.
+Conclusion tirée : « une fenêtre sans journée TERMINÉE ne rend rien ». Trois lignes
+cohérentes, trois comptes concordants, et deux hypothèses concurrentes réfutées au
+passage. **C'était faux.** Quelques heures plus tard, le même appel sur le même compte
+rend `valeur = 0`. Un balayage de `until` seconde par seconde (de 00:00:00 à J+2) donne
+la même réponse partout : ce n'est ni `until`, ni la taille de la fenêtre, ni la
+journée terminée.
 
-**Conséquence : le premier jour d'une période ne se mesure pas.** `mesurer()` borne la
-fenêtre à aujourd'hui, donc le lundi la semaine en cours vaut `[aujourd'hui →
-aujourd'hui]` et l'écriture échoue — chaque lundi, et chaque 1er du mois. `poll-leads`
-saute désormais ce cas (`if (debut >= aujourdhui) continue`) au lieu de le retenter.
+**C'est l'HEURE.** Meta ne sert le seau d'une période qu'une fois qu'il a traité quelque
+chose pour elle ; avant, il rend un jeu de données vide. Sa doc le dit, pour une raison
+qu'on croyait sans rapport : « If insights data you are requesting does not exist or is
+currently unavailable the API will return an empty data set instead of `0` ».
 
-⚠️ **Une ligne ABSENTE ne freine rien.** La règle de fraîcheur des 6 h compare
-`mesure_le` : sans ligne, il n'y a rien à comparer, donc l'échec se rejouait **à chaque
-passage**. Mesuré le 2026-09-07 à 06h40 : 81 appels Meta perdus depuis minuit, sur une
-trajectoire de 288 pour la journée, **par profil** — soit ~11 500 par lundi à 40 élèves.
-Le garde-fou habituel (« on ne réécrit pas si c'est frais ») ne protège que le cas où
-l'écriture a déjà réussi une fois.
+⚠️ **La leçon de méthode, plus utile que le fait lui-même** : trois observations
+concordantes au même instant ne distinguent pas une règle d'un état transitoire. Il
+manquait la seule variable qu'on n'avait pas fait varier — **le temps**. Devant un
+comportement d'API, rejouer la même sonde plus tard avant d'en tirer une loi.
+
+**Conséquence pour le code** : une réponse vide ne doit ni être traitée comme une
+erreur, ni faire renoncer à appeler. Elle doit se **stocker** comme « pas encore
+mesuré ».
+
+### Le mode de panne : une ligne ABSENTE ne freine rien
+
+Le 2026-09-07, la mesure de la semaine en cours levait tous les lundis. Aucune ligne
+n'étant écrite, la règle de fraîcheur des 6 h n'avait rien à comparer et l'appel
+repartait **à chaque passage** : 81 appels Meta perdus entre minuit et 06h40, sur une
+trajectoire de 288 pour la journée, par profil — et autant chaque 1er du mois.
+
+Trois gardes ferment la boucle, et il faut les trois :
+
+| Cas | Conduite |
+|---|---|
+| À la clôture (`figee`) | **lever** — ne jamais figer un vide, il deviendrait indiscernable d'une portée nulle |
+| En cours, ligne déjà présente | **ne toucher à rien**, et noter l'essai |
+| En cours, aucune ligne | **écrire la ligne à valeurs nulles** |
+
+⚠️ Le deuxième cas est le moins évident et le plus dangereux : l'écriture est un
+`delete` + `insert`. Sans ce retour anticipé, un simple hoquet de Meta **efface une
+mesure réelle** pour la remplacer par du vide, toutes les 6 heures.
+
+⚠️ Et `dernier_essai_le` est une colonne SÉPARÉE de `mesure_le`, délibérément. Une ligne
+périmée que Meta ne sert pas relancerait l'appel à chaque passage ; rafraîchir
+`mesure_le` à la place aurait éteint **pour toujours** la branche « période courante
+figée » de `ig_sante_periodes` — exactement le piège déjà documenté plus haut sur
+`edge_sante_version`. Deux questions, deux colonnes :
+
+```
+mesure_le         quand la portée a été RÉELLEMENT obtenue  → sert la surveillance
+dernier_essai_le  quand on a appelé Meta, succès ou non     → sert la cadence
+```
 
 ### Une surveillance ne doit pas juger un état plus jeune que son premier instant observable
 
 `ig_sante_periodes` avait deux branches et une seule portait l'intention de son auteur :
 « figée » attendait 24 h, « jamais mesurée » déclenchait à l'instant du basculement de
-`date_trunc('week', now())`. D'où un e-mail d'alerte **garanti chaque lundi et chaque 1er
-du mois** (~64 jours/an, par élève) sur un état normal et inévitable.
+`date_trunc('week', now())`. D'où un e-mail d'alerte **garanti chaque lundi et chaque
+1er du mois** (~64 jours/an, par élève) sur un état normal et inévitable.
 
-Corrigé le 2026-09-07 : soit `D = greatest(debut_attendu, depart_integration)`, la
-première mesure possible est `D+1`, et l'alerte part à `D+2` — les mêmes 24 h que la
-branche voisine. `greatest` ignore les NULL, ce qui rend `all_time` (sans
-`debut_attendu`) uniforme avec les deux autres. Si les deux ancres sont NULL, l'alerte
-part comme avant : **une ignorance ne doit pas fabriquer du silence.**
+Corrigé : soit `D = greatest(debut_attendu, depart_integration)`, l'alerte ne part qu'à
+`D+2` — les mêmes 24 h que la branche voisine, comptées depuis le premier moment
+observable. `greatest` ignore les NULL, ce qui rend `all_time` (sans `debut_attendu`)
+uniforme avec les deux autres. Si les deux ancres sont NULL, l'alerte part comme avant :
+**une ignorance ne doit pas fabriquer du silence.**
 
-⚠️ **Cette grâce ne cache aucune panne durable**, et c'est ce qui la rend acceptable :
-les lignes `mois` et `all_time` du même profil existent déjà et sont rafraîchies toutes
-les 6 h. Si Meta tombe vraiment, leur branche « figée » alerte à 24 h. La branche
-corrigée n'était pas le seul détecteur, seulement le seul à crier sur du normal.
+⚠️ **La contrepartie est obligatoire** : puisque le cron écrit désormais une ligne à
+valeurs nulles, la vue devait apprendre à voir `reach_total is null` — sinon on
+remplaçait une fausse alerte par un **angle mort**, strictement pire, la fausse alerte
+ayant au moins le mérite de se voir.
+
+⚠️ **Cette grâce ne cache aucune panne durable** : les lignes `mois` et `all_time` du
+même profil sont rafraîchies toutes les 6 h ; si Meta tombe, leur branche « figée »
+alerte à 24 h. La branche corrigée n'était pas le seul détecteur, seulement le seul à
+crier sur du normal.
 
 C'est le même principe que `edge_sante_version` (« en attente du prochain passage ») et
 que les deux marges de `migrations_sante` : **on ne juge pas un état tant qu'on n'a pas
@@ -1356,6 +1429,18 @@ une nouvelle vue, se demander d'emblée quel est son premier instant observable.
 ⚠️ **Le corollaire piégeux** : faire taire la vue sans corriger le cron aurait rendu les
 288 appels perdus **invisibles** au lieu de les arrêter. Une fausse alerte est parfois le
 seul symptôme visible d'un vrai gaspillage — corriger les deux côtés, ou aucun.
+
+### Une lecture tronquée doit être triée
+
+`majPeriodesIg` lisait les périodes non figées avec `.limit(20)` **sans `order`**. La
+troncature était donc arbitraire, et cette lecture sert deux questions : trouver les
+périodes à clôturer, ET savoir si la période EN COURS doit être rafraîchie. Si la
+période courante tombait hors du lot, elle était réécrite **à chaque passage** au lieu
+de toutes les 6 h.
+
+Triée par `fin` décroissant : les périodes en cours ont la `fin` la plus lointaine, donc
+elles sont toujours en tête et ne peuvent pas être évincées. Le tri inverse serait le
+piège. Règle générale : **un `limit` sans `order` est un bug qui attend son volume.**
 
 `stripe_sante_rattachement` liste les encaissements que Stripe connaît et qu'aucune
 vente ne revendique. ⚠️ Elle ne voit QUE ce qu'un chemin d'écriture a déjà enregistré :
