@@ -208,8 +208,23 @@ interface LeadMagnet {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+// Les accents sont TRANSLITTÉRÉS, pas supprimés.
+//
+// Sans `normalize`, chaque lettre accentuée sortait de [a-z0-9] et devenait un
+// tiret : « Éric Martin » donnait le lien `prendre-rdv-ric-martin`, avec un
+// prénom amputé — et ce lien-là, c'est le prospect qui le reçoit. Devenu visible
+// le 2026-09-07, quand le champ a cessé de n'accepter que des pseudos Instagram
+// (rarement accentués) pour accepter aussi des noms.
+//
+// NFD sépare la lettre de son accent, puis on retire la plage des diacritiques.
+// Les ligatures (œ, æ) n'ont PAS de forme décomposée : NFD les laisse entières,
+// et elles tomberaient donc comme n'importe quel caractère hors [a-z0-9] —
+// « Lætitia » deviendrait « l-titia ». Elles sont traduites à la main, avant.
 function slugify(s: string) {
-  return s.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return s.trim().toLowerCase()
+    .replace(/œ/g, 'oe').replace(/æ/g, 'ae')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
 function normalizeUrl(url: string): string {
@@ -3938,7 +3953,7 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
       const { shortUrl } = await callShortio({
         profileId, domainId: domain,
         originalUrl: calendlyUrl.trim(),
-        title: `RDV avec @${username}`,
+        title: `RDV avec ${username}`,
         utmSource: 'ig', utmMedium: 'dm',
         utmCampaign: igUserId ? `lead-${igUserId}` : `prospect-${us}`,
         // Doit toujours être un vrai ID de contenu (post/vidéo), jamais le pseudo — c'est
@@ -3989,7 +4004,7 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
           le titre ne flotte plus au-dessus du formulaire. */}
       <div style={{ padding: isMobile ? '14px' : '15px 24px', borderBottom: `1px solid ${BORDER}` }}>
         <div style={{ fontSize: 16, fontWeight: 600, color: INK, marginBottom: 3 }}>Lien Calendly prospect</div>
-        <div style={{ fontSize: 12.5, color: MUTED }}>Génère un lien unique par prospect à envoyer en DM. Chaque clic est tracké.</div>
+        <div style={{ fontSize: 12.5, color: MUTED }}>Génère un lien unique par prospect. Chaque clic est tracké, où que tu l'envoies.</div>
       </div>
 
       {/* Deux colonnes en desktop : le formulaire à gauche en largeur fixe, et
@@ -4023,7 +4038,7 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
 
       {result ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ fontSize: 12, color: MUTED }}>Envoie ce lien en DM à <strong>@{username}</strong></div>
+          <div style={{ fontSize: 12, color: MUTED }}>Envoie ce lien à <strong>{username}</strong></div>
           <GeneratedUrlRow url={result} label="Lien Calendly" />
           <button onClick={() => { setResult(null); setUsername(''); setIgUserId(null); setUsernameSearch(''); setPostId(''); setPostMode('auto'); setOrigineDm(null); }}
             style={{ fontSize: 12, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, textDecoration: 'underline' }}>
@@ -4032,19 +4047,18 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
         </div>
       ) : (
         <>
-          {/* Pseudo Instagram */}
+          {/* Le prospect — pseudo Instagram OU nom, voir le commentaire du champ */}
           <div>
-            <div className="eyebrow-sm" style={{ marginBottom: 7 }}>Pseudo Instagram du prospect</div>
+            <div className="eyebrow-sm" style={{ marginBottom: 7 }}>Pseudo Instagram ou nom du prospect</div>
             <div style={{ position: 'relative' }}>
               <div className="liens-input-wrap" style={{ display: 'flex', alignItems: 'center', gap: 0, border: `1px solid ${BORDER}`, borderRadius: 8, background: BG, overflow: 'hidden', transition: 'border-color .15s, box-shadow .15s' }}>
-                <span style={{ padding: '0 8px 0 12px', fontSize: 13, color: FAINT }}>@</span>
                 <input
                   value={username}
                   onChange={e => { setUsername(e.target.value.replace(/^@/, '')); setUsernameSearch(e.target.value.replace(/^@/, '')); setShowLeads(true); }}
                   onFocus={() => setShowLeads(true)}
                   onBlur={() => setTimeout(() => setShowLeads(false), 150)}
-                  placeholder="thomas.biz"
-                  style={{ flex: 1, padding: '9px 12px 9px 0', fontSize: 13, background: 'transparent', border: 'none', outline: 'none', color: INK }}
+                  placeholder="thomas.biz — ou Marie Dupont"
+                  style={{ flex: 1, padding: '9px 12px', fontSize: 13, background: 'transparent', border: 'none', outline: 'none', color: INK }}
                 />
               </div>
               {/* Dropdown leads récents */}
@@ -4084,6 +4098,19 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
                 </div>
               )}
             </div>
+            {/* ── LA PHRASE QUI ÉVITE UN LIEN NON TRACKÉ ────────────────────
+                Le champ ne demandait qu'un pseudo Instagram, arobase comprise.
+                Devant un prospect rencontré ailleurs — un contact WhatsApp, une
+                connaissance — on ne savait pas si on était au bon endroit, et le
+                réflexe est alors d'envoyer le lien Calendly brut : le clic n'est
+                plus suivi, et le rendez-vous arrive sans savoir d'où il vient.
+
+                Le moteur, lui, accepte un nom depuis toujours : la route
+                `prospect-links` retrouve la personne par `invitee_name` et lui
+                crée une fiche `prospects`. Seul l'écran l'interdisait. */}
+            <div style={{ fontSize: 10.5, color: FAINT, marginTop: 5, lineHeight: 1.4 }}>
+              Pas son Instagram ? Mets son nom — le lien reste tracké et ses clics remontent pareil.
+            </div>
           </div>
 
           {/* Qui a fait le premier pas — seulement quand rien en base ne repond.
@@ -4102,8 +4129,11 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
               <div className="eyebrow-sm" style={{ marginBottom: 7 }}>Qui a fait le premier pas ?</div>
               <div style={{ display: 'flex', gap: 7 }}>
                 {([
-                  { cle: 'entrant' as const, libelle: "Il m'a écrit", aide: 'Compte comme DM organique' },
-                  { cle: 'sortant' as const, libelle: "Je l'ai contacté", aide: 'Compte comme Cold DM' },
+                  // Formulé sans le mot « DM » : la question se pose aussi pour
+                  // quelqu'un rencontré hors des réseaux. Le bac de destination
+                  // reste le même — l'infobulle le dit, plutôt que de le cacher.
+                  { cle: 'entrant' as const, libelle: 'Il est venu vers moi', aide: 'Rangé dans DM organique' },
+                  { cle: 'sortant' as const, libelle: "Je suis allé le chercher", aide: 'Rangé dans Cold DM' },
                 ]).map(({ cle, libelle, aide }) => (
                   <button key={cle} type="button" onClick={() => { setOrigineDm(cle); setError(null); }}
                     title={aide}
@@ -4118,7 +4148,7 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
                 ))}
               </div>
               <div style={{ fontSize: 10.5, color: FAINT, marginTop: 5, lineHeight: 1.4 }}>
-                Personne inconnue du pipeline : c'est toi qui sais d'où elle vient. Ce choix range ses statistiques, il ne peut pas se deviner après coup.
+                Personne inconnue du pipeline, sur Instagram comme ailleurs : c'est toi qui sais d'où elle vient. Ce choix range ses statistiques, il ne peut pas se deviner après coup.
               </div>
             </div>
           )}
@@ -4209,7 +4239,7 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
             if (existing) return (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <div style={{ fontSize: 12, color: AMBER, background: AMBER_SOFT, borderRadius: 8, padding: '10px 12px' }}>
-                  Un lien existe déjà pour <strong>@{existing.ig_username}</strong> — retrouve-le dans la liste ci-dessous.
+                  Un lien existe déjà pour <strong>{existing.ig_username}</strong> — retrouve-le dans la liste ci-dessous.
                 </div>
                 <GeneratedUrlRow url={existing.short_url} label="Lien existant" />
               </div>
@@ -4290,7 +4320,7 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
                   <Avatar initials={getInitials(h.ig_username)} avatarUrl={lead?.avatar_url ?? null} seed={lead?.ig_user_id || h.ig_username} size={30} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
-                    <span style={{ fontSize: 12.5, fontWeight: 600, color: INK, flexShrink: 0 }}>@{h.ig_username}</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: INK, flexShrink: 0 }}>{lead?.ig_user_id ? `@${h.ig_username}` : h.ig_username}</span>
                     {post && <span style={{ fontSize: 10, color: FAINT, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>· {post.platform} · {post.caption.slice(0, 22)}…</span>}
                   </div>
                   {/* Le lien court lui-même : c'est ce qu'on vient copier, il doit
