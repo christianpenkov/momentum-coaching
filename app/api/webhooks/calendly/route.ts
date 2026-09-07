@@ -425,7 +425,7 @@ export async function POST(request: NextRequest) {
 
     const { data: callRow } = await serviceSupabase.from('calls').upsert(
       baseUpsert,
-      { onConflict: 'calendly_event_uuid' }
+      { onConflict: 'coach_id,calendly_event_uuid' }
     ).select('id').maybeSingle();
 
     // Relier le lead au call dans l'autre sens

@@ -606,7 +606,7 @@ async function syncCalendlyEleve(
     }
 
     const { data: callRow } = await supabase.from('calls')
-      .upsert(upsertData, { onConflict: 'calendly_event_uuid', ignoreDuplicates: false })
+      .upsert(upsertData, { onConflict: 'coach_id,calendly_event_uuid', ignoreDuplicates: false })
       .select('id, ig_lead_id')
       .maybeSingle();
 

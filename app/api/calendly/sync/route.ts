@@ -276,7 +276,7 @@ export async function POST() {
     if (prospectDeleted) {
       await serviceSupabase.from('calls').upsert(
         { ...baseUpsert, ignored: true, lead_deleted: true, prospect_id: null },
-        { onConflict: 'calendly_event_uuid' }
+        { onConflict: 'coach_id,calendly_event_uuid' }
       );
       synced++;
       continue;
@@ -297,7 +297,7 @@ export async function POST() {
 
     const { data: callRow } = await serviceSupabase.from('calls').upsert(
       baseUpsert,
-      { onConflict: 'calendly_event_uuid' }
+      { onConflict: 'coach_id,calendly_event_uuid' }
     ).select('id').maybeSingle();
 
     // Événement call_booked dans prospect_events (fire-and-forget)

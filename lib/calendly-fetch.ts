@@ -348,8 +348,26 @@ export async function syncCalendlyEleve(
         }
       }
 
+      /* ⚠️ `coach_id,calendly_event_uuid` et JAMAIS `calendly_event_uuid` seul.
+       *
+       * L'index unique portait sur l'UUID seul, donc un rendez-vous Calendly ne pouvait
+       * exister qu'une fois dans TOUTE la base. Le 2026-09-06 a 19 h 23, un second
+       * profil a connecte le meme compte Calendly qu'un premier : ce meme upsert a
+       * retrouve chaque rendez-vous existant par son UUID et l'a ECRASE avec le
+       * `coach_id` du second. Onze rendez-vous ont change de proprietaire, avec leurs
+       * prospects, leur attribution, et les cinq ventes qui les referencaient.
+       *
+       * Ce n'etait pas une fuite de LECTURE — la RLS tient, verifie le meme jour. Un
+       * transfert par ECRITURE ne se voit pas par la RLS, et c'est pour ca qu'il est
+       * passe inapercu trois semaines.
+       *
+       * Les huit autres tables d'integration prefixent deja leur cle unique par le
+       * profil (`analytics_daily_snapshots(profile_id, date)`, etc.) ; `calls` etait la
+       * seule exception. Revenir a l'UUID seul reouvrirait le vol.
+       *
+       * Voir supabase/migrations/20260907100000_calls_isolation_par_profil_index.sql. */
       const { data: callRow } = await serviceSupabase.from('calls')
-        .upsert(upsertData, { onConflict: 'calendly_event_uuid', ignoreDuplicates: false })
+        .upsert(upsertData, { onConflict: 'coach_id,calendly_event_uuid', ignoreDuplicates: false })
         .select('id, ig_lead_id')
         .maybeSingle();
 
