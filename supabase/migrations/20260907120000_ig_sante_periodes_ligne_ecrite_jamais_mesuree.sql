@@ -4,9 +4,10 @@
 -- ── Pourquoi ce cas apparaît maintenant ────────────────────────────────────
 --
 -- Le même jour, `poll-leads` change de conduite quand Meta ne sert rien : au lieu de
--- lever (et donc de rejouer l'appel à chaque passage, 288 fois par jour), il inscrit
--- la ligne de la période EN COURS avec des valeurs NULLES. C'est ce qui arrête la
--- boucle : la ligne existe, donc la règle de fraîcheur des 6 h s'applique enfin.
+-- lever (et donc de rejouer l'appel à chaque synchro horaire du profil, ~24 fois par
+-- jour), il inscrit la ligne de la période EN COURS avec des valeurs NULLES. C'est ce
+-- qui arrête la boucle : la ligne existe, donc la règle de fraîcheur des 6 h
+-- s'applique enfin.
 --
 -- Mais cette ligne porte un `mesure_le` frais. Sans ce correctif, la vue la lirait
 -- « ok » — alors qu'aucune portée n'a jamais été mesurée pour cette période. On aurait

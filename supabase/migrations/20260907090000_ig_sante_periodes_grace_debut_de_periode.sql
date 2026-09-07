@@ -7,23 +7,20 @@
 -- `debut_trouve = null`, état « ALERTE période jamais mesurée ». La semaine avait
 -- commencé huit heures plus tôt.
 --
--- ── La cause racine, mesurée contre l'API Meta et non déduite ────────────────
+-- ── La cause racine ─────────────────────────────────────────────────────────
 --
--- `mesurer()` (poll-leads) borne la fenêtre demandée à aujourd'hui. Le lundi, la
--- semaine en cours vaut donc `[aujourd'hui → aujourd'hui]` : une fenêtre qui ne
--- contient AUCUNE journée terminée. Meta répond `200` avec un corps sans
--- `total_value`, et l'écriture échoue.
+-- Meta répond `200` avec un corps SANS `total_value` tant qu'il n'a rien traité pour
+-- la fenêtre demandée : le lundi matin, la semaine en cours ne rend donc rien, et
+-- l'écriture échoue. Sa doc l'énonce — « If insights data you are requesting does not
+-- exist or is currently unavailable the API will return an empty data set instead
+-- of `0` ».
 --
--- Trois appels réels le 2026-09-07, avec témoin positif — c'est bien la présence
--- d'une journée TERMINÉE qui décide, ni la taille de la fenêtre, ni le fait que
--- `until` soit dans le futur :
+-- ⚠️ Ce délai est TRANSITOIRE et sa fin est imprévisible : le même appel aboutit
+-- quelques heures plus tard, le même jour. La ligne de la semaine finit donc par
+-- exister le lundi — simplement pas à minuit. Ce n'est pas une panne à réparer.
 --
---   [hier        → hier]        → total_value PRÉSENT
---   [aujourd'hui → aujourd'hui] → total_value ABSENT
---   [hier        → aujourd'hui] → total_value PRÉSENT
---
--- La ligne de la semaine ne PEUT donc pas exister son premier jour. Ce n'est pas
--- une panne à réparer, c'est une donnée qui n'existe pas encore chez Meta.
+-- (La première rédaction de ce fichier affirmait qu'une fenêtre « sans journée
+-- TERMINÉE » ne rend jamais rien. C'était faux, voir la note en fin d'en-tête.)
 --
 -- ── Pourquoi la vue le lisait comme une panne ───────────────────────────────
 --
@@ -47,9 +44,9 @@
 -- (« en attente du prochain passage ») et que la marge de `migrations_sante`.
 --
 -- Soit `D = greatest(debut_attendu, depart_integration)`, le jour où la période ET
--- l'intégration existent toutes les deux. La première mesure possible est `D+1`
--- (la veille est alors terminée), et on accorde ensuite les mêmes 24 h que la
--- branche voisine : l'alerte ne part qu'à partir de `D+2`. D'où le `+ 2` ci-dessous.
+-- l'intégration existent toutes les deux. On accorde deux jours pleins avant de
+-- juger : `D` (le jour où Meta peut encore n'avoir rien traité) puis les mêmes 24 h
+-- que la branche voisine. D'où le `+ 2` ci-dessous.
 --
 -- ⚠️ `greatest` ignore les NULL, et c'est ce qui rend les trois types uniformes :
 --   * `semaine` / `mois` : la plus tardive des deux dates — un élève qui connecte
@@ -65,13 +62,25 @@
 -- 24 h. La branche corrigée ici n'est donc pas le seul détecteur ; elle était juste
 -- le seul à se déclencher sur du normal.
 --
--- ⚠️ La cause est traitée des DEUX côtés. Le même jour, `poll-leads` cesse de
--- demander à Meta une fenêtre sans journée terminée. Sans ça, l'échec se rejouait à
--- chaque passage — aucune ligne n'existant encore, la règle de fraîcheur des 6 h ne
--- pouvait pas freiner la relance : 81 appels Meta perdus entre minuit et 06h40 le
--- 2026-09-07, sur une trajectoire de 288 pour la journée, par profil. Faire taire
--- la vue sans corriger le cron aurait rendu ce gaspillage invisible au lieu de
--- l'arrêter.
+-- ⚠️ La cause est traitée des DEUX côtés. Le même jour, `poll-leads` cesse de laisser
+-- l'échec se rejouer : aucune ligne n'existant encore, la règle de fraîcheur des 6 h
+-- n'avait rien à comparer, et l'appel repartait à chaque synchro Instagram du profil —
+-- une par heure, soit ~24 appels perdus par profil et par lundi. Faire taire la vue
+-- sans corriger le cron aurait rendu ce gaspillage invisible au lieu de l'arrêter.
+--
+-- ⚠️ DEUX CORRECTIONS APRÈS COUP sur ce fichier, toutes deux dans le même sens : ne
+-- rien affirmer qu'on n'a pas mesuré.
+--
+--   * Le chiffre. Ce fichier a d'abord annoncé « 81 appels entre minuit et 06h40,
+--     trajectoire de 288 » : c'était le nombre de passages de `poll-leads`, pas le
+--     nombre d'appels Meta. Le bloc Instagram entier est gaté à l'heure
+--     (`IG_INTERVALLE_MS`), vérifié sur `integrations.last_synced_at`.
+--   * La cause. Il disait « Meta ne sert rien tant que la fenêtre ne contient pas une
+--     journée terminée ». C'est faux : le même appel aboutit quelques heures plus tard
+--     le même jour. Voir `lib/meta-fenetre.ts` et `docs/instagram-api-limitations.md`.
+--
+-- Le texte appliqué en base (`schema_migrations.statements`) porte encore les versions
+-- fausses : il n'est pas réécrivable, et c'est le fichier du dépôt qui fait foi.
 
 create or replace view public.ig_sante_periodes
 with (security_invoker = true) as
@@ -100,8 +109,9 @@ select
   p.mesure_le,
   round(extract(epoch from now() - p.mesure_le) / 3600.0, 1) as il_y_a_heures,
   case
-    -- La période n'a pas encore pu être mesurée : Meta ne sert rien tant qu'elle
-    -- ne contient aucune journée terminée. Rien à juger, donc rien à dire.
+    -- La période n'a pas encore pu être mesurée : Meta ne sert le seau d'une période
+    -- qu'une fois qu'il a traité quelque chose pour elle, et on ne peut pas prédire
+    -- quand. Rien à juger, donc rien à dire.
     when p.mesure_le is null
      and greatest(a.debut_attendu, a.depart_integration) is not null
      and (now() at time zone 'Europe/Paris')::date

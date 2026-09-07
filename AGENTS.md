@@ -365,11 +365,20 @@ L'empreinte ne bouge que si le code de cette fonction bouge.
 `backfill-shortio` se déclenchent à la main) et `'non instrumentee'` ne sont pas des
 anomalies.
 
-⚠️ **`poll-leads`, `sync-calendly` et `sync-stripe-payments` ne remontent pas encore leur
-empreinte** : leurs fichiers portaient le travail en cours d'une autre session le
-2026-09-03, et on ne modifie pas le fichier d'autrui. À brancher quand ce chantier
-atterrit — une ligne, sur le modèle des quatre autres :
-`rpc('marquer_passage_cron', { p_nom: '<nom>', p_empreinte: EMPREINTES_EDGE['<nom>'] })`.
+✅ **Les onze fonctions remontent leur empreinte** — y compris `poll-leads`,
+`sync-calendly` et `sync-stripe-payments`, que ce document a déclarées non instrumentées
+jusqu'au 2026-09-07. Elles l'étaient déjà : `edge_sante_version` porte leur
+`empreinte_en_ligne`. La note décrivait un état du 2026-09-03 (leurs fichiers portaient
+alors le travail en cours d'une autre session) qui n'a jamais été relu.
+
+⚠️ **C'est le même défaut que celui qu'on corrige ailleurs dans ce document, appliqué à
+lui-même** : une note qui dit « pas encore fait » ne se périme pas toute seule et
+personne ne la rejoue. Avant de croire un « à faire » daté, vérifier l'état réel — ici,
+une seule requête suffisait :
+
+```sql
+select nom, empreinte_en_ligne is not null as instrumentee from edge_sante_version;
+```
 
 ## Vérifier à la main (enquête, ou fonction non instrumentée)
 
@@ -1372,8 +1381,15 @@ mesuré ».
 
 Le 2026-09-07, la mesure de la semaine en cours levait tous les lundis. Aucune ligne
 n'étant écrite, la règle de fraîcheur des 6 h n'avait rien à comparer et l'appel
-repartait **à chaque passage** : 81 appels Meta perdus entre minuit et 06h40, sur une
-trajectoire de 288 pour la journée, par profil — et autant chaque 1er du mois.
+repartait **à chaque synchro Instagram du profil** — une par heure, donc ~24 appels
+Meta perdus par profil chaque lundi, et autant chaque 1er du mois.
+
+⚠️ **Chiffre corrigé après coup, et l'erreur vaut d'être retenue.** La première version
+de cette section annonçait « 288 appels par jour » : c'était le nombre de passages de
+`poll-leads` (toutes les 5 min), pas le nombre d'appels Meta. Le bloc Instagram entier
+est gaté par `igDoitSync` / `IG_INTERVALLE_MS`, une fois par heure et par profil.
+**Un compteur de passages du cron n'est pas un compteur d'appels d'API** — vérifier
+quelle garde enferme le code avant de multiplier.
 
 Trois gardes ferment la boucle, et il faut les trois :
 
@@ -1426,8 +1442,8 @@ que les deux marges de `migrations_sante` : **on ne juge pas un état tant qu'on
 la preuve de l'avoir observé après coup.** Trois surveillances ont eu ce défaut ; devant
 une nouvelle vue, se demander d'emblée quel est son premier instant observable.
 
-⚠️ **Le corollaire piégeux** : faire taire la vue sans corriger le cron aurait rendu les
-288 appels perdus **invisibles** au lieu de les arrêter. Une fausse alerte est parfois le
+⚠️ **Le corollaire piégeux** : faire taire la vue sans corriger le cron aurait rendu ces
+appels perdus **invisibles** au lieu de les arrêter. Une fausse alerte est parfois le
 seul symptôme visible d'un vrai gaspillage — corriger les deux côtés, ou aucun.
 
 ### Une lecture tronquée doit être triée

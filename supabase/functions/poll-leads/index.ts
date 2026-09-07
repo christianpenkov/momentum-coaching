@@ -65,7 +65,7 @@ import { invitationCall } from '../../../lib/notifications.ts';
 import { estUnShort, dureeIsoEnSecondes, parametresClassification, MAX_RESULTS_CLASSIFICATION } from '../../../lib/youtubeShorts.ts';
 // Quelles fenetres l'API Insights accepte reellement — mesure du 2026-09-07, tests
 // dans lib/meta-fenetre.test.ts. Une seule regle pour les quatre points d'appel de
-// majPeriodesIg : c'est de son absence qu'est venu le lundi a 288 appels perdus.
+// majPeriodesIg : c'est de son absence qu'est venue la boucle d'appels du lundi.
 import { fenetreMesurable } from '../../../lib/meta-fenetre.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -2582,10 +2582,16 @@ async function majPeriodesIg(profileId: string, token: string, igAccountId: stri
     // matin, puis `valeur = 0` quelques heures plus tard. C'est donc transitoire, et
     // imprevisible — on ne peut ni le traiter en panne, ni s'abstenir d'appeler.
     //
-    // Lever ici coutait cher : aucune ligne n'etant ecrite, la regle de fraicheur des
-    // 6 h n'avait rien a comparer et l'appel repartait a CHAQUE passage. 81 appels
-    // perdus entre minuit et 06h40 le 2026-09-07, sur une trajectoire de 288, par
-    // profil — plus une fausse alerte de sante chaque lundi.
+    // Lever ici coutait : aucune ligne n'etant ecrite, la regle de fraicheur des 6 h
+    // n'avait rien a comparer et l'appel repartait a chaque synchro Instagram du
+    // profil — soit une fois par heure (`IG_INTERVALLE_MS`), donc ~24 appels perdus
+    // par profil chaque lundi, et autant chaque 1er du mois. Plus une fausse alerte
+    // de sante a chaque fois.
+    //
+    // ⚠️ Une premiere redaction annoncait 288 appels : c'etait le nombre de passages
+    // de poll-leads, pas le nombre d'appels Meta. Le bloc Instagram est gate a l'heure.
+    // Verifie sur `integrations.last_synced_at` : les trois profils y sont espaces
+    // d'environ une heure.
     if (!tv) return { total: null, abonnes: null, nonAbonnes: null, servi: false };
     let abonnes: number | null = null, nonAbonnes: number | null = null;
     for (const b of tv.breakdowns || []) {
@@ -2755,8 +2761,8 @@ async function majPeriodesIg(profileId: string, token: string, igAccountId: stri
       // Sans tri, PostgREST rend des lignes que rien ne designe. Les etapes 2 et 4 y
       // cherchent les periodes EN COURS (« faut-il rafraichir ? ») : si l'une d'elles
       // tombe hors du lot, `dejaLa` vaut `undefined` et la periode est reecrite a
-      // CHAQUE passage au lieu de toutes les 6 h — 288 appels Meta par jour au lieu
-      // de 4. L'etape 1 y cherche les periodes TERMINEES a cloturer.
+      // chaque synchro horaire au lieu de toutes les 6 h — 24 appels Meta par jour
+      // au lieu de 4. L'etape 1 y cherche les periodes TERMINEES a cloturer.
       //
       // `fin` decroissant sert donc les deux dans le bon ordre : les periodes en cours
       // ont la `fin` la plus lointaine, elles sont toujours en tete et ne peuvent pas
