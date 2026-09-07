@@ -63,14 +63,35 @@ fonction :
 La leçon retenue à l'époque avait été d'écrire une fonction SQL partagée
 (`resolve_prospect`). Faire pareil ici, ou l'étendre.
 
-### 2. Respecter un refus déjà exprimé
+### 2. Respecter un refus déjà exprimé — ET une séparation
 
-`fusions_fiches` porte `statut = 'refusee'` sur les paires que le coach a écartées
-à la main. **Une fusion automatique ne doit jamais passer outre.** Vérifier la
-paire `(ig_lead_id, prospect_id)` avant d'écrire.
+> ⚠️ **Ce point était incomplet dans la version initiale de ce handoff, et le trou
+> était bloquant.** Corrigé par le chat Pipeline Leads le 2026-09-07 ; laissé ici
+> parce que la raison de l'erreur vaut mieux que sa disparition.
 
-Zéro décision en base aujourd'hui — le cas n'existe pas encore, ce qui rend la
-garde d'autant plus facile à oublier.
+`fusions_fiches` portait DEUX états : `fusionnee` et `refusee`. Ce handoff ne
+demandait de garder que le second — et c'était insuffisant.
+
+**« Séparer » n'écrivait pas un refus : il EFFAÇAIT la ligne**, délibérément, pour
+que le bandeau repropose la paire. Le commentaire de
+`app/api/client/pipeline/fusion/route.ts` le disait explicitement.
+
+Avec une fusion automatique qui repasse toutes les 30 minutes, une paire sans
+décision est une paire qu'on refusionne : la séparation du coach aurait été
+défaite dans la demi-heure, en silence, indéfiniment.
+
+**Résolution (arbitrée par Chris)** : un troisième état `separee`. Le bandeau
+repose la question — c'est ce que « séparer » voulait dire — et la fusion
+automatique s'abstient. Les deux gestes sont préservés au lieu de s'annuler.
+
+La fonction doit donc s'abstenir sur `refusee` **et** `separee` :
+
+```sql
+and f.statut in ('refusee', 'separee')
+```
+
+Zéro décision en base au 2026-09-07 — le cas n'existe pas encore, ce qui rendait
+la garde d'autant plus facile à oublier.
 
 ### 3. Rattrapage unique sur l'existant
 
@@ -83,6 +104,12 @@ l'autre non — **en épargnant les paires refusées**.
 aucun e-mail n'apparaît des deux côtés. Le rattrapage ne changera donc rien
 aujourd'hui — il existe pour que la règle soit vraie sur tout l'historique, pas
 seulement à partir de maintenant.
+
+⚠️ **Et la fonction doit être verrouillée.** `revoke execute from anon` et
+`from authenticated` ne suffisent PAS : `PUBLIC` garde `EXECUTE`, et les deux
+rôles en héritent. Sur une fonction `SECURITY DEFINER` qui écrit dans `calls`,
+cela la rend appelable sans aucune session. Révoquer aussi `from public`, puis
+**mesurer** — `has_function_privilege('anon', …, 'EXECUTE')` doit rendre `false`.
 
 ⚠️ Ce zéro ne prouve rien sur l'avenir : la base ne contient que des données de
 test. C'est la même erreur de raisonnement que celle corrigée dans le handoff du
@@ -126,7 +153,12 @@ call en « via DM » quelque part serait un bug.
 
 1. Deux calls du même élève, même e-mail, l'un avec `ig_lead_id` : après la
    fusion, les deux le portent.
-2. Une paire marquée `refusee` : la fusion automatique ne s'applique pas.
+2. Une paire marquée `refusee` **ou `separee`** : la fusion automatique ne
+   s'applique pas.
+
+⚠️ **Un cas positif d'abord.** Deux « ne fusionne pas » ne prouvent rien tant
+qu'on n'a pas montré que la fonction fusionne quand elle doit : sans témoin
+positif, ils peuvent venir d'une fonction qui ne marche simplement pas.
 3. Le pipeline montre une seule carte, dans l'onglet Instagram.
 4. `calls.source` est inchangé sur les deux lignes.
 5. La chaîne d'attribution d'une vente désigne toujours le contenu d'origine, pas
