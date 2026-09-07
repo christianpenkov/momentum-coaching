@@ -169,8 +169,15 @@ export interface LignesLeads {
   callsYoutube: LigneCallLead[];
 }
 
-/** Une personne compte UNE fois, quelle que soit sa source et son nombre de calls. */
-function clefPersonne(c: LigneCallLead): string {
+/**
+ * Une personne compte UNE fois, quelle que soit sa source et son nombre de calls.
+ *
+ * Exportée parce que l'entonnoir de « Gérer mes liens » compte lui aussi des
+ * personnes à partir de `calls`, et qu'une seconde définition du même
+ * dédoublonnage diverge toujours : c'est précisément ce défaut qui affichait
+ * 18 leads là où le pipeline en montrait 17 le 2026-08-19.
+ */
+export function clefPersonne(c: LigneCallLead): string {
   return (c.invitee_email || c.invitee_name || c.id).toLowerCase();
 }
 
