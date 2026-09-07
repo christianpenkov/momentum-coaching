@@ -46,11 +46,19 @@ export interface ProspectPourFusion {
   email: string | null;
 }
 
-/** Une décision déjà prise sur une paire : fusionnée, ou refusée. */
+/**
+ * Une décision déjà prise sur une paire.
+ *
+ * `separee` n'est PAS une décision au sens de cette fonction : c'est « je m'étais
+ * trompé », donc la question se repose. Elle n'existe que pour retenir la main de
+ * la fusion automatique par e-mail (`fusionner_call_par_email`) — sans elle, une
+ * paire séparée serait refusionnée au passage suivant du cron, dans la
+ * demi-heure et en silence.
+ */
 export interface DecisionFusion {
   ig_lead_id: string;
   prospect_id: string;
-  statut: 'fusionnee' | 'refusee';
+  statut: 'fusionnee' | 'refusee' | 'separee';
 }
 
 export interface DoublonSoupconne {
@@ -125,8 +133,19 @@ export function detecterDoublons(input: {
   }
 
   // 3. Les paires déjà tranchées, dans un sens ou dans l'autre.
+  //
+  // ⚠️ `separee` est volontairement ABSENT de ce filtre. Séparer veut dire « je
+  // m'étais trompé », pas « ce n'est pas la même personne » : la paire doit être
+  // reproposée. Cet état ne sert qu'à empêcher la fusion automatique de défaire
+  // la séparation au passage suivant du cron.
+  //
+  // L'inclure ici transformerait « Séparer » en « Ce n'est pas la même », et les
+  // deux gestes deviendraient indiscernables — ce que le code distingue
+  // délibérément depuis la création de cette fonction.
   const tranchees = new Set(
-    (input.decisions ?? []).map(d => `${d.ig_lead_id}|${d.prospect_id}`),
+    (input.decisions ?? [])
+      .filter(d => d.statut === 'fusionnee' || d.statut === 'refusee')
+      .map(d => `${d.ig_lead_id}|${d.prospect_id}`),
   );
 
   const doublons: DoublonSoupconne[] = [];

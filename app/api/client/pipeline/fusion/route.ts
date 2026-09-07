@@ -90,11 +90,24 @@ export async function POST(request: Request) {
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // La décision disparaît complètement : la paire redevient un doublon
-    // soupçonné, et le bandeau la reproposera. C'est voulu — séparer, c'est dire
-    // « je m'étais trompé », pas « ce n'est pas la même personne ». Pour taire
-    // définitivement la paire, il y a « Ce n'est pas la même ».
-    await supa.from('fusions_fiches').delete().eq('id', decision.id);
+    // La paire redevient un doublon soupçonné et le bandeau la reproposera :
+    // séparer, c'est dire « je m'étais trompé », pas « ce n'est pas la même
+    // personne ». Pour taire définitivement la paire, il y a « Ce n'est pas la
+    // même ». Cette intention est inchangée.
+    //
+    // ⚠️ MAIS ON N'EFFACE PLUS LA LIGNE, on la marque `separee`. Depuis la
+    // fusion automatique par e-mail exact, une paire SANS décision est une paire
+    // que le prochain passage de `sync-calendly` refusionne — dans la
+    // demi-heure, en silence, et indéfiniment. Effacer la décision revenait donc
+    // à annuler la séparation elle-même.
+    //
+    // `separee` porte exactement la nuance : `detecterDoublons` l'ignore, donc
+    // le bandeau repose la question ; `fusionner_call_par_email` la respecte,
+    // donc l'automatisme s'abstient. Décision de Chris, 2026-09-07.
+    const { error: erreurMarque } = await supa.from('fusions_fiches')
+      .update({ statut: 'separee', call_ids: [], decided_at: new Date().toISOString() })
+      .eq('id', decision.id);
+    if (erreurMarque) return NextResponse.json({ error: erreurMarque.message }, { status: 500 });
     return NextResponse.json({ ok: true, calls_rendus: aRendre.length });
   }
 

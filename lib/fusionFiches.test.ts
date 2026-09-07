@@ -176,3 +176,40 @@ test('un prospect sans e-mail est ignoré, pas rapproché au hasard', () => {
   });
   assert.deepEqual(d, []);
 });
+
+// ── Le troisième état, « séparée » ───────────────────────────────────────────
+//
+// Il n'existe que depuis la fusion automatique par e-mail exact (2026-09-07).
+// Sans lui, séparer deux fiches était annulé au passage suivant du cron : la
+// décision était EFFACÉE, donc la paire redevenait fusionnable, donc elle était
+// refusionnée dans la demi-heure. En silence, et indéfiniment.
+//
+// Ces deux tests tiennent les deux moitiés de la règle, et il faut les deux :
+// une seule des deux passerait avec un état qui ne sert à rien.
+
+test('une paire séparée est REPROPOSÉE : séparer, c’est « je m’étais trompé »', () => {
+  const d = detecterDoublons({
+    leads: [LEAD],
+    prospects: [PROSPECT],
+    calls: [
+      call({ id: 'a', ig_lead_id: 'lead-1', invitee_email: 'leroy@gmail.com' }),
+      call({ id: 'b', prospect_id: 'pros-1', invitee_email: 'leroy@gmail.com' }),
+    ],
+    decisions: [{ ig_lead_id: 'lead-1', prospect_id: 'pros-1', statut: 'separee' }],
+  });
+  assert.equal(d.length, 1, 'le bandeau doit reposer la question');
+  assert.deepEqual(d[0].callIds, ['b']);
+});
+
+test('un refus, lui, tait la paire pour de bon', () => {
+  const d = detecterDoublons({
+    leads: [LEAD],
+    prospects: [PROSPECT],
+    calls: [
+      call({ id: 'a', ig_lead_id: 'lead-1', invitee_email: 'leroy@gmail.com' }),
+      call({ id: 'b', prospect_id: 'pros-1', invitee_email: 'leroy@gmail.com' }),
+    ],
+    decisions: [{ ig_lead_id: 'lead-1', prospect_id: 'pros-1', statut: 'refusee' }],
+  });
+  assert.deepEqual(d, [], '« ce n’est pas la même personne » ne se redemande jamais');
+});

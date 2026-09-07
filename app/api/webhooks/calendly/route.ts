@@ -428,6 +428,23 @@ export async function POST(request: NextRequest) {
       { onConflict: 'coach_id,calendly_event_uuid' }
     ).select('id').maybeSingle();
 
+    // ── FUSION AUTOMATIQUE PAR E-MAIL EXACT ───────────────────────────────────
+    //
+    // La MÊME fonction SQL que l'Edge Function `sync-calendly`, jamais une
+    // deuxième écriture de la règle. Deux chemins qui divergent, c'est le bug du
+    // 2026-08-27 : seule cette route posait `prospect_id`, et 11 calls sur 13
+    // n'étaient jamais rattachés.
+    //
+    // ⚠️ Ce chemin ne reçoit RIEN aujourd'hui : les webhooks Calendly sont
+    // payants et l'abonnement est refusé en 403 (voir AGENTS.md). Il est câblé
+    // pour le jour où le compte de Quennel passe en Standard — un chemin
+    // d'écriture qu'on laisse en retard est un chemin qui repartira faux.
+    if (callRow?.id && !igLeadId && inviteeEmail) {
+      const { error: errFusion } = await serviceSupabase
+        .rpc('fusionner_call_par_email', { p_call_id: callRow.id });
+      if (errFusion) console.error('[webhook calendly] fusionner_call_par_email:', errFusion.message);
+    }
+
     // Relier le lead au call dans l'autre sens
     if (igLeadId && callRow?.id) {
       await serviceSupabase

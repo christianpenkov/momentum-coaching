@@ -610,7 +610,34 @@ async function syncCalendlyEleve(
       .select('id, ig_lead_id')
       .maybeSingle();
 
-    const effectiveIgLeadId = finalIgLeadId ?? callRow?.ig_lead_id ?? null;
+    // ── FUSION AUTOMATIQUE PAR E-MAIL EXACT ───────────────────────────────────
+    //
+    // Une meme personne peut occuper deux fiches : une fiche Instagram (elle a
+    // commente) et une fiche e-mail (elle a reserve depuis une bio ou une
+    // description). Sans rapprochement, elle est comptee DEUX FOIS partout.
+    //
+    // Toute la regle vit dans `fusionner_call_par_email`, jamais ici : cette
+    // fonction tourne en Deno et ne peut pas importer `lib/`, donc la reecrire
+    // des deux cotes ferait diverger les deux chemins. C'est exactement ce qui a
+    // produit le bug du 2026-08-27, ou seule la route Vercel posait
+    // `prospect_id` et 11 calls sur 13 n'etaient jamais rattaches.
+    //
+    // Elle ecrit aussi la trace sans laquelle « Separer » n'aurait rien a
+    // defaire, et respecte les decisions `refusee` / `separee` du coach.
+    //
+    // Volontairement PAS conditionnee a `isCanceled` : l'identite d'une personne
+    // ne depend pas de ce qu'elle a fait de son rendez-vous.
+    let fusionAuto: string | null = null;
+    if (callRow?.id && !finalIgLeadId && inviteeEmail) {
+      const { data: leadFusionne, error: errFusion } = await supabase
+        .rpc('fusionner_call_par_email', { p_call_id: callRow.id });
+      // L'echec se dit : un rattachement rate en silence, c'est une personne
+      // comptee deux fois que personne ne verra jamais.
+      if (errFusion) console.error('[sync-calendly] fusionner_call_par_email:', errFusion.message);
+      else fusionAuto = (leadFusionne as string | null) ?? null;
+    }
+
+    const effectiveIgLeadId = finalIgLeadId ?? callRow?.ig_lead_id ?? fusionAuto ?? null;
     if (!isCanceled && callRow?.id && effectiveIgLeadId) {
       const { data: igLead } = await supabase
         .from('instagram_leads').select('ig_username').eq('id', effectiveIgLeadId).single();
