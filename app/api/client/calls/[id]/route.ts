@@ -91,6 +91,30 @@ export async function PATCH(
     update.revenue = montant;
   }
 
+  // ── DÉ-CLOSER PASSE PAR LE RAPPORT, JAMAIS PAR ICI ──────────────────────
+  //
+  // `deal_closed` est dans la liste des champs autorisés pour le closing manuel
+  // du kanban, qui le met à `true`. Le mettre à `false` est un geste tout autre :
+  // il retire du chiffre d'affaires. `/api/calls/[id]/rapport` le sait — il
+  // refuse quand de l'argent est entré, et sinon annule proprement la vente et
+  // désactive ses liens. Cette route-ci ne faisait rien de tout ça.
+  //
+  // Le même champ, deux routes, une seule gardée : le motif exact des sept
+  // règles dédoublées trouvées le 2026-09-06/07. Aucun écran n'envoie `false`
+  // ici aujourd'hui — mais un champ qui porte du CA, sur une route
+  // authentifiée, ne doit pas dépendre de ce que l'interface veut bien ne pas
+  // demander.
+  //
+  // On refuse plutôt que de rediriger en silence : le geste existe ailleurs, et
+  // le message dit où.
+  if ('deal_closed' in update && update.deal_closed === false) {
+    return NextResponse.json({
+      error: "Retirer une vente d'un appel se fait par son rapport, pas ici : "
+           + 'le rapport vérifie ce qui a déjà été encaissé et annule la vente proprement.',
+      code: 'declore_par_le_rapport',
+    }, { status: 409 });
+  }
+
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ error: 'Aucun champ à mettre à jour' }, { status: 400 });
   }
