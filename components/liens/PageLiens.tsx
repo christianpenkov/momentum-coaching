@@ -6010,11 +6010,30 @@ export default function PageLiens() {
     // `yt_bio` n'existe pas encore en données, la catégorie est prévue.
     const SOURCES_CONTENU_DIRECT = new Set(['ig_bio', 'ig_description', 'ig_story', 'yt_bio', 'yt_description']);
 
+    // Les fiches déjà comptées juste au-dessus. Un rendez-vous direct porté par
+    // l'une d'elles décrit une personne DÉJÀ dans le compte : la recompter par
+    // son e-mail l'ajouterait une seconde fois, sous une autre clé.
+    //
+    // Même protection que `compterLeads`, dont la requête Instagram porte
+    // `.is('ig_lead_id', null)` pour exactement cette raison. Zéro cas en base au
+    // 2026-09-07 — aucun call bio/description/story ne porte d'`ig_lead_id` —
+    // mais la fusion de fiches par e-mail en créera dès qu'elle sera en place.
+    //
+    // On compare aux fiches RETENUES, pas à toutes : un cold DM sortant qui
+    // réserve ensuite depuis une bio n'est pas dans `personnesLm`, et son
+    // rendez-vous doit donc bien le faire entrer — il vient d'un contenu.
+    const idsLeadsComptes = new Set(
+      leads.filter((l: any) => canalDuDm(l.source) !== 'sortant').map((l: any) => l.id)
+    );
+
     // TOUS les calls, pas seulement les actifs : un prospect qui annule reste un
     // prospect. Ce qu'une annulation retire, c'est un rendez-vous booké — pas un
     // lead. Même règle que `compterLeads`.
     const personnesCallsDirects = new Set(
-      calls.filter((c: any) => SOURCES_CONTENU_DIRECT.has(c.source)).map(clefPersonne)
+      calls
+        .filter((c: any) => SOURCES_CONTENU_DIRECT.has(c.source)
+          && !(c.ig_lead_id && idsLeadsComptes.has(c.ig_lead_id)))
+        .map(clefPersonne)
     );
 
     const commentaires = personnesLm.size + personnesCallsDirects.size;
@@ -6042,8 +6061,15 @@ export default function PageLiens() {
     //
     // Source : `calls`, pas `prospect_events`. La table des calls est la source
     // canonique des reservations, et la route la filtre deja sur
-    // call_type = 'calendly' et ignored — les deux filtres sans lesquels le
+    // `CALL_TYPES_VENTE` et `ignored` — les deux filtres sans lesquels le
     // chiffre serait faux.
+    //
+    // ⚠️ `CALL_TYPES_VENTE`, pas `= 'calendly'`. Un rendez-vous saisi À LA MAIN —
+    // un report, un 2e call, le geste « avancer vers RDV pris » du pipeline —
+    // porte `call_type = 'manual'` et compte tout autant. Ce commentaire disait
+    // encore « call_type = 'calendly' » : il a fait sous-compter d'un call une
+    // vérification du 2026-09-07, exactement le piège que `lib/callTypes.ts`
+    // documente depuis le 2026-08-29.
     // `status === 'active'` : la definition de Mes Stats. Un rendez-vous annule
     // n'y compte pas, et deux ecrans qui disent « calls bookes » doivent dire le
     // meme nombre. Ecart connu et assume : un lead qui book puis annule
