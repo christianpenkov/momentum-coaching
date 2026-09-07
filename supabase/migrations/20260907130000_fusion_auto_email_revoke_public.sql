@@ -1,0 +1,40 @@
+-- ─────────────────────────────────────────────────────────────────────────────
+-- `revoke … from anon` ne fermait RIEN : c'est PUBLIC qui accordait EXECUTE
+--
+-- La migration précédente (`fusion_auto_email`) posait deux revoke, sur `anon`
+-- et sur `authenticated`. Le contrôle joué juste après, et c'est lui qui a
+-- trouvé la faille :
+--
+--   has_function_privilege('anon', 'public.fusionner_call_par_email(uuid)', 'EXECUTE')
+--   → true
+--
+-- Supabase accorde EXECUTE à **PUBLIC** sur toute fonction nouvelle. `anon` et
+-- `authenticated` en héritent, et un revoke nominatif ne retire pas un droit
+-- qu'un rôle tient par héritage. L'ACL le disait, à qui savait la lire :
+-- `{=X/postgres, …}` — le membre sans nom devant le `=`, c'est PUBLIC.
+--
+-- ⚠️ CE QUE ÇA LAISSAIT OUVERT. `fusionner_call_par_email` est SECURITY DEFINER
+-- et **écrit dans `calls`**. Elle était donc appelable sans aucune session, avec
+-- un simple identifiant de rendez-vous — exactement le profil que AGENTS.md
+-- décrit comme dangereux : « SECURITY DEFINER combiné à un paramètre qui désigne
+-- une ressource ».
+--
+-- ⚠️ ET LE PIÈGE EST SYMÉTRIQUE. AGENTS.md documente l'autre sens — « `revoke …
+-- from public` ne couvre PAS `anon` » — constaté le 2026-09-06 sur des fonctions
+-- où `anon` avait un grant NOMINATIF. Les deux cas existent, ils demandent des
+-- gestes opposés, et aucune règle ne dit lequel s'applique. La seule façon de
+-- savoir est de le demander à la base, APRÈS avoir écrit le revoke :
+--
+--   select has_function_privilege('anon', 'public.<fn>(<args>)', 'EXECUTE');
+--
+-- Remesuré après cette migration : anon false, authenticated false,
+-- service_role true.
+--
+-- Le fichier existe séparément parce que la migration a été appliquée
+-- séparément : le nom passé à `apply_migration` doit être exactement celui du
+-- fichier, sinon `migrations_sante` signale un orphelin — et une migration en
+-- base sans fichier est un changement de schéma que le dépôt ne raconte pas.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+revoke execute on function public.fusionner_call_par_email(uuid) from public;
+grant  execute on function public.fusionner_call_par_email(uuid) to service_role;
