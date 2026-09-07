@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireCallAccess, serviceSupabase } from '@/lib/callAccess';
-import { calculerCash, type LignePaiement } from '@/lib/dealCash';
+import { calculerCash, verseParLeClient, type LignePaiement } from '@/lib/dealCash';
 import { desactiverLiensDuDeal } from '@/lib/stripe-payment-links';
 
 // PATCH /api/calls/[id]/rapport
@@ -93,12 +93,29 @@ export async function PATCH(
       // statistiques. « Pas de vente » et « ce client m'a payé » sont
       // contradictoires — si les deux sont vrais, il y a une erreur de saisie,
       // et elle se corrige en remboursant, pas en effaçant.
-      if (cash.net > 0.01) {
+      // ⚠️ SUR LE VERSÉ, PAS SUR LE NET — la question posée est « ce client
+      // a-t-il payé ? », pas « qu'est-ce qui reste dans la caisse ? ».
+      //
+      // `net` déduit le contesté. Une vente de 1 000 € payée puis contestée
+      // affiche donc `net = 0`, et ce garde laissait repasser le rapport en
+      // « pas de vente » — ce qui ANNULE la vente et désactive ses liens, sur un
+      // client qui a bel et bien payé. Trouvé par lecture le 2026-09-07 avant de
+      // l'éprouver, précisément parce que l'éprouver aurait coûté la vente.
+      //
+      // Le refus est aussi le bon comportement pendant un litige : tant que la
+      // banque instruit, l'élève ne PEUT pas rembourser, donc il ne peut pas non
+      // plus satisfaire la condition — l'écran doit le dire au lieu de proposer
+      // un geste impossible.
+      const verse = verseParLeClient(cash);
+      if (verse > 0.01) {
+        const enLitige = cash.conteste > 0.01;
         return NextResponse.json({
-          error: `Cette vente a déjà encaissé ${Math.round(cash.net)} €. Pour la repasser en « pas de vente », il faut d'abord rembourser ton client.`,
+          error: enLitige
+            ? `Ce client a versé ${Math.round(verse)} €, dont ${Math.round(cash.conteste)} € que sa banque retient le temps du litige. Tant que le litige n'est pas tranché, cette vente ne peut pas être repassée en « pas de vente » — et tu ne peux pas rembourser un argent que tu n'as pas.`
+            : `Cette vente a déjà encaissé ${Math.round(verse)} €. Pour la repasser en « pas de vente », il faut d'abord rembourser ton client.`,
           code: 'deal_encaisse',
           dealId: deal.id,
-          encaisse: cash.net,
+          encaisse: verse,
         }, { status: 409 });
       }
     }
