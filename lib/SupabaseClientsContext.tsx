@@ -9,7 +9,7 @@ import { resolveUser } from '@/lib/waitForSession';
 import { CALL_COLUMNS } from '@/lib/supabase/types';
 import type { Task } from '@/lib/supabase/types';
 import type { ClientWithMetrics } from '@/lib/supabase/useCoachData';
-import { computeSalesCallStats, fetchIgLeadsCount, isNotCanceled, type DealForStats } from '@/lib/salesCallStats';
+import { computeSalesCallStats, fetchIgLeadsCount, clefPersonne, type DealForStats } from '@/lib/salesCallStats';
 import { getPeriodWindow } from '@/lib/period';
 
 export interface CoachBusinessData {
@@ -428,8 +428,34 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       const coachAllTimeStats = computeSalesCallStats(coachSalesCalls, now2, coachDeals);
       const coachCallsThisMonth = coachSalesCalls.filter((c: any) => (c.scheduled_at ?? '') >= startOfMonth);
       const coachThisMonthStats = computeSalesCallStats(coachCallsThisMonth, now2, coachDealsThisMonth);
-      const coachYtBookedAllTime = coachSalesCalls.filter((c: any) => isNotCanceled(c) && (c.source ?? '').toLowerCase().startsWith('yt')).length;
-      const coachYtBookedThisMonth = coachCallsThisMonth.filter((c: any) => isNotCanceled(c) && (c.source ?? '').toLowerCase().startsWith('yt')).length;
+      // ── Volet YouTube du compteur « Leads générés » ────────────────────────
+      //
+      // Trois écarts avec la règle documentée, corrigés le 2026-09-07. Ce compteur
+      // s'écartait de `compterLeads` sur les trois points à la fois, et personne ne
+      // pouvait le voir : il affiche un nombre plausible.
+      //
+      // 1. Il comptait des LIGNES DE CALL, pas des personnes. Calendly crée un nouvel
+      //    événement à chaque reprogrammation, donc un prospect qui déplace son
+      //    rendez-vous comptait deux fois. C'est le défaut qui affichait « 18 leads »
+      //    là où le pipeline en montrait 17 (2026-08-19), corrigé ailleurs et resté ici.
+      //    `clefPersonne` est la clé partagée : e-mail, sinon nom, sinon l'identifiant.
+      //
+      // 2. Il EXCLUAIT les calls annulés (`isNotCanceled`), à l'inverse exact de la
+      //    règle 4 du référentiel : « un call annulé retire un call booké, pas un
+      //    lead ». Un prospect qui annule reste un prospect. `compterLeads` les garde.
+      //
+      // 3. Il découpait le mois sur `scheduled_at`, alors que la règle 2 impose
+      //    `booked_at` avec repli sur `scheduled_at` : un rendez-vous PRIS en août pour
+      //    septembre appartient aux leads d'août, pas de septembre.
+      //
+      // ⚠️ `coachCallsThisMonth` n'est volontairement PAS corrigé ici : il alimente
+      // aussi `computeSalesCallStats` juste au-dessus, et changer sa base de date
+      // déplacerait les statistiques d'appels du coach, hors du périmètre de ce
+      // chantier. Le volet leads a donc sa propre découpe. À traiter à part.
+      const estYt = (c: any) => (c.source ?? '').toLowerCase().startsWith('yt');
+      const dansLeMois = (c: any) => ((c.booked_at ?? c.scheduled_at) ?? '') >= startOfMonth;
+      const coachYtBookedAllTime = new Set(coachSalesCalls.filter(estYt).map(clefPersonne)).size;
+      const coachYtBookedThisMonth = new Set(coachSalesCalls.filter((c: any) => estYt(c) && dansLeMois(c)).map(clefPersonne)).size;
 
       // Cash PERSO du coach — Stripe connecté sur SON profil (profile_id = user.id).
       const coachStripeConnected = (coachIntegrationsRes.data || []).some((row: any) => row.provider === 'stripe');

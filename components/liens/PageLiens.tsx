@@ -5939,14 +5939,23 @@ export default function PageLiens() {
     const calls: any[] = pipelineData?.calls ?? [];
     const lmHistory: any[] = pipelineData?.lmHistory ?? [];
 
-    // Leads = les INTERACTIONS, pas les personnes — la definition de Mes Stats,
-    // pour que le meme mot donne le meme nombre sur les deux ecrans.
+    // ⚠️ Le paragraphe qui tenait ici jusqu'au 2026-09-07 disait deux choses fausses,
+    // et il contredisait celui d'en dessous — les deux etaient empiles.
     //
-    // `instagram_lead_lm_history` porte une ligne par lead magnet reclame, jamais
-    // ecrasee. `instagram_leads` n'en garde qu'une par personne, avec la date de
-    // sa DERNIERE interaction : compter cette table affichait 4 la ou Mes Stats
-    // en montre 17. Les memes 4 personnes, mais 17 demandes de lead magnet — et
-    // c'est le second chiffre qui dit l'activite du contenu.
+    //   « Leads = les INTERACTIONS, pas les personnes »
+    //     Faux depuis la correction du 2026-09-07 juste en dessous : ce chiffre
+    //     compte des PERSONNES. Le laisser aurait fait annuler la correction par le
+    //     premier lecteur qui aurait cru le commentaire plutot que le code.
+    //
+    //   « instagram_leads garde la date de sa DERNIERE interaction »
+    //     Faux aussi, et c'est la croyance la plus couteuse : `detected_at` est la
+    //     date de PREMIERE detection, et elle ne bouge plus jamais depuis que le
+    //     declencheur `figer_detected_at` la protege en base (migration du
+    //     2026-09-03). Deux fiches avaient effectivement derive avant ce correctif,
+    //     ce qui explique d'ou venait la croyance — mais la cause est fermee.
+    //
+    // `instagram_lead_lm_history` porte bien une ligne par lead magnet reclame,
+    // jamais ecrasee : c'est ce qui permet de compter les REPRISES d'une personne.
     // ── « LEADS » COMPTE DES PERSONNES, PAS DES INTERACTIONS ─────────────────
     //
     // `lmHistory.length` comptait les LIGNES du journal, donc les demandes de

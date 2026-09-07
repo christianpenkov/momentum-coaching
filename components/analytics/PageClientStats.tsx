@@ -1232,10 +1232,18 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   // Calendly soit connecté reste un vrai lead, il ne doit pas dépendre de quelle
   // intégration a été branchée en dernier. Fallback sur "tout accepter" si
   // integrations_ready_at n'est pas encore disponible (élève pas encore débloqué).
+  // ⚠️ `ovDebutAllTime`, et non `integrationsReadyAt` : les deux bornes doivent être la
+  // MÊME. Jusqu'au 2026-09-07, ce test comparait à `integrationsReadyAt` alors que
+  // `ovPeriodStart` (juste au-dessus) utilise `allTimeStart ?? integrationsReadyAt`.
+  //
+  // Deux bornes différentes dans un seul chiffre : sur un élève sans
+  // `integrations_ready_at` — cas réel, la colonne peut être nulle — `ovPeriodStart`
+  // retombait sur `connectedAt` tandis que ce test acceptait TOUT (`: true`). Les leads
+  // et les calls du même compteur n'étaient alors plus bornés au même endroit.
   const isLeadInPeriod = (ts: string | null | undefined) => {
     if (sinceConnection) {
       if (!ts) return false;
-      return integrationsReadyAt ? ts >= integrationsReadyAt : true;
+      return ovDebutAllTime ? ts >= ovDebutAllTime : true;
     }
     if (!ts) return false;
     const t = new Date(ts).getTime();

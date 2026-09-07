@@ -231,7 +231,26 @@ export function compterLeads(l: LignesLeads, since: string | null, jusqua?: stri
   return parUsername + igDirects + youtube;
 }
 
-/* ─── Les trois lecteurs de cette règle ───────────────────────────────────── */
+/* ─── Les SIX lecteurs de cette règle ─────────────────────────────────────────
+ *
+ * ⚠️ Ce bloc a annoncé « les trois lecteurs » jusqu'au 2026-09-07. Il y en a six, et
+ * l'inventaire compte : `requetesLeads` est partagée, donc y ajouter une REQUÊTE (et
+ * pas seulement une colonne) se paie sur chacun d'eux.
+ *
+ *   1. `fetchIgLeadsCount`      → dashboard coach (×2 : all-time et ce mois)
+ *   2. `fetchAllLeadsCount`     → accueil élève (×2) et fiche client coach
+ *   3. `fetchLeadsCountsBatch`  → aucun appelant vivant hors tests
+ *   4. `PageClientStats`        → carte « Leads » de la Vue générale
+ *   5. `PageStatsClients`       → bandeau, colonne du tableau, export CSV
+ *   6. `PageStatsClients`       → un point par fenêtre du graphe
+ *
+ * ⚠️ Le plus coûteux est le 2 : `useCoachData` appelle `fetchAllLeadsCount` EN BOUCLE,
+ * une fois par élève. Une requête ajoutée ici coûte donc +2 requêtes PAR ÉLÈVE sur
+ * l'accueil coach — à 40 élèves, c'est 80 requêtes par affichage. Tout besoin de
+ * lecture supplémentaire doit vivre chez l'appelant qui en a besoin, jamais ici.
+ *
+ * La forme de ces quatre lectures est figée par des tests de caractérisation
+ * (`salesCallStats.test.ts`) : elles ne peuvent plus changer par effet de bord. */
 
 function requetesLeads(supabase: SupabaseClient, profileIds: string[], since: string | null) {
   // `archived_at` : sans lui, un prospect dont le lead a été archivé (bascule vers un
@@ -277,12 +296,29 @@ function requetesLeads(supabase: SupabaseClient, profileIds: string[], since: st
     return q;
   };
 
+  // ⚠️ `is('ig_lead_id', null)` est une DÉDUPLICATION, pas une attribution.
+  //
+  // La règle du 2026-08-29 dit que l'attribution d'un rendez-vous se lit sur
+  // `calls.source`, jamais sur `ig_lead_id`. Elle reste vraie. La question posée ici
+  // n'est pas « d'où vient ce rendez-vous » mais « cette personne est-elle déjà comptée
+  // ailleurs » — et `ig_lead_id` répond précisément à celle-là : il dit CHEZ QUI le call
+  // est rangé. Ne pas ranger ce filtre parmi les lecteurs d'attribution, il serait
+  // supprimé à la prochaine revue.
+  //
+  // Sans lui, un lead Instagram qui réserve depuis une description YouTube compte DEUX
+  // fois : une fois par son pseudo (volet `leads`), une fois par son e-mail (ce volet).
+  // Le volet Instagram porte ce filtre depuis toujours ; celui-ci l'avait oublié.
+  //
+  // Mesuré le 2026-09-07 : zéro paire concernée en base, donc aucun chiffre ne bouge
+  // aujourd'hui. La fusion automatique par e-mail (docs/handoff-fusion-auto-email.md)
+  // en créera, et ce jour-là personne ne chercherait un doublon dans la requête YouTube.
   const callsYt = () => {
     let q = supabase.from('calls')
       .select('coach_id, id, invitee_email, invitee_name, booked_at, scheduled_at')
       .in('coach_id', profileIds)
       .in('call_type', CALL_TYPES_VENTE)
       .neq('ignored', true)
+      .is('ig_lead_id', null)
       .like('source', 'yt%')
       .order('id', { ascending: true });
     if (since) q = q.or(`booked_at.gte.${since},and(booked_at.is.null,scheduled_at.gte.${since})`);

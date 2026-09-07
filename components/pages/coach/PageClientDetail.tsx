@@ -895,6 +895,13 @@ export default function PageClientDetail({ id }: Props) {
           </div>
         </div>
 
+        {/* ⚠️ « depuis la mise en route », et non « depuis inscription » — corrigé le
+            2026-09-07. Les deux chiffres sont bornés par `integrations_ready_at`
+            (`sinceIntegrationsReady` pour les leads, la route sales-calls pour les
+            calls), jamais par `onboarding_completed_at`. Le libellé annonçait donc
+            exactement la date que `docs/integrations-ready-at-vs-onboarding-completed-at.md`
+            INTERDIT comme filtre de leads : un lecteur qui recoupait ce chiffre avec la
+            date d'inscription de l'élève ne pouvait que le croire faux. */}
         <div className="kpi-group">
           <div className="kpi-group-title">Funnel de vente</div>
           <div className="grid-4">
@@ -903,7 +910,7 @@ export default function PageClientDetail({ id }: Props) {
               {kpiLoading ? <KpiSkeleton /> : (
                 <>
                   <div className="kpi-value">{leadsTotal}</div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>depuis inscription</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>depuis la mise en route</div>
                 </>
               )}
             </div>
@@ -912,7 +919,7 @@ export default function PageClientDetail({ id }: Props) {
               {kpiLoading ? <KpiSkeleton /> : (
                 <>
                   <div className="kpi-value">{callsBookedCount}</div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>depuis inscription</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>depuis la mise en route</div>
                 </>
               )}
             </div>
