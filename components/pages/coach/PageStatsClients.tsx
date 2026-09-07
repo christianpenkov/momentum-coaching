@@ -14,7 +14,8 @@ import { calculerCash, encaisseRetenu, type LignePaiement } from '@/lib/dealCash
 // Importé, jamais redérivé : `lib/callSeries.ts` est le seul endroit qui décide ce
 // qu'est une continuation, et deux définitions concurrentes se sépareraient en silence.
 import { idsDeContinuation } from '@/lib/callSeries';
-import { fetchLignesLeadsBatch, compterLeads, isNotCanceled, type LignesLeads, type LigneCallLead } from '@/lib/salesCallStats';
+import { fetchLignesLeadsBatch, compterLeads, compterLeadsActifs, isNotCanceled, type LignesLeads, type LigneCallLead } from '@/lib/salesCallStats';
+import { lireTout } from '@/lib/supabase/lireTout';
 import { getClientSignals, watchList, phraseSignaux, type ClientSignals } from '@/lib/clientSignals';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import Avatar, { getInitials, seedForPerson, colorFromSeed } from '@/components/ui/Avatar';
@@ -95,6 +96,14 @@ interface DonneesStats {
   /** Lignes BRUTES par élève. La page compte elle-même, fenêtre par fenêtre, en
    *  appelant `compterLeads` — la règle reste unique, seul le découpage change. */
   lignesLeads: Map<string, LignesLeads>;
+  /** Les reprises de lead magnet, groupées par élève — une ligne par réclamation. */
+  reprisesParProfil: Map<string, { ig_username: string | null; detected_at: string | null }[]>;
+  /** TOUS les calls de vente, groupés par élève. La règle des actifs a besoin de
+   *  ceux qui sont déjà rattachés à un lead, que les volets filtrés excluent. */
+  callsParProfil: Map<string, any[]>;
+  /** Le mode affiché. Sur une période on compte les ACTIFS, en all-time les
+   *  personnes — deux questions, deux fonctions. */
+  allTime: boolean;
   /** Séries HEBDOMADAIRES sur toute l'ancienneté, pour l'axe des semaines
    *  d'accompagnement. Hors période : ce graphe ne suit pas le sélecteur, par nature. */
   accompagnement: LigneSerie[];
@@ -128,6 +137,22 @@ interface DonneesStats {
   fin: Date;
   debutPrecedent: Date | null;
   finPrecedente: Date | null;
+}
+
+/** Regroupe des lignes par élève, une fois pour toutes.
+ *
+ *  Le graphe rappelle le comptage pour CHAQUE point de CHAQUE élève : un `filter` par
+ *  appel referait le balayage complet à chaque fois. Une Map construite une fois coûte
+ *  un parcours, pas N × M. */
+function grouperPar<T extends Record<string, any>>(lignes: T[], cle: 'profile_id' | 'coach_id'): Map<string, T[]> {
+  const m = new Map<string, T[]>();
+  for (const l of lignes) {
+    const k = l[cle] as string | null;
+    if (!k) continue;
+    const liste = m.get(k);
+    if (liste) liste.push(l); else m.set(k, [l]);
+  }
+  return m;
 }
 
 async function charger(period: Period, periodIndex: number, allTime: boolean): Promise<DonneesStats> {
@@ -205,7 +230,7 @@ async function charger(period: Period, periodIndex: number, allTime: boolean): P
     ? new Date(Math.min(...arrivees))
     : new Date(Date.now() - 365 * 86_400_000);
 
-  const [seriesRes, precRes, callsRes, dealsRes, paiementsRes, lignesLeads, accompRes, fraicheurRes, integRes, profilsRes] = await Promise.all([
+  const [seriesRes, precRes, callsRes, dealsRes, paiementsRes, lignesLeads, reprisesRes, accompRes, fraicheurRes, integRes, profilsRes] = await Promise.all([
     profileIds.length
       ? supabase.rpc('stats_clients_series', {
           p_profile_ids: profileIds, p_debut: jour(debut), p_fin: jour(fin), p_granularite: granularite,
@@ -224,8 +249,19 @@ async function charger(period: Period, periodIndex: number, allTime: boolean): P
       // CONTINUATION (2e rendez-vous d'un prospect dont le call précédent a été
       // rapporté « 2ème call »). Sans ces quatre colonnes, `idsDeContinuation` ne peut
       // ni regrouper par personne ni lire le maillon de la chaîne.
-      ? supabase.from('calls').select('coach_id, id, status, outcome, invitee_email, invitee_name, booked_at, scheduled_at')
+      // `utm_medium` et `ig_lead_id` : la regle des ACTIFS a besoin de distinguer un
+      // rendez-vous pris depuis un lien PARTAGE (bio / description / story — une entree)
+      // de celui pris depuis le Calendly envoye en conversation (`dm` — une progression).
+      //
+      // ⚠️ `lireTout` : cette lecture n'avait AUCUNE borne de date et n'etait PAS paginee.
+      // PostgREST tronque a 1 000 lignes sans erreur, donc le portefeuille du coach
+      // aurait sous-compte en silence des que le volume accumule aurait franchi ce cap.
+      // Mesure du 2026-09-07 : ~400 calls projetes a 40 eleves au rythme actuel, mais
+      // rien ne borne la croissance — c'etait une troncature qui attendait son volume.
+      ? lireTout(() => supabase.from('calls')
+          .select('coach_id, id, status, outcome, invitee_email, invitee_name, booked_at, scheduled_at, utm_medium, ig_lead_id')
           .in('coach_id', profileIds).in('call_type', CALL_TYPES_VENTE).neq('ignored', true)
+          .order('id', { ascending: true }))
       : rien,
     // `deals` est la source du cash depuis le 2026-08-20 ; `calls.revenue` n'est plus
     // qu'une trace du rapport de call.
@@ -239,6 +275,19 @@ async function charger(period: Period, periodIndex: number, allTime: boolean): P
     // Lues depuis la borne la PLUS ANCIENNE des deux fenêtres : les mêmes lignes
     // servent à la période courante et à la précédente, en une seule lecture.
     fetchLignesLeadsBatch(supabase, profileIds, (debutPrecedent ?? debut).toISOString()),
+    // Les REPRISES de lead magnet — une ligne par reclamation, jamais ecrasee. C'est
+    // elle qui permet de voir qu'une personne deja connue est revenue.
+    //
+    // ⚠️ Volontairement ICI et non dans `requetesLeads` : cette derniere est partagee, et
+    // `useCoachData` l'appelle EN BOUCLE par eleve. Y ajouter une requete couterait
+    // +2 requetes PAR ELEVE sur l'accueil coach — 80 a quarante eleves. Ici, c'est UNE
+    // lecture groupee pour tout le portefeuille.
+    profileIds.length
+      ? lireTout(() => supabase.from('instagram_lead_lm_history')
+          .select('profile_id, ig_username, detected_at')
+          .in('profile_id', profileIds).is('archived_at', null)
+          .order('id', { ascending: true }))
+      : rien,
     profileIds.length
       ? supabase.rpc('stats_clients_series', {
           p_profile_ids: profileIds, p_debut: jour(debutAccompagnement), p_fin: jour(new Date()),
@@ -335,6 +384,11 @@ async function charger(period: Period, periodIndex: number, allTime: boolean): P
     series: (seriesRes.data || []) as LigneSerie[],
     seriesPrecedentes: (precRes.data || []) as LigneSerie[],
     calls: (callsRes.data || []) as any[],
+    // Regroupes par eleve une seule fois, plutot qu'un `filter` par eleve et par
+    // fenetre — le graphe rappelle le comptage pour CHAQUE point.
+    reprisesParProfil: grouperPar((reprisesRes.data || []) as any[], 'profile_id'),
+    callsParProfil: grouperPar((callsRes.data || []) as any[], 'coach_id'),
+    allTime,
     deals: (dealsRes.data || []) as any[],
     paiements: (paiementsRes.data || []) as any[],
     lignesLeads,
@@ -501,13 +555,43 @@ export default function PageStatsClients() {
         : { leads: [], liens: [], callsIgDirects: [], callsYoutube: [] };
       const dansLaFenetre = (c: LigneCallLead) =>
         dansFenetre(c.booked_at ?? null, c.scheduled_at ?? null, data.debut, data.fin);
-      const leads = pid
-        ? compterLeads({
+
+      /* ── Le comptage des leads, une seule fois pour les TROIS endroits ──────
+       *
+       * Le bandeau, le graphe et la periode precedente posaient chacun leur propre
+       * appel. Les trois doivent poser la MEME question, sinon le tableau et sa courbe
+       * finissent par se contredire — et personne ne le verrait, les deux chiffres
+       * restant plausibles.
+       *
+       * Sur une PERIODE : les ACTIFS — premiere apparition, reprise de lead magnet, ou
+       * rendez-vous pris depuis un lien partage (bio / description / story).
+       * En ALL-TIME : les personnes, dedupliquees. `compterLeads`, inchangee.
+       *
+       * ⚠️ Exactement la meme regle que la carte « Leads » de Mes Stats. C'est le but du
+       * chantier : le meme mot doit donner le meme nombre sur les deux ecrans. */
+      const compterFenetre = (debF: Date, finF: Date): number => {
+        if (!pid) return 0;
+        if (data.allTime) {
+          const dedans = (c: LigneCallLead) =>
+            dansFenetre(c.booked_at ?? null, c.scheduled_at ?? null, debF, finF);
+          return compterLeads({
             ...brutLeads,
-            callsIgDirects: brutLeads.callsIgDirects.filter(dansLaFenetre),
-            callsYoutube: brutLeads.callsYoutube.filter(dansLaFenetre),
-          }, data.debut.toISOString(), data.fin.toISOString())
-        : null;
+            callsIgDirects: brutLeads.callsIgDirects.filter(dedans),
+            callsYoutube: brutLeads.callsYoutube.filter(dedans),
+          }, debF.toISOString(), finF.toISOString());
+        }
+        return compterLeadsActifs({
+          leads: brutLeads.leads,
+          liens: brutLeads.liens,
+          reprises: data.reprisesParProfil.get(pid) ?? [],
+          // TOUS les calls de vente : une reservation depuis une bio compte meme quand la
+          // personne est deja connue, donc on ne peut pas se limiter aux volets filtres.
+          // `compterLeadsActifs` applique lui-meme la fenetre, sur `booked_at`.
+          calls: (data.callsParProfil.get(pid) ?? []) as any,
+        }, debF.toISOString(), finF.toISOString());
+      };
+
+      const leads = pid ? compterFenetre(data.debut, data.fin) : null;
 
       const dealsEleve = pid ? data.deals.filter(d => d.profile_id === pid) : [];
       const dealsFenetre = dealsEleve.filter(d =>
@@ -598,13 +682,7 @@ export default function PageStatsClients() {
                 ? new Date(new Date(fenetres[i + 1] + 'T00:00:00Z').getTime() - 1)
                 : finPeriode;
               const debF = new Date(f + 'T00:00:00Z');
-              return compterLeads({
-                ...brutLeads,
-                callsIgDirects: brutLeads.callsIgDirects.filter(c =>
-                  dansFenetre(c.booked_at ?? null, c.scheduled_at ?? null, debF, finF)),
-                callsYoutube: brutLeads.callsYoutube.filter(c =>
-                  dansFenetre(c.booked_at ?? null, c.scheduled_at ?? null, debF, finF)),
-              }, debF.toISOString(), finF.toISOString());
+              return compterFenetre(debF, finF);
             });
         }
       }
@@ -645,13 +723,9 @@ export default function PageStatsClients() {
         const vYtP = variation(sYt);
         if (vIgP !== null) cumulPrec.abonnesGagnesIg = (cumulPrec.abonnesGagnesIg ?? 0) + vIgP;
         if (vYtP !== null) cumulPrec.abonnesGagnesYt = (cumulPrec.abonnesGagnesYt ?? 0) + vYtP;
-        cumulPrec.leads += pid ? compterLeads({
-          ...brutLeads,
-          callsIgDirects: brutLeads.callsIgDirects.filter(c =>
-            dansFenetre(c.booked_at ?? null, c.scheduled_at ?? null, data.debutPrecedent!, data.finPrecedente!)),
-          callsYoutube: brutLeads.callsYoutube.filter(c =>
-            dansFenetre(c.booked_at ?? null, c.scheduled_at ?? null, data.debutPrecedent!, data.finPrecedente!)),
-        }, data.debutPrecedent.toISOString(), data.finPrecedente.toISOString()) : 0;
+        // Meme regle que la periode courante — sans quoi le delta comparerait deux
+        // definitions differentes et afficherait une variation qui n'existe pas.
+        cumulPrec.leads += compterFenetre(data.debutPrecedent, data.finPrecedente);
         cumulPrec.callsBookes += callsEleve.filter(k =>
           isNotCanceled(k) && estOpportunite(k) && dansFenetre(k.booked_at, k.scheduled_at, data.debutPrecedent!, data.finPrecedente!)).length;
         const dealsPrec = dealsEleve.filter(d =>

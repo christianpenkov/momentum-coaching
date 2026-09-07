@@ -242,6 +242,15 @@ test('actifs — l\'exemple qui fixe la règle', () => {
   assert.equal(compterLeadsActifs(l, SEPT[0], SEPT[1]), 0, 'pas en septembre');
 });
 
+test('actifs — une reprise ne compte que pour une personne que `leads` connaît', () => {
+  // `instagram_lead_lm_history` n'a pas de colonne `not_a_lead` : un prospect écarté à la
+  // main y garde ses lignes. Sans cette garde il reviendrait par les reprises, alors
+  // qu'il est exclu partout ailleurs — et Stats Clients, qui ne filtrait pas ces lignes
+  // de son côté, aurait affiché un autre nombre que Mes Stats.
+  const inconnue = actifs({ reprises: [reprise('fantome', '2026-08-10T00:00:00Z')] });
+  assert.equal(compterLeadsActifs(inconnue, AOUT[0], AOUT[1]), 0);
+});
+
 test('actifs — deux reprises dans deux périodes = deux fois actif, une seule personne', () => {
   // Le cas `rdjdkzjd`, mesuré en base : reprise le 28/06 puis le 28/08.
   const l = actifs({
@@ -292,6 +301,10 @@ test('actifs — un call rattaché à un lead est recompté SUR ce lead, pas à 
 
 test('actifs — une personne active plusieurs fois DANS la même période compte une fois', () => {
   const l = actifs({
+    // La fiche `leads` est indispensable : une reprise ne compte que pour quelqu'un que
+    // `leads` connaît, sinon un prospect écarté à la main reviendrait par l'historique
+    // des lead magnets, qui n'a pas de colonne `not_a_lead`.
+    leads: [commentaire('dan', '2026-08-02T00:00:00Z')],
     reprises: [reprise('dan', '2026-08-02T00:00:00Z'), reprise('dan', '2026-08-20T00:00:00Z')],
     calls: [booking('c1', 'bio', '2026-08-25T00:00:00Z', 'dan@x.fr')],
   });

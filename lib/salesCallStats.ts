@@ -507,8 +507,25 @@ export function compterLeadsActifs(l: LignesActifs, debut: string, fin: string |
 
   // 2. Reprise de lead magnet. Pas de garde cold DM ici : reprendre un lead magnet EST
   //    une manifestation, donc la personne est un lead par ce seul fait.
+  //
+  // ⚠️ Mais seulement pour une personne que `leads` connaît. `instagram_lead_lm_history`
+  // n'a PAS de colonne `not_a_lead` : un prospect écarté à la main depuis le pipeline y
+  // garde ses lignes, et sans cette garde il reviendrait par les reprises alors qu'il
+  // est exclu partout ailleurs.
+  //
+  // Le filtre vit ICI plutôt que chez l'appelant, et c'est délibéré : Mes Stats écartait
+  // ces personnes de son côté, Stats Clients non. Deux écrans, deux filtres, donc deux
+  // nombres — exactement la divergence que ce chantier ferme. Une seule règle, appliquée
+  // par la fonction, ne peut plus se rouvrir selon qui l'appelle.
+  //
+  // Une personne qui a une reprise a forcément une fiche `instagram_leads` (les deux
+  // s'écrivent ensemble), donc cette garde n'écarte que les exclusions volontaires.
+  const connues = new Set<string>();
+  for (const r of l.leads) if (r.ig_username) connues.add(r.ig_username.toLowerCase());
   for (const r of l.reprises) {
-    if (r.ig_username && dansLaFenetre(r.detected_at)) actifs.add(r.ig_username.toLowerCase());
+    if (!r.ig_username || !dansLaFenetre(r.detected_at)) continue;
+    const cle = r.ig_username.toLowerCase();
+    if (connues.has(cle)) actifs.add(cle);
   }
 
   // 3. Réservation depuis un lien partagé.
