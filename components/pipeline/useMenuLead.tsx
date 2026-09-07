@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 
 /**
- * Le menu « retirer un lead », partagé par toutes les surfaces du pipeline.
+ * Le menu d'actions sur un lead, partagé par toutes les surfaces du pipeline.
  *
  * ── POURQUOI IL EXISTE ───────────────────────────────────────────────────────
  *
@@ -39,23 +39,39 @@ import { useEscapeKey } from '@/lib/useEscapeKey';
  */
 
 /** Ce qu'il faut savoir d'un lead pour proposer de le retirer. */
-export interface CibleRetrait {
+export interface CibleMenu {
   key: string;
   name: string;
   callId?: string | null;
   /** Un call venu d'un lien bio/description n'a pas de pseudo Instagram : pas de `@`. */
   isIgLink?: boolean;
+  /**
+   * Un rapport existe et peut etre rouvert.
+   *
+   * ⚠️ Ce n'est PAS `callId != null` : un rendez-vous a venir a bien un
+   * identifiant et aucun rapport. C'est la presence d'un resultat qui dit
+   * qu'il y a quelque chose a modifier.
+   */
+  aUnRapport?: boolean;
 }
 
-export function useMenuRetirerLead({ platform, onDeleteLead, onNotALead }: {
+export function useMenuLead({ platform, onDeleteLead, onNotALead, onModifierRapport }: {
   platform: 'ig' | 'yt' | 'other';
   onDeleteLead?: (key: string, callId?: string | null) => void;
   onNotALead?: (key: string, callId?: string | null) => void;
+  /**
+   * Rouvrir le rapport d'un rendez-vous deja rempli.
+   *
+   * Le menu ne transporte qu'une CLE : le rapport se rouvre avec une vingtaine
+   * de champs du call, et les faire transiter par trois surfaces les aurait
+   * fait diverger a la premiere colonne ajoutee. L'ecran retrouve sa carte.
+   */
+  onModifierRapport?: (key: string) => void;
 }) {
-  const [menu, setMenu] = useState<{ x: number; y: number; cible: CibleRetrait } | null>(null);
-  const [suppr, setSuppr] = useState<CibleRetrait | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; cible: CibleMenu } | null>(null);
+  const [suppr, setSuppr] = useState<CibleMenu | null>(null);
   const [supprCoche, setSupprCoche] = useState(false);
-  const [pasLead, setPasLead] = useState<CibleRetrait | null>(null);
+  const [pasLead, setPasLead] = useState<CibleMenu | null>(null);
   const [pasLeadCoche, setPasLeadCoche] = useState(false);
 
   // Trois couches peuvent être ouvertes en même temps (le menu, puis une
@@ -68,11 +84,11 @@ export function useMenuRetirerLead({ platform, onDeleteLead, onNotALead }: {
     if (menu) setMenu(null);
   }, !!menu || !!suppr || !!pasLead);
 
-  const nomAffiche = (c: CibleRetrait) =>
+  const nomAffiche = (c: CibleMenu) =>
     platform === 'ig' && !c.isIgLink ? `@${c.name}` : c.name;
 
   /** À brancher sur `onContextMenu` de n'importe quelle surface. */
-  const ouvrirMenu = (e: React.MouseEvent, cible: CibleRetrait) => {
+  const ouvrirMenu = (e: React.MouseEvent, cible: CibleMenu) => {
     e.preventDefault();
     // `stopPropagation` : sans lui, une ligne de tableau imbriquée dans un
     // conteneur qui écoute aussi le clic droit ouvrirait deux menus.
@@ -97,6 +113,24 @@ export function useMenuRetirerLead({ platform, onDeleteLead, onNotALead }: {
             borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)',
             padding: '4px 0', minWidth: 160,
           }}>
+            {/* En PREMIER, et sans confirmation : c'est la seule entrée du menu
+                qui n'est pas un retrait. Un lead classé « Closé » dont le montant
+                est faux se corrige ici — avant, le rapport ne se rouvrait que
+                depuis une carte « RDV pris », donc jamais pour un lead classé.
+                Un séparateur la détache des deux gestes destructeurs. */}
+            {menu.cible.aUnRapport && onModifierRapport && (
+              <>
+                <button
+                  onMouseDown={e => { e.stopPropagation(); const c = menu.cible; setMenu(null); onModifierRapport(c.key); }}
+                  style={entree('var(--ink)')}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-2)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
+                >
+                  Modifier le rapport
+                </button>
+                <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+              </>
+            )}
             <button
               onMouseDown={e => { e.stopPropagation(); setPasLead(menu.cible); setPasLeadCoche(false); setMenu(null); }}
               style={entree('var(--ink)')}

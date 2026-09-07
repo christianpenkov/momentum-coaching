@@ -25,7 +25,7 @@ import { resolveLeadState, ISSUE_KEYS, ISSUE_TO_OUTCOME, MAX_RELANCES, RELANCE_E
 import { useViewerTimeZone } from '@/lib/UserContext';
 import { wallClockToUtc, cityLabelOf, formatDayPartsIn, jourCourantIci } from '@/lib/timezone';
 import { estOrigineDm, flecheDuDm, ORIGINE_COLD_DM } from '@/lib/origineLead';
-import { useMenuRetirerLead, type CibleRetrait } from './useMenuRetirerLead';
+import { useMenuLead, type CibleMenu } from './useMenuLead';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -723,7 +723,7 @@ function PipelineCard({
   /** Le bouton direct du bandeau de doublon — distinct du menu au clic droit. */
   onNotALead?: (key: string, callId?: string | null) => void;
   /** Le menu « retirer » est partagé par tout l'écran — voir useMenuRetirerLead. */
-  ouvrirMenu?: (e: React.MouseEvent, cible: CibleRetrait) => void;
+  ouvrirMenu?: (e: React.MouseEvent, cible: CibleMenu) => void;
 }) {
   // Le menu « retirer » vit UNE fois pour tout l'ecran (useMenuRetirerLead) et non
   // ici : cette carte est montee jusqu'a 412 fois dans une seule etape, et chaque
@@ -758,7 +758,7 @@ function PipelineCard({
       draggable
       data-pipeline-card
       onDragStart={e => { dragStartedRef.current = true; onDragStart(e, card.key); }}
-      onContextMenu={e => ouvrirMenu?.(e, { key: card.key, name: card.name, callId: card.callId, isIgLink: card.isIgLink })}
+      onContextMenu={e => ouvrirMenu?.(e, { key: card.key, name: card.name, callId: card.callId, isIgLink: card.isIgLink, aUnRapport: !!card.callId && !!card.callOutcome })}
       onClick={() => {
         if (dragStartedRef.current) { dragStartedRef.current = false; return; }
         onCardClick?.(card.key);
@@ -1277,7 +1277,7 @@ function motifLisible(reason: string | null | undefined): string | null {
 // board.
 
 function PanneauIssue({
-  issue, cards, onFermer, onOuvrirFiche, onRelancer, avatarColor, avatarInitials, ouvrirMenu,
+  issue, cards, onFermer, onOuvrirFiche, onRelancer, onModifierRapport, avatarColor, avatarInitials, ouvrirMenu,
 }: {
   issue: ColumnDef;
   cards: CardData[];
@@ -1285,8 +1285,10 @@ function PanneauIssue({
   onOuvrirFiche: (key: string) => void;
   /** Marque une relance faite. Absent = le bouton d'action ne s'affiche pas. */
   onRelancer?: (key: string) => void;
-  /** Le menu « retirer », partage avec le kanban et la vue liste. */
-  ouvrirMenu?: (e: React.MouseEvent, cible: CibleRetrait) => void;
+  /** Rouvrir un rapport deja rempli, depuis la ligne ou le clic droit. */
+  onModifierRapport?: (key: string) => void;
+  /** Le menu d'actions, partage avec le kanban et la vue liste. */
+  ouvrirMenu?: (e: React.MouseEvent, cible: CibleMenu) => void;
   avatarColor: (n: string) => string;
   avatarInitials: (n: string) => string;
 }) {
@@ -1389,7 +1391,7 @@ function PanneauIssue({
                     // Le clic droit porte sur la LIGNE entière, pas sur le bouton
                     // du lead : viser un pseudo court au pixel près pour retirer
                     // une fiche serait une cible plus petite que le geste.
-                    onContextMenu={e => ouvrirMenu?.(e, { key: c.key, name: c.name, callId: c.callId, isIgLink: c.isIgLink })}
+                    onContextMenu={e => ouvrirMenu?.(e, { key: c.key, name: c.name, callId: c.callId, isIgLink: c.isIgLink, aUnRapport: !!c.callId && !!c.callOutcome })}
                     style={{
                       display: 'grid', gridTemplateColumns: grille, gap: 10,
                       alignItems: 'center', padding: '9px 20px', minHeight: 56,
@@ -1488,7 +1490,21 @@ function PanneauIssue({
                     ) : (
                       <button
                         type="button"
-                        onClick={() => onOuvrirFiche(c.key)}
+                        // « Historique » faisait DOUBLON : cliquer le nom du lead,
+                        // deux colonnes à gauche, ouvre déjà sa fiche. La place
+                        // servait donc à rien, alors qu'un lead classé n'avait aucun
+                        // moyen de rouvrir son rapport — le bouton du board ne
+                        // s'affiche qu'à l'étape « RDV pris », et un lead classé
+                        // porte son issue, jamais cette étape.
+                        //
+                        // Quand une relance est due, la place est prise par « Je
+                        // l'ai relancé » (116 px, deux boutons n'y tiennent pas) :
+                        // le rapport reste alors accessible au clic droit, qui
+                        // porte la même action sur les trois surfaces.
+                        onClick={() => {
+                          if (c.callId && c.callOutcome && onModifierRapport) onModifierRapport(c.key);
+                          else onOuvrirFiche(c.key);
+                        }}
                         style={{
                           fontSize: 11, fontWeight: 600, padding: '6px 10px',
                           borderRadius: 7, cursor: 'pointer', whiteSpace: 'nowrap',
@@ -1503,7 +1519,7 @@ function PanneauIssue({
                           e.currentTarget.style.background = 'transparent';
                           e.currentTarget.style.color = 'var(--muted)';
                         }}
-                      >Historique</button>
+                      >{c.callId && c.callOutcome ? 'Modifier' : 'Historique'}</button>
                     )}
                   </div>
                 );
@@ -1737,7 +1753,7 @@ function KanbanColumn({
   onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string, isFollowUp: boolean, existing?: RapportExistant | null) => void;
   onCardClick?: (cardKey: string) => void;
   onNotALead?: (key: string, callId?: string | null) => void;
-  ouvrirMenu?: (e: React.MouseEvent, cible: CibleRetrait) => void;
+  ouvrirMenu?: (e: React.MouseEvent, cible: CibleMenu) => void;
   /** Une issue se dessine en carré plein, une étape en pastille ronde. */
   estIssue?: boolean;
   replie?: boolean;
@@ -3466,8 +3482,29 @@ export default function PagePipeline() {
   //
   // Une seule instance, trois surfaces : la cible est portee par l'ouverture du
   // menu, pas par le composant qui l'ouvre.
-  const { ouvrirMenu, menuRetrait } = useMenuRetirerLead({
+  // Le rapport se rouvre par sa CLÉ : la modale a besoin d'une vingtaine de
+  // champs du call, et les faire transiter par le menu puis par trois surfaces
+  // les aurait fait diverger à la première colonne ajoutée.
+  const ouvrirRapport = useCallback((cle: string) => {
+    const c = cards.find(x => x.key === cle);
+    if (!c?.callId) return;
+    setRapportModal({
+      callId: c.callId,
+      inviteeName: c.name,
+      scheduledAt: c.callScheduledAt ?? '',
+      isFollowUp: c.callIsFollowUp ?? false,
+      existing: {
+        revenue: c.callRevenue ?? null, comment: c.callComment ?? null,
+        outcome: c.callOutcome ?? null, qualified: c.callQualified ?? null,
+        objection: c.callObjection ?? null, objectionAutre: c.callObjectionAutre ?? null,
+        relanceAt: c.callRelanceAt ?? null,
+      },
+    });
+  }, [cards]);
+
+  const { ouvrirMenu, menuRetrait } = useMenuLead({
     platform, onDeleteLead: handleDeleteLead, onNotALead: handleNotALead,
+    onModifierRapport: ouvrirRapport,
   });
   // ── Actions en lot (vue liste) ──────────────────────────────────────────────
   //
@@ -4348,6 +4385,7 @@ export default function PagePipeline() {
               onFermer={() => setPanneauIssue(null)}
               onOuvrirFiche={key => { setPanneauIssue(null); setDetailModal({ cardKey: key, platform: tab }); }}
               onRelancer={key => handleBulkRelance([key])}
+              onModifierRapport={ouvrirRapport}
               avatarColor={avatarColor}
               avatarInitials={avatarInitials}
               ouvrirMenu={ouvrirMenu}

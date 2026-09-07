@@ -4,7 +4,7 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import Image from 'next/image';
 import Icon from '@/components/ui/Icon';
 import IconeIssue from './IconeIssue';
-import type { CibleRetrait } from './useMenuRetirerLead';
+import type { CibleMenu } from './useMenuLead';
 
 // ── La vue liste ──────────────────────────────────────────────────────────────
 //
@@ -87,7 +87,7 @@ interface Props {
   onBulkNotALead: (keys: string[]) => Promise<void> | void;
   onBulkRelance: (keys: string[]) => Promise<void> | void;
   /** Le menu « retirer un lead », partage avec le kanban — voir useMenuRetirerLead. */
-  ouvrirMenu?: (e: React.MouseEvent, cible: CibleRetrait) => void;
+  ouvrirMenu?: (e: React.MouseEvent, cible: CibleMenu) => void;
 }
 
 function joursDepuis(iso: string | null | undefined, now: number): number | null {
@@ -378,7 +378,7 @@ export default function PipelineListView({
                     onClick={() => onCardClick(c.key)}
                     // Le meme menu que le kanban et le panneau d'issue : les
                     // deux gestes de retrait n'ont rien de propre a une carte.
-                    onContextMenu={e => ouvrirMenu?.(e, { key: c.key, name: c.name, callId: c.callId, isIgLink: c.isIgLink })}
+                    onContextMenu={e => ouvrirMenu?.(e, { key: c.key, name: c.name, callId: c.callId, isIgLink: c.isIgLink, aUnRapport: !!c.callId && !!c.callOutcome })}
                     // La sélection passe par une CLASSE, plus par un fond en style
                     // inline : l'inline l'emporte sur toute feuille de style, donc
                     // aucun `:hover` n'aurait pu se voir. Les quatre états de la
@@ -455,11 +455,18 @@ export default function PipelineListView({
                     <span style={{ display: 'flex', justifyContent: 'flex-end' }}>
                       <button
                         type="button"
+                        // ── « Historique » faisait DOUBLON avec le clic sur la ligne ──
+                        // La ligne entière ouvre déjà la fiche. Ce bouton ne servait
+                        // donc à rien tant qu'aucun rapport n'était en retard, et un
+                        // lead classé n'avait AUCUN moyen de rouvrir son rapport
+                        // depuis le pipeline : le bouton du board ne s'affiche qu'à
+                        // l'étape « RDV pris », et un lead classé porte son issue.
                         onClick={e => {
                           e.stopPropagation();
-                          if (c.rapportEnRetard && c.callId) onRapportClick(c);
+                          if (c.callId && (c.rapportEnRetard || c.callOutcome)) onRapportClick(c);
                           else onCardClick(c.key);
                         }}
+                        title={c.callId && c.callOutcome && !c.rapportEnRetard ? 'Modifier le rapport de vente' : undefined}
                         // « Remplir » en AMBRE, pas en ardoise : l'ardoise est la
                         // couleur d'une action ordinaire de l'application, et ce
                         // bouton est le seul de la ligne qui bloque un chiffre tant
@@ -476,7 +483,7 @@ export default function PipelineListView({
                           cursor: 'pointer', whiteSpace: 'nowrap',
                         }}
                       >
-                        {c.rapportEnRetard ? 'Remplir' : 'Historique'}
+                        {c.rapportEnRetard ? 'Remplir' : (c.callId && c.callOutcome) ? 'Modifier' : 'Historique'}
                       </button>
                     </span>
                   </div>
