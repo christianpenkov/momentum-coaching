@@ -121,8 +121,25 @@ export default function CallInfosModal({
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
           <Icon name="phone-call" size={20} />
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 700, fontSize: 18, color: 'var(--accent)' }}>
-              Infos du call{counterpartName ? ` — ${counterpartName}` : ''}
+            {/* La présence est accolée au NOM, pas posée au milieu du corps.
+                Elle qualifie la personne (« Leroy était là »), pas le rapport :
+                seule au-dessus du résultat, elle flottait sans rattachement
+                visible et se lisait comme une étiquette orpheline.
+                `flexWrap` : sur un nom long en écran étroit, le badge passe à la
+                ligne au lieu de comprimer le nom. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 700, fontSize: 18, color: 'var(--accent)' }}>
+                Infos du call{counterpartName ? ` — ${counterpartName}` : ''}
+              </span>
+              {hasReport && (
+                <span style={{
+                  fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, whiteSpace: 'nowrap',
+                  background: attended === false ? 'var(--red-soft)' : 'var(--green-soft)',
+                  color: attended === false ? 'var(--red)' : 'var(--green)',
+                }}>
+                  {attended === false ? 'Pas présent' : 'Présent'}
+                </span>
+              )}
             </div>
             {scheduledAt && (
               <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>{formatDate(scheduledAt, viewerTz)}</div>
@@ -146,18 +163,13 @@ export default function CallInfosModal({
 
         {hasReport && (
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-              <span style={{
-                fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
-                background: attended === false ? 'var(--red-soft)' : 'var(--green-soft)',
-                color: attended === false ? 'var(--red)' : 'var(--green)',
-              }}>
-                {attended === false ? 'Pas présent' : 'Présent'}
-              </span>
-              {/* En encre, comme dans la timeline de la fiche élève : le sujet est
-                  une information de contenu, pas une métadonnée grise. */}
-              {topicLabel && <span style={{ fontSize: 13, color: 'var(--ink)' }}>{topicLabel}</span>}
-            </div>
+            {/* La pastille de présence est remontée dans le titre, à côté du nom.
+                Ne reste ici que le sujet — en encre, comme dans la timeline de la
+                fiche élève : c'est une information de contenu, pas une métadonnée
+                grise. */}
+            {topicLabel && (
+              <div style={{ fontSize: 13, color: 'var(--ink)', marginBottom: 12 }}>{topicLabel}</div>
+            )}
             {notes && (
               <div style={{ marginBottom: 14 }}>
                 <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -237,8 +249,17 @@ export default function CallInfosModal({
       </div>
 
       <div style={{ padding: '0 30px 26px', display: 'flex', justifyContent: onEditRapport ? 'space-between' : 'flex-end', alignItems: 'center', gap: 12 }}>
+        {/* Encadré : sans bordure, l'action se lisait comme du texte posé en pied
+            de modale et non comme un bouton. Même traitement que « Voir sur
+            Fathom » plus haut — bordure discrète, le bleu plein restant réservé à
+            l'action principale (« Fermer »). */}
         {onEditRapport && (
-          <button onClick={onEditRapport} className="btn-ghost" type="button" style={{ fontSize: 13 }}>
+          <button
+            onClick={onEditRapport}
+            className="btn-ghost"
+            type="button"
+            style={{ fontSize: 13, padding: '8px 14px', border: '1px solid var(--border)', borderRadius: 7 }}
+          >
             Corriger le rapport
           </button>
         )}

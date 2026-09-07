@@ -2,7 +2,7 @@
 
 import { type RapportExistant } from '@/lib/rapportPatch';
 import { estCallDeVente } from '@/lib/callTypes';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 import Icon from '@/components/ui/Icon';
@@ -21,6 +21,9 @@ import { CallTypeBadge } from '@/components/ui/CallBadges';
 import { formatCallLongDate, formatCallTime, groupCallsByPeriod, daysUntilLocal } from '@/lib/callFormat';
 import type { Call } from '@/lib/supabase/types';
 import { useViewerTimeZone } from '@/lib/UserContext';
+import { identiteDe } from '@/lib/avatars';
+import { filtrerCalls } from '@/lib/rechercheCalls';
+import BarreRechercheCalls from '@/components/ui/BarreRechercheCalls';
 
 type Tab = 'upcoming' | 'history' | 'prospects' | 'coachings' | 'canceled' | 'unmatched';
 
@@ -31,7 +34,7 @@ const VISIBLE_PERIODS = 2;
 export default function PageCalls() {
   const [tab, setTab] = useState<Tab>('upcoming');
   const viewerTz = useViewerTimeZone();
-  const { calls, clients, loading, refetch } = useSupabaseClients();
+  const { calls: callsBruts, clients, photosInstagram, loading, refetch } = useSupabaseClients();
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
 
@@ -48,7 +51,10 @@ export default function PageCalls() {
 
   // Rapports de session Google Meet en attente — même condition que le badge élève
   const [openSessionRapportCall, setOpenSessionRapportCall] = useState<{ callId: string; clientName: string | null; scheduledAt: string | null; call: Call } | null>(null);
-  const pendingSessionRapportIds = new Set(getPendingSessionRapports(calls as Call[]).map(c => c.id));
+  // Liste BRUTE, pas la liste filtrée : « ce call attend son rapport » est un fait
+  // sur le call, pas un résultat de recherche. Et cette ligne s'exécute avant que
+  // la liste filtrée existe.
+  const pendingSessionRapportIds = new Set(getPendingSessionRapports(callsBruts as Call[]).map(c => c.id));
 
   // Modale de consultation (rapport déjà rempli + infos Fathom) — jamais de formulaire.
   const [infosModalCall, setInfosModalCall] = useState<{ call: Call; clientName: string | null } | null>(null);
@@ -148,6 +154,23 @@ export default function PageCalls() {
     setDeletingId(null);
   }
 
+  // ── Recherche par nom ─────────────────────────────────────────────────────
+  //
+  // Filtrée À LA SOURCE, avant que les listes ne se dérivent : les huit listes
+  // (à venir, historique, ventes, coachings, annulés…) en héritent d'un coup, et
+  // les compteurs des onglets suivent. « Historique (3) » pendant qu'on cherche
+  // dit combien de calls de cette personne s'y trouvent — c'est ce qui permet de
+  // voir dans quel onglet elle apparaît.
+  //
+  // Le nom vient de `getCounterpart`, celui-là même qui est écrit sur la carte :
+  // une recherche qui ne trouve pas ce qu'on lit est pire que pas de recherche.
+  const [recherche, setRecherche] = useState('');
+  const calls = useMemo(
+    () => filtrerCalls(callsBruts, recherche, c => getCounterpart(c).displayName),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [callsBruts, recherche, clients, photosInstagram],
+  );
+
   // La liste "À venir" inclut aussi les calls encore dans leur fenêtre de rattrapage
   // (isCallJoinable, 15min après la fin théorique) — pas seulement !isCallReallyOver
   // strict — pour que le bouton Rejoindre reste visible pendant le rattrapage.
@@ -212,13 +235,28 @@ export default function PageCalls() {
 
   // Identité de l'interlocuteur — le client lié pour un coaching, l'invité Calendly
   // pour un call de vente.
+  //
+  // ⚠️ La photo ne pouvait PAS venir de `cl` seul. Un prospect de call de vente
+  // n'est pas un élève : il n'a pas de compte, donc `client_id` est null et
+  // `cl.avatar_url` aussi. Sa photo vit dans `instagram_leads`, atteignable par
+  // `call.ig_lead_id` — une colonne déjà chargée mais jamais lue ici.
+  //
+  // La règle (Instagram d'abord, compte ensuite) et la graine de couleur vivent
+  // dans lib/avatars.ts, pour que Calls ne redécide plus dans son coin. La graine
+  // était `cl?.id`, donc `undefined` pour un prospect : `Avatar` retombait sur les
+  // initiales et la même personne changeait de couleur d'un écran à l'autre.
   function getCounterpart(call: Call) {
     const cl = getClient(call.client_id || '');
+    const id = identiteDe({
+      nom: cl?.name || call.invitee_name || call.invitee_email,
+      photoCompte: cl?.avatar_url,
+      photoInstagram: call.ig_lead_id ? photosInstagram[call.ig_lead_id] : null,
+    });
     return {
-      displayName: cl?.name || call.invitee_name || call.invitee_email || '—',
-      initials: cl?.initials || getInitials(call.invitee_name),
-      avatarUrl: cl?.avatar_url ?? null,
-      seed: cl?.id,
+      displayName: id.nom,
+      initials: id.initiales,
+      avatarUrl: id.photo,
+      seed: id.graine,
       client: cl,
     };
   }
@@ -545,6 +583,22 @@ export default function PageCalls() {
           Autres Fathoms
         </button>
       </div>
+
+      {/* Pas sur « Autres Fathoms » : cet onglet ne liste pas des calls mais des
+          enregistrements non rattachés, que cette recherche ne filtre pas. */}
+      {tab !== 'unmatched' && (
+        <BarreRechercheCalls
+          valeur={recherche}
+          onChange={setRecherche}
+          resultats={
+            tab === 'upcoming' ? upcoming.length
+            : tab === 'history' ? history.length
+            : tab === 'prospects' ? salesUpcoming.length + salesHistory.length
+            : tab === 'coachings' ? coachingUpcoming.length + coachingHistory.length
+            : canceledUpcoming.length + canceledHistory.length
+          }
+        />
+      )}
 
       {tab === 'unmatched' && (
         <FathomUnmatchedTab

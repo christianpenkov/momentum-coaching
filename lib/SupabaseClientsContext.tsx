@@ -33,6 +33,8 @@ export interface CoachBusinessData {
 interface SupabaseClientsContextValue {
   clients: ClientWithMetrics[];
   calls: import('@/lib/supabase/types').Call[];
+  /** Photo Instagram par `instagram_leads.id`. Voir lib/avatars.ts pour la regle. */
+  photosInstagram: Record<string, string>;
   business: CoachBusinessData;
   loading: boolean;
   error: string | null;
@@ -65,6 +67,14 @@ const SupabaseClientsContext = createContext<SupabaseClientsContextValue | null>
 export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
   const [clients, setClients] = useState<ClientWithMetrics[]>([]);
   const [calls, setCalls] = useState<import('@/lib/supabase/types').Call[]>([]);
+  // Photo Instagram par lead, indexee sur `instagram_leads.id` — la cle que
+  // `calls.ig_lead_id` porte deja.
+  //
+  // Le contexte ne chargeait AUCUNE donnee `instagram_leads` : seulement un
+  // `count`. La page Calls ne pouvait donc pas afficher la photo d'un prospect
+  // meme en le voulant, faute de l'avoir en memoire. C'est la moitie manquante
+  // du defaut corrige le 2026-09-07 (voir lib/avatars.ts).
+  const [photosInstagram, setPhotosInstagram] = useState<Record<string, string>>({});
   const [business, setBusiness] = useState<CoachBusinessData>(EMPTY_BUSINESS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -415,6 +425,26 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       }));
       setCalls(callsRes.data || []);
 
+      // Photos Instagram des prospects de ces calls.
+      //
+      // Requete separee et NON bloquante : un echec doit laisser les initiales,
+      // jamais faire tomber la page. Bornee aux leads reellement presents dans
+      // les calls charges — on ne rapatrie pas tout l'annuaire.
+      const idsLeads = [...new Set((callsRes.data || [])
+        .map((c: any) => c.ig_lead_id)
+        .filter((v: any): v is string => typeof v === 'string' && v.length > 0))];
+      if (idsLeads.length) {
+        // Par paquets : PostgREST plafonne une reponse a 1000 lignes sans le dire.
+        const photos: Record<string, string> = {};
+        for (let i = 0; i < idsLeads.length; i += 200) {
+          const { data } = await supabase.from('instagram_leads')
+            .select('id, avatar_url')
+            .in('id', idsLeads.slice(i, i + 200));
+          for (const l of data || []) if (l.avatar_url) photos[l.id] = l.avatar_url;
+        }
+        setPhotosInstagram(photos);
+      }
+
       // Stats PERSONNELLES du coach (son activité de vente à lui, distincte de
       // celle de ses élèves) — à 0 tant que le coach n'a pas connecté ses propres
       // intégrations Calendly/Instagram (tracking coach pas encore mis en place).
@@ -614,7 +644,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
   }, [load]);
 
   return (
-    <SupabaseClientsContext.Provider value={{ clients, calls, business, loading, error, getClient, addTask, toggleTask, archiveClient, unarchiveClient, refetch: load }}>
+    <SupabaseClientsContext.Provider value={{ clients, calls, photosInstagram, business, loading, error, getClient, addTask, toggleTask, archiveClient, unarchiveClient, refetch: load }}>
       {children}
     </SupabaseClientsContext.Provider>
   );

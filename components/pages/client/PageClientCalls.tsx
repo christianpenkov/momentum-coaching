@@ -5,7 +5,7 @@ import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import InlineLoader from '@/components/ui/InlineLoader';
 import { Skeleton } from '@/components/ui/Skeleton';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Icon from '@/components/ui/Icon';
@@ -24,6 +24,9 @@ import { CallTypeBadge } from '@/components/ui/CallBadges';
 import { formatCallLongDate, formatCallTime, groupCallsByPeriod, daysUntilLocal } from '@/lib/callFormat';
 import { useViewerTimeZone } from '@/lib/UserContext';
 import { formatTimeIn, formatDateIn } from '@/lib/timezone';
+import { identiteDe } from '@/lib/avatars';
+import { filtrerCalls } from '@/lib/rechercheCalls';
+import BarreRechercheCalls from '@/components/ui/BarreRechercheCalls';
 
 type Tab = 'upcoming' | 'history' | 'prospects' | 'coachings' | 'canceled';
 
@@ -165,10 +168,12 @@ async function fetchClientCallsData(clientRow: { id: string; integrations_ready_
   hasCalendly: boolean;
   sessionReportsByCall: Record<string, SessionReportInfo>;
   userId: string | null;
+  /** Photo Instagram par `instagram_leads.id`. Voir lib/avatars.ts. */
+  photosInstagram: Record<string, string>;
 }> {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { calls: [], hasCalendly: false, sessionReportsByCall: {}, userId: null };
+  if (!user) return { calls: [], hasCalendly: false, sessionReportsByCall: {}, userId: null, photosInstagram: {} };
 
   const { data: integ } = await supabase
     .from('integrations')
@@ -246,7 +251,25 @@ async function fetchClientCallsData(clientRow: { id: string; integrations_ready_
   const seen = new Set<string>();
   const calls = allCalls.filter(c => { if (seen.has(c.id)) return false; seen.add(c.id); return true; });
 
-  return { calls, hasCalendly, sessionReportsByCall, userId: user.id };
+  // Photos Instagram des prospects de ces calls.
+  //
+  // La page codait `avatar_url: null` en dur pour un call de vente, avec un
+  // commentaire disant « pas d'avatar réel ». C'est devenu faux le jour où
+  // `instagram_leads.avatar_url` a existé : un call de vente porte `ig_lead_id`,
+  // donc la photo est atteignable. Requête non bloquante — un échec laisse les
+  // initiales, il ne vide pas la liste des calls.
+  const idsLeads = [...new Set(calls
+    .map(c => (c as any).ig_lead_id)
+    .filter((v: unknown): v is string => typeof v === 'string' && v.length > 0))];
+  const photosInstagram: Record<string, string> = {};
+  for (let i = 0; i < idsLeads.length; i += 200) {
+    const { data } = await supabase.from('instagram_leads')
+      .select('id, avatar_url')
+      .in('id', idsLeads.slice(i, i + 200));
+    for (const l of data || []) if (l.avatar_url) photosInstagram[l.id] = l.avatar_url;
+  }
+
+  return { calls, hasCalendly, sessionReportsByCall, userId: user.id, photosInstagram };
 }
 
 type ClientCallsData = Awaited<ReturnType<typeof fetchClientCallsData>>;
@@ -264,7 +287,21 @@ export default function PageClientCalls() {
     queryFn: () => fetchClientCallsData(selfRow),
     enabled: !!selfRow,
   });
-  const calls = callsData?.calls ?? [];
+  const callsBruts = callsData?.calls ?? [];
+  const photosInstagram = callsData?.photosInstagram ?? {};
+
+  // ── Recherche par nom ─────────────────────────────────────────────────────
+  //
+  // Filtrée à la source : les listes se dérivent ensuite de `calls`, donc tous
+  // les onglets et leurs compteurs suivent d'un coup. Le nom vient de
+  // `getCallCounterpart`, celui écrit sur la carte — une recherche qui ne trouve
+  // pas ce qu'on lit est pire que pas de recherche.
+  const [recherche, setRecherche] = useState('');
+  const calls = useMemo(
+    () => filtrerCalls(callsBruts, recherche, c => getCallCounterpart(c).name),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [callsBruts, recherche, client, photosInstagram],
+  );
   const hasCalendly = callsData?.hasCalendly ?? null;
   const sessionReportsByCall = callsData?.sessionReportsByCall ?? {};
   const userId = callsData?.userId ?? null;
@@ -478,8 +515,14 @@ export default function PageClientCalls() {
     if (isCoachingCall(call)) {
       return { id: 'coach', name: client?.coachFullName || client?.coachName || 'Coach', initials: null, avatar_url: client?.coachAvatarUrl };
     }
-    const name = call.invitee_name || 'Prospect';
-    return { id: call.id, name, initials: getInitials(name), avatar_url: null };
+    // La photo d'un prospect vient d'Instagram, via `call.ig_lead_id` — elle
+    // était codée `null` ici. `id` sert de graine de couleur : c'était `call.id`,
+    // donc la même personne changeait de couleur à chaque appel de sa liste.
+    const id = identiteDe({
+      nom: call.invitee_name || 'Prospect',
+      photoInstagram: (call as any).ig_lead_id ? photosInstagram[(call as any).ig_lead_id] : null,
+    });
+    return { id: id.graine, name: id.nom, initials: id.initiales, avatar_url: id.photo };
   }
 
   // Boutons propres à l'élève : Rapport de vente sur ses propres calls Calendly,
@@ -851,6 +894,18 @@ export default function PageClientCalls() {
           Annulés ({canceledCalls.length})
         </button>
       </div>
+
+      <BarreRechercheCalls
+        valeur={recherche}
+        onChange={setRecherche}
+        resultats={
+          tab === 'upcoming' ? upcoming.length
+          : tab === 'history' ? history.length
+          : tab === 'prospects' ? salesUpcoming.length + salesHistory.length
+          : tab === 'coachings' ? coachingUpcoming.length + coachingHistory.length
+          : canceledCalls.length
+        }
+      />
 
       {tab === 'upcoming' && renderCallList(upcoming, 'upcoming', 'Aucun call à venir.')}
 
