@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { resolveTargetProfile } from '@/lib/stripe-account';
 import { calculerCash, resteAEncaisser, type LignePaiement } from '@/lib/dealCash';
+import { refreshDealStatus } from '@/lib/dealStatus';
 
 /**
  * Réconciliation des paiements orphelins.
@@ -410,29 +411,23 @@ export async function POST(request: NextRequest) {
     .eq('profile_id', profileId)
     .eq('payment_id', payment.payment_id);
 
-  await refreshDealStatus(deal.id);
+  // `argentEntrant: true` — un rattachement fait entrer de l'argent dans la
+  // vente, exactement comme un paiement Stripe. C'est ce qui lève le drapeau
+  // « paiement inattendu » quand le rattachement vise une vente déjà terminée.
+  await refreshDealStatus(supa, deal.id, { argentEntrant: true });
 
   return NextResponse.json({ ok: true, dealId: deal.id, abonnement });
 }
 
-async function refreshDealStatus(dealId: string) {
-  const { data: deal } = await supa
-    .from('deals').select('amount_total, status').eq('id', dealId).maybeSingle();
-  if (!deal) return;
-
-  const { data: payments } = await supa
-    .from('deal_payments').select('amount, status').eq('deal_id', dealId);
-
-  const collected = (payments ?? [])
-    .filter(p => p.status === 'succeeded')
-    .reduce((s, p) => s + Number(p.amount), 0);
-  const hasFailure = (payments ?? []).some(p => p.status === 'failed');
-
-  // Tolérance d'un centime : un montant divisé en 3 laisse un écart d'arrondi.
-  const status = collected >= Number(deal.amount_total) - 0.01
-    ? 'paid' : hasFailure ? 'past_due' : 'open';
-
-  if (status !== deal.status) {
-    await supa.from('deals').update({ status }).eq('id', dealId);
-  }
-}
+// ⚠️ CE FICHIER PORTAIT SA PROPRE COPIE DE LA RÈGLE, et c'était la pire des
+// sept trouvées : elle ne passait même pas par `calculerCash`. Elle sommait les
+// `succeeded` et ignorait remboursements, litiges et litiges perdus — le défaut
+// exact que AGENTS.md décrit comme corrigé le 2026-08-30 sur sept lectures.
+// Celle-ci avait survécu, sur le chemin où l'on rattache de l'argent à la main.
+//
+// Conséquence : rattacher un paiement à une vente déjà remboursée la faisait
+// passer « Soldée » à tort. Et comme la copie ignorait aussi les effets, un
+// rattachement sur une vente CLÔTURÉE ne levait pas `unexpected_payment_at`.
+//
+// La fonction locale est supprimée. `lib/dealStatus.ts` est la seule règle.
+// Relevé le 2026-09-07, en préparant la reconstitution de cinq ventes perdues.
