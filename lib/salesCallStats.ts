@@ -365,7 +365,7 @@ function requetesLeads(supabase: SupabaseClient, profileIds: string[], since: st
   // prospect qu'on remet en arrière redevient cohéremment « pas encore répondu », là où
   // le journal, immuable, continuerait de le compter.
   const leads = () => supabase.from('instagram_leads')
-    .select('profile_id, ig_username, detected_at, source, hook_replied_at')
+    .select('id, profile_id, ig_username, detected_at, source, hook_replied_at')
     .in('profile_id', profileIds).is('archived_at', null).eq('not_a_lead', false)
     .order('id', { ascending: true });
 

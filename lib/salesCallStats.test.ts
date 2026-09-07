@@ -412,7 +412,7 @@ test('caractérisation — les colonnes lues ne bougent pas', async () => {
   // `source` et `hook_replied_at` ajoutés le 2026-09-07 pour la règle du cold DM.
   // Deux colonnes de plus sur une lecture qui existait déjà : zéro requête ajoutée,
   // ce qui compte parce que cette lecture est appelée EN BOUCLE par élève.
-  assert.equal(leads.select, 'profile_id, ig_username, detected_at, source, hook_replied_at');
+  assert.equal(leads.select, 'id, profile_id, ig_username, detected_at, source, hook_replied_at');
   assert.equal(liens.select, 'profile_id, ig_username, created_at');
   assert.equal(callsIg.select, 'coach_id, id, invitee_email, invitee_name, booked_at, scheduled_at');
   assert.equal(callsYt.select, callsIg.select);
