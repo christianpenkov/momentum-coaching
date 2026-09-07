@@ -1,5 +1,20 @@
 # Handoff — « Leads » compte deux fois une personne venue par deux chemins
 
+> ## ÉTAT AU 2026-09-07 — la partie Mes Stats est FAITE.
+>
+> `.is('ig_lead_id', null)` est posé sur `callsYt` dans `requetesLeads`, et un test de
+> caractérisation fige désormais la forme des quatre lectures — le filtre ne peut plus
+> disparaître par effet de bord.
+>
+> Aucun chiffre n'a bougé, comme ce document l'annonçait : zéro paire concernée en base.
+> ⚠️ **La dépendance tient toujours** : `handoff-fusion-auto-email.md` (chat Pipeline)
+> doit atterrir pour que ces paires existent et que le filtre serve.
+>
+> ⚠️ Le « troisième lecteur, à vérifier » en fin de page dit qu'il y a trois appelants.
+> Il y en a **six**, et l'un d'eux (`fetchAllLeadsCount`) est appelé EN BOUCLE par élève :
+> ajouter une REQUÊTE dans `requetesLeads` coûterait +2 requêtes par élève sur l'accueil
+> coach. Le décompte corrigé est en tête de `requetesLeads`.
+
 **Pour le chat Mes Stats.** Décision de Chris le 2026-09-07.
 
 ⚠️ **À faire APRÈS `handoff-fusion-auto-email.md`** (chat Pipeline Leads), qui pose

@@ -8216,11 +8216,20 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
               <div style={blocKpi}>
                 <div className="eyebrow-sm" style={titreBlocKpi}>Tunnel DM</div>
                 <div style={rangeeKpi}>
-                  {/* 2 — Leads commentaires/DM (compte aussi les réponses story avec mot-clé LM, cf. lmHistory) */}
+                  {/* 2 — Lead magnets remis.
+                      ⚠️ Cette carte s'appelait « Leads commentaires/DM », et sa légende
+                      disait « mots-clés détectés ». Les deux étaient trompeurs : elle ne
+                      compte NI les leads (population bien plus large : liens partagés,
+                      cold DM ayant répondu, rendez-vous directs) NI les mots-clés (elle
+                      compte des PERSONNES, et seulement celles à qui le lead magnet est
+                      effectivement parti — `lead_magnet_sent !== false`).
+                      Le mot « Leads » désignait sept populations différentes dans l'app ;
+                      celle-ci est la plus étroite du tunnel DM, et son nom le dit
+                      désormais. Renommée le 2026-09-07, le calcul est inchangé. */}
                   <div onClick={() => toggleMetric('leads')} style={cardStyle('leads')}>
-                  <div className="eyebrow-sm" style={libelleCarte}>Leads commentaires/DM</div>
+                  <div className="eyebrow-sm" style={libelleCarte}>Lead magnets remis</div>
                   <div style={{ fontSize: 24, fontWeight: 800, color: lmEnvoyes > 0 ? 'var(--ink)' : 'var(--faint)', lineHeight: 1 }}>{fmt(lmEnvoyes)}</div>
-                  <div style={legendeCarte}>mots-clés détectés</div>
+                  <div style={legendeCarte}>personnes distinctes</div>
                   </div>
                   <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
                   {/* 3 — Réponses message d'accroche */}
@@ -8267,7 +8276,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>
             {{
               clics: 'Clics totaux / jour',
-              leads: 'Leads commentaires/DM / jour',
+              leads: 'Lead magnets remis / jour',
               hookReply: 'Réponses accroche LM DM / jour',
               calendlyLinks: 'Liens Calendly envoyés DM / jour',
               activation: "Taux d'activation DM / jour",
@@ -8384,7 +8393,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         )}
         {selectedMetric === 'leads' && (
           <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
-            <AreaChart data={leadsSeries} tickFormatter={parJour ? undefined : fmtAxisBucket} areas={[{ key: 'v', label: 'Leads', color: AMBER }]} xKey="date" height={160} showWeekday={parJour && sPeriod === 7} />
+            <AreaChart data={leadsSeries} tickFormatter={parJour ? undefined : fmtAxisBucket} areas={[{ key: 'v', label: 'Lead magnets remis', color: AMBER }]} xKey="date" height={160} showWeekday={parJour && sPeriod === 7} />
           </div>
         )}
         {selectedMetric === 'hookReply' && (

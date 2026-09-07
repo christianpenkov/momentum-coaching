@@ -1,5 +1,15 @@
 # Handoff — le badge « nouveaux » de la Vue générale (Mes Stats)
 
+> ## ÉTAT AU 2026-09-07 — CLOS, et le diagnostic a été retourné.
+>
+> Les deux points « à creuser » sont tranchés, mais **la conclusion n'est pas celle que
+> ce document anticipait** : le problème n'était pas le badge, c'était la définition du
+> **chiffre principal**. Voir « Ce qui a été fait » en fin de page avant toute chose.
+>
+> ⚠️ **Une affirmation de ce document est devenue FAUSSE** : « les périodes sont
+> additives, et c'est voulu ». Elles ne le sont plus, et c'est délibéré — voir la section
+> corrigée juste en dessous.
+
 **Origine** : question de Chris le 2026-09-07 sur la carte « Leads » de la Vue générale
 (`components/analytics/PageClientStats.tsx`, `TabOverviewV2`). Deux points à creuser,
 listés plus bas. Ce document ne les tranche pas — il donne ce qui est **établi** et ce
@@ -9,7 +19,7 @@ qui reste **à mesurer**, pour ne pas refaire le travail déjà fait.
 
 ## Ce qui est ÉTABLI (mesuré le 2026-09-07, ne pas re-vérifier)
 
-### Les périodes sont additives, et c'est voulu
+### ~~Les périodes sont additives, et c'est voulu~~ — PLUS VRAI depuis le 2026-09-07
 
 `compterLeads` (`lib/salesCallStats.ts`) retient, pour chaque personne, la date la
 **plus ancienne** connue — toutes sources confondues — puis applique la fenêtre à
@@ -23,8 +33,13 @@ Vérifié sur données réelles : `rdjdkzjd` a réclamé un lead magnet le **28/
 **15/08**. Elle compte en juin, **pas** en août, une fois en all-time.
 
 ⚠️ Chris pensait l'inverse (« comptée dans chaque période, donc 2 en additionnant »).
-Si une évolution devait changer ça, c'est une décision produit à lui poser — pas un
-détail d'implémentation.
+**Et c'est son modèle qui l'a emporté**, le 2026-09-07 : sur une période, « Leads »
+compte désormais les ACTIFS, donc une personne revenue compte dans chaque période où
+elle s'est manifestée. La somme des périodes DÉPASSE l'all-time, où elle reste une
+personne. Le paragraphe ci-dessus décrit donc l'ancien comportement.
+
+Ce qui reste vrai, et qui explique pourquoi la mesure du 28/06-15/08 sur `rdjdkzjd`
+donnait « une seule période » : c'était bien le comportement d'alors.
 
 ### Le badge existe déjà et porte la bonne intention
 
@@ -80,6 +95,60 @@ a peut-être rien à corriger.
 
 Points de départ : `leadsCount` (~1316) et `newLeadsCount` (~1333), rendus ~1794-1800.
 Comparer `isLeadInPeriod` au filtre de fenêtre de `compterLeads`.
+
+---
+
+## Ce qui a été fait (2026-09-07)
+
+**Le diagnostic du document était juste sur les faits, faux sur la conclusion.** Le badge
+n'avait pas besoin d'être corrigé : il affichait le bon nombre pour sa définition. C'est
+que sa définition et celle de la carte étaient LA MÊME — d'où l'écart 0 mesuré sur quatre
+mois consécutifs.
+
+⚠️ Et le commentaire de `PageClientStats` décrivait DÉJÀ la règle voulue — « personnes
+distinctes ayant donné signe de vie dans la fenêtre », « la somme des fenêtres peut
+dépasser le total ». Le code avait dérivé de sa propre spécification. Le chantier l'a
+restaurée plutôt qu'inventée.
+
+| | |
+|---|---|
+| Carte, sur une période | `compterLeadsActifs` — nouvelle |
+| Badge, sur une période | `compterLeads` — **l'ancien chiffre de la carte**, déplacé d'un cran |
+| Carte, en all-time | `compterLeads` — inchangée |
+| Invariant | `badge ≤ carte`, verrouillé par un test |
+
+Le point 1 est résolu autrement que prévu : le badge ne « passe pas par `compterLeads` »
+en plus, il EST `compterLeads`. Il gagne au passage les trois écarts que ce document
+soupçonnait — `prospect_links` absent, dédup « date la plus ancienne » non appliquée, et
+une personne présente dans deux volets comptée deux fois.
+
+Le point 2 est confirmé par la mesure : hors all-time, le badge répétait le chiffre
+principal. Écart 0 en juin, juillet, août et septembre.
+
+**Deux défauts antérieurs trouvés en chemin**, tous deux corrigés :
+
+- les compteurs lisaient les leads **dédupliqués en gardant la fiche la plus RÉCENTE**,
+  donc la « première apparition » était la DERNIÈRE détection — `incogniton.734` datée du
+  28/08 au lieu du 07/06, soit 82 jours ;
+- les reprises étaient filtrées sur `keyword_matched`, colonne devenue nullable le
+  2026-09-05 : une reprise sans mot-clé aurait disparu sans trace.
+
+⚠️ **La question de `detected_at` posée au point 1 est tranchée, et dans l'autre sens** :
+c'est bien la PREMIÈRE détection, gelée en base par le déclencheur `figer_detected_at`
+depuis le 2026-09-03. Le commentaire de `PageLiens.tsx` qui disait « la date de sa
+DERNIÈRE interaction » décrivait l'état d'avant ce correctif — il a été corrigé.
+
+Mesure finale, avec les vraies fonctions sur les vraies lignes (profil Christian) :
+
+| mois | ancien | actifs | badge |
+|---|---|---|---|
+| 2026-06 | 8 | 8 | 8 |
+| 2026-07 | 0 | **2** | 0 |
+| 2026-08 | 10 | **11** | 10 |
+| 2026-09 | 0 | **1** | 0 |
+| all-time | 18 | 18 (inchangé) | — |
+
+Juillet affichait « 0 lead » alors que deux personnes s'étaient manifestées.
 
 ---
 
