@@ -5134,7 +5134,11 @@ function Entonnoir({ data, ouvert, onToggle, compact, mobile = false }: {
     // Les deux chemins, dits sous le chiffre : la conversation en est un, le
     // lien en bio ou en description est l'autre.
     { libelle: 'Calls bookés', valeur: data.callsBookes, taux: data.tauxCalls,
-      precision: `${data.callsViaDm} via DM · ${data.callsDirects} direct${data.callsDirects > 1 ? 's' : ''}` },
+      // « direct » ne disait pas d'où : ces rendez-vous viennent d'un lien posé
+      // en description ou en bio, jamais d'une conversation. Les deux sont
+      // nommés, parce que le compte les mélange — 5 bio et 9 description en base
+      // au 2026-09-06 — et n'en citer qu'un ferait passer les autres à la trappe.
+      precision: `${data.callsViaDm} via DM · ${data.callsDirects} via description ou bio` },
   ];
 
   // Sous 60 %, l'étape décroche — le rouge doit se voir sans lire le chiffre.
