@@ -142,7 +142,35 @@ export async function POST(request: NextRequest) {
       .eq('id', body.callId)
       .eq('coach_id', profileId)
       .maybeSingle();
-    if (call) {
+
+    /* ⚠️ REFUSER, et non continuer sans le rendez-vous.
+     *
+     * `.eq('coach_id', profileId)` vérifie déjà que le rendez-vous appartient bien à
+     * l'élève qui crée la vente. Mais jusqu'au 2026-09-07, l'échec de cette
+     * vérification n'avait AUCUNE conséquence : le `if (call)` n'entourait que le
+     * calcul de la date, et l'insertion plus bas écrivait `call_id: body.callId`
+     * quoi qu'il arrive. Le code contrôlait l'appartenance, puis écrivait quand même
+     * le rattachement non vérifié.
+     *
+     * Résultat constaté ce jour-là : CINQ ventes sur huit rattachées au rendez-vous
+     * d'un AUTRE élève. Et le symptôme observable était trompeur — `signedAt` restait
+     * l'instant de la saisie, donc la surveillance criait « date de vente hors
+     * rendez-vous » et désignait la mauvaise cause.
+     *
+     * Un rattachement faux n'est pas un détail : `deals.call_id` sert à dater la
+     * vente, à lui attribuer un contenu, et à la rapprocher de son opportunité. Mieux
+     * vaut refuser la création que produire une vente silencieusement mal reliée.
+     *
+     * ⚠️ Ne PAS remplacer ce refus par un `call_id: null` de repli : la vente serait
+     * créée sans rendez-vous, donc avec une date et une attribution fausses, et plus
+     * rien ne dirait que l'appelant en visait un. */
+    if (!call) {
+      return NextResponse.json(
+        { error: "Ce rendez-vous n'existe pas ou n'appartient pas à ce compte." },
+        { status: 400 },
+      );
+    }
+    {
       // ── QUAND la vente a-t-elle ete faite ? ────────────────────────────────
       //
       // La regle vit dans `dateDeVente` (lib/callSeries.ts), avec ses tests. Elle

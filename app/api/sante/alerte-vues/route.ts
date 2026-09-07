@@ -197,6 +197,23 @@ const SURVEILLANCES: Surveillance[] = [
     docs: ['docs/stripe-paiements.md', 'docs/perimetre-stats-referentiel.md (règle 7)'],
   },
   {
+    cle: 'sante_ventes_rattachement',
+    source: 'ventes_sante_rattachement',
+    titre: 'Une vente est rattachée au rendez-vous d’un AUTRE élève',
+    detection: 'toute_ligne',
+    surveille:
+      'Que `deals.call_id` pointe vers un rendez-vous appartenant à l’élève de la vente — `calls.coach_id` porte le profile_id de l’ÉLÈVE, pas du coach humain (docs/calls-coach-id-piege.md).',
+    signifie:
+      '`deals.call_id` sert à DATER la vente, à lui attribuer un contenu et à la rapprocher de son opportunité. Un rattachement croisé fausse les trois d’un coup, sur l’élève de la vente comme sur celui du rendez-vous. Constaté le 2026-09-07 : cinq ventes sur huit dans ce cas — la route vérifiait l’appartenance puis écrivait quand même le `call_id` non vérifié. ⚠️ Le symptôme visible était trompeur : `ventes_sante_date` criait « date de vente hors rendez-vous », ce qui envoyait corriger des dates au lieu du rattachement.',
+    quoiFaire: [
+      '`select * from ventes_sante_rattachement;` — la vente, son élève, et à qui appartient le rendez-vous.',
+      'Depuis le 2026-09-07 un trigger (`deals_rdv_du_bon_eleve`) refuse d’en créer de nouvelles : une ligne ici est donc soit ANTÉRIEURE à cette date, soit le signe que la garde a été retirée. Vérifier : `select tgname from pg_trigger where tgname = \'deals_rdv_du_bon_eleve\';`',
+      'Corriger le rattachement vers le bon rendez-vous s’il existe chez le bon élève, sinon mettre `call_id` à NULL — une vente sans rendez-vous est un état légitime, une vente rattachée au rendez-vous d’un autre ne l’est pas.',
+      '⚠️ Ne PAS corriger `signed_at` en premier : la date fausse est une conséquence du rattachement, pas la cause.',
+    ],
+    docs: ['app/api/payments/links/route.ts', 'docs/calls-coach-id-piege.md', 'supabase/migrations/20260907090000_vente_rattachee_au_rdv_d_un_autre.sql'],
+  },
+  {
     cle: 'sante_statut_paiement_inconnu',
     source: 'ventes_sante_statut_paiement_inconnu',
     titre: 'Un statut de paiement que le calcul du cash ne sait pas traiter',
