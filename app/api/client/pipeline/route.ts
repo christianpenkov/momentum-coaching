@@ -339,6 +339,64 @@ export async function DELETE(request: Request) {
   //
   // Le geste « Pas un lead » (PATCH not_a_lead) reste disponible et non destructif pour
   // écarter un faux positif sans rien perdre.
+  // ⚠️ LA TABLE `deals` D'ABORD, LE DRAPEAU EN SECOND — et non l'inverse.
+  //
+  // Ce garde existait en deux versions qui ne lisaient pas la même chose : celle
+  // de `client/calls/[id]` interroge `deals` (le CA depuis le 2026-08-20) puis
+  // retombe sur `calls.deal_closed` ; celle-ci ne lisait QUE le drapeau. Une
+  // règle et son complément, corrigés d'un seul côté.
+  //
+  // Le faux négatif est le grave, et il n'est pas théorique : l'incident du
+  // 2026-09-07 a laissé cinq appels à `deal_closed = false` avec leur vente
+  // encore vivante. Depuis le pipeline, ces prospects étaient supprimables sans
+  // le moindre refus — et leur chiffre d'affaires serait sorti des stats en
+  // silence, exactement ce que ce garde existe pour empêcher.
+  //
+  // Le faux positif comptait aussi : un drapeau resté vrai sur une vente ANNULÉE
+  // faisait refuser ici pendant que l'autre chemin acceptait. Deux écrans qui se
+  // contredisent sur le même prospect, sans que rien ne l'explique.
+  const leadIdsDuProspect: string[] = await (async () => {
+    if (!ig_username) return [];
+    const { data } = await supa.from('instagram_leads')
+      .select('id').eq('profile_id', user.id).eq('ig_username', ig_username);
+    return (data ?? []).map((l: { id: string }) => l.id);
+  })();
+
+  const AUCUN = '00000000-0000-0000-0000-000000000000';
+
+  const venteGuard = supa.from('deals')
+    .select('id, buyer_name, amount_total')
+    .eq('profile_id', user.id)
+    .neq('status', 'canceled')
+    .limit(1);
+
+  if (call_id && !prospect_id && platform !== 'ig') venteGuard.eq('call_id', call_id);
+  else if (prospect_id && platform !== 'ig') venteGuard.eq('prospect_id', prospect_id);
+  else if (ig_username) {
+    if (leadIdsDuProspect.length === 0) venteGuard.eq('id', AUCUN);
+    else venteGuard.in('ig_lead_id', leadIdsDuProspect);
+  }
+
+  const { data: ventesSignees, error: venteGuardErr } = await venteGuard;
+  // ⚠️ L'erreur est LUE : un garde qui échoue en silence rend `data: null`, donc
+  // une liste vide, donc une autorisation de supprimer. Le mode de panne d'un
+  // garde-fou doit être le refus, jamais le laisser-passer.
+  if (venteGuardErr) {
+    return NextResponse.json({ error: venteGuardErr.message }, { status: 500 });
+  }
+  if (ventesSignees && ventesSignees.length > 0) {
+    const vente = ventesSignees[0];
+    const montant = vente.amount_total
+      ? `${Math.round(Number(vente.amount_total))} €`
+      : 'un montant enregistré';
+    return NextResponse.json({
+      error: `Ce prospect a un deal signé (${montant}). Corrige d'abord son rapport de vente si tu veux vraiment le supprimer — sinon son chiffre d'affaires disparaîtrait de tes statistiques.`,
+      code: 'deal_signed',
+    }, { status: 409 });
+  }
+
+  // Repli : un rapport interrompu avant la création du deal (montant saisi,
+  // aucune ligne dans `deals`). Le drapeau est alors la seule trace.
   const dealGuard = supa.from('calls')
     .select('id, invitee_name, revenue')
     .eq('coach_id', user.id)
@@ -349,14 +407,14 @@ export async function DELETE(request: Request) {
   if (call_id && !prospect_id && platform !== 'ig') dealGuard.eq('id', call_id);
   else if (prospect_id && platform !== 'ig') dealGuard.eq('prospect_id', prospect_id);
   else if (ig_username) {
-    const { data: guardLeads } = await supa.from('instagram_leads')
-      .select('id').eq('profile_id', user.id).eq('ig_username', ig_username);
-    const guardLeadIds = (guardLeads ?? []).map((l: any) => l.id);
-    if (guardLeadIds.length === 0) dealGuard.eq('id', '00000000-0000-0000-0000-000000000000');
-    else dealGuard.in('ig_lead_id', guardLeadIds);
+    if (leadIdsDuProspect.length === 0) dealGuard.eq('id', AUCUN);
+    else dealGuard.in('ig_lead_id', leadIdsDuProspect);
   }
 
-  const { data: signedDeals } = await dealGuard;
+  const { data: signedDeals, error: dealGuardErr } = await dealGuard;
+  if (dealGuardErr) {
+    return NextResponse.json({ error: dealGuardErr.message }, { status: 500 });
+  }
   if (signedDeals && signedDeals.length > 0) {
     const deal = signedDeals[0];
     const montant = deal.revenue ? `${Math.round(Number(deal.revenue))} €` : 'un montant enregistré';
