@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { getStripeAccess, appelStripe, resolveTargetProfile } from '@/lib/stripe-account';
 import { desactiverLiensDuDeal } from '@/lib/stripe-payment-links';
-import { calculerCash, type LignePaiement } from '@/lib/dealCash';
+import { calculerCash, statutDeal, type LignePaiement } from '@/lib/dealCash';
 
 /**
  * Clôturer une vente, ou la rouvrir.
@@ -167,8 +167,18 @@ export async function DELETE(
 
   const cash = calculerCash(deal!.deal_payments as LignePaiement[]);
 
+  // ⚠️ `statutDeal` et non un ternaire : rouvrir une vente doit lui rendre son
+  // VRAI état, pas seulement « soldée ou en cours ». Le calcul à la main ignorait
+  // le litige en cours (la vente perdait son bandeau rouge), le litige perdu (elle
+  // perdait sa pastille) et l'échec de prélèvement (elle ne redevenait pas
+  // « Impayée »). Trouvé par `npm run verifier-regles-uniques` à son tout premier
+  // passage, le 2026-09-08.
+  //
+  // `null` en statut actuel, délibérément : la règle refuse de recalculer une
+  // vente `ended`, et c'est justement ce qu'on est en train de défaire. Même
+  // motif que la hausse de montant sur une vente soldée (deals/[id]/amount).
   await supa.from('deals').update({
-    status: cash.net >= Number(deal!.amount_total) - 0.01 ? 'paid' : 'open',
+    status: statutDeal(cash, deal!.amount_total, null) ?? 'open',
     ended_by: null,
     ended_at: null,
     ended_reason: null,
