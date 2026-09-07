@@ -63,8 +63,22 @@ export async function fetchRapportDraft(callId: string): Promise<{ draft: Rappor
  */
 export function isDraftStale(draft: RapportDraft | null, call: DraftCallState | null): boolean {
   if (!draft || !call) return false;
-  const isCorrection = draft.answers?.isCorrection === true;
-  if (isCorrection) return false;
+  // ── UN BROUILLON DE CORRECTION EST TOUJOURS PÉRIMÉ ─────────────────────────
+  //
+  // Cette ligne rendait `false` : un brouillon de correction n'expirait JAMAIS.
+  // L'intention était bonne — un rapport soumis ne doit pas périmer la correction
+  // qu'on est en train d'en faire — mais l'effet était l'inverse du but : le
+  // brouillon abandonné devenait la version montrée à la réouverture, à la place
+  // du vrai rapport. On corrigeait alors une correction, pas le rapport.
+  //
+  // Mesuré le 2026-09-08 : trois brouillons en base, tous des corrections, tous
+  // posés sur un rapport déjà soumis. Les trois masquaient leur propre rapport.
+  //
+  // Depuis, une correction n'écrit plus aucun brouillon (voir `saveDraft` dans
+  // RapportModal) : il ne peut donc plus en exister de légitime. Les écarter à la
+  // lecture ferme le cas des anciens, que la purge des 30 jours emporterait sinon
+  // bien plus tard.
+  if (draft.answers?.isCorrection === true) return true;
   return draft.kind === 'sales'
     ? call.outcome != null
     : call.session_completed === true || call.session_no_show === true;

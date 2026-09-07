@@ -143,7 +143,7 @@ function CelebrationOverlay({ onDone }: { onDone: () => void }) {
 }
 
 export default function RapportModal({ callId, inviteeName, scheduledAt, isFollowUp, existing, initialDraft, onClose }: Props) {
-  useEscapeKey(onClose);
+  useEscapeKey(() => requestClose());
   const viewerTz = useViewerTimeZone();
   const isCorrection = !!existing;
 
@@ -256,6 +256,22 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
   }
 
   function saveDraft(s: RapportStep, a: RapportAnswers, h: RapportStep[]) {
+    // ── UNE CORRECTION N'ECRIT RIEN AVANT LA FIN ────────────────────────────
+    //
+    // Une premiere saisie garde chaque reponse : quitter en cours de route et
+    // reprendre plus tard est le comportement attendu, et rien n'existe encore
+    // qu'on puisse contredire.
+    //
+    // Une CORRECTION, elle, porte sur un rapport deja soumis. Un brouillon
+    // abandonne devenait alors la version montree a la reouverture — pas le vrai
+    // rapport. Mesure du 2026-09-08 : trois brouillons en base, tous des
+    // corrections, tous poses sur un rapport deja soumis, donc tous en train de
+    // masquer leur propre rapport.
+    //
+    // Une correction s'enregistre donc d'un bloc a la soumission, ou pas du tout.
+    // Le prix a payer est assume : quitter perd la correction en cours, et c'est
+    // pour ca que `requestClose` previent avant.
+    if (isCorrection) return;
     // Rien de saisi = pas de brouillon : sinon ouvrir puis fermer afficherait
     // « Commencé · étape 1/… » sur la carte pour un rapport où l'on n'a rien fait.
     const rempli = a.showedUp !== null || a.qualified !== null || a.outcomeChoice !== null
@@ -277,6 +293,14 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
   // Frappe dans un champ libre (montant, commentaire, date manuelle) : sauvegarde
   // différée, sinon une requête par caractère.
   useEffect(() => {
+    // ⚠️ LE SECOND ÉCRIVAIN. `saveDraft` n'est pas le seul chemin : celui-ci part
+    // à la frappe, sans passer par une transition d'étape. Poser la garde sur un
+    // seul des deux laissait une correction écrire son brouillon quand même —
+    // constaté en base pendant la vérification, après avoir cru le contraire.
+    //
+    // Une règle qui vit à deux endroits doit être corrigée aux deux, sinon elle
+    // n'est vraie que la moitié du temps.
+    if (isCorrection) return;
     if (!hasAnything || step === 'celebration') return;
     draft.saveDebounced({
       kind: 'sales',
@@ -291,9 +315,28 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [answers.revenue, answers.comment, answers.manualDate, answers.manualTimeStart, answers.manualTimeEnd, answers.offlineReceived]);
 
-  // Plus d'avertissement « le rapport n'a pas été enregistré » : c'est devenu faux,
-  // les réponses sont gardées. La sauvegarde en attente part au démontage du hook.
+  /**
+   * La correction en cours differe-t-elle du rapport enregistre ?
+   *
+   * On compare aux reponses de DEPART, figees au montage, et non a `existing` :
+   * les deux ne portent pas la meme forme (`revenue` est une chaine ici, un
+   * nombre la-bas), et comparer deux formes differentes rendrait « modifie » sur
+   * une correction ou personne n'a rien touche.
+   *
+   * Cliquer la meme reponse qu'avant ne compte pas comme une modification : on
+   * n'avertit que s'il y a vraiment quelque chose a perdre.
+   */
+  const reponsesDeDepart = useRef<RapportAnswers | null>(null);
+  if (reponsesDeDepart.current === null) reponsesDeDepart.current = answers;
+  const correctionModifiee = isCorrection
+    && JSON.stringify(answers) !== JSON.stringify(reponsesDeDepart.current);
+
+  const [confirmerFermeture, setConfirmerFermeture] = useState(false);
+
+  // Une premiere saisie ne previent pas : ses reponses sont gardees en brouillon,
+  // il n'y a rien a perdre. Une correction ne garde rien, donc elle previent.
   function requestClose() {
+    if (correctionModifiee) { setConfirmerFermeture(true); return; }
     onClose();
   }
 
@@ -711,6 +754,57 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
         />
       )}
 
+      {/* ── Quitter une CORRECTION en cours ─────────────────────────────────
+          N'apparaît que pour une correction, et seulement si une réponse a
+          vraiment changé : une première saisie garde tout en brouillon, il n'y
+          aurait rien à perdre et l'avertissement serait un mensonge.
+
+          Le bouton qui jette est le seul coloré, et il n'est PAS celui par
+          défaut : Échap et le clic à côté ramènent à la modification. Un geste
+          distrait continue donc le travail au lieu de l'effacer. */}
+      {confirmerFermeture && createPortal(
+        <div
+          onClick={e => e.stopPropagation()}
+          // Le clic à côté REVIENT à la modification : c'est le sens sûr. Sur une
+          // confirmation destructive, le geste par défaut ne doit jamais être
+          // celui qui détruit.
+          onMouseDown={e => { if (e.target === e.currentTarget) setConfirmerFermeture(false); }}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 5001,
+            background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+          }}
+        >
+          {/* Pas de `ConfirmCheckboxDialog` ici, et c'est délibéré : il impose une
+              case à cocher, réservée à ce qui efface vraiment des réponses
+              (« Recommencer »). Quitter une correction ne détruit rien
+              d'enregistré — le rapport reste intact — donc deux boutons suffisent.
+              Même habillage que lui pour ne pas inventer une seconde grammaire. */}
+          <div style={{ textAlign: 'center', maxWidth: 340, background: 'var(--surface)', borderRadius: 16, padding: '24px 22px', boxShadow: '0 12px 32px rgba(0,0,0,0.25)' }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 8 }}>
+              Quitter sans enregistrer ?
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20, lineHeight: 1.5 }}>
+              Tes modifications seront perdues. Le rapport restera tel qu&rsquo;il est aujourd&rsquo;hui.
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <button type="button" className="btn-ghost" onClick={() => setConfirmerFermeture(false)}>
+                Continuer la modification
+              </button>
+              <button
+                type="button"
+                className="btn-primary-brand"
+                style={{ background: 'var(--red)', borderColor: 'var(--red)' }}
+                onClick={() => { setConfirmerFermeture(false); onClose(); }}
+              >
+                Quitter
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+
       {/* ── Les étapes où l'on SAISIT passent en plein écran ────────────────
           Une feuille courte est ancrée en bas de l'écran, donc exactement là où
           le clavier s'ouvre : le champ se retrouve dessous. En plein écran, la
@@ -721,7 +815,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
           à jour avec elle. */}
       {step !== 'celebration' && (
         <ModalShell
-          onClose={onClose}
+          onClose={requestClose}
           onOverlayClick={requestClose}
           variant="sheet"
           fullScreen={step === 'revenue' || step === 'payment' || step === 'offline'

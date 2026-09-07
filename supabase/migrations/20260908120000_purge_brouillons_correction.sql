@@ -1,0 +1,57 @@
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Les brouillons de CORRECTION disparaissent, et il ne peut plus s'en créer
+--
+-- ── CE QU'ILS FAISAIENT ──────────────────────────────────────────────────────
+--
+-- La modale de rapport enregistrait une réponse à chaque étape, dans
+-- `call_rapport_drafts` — comportement voulu pour une PREMIÈRE saisie : quitter
+-- en cours de route et reprendre plus tard, sans jamais rien écrire dans `calls`.
+--
+-- Elle faisait la même chose pour une CORRECTION, c'est-à-dire pour un rapport
+-- déjà soumis. Et `isDraftStale` protégeait explicitement ces brouillons-là :
+--
+--     const isCorrection = draft.answers?.isCorrection === true;
+--     if (isCorrection) return false;   // jamais périmé
+--
+-- L'intention se comprend — ne pas périmer la correction en cours à cause du
+-- rapport qu'elle corrige — mais l'effet était l'inverse du but : une correction
+-- abandonnée en cours de route devenait la version RESTITUÉE à la réouverture, à
+-- la place du vrai rapport. On rouvrait « Modifier » et on ne voyait pas ce que
+-- la base contenait ; cliquer jusqu'au bout aurait soumis une correction qu'on
+-- avait justement renoncé à faire.
+--
+-- ── MESURE DU 2026-09-08 ─────────────────────────────────────────────────────
+--
+-- Trois brouillons en base. TOUS des corrections. TOUS posés sur un call dont le
+-- rapport était déjà soumis. Les trois masquaient donc leur propre rapport.
+--
+--   RZK       brouillon closed / 500 €   — rapport réel closed / 500 €
+--   Jdjdbdb   brouillon to_recontact / 0 — rapport réel to_recontact / 0
+--   RPLZ      brouillon to_recontact / 0 — rapport réel to_recontact / 0
+--
+-- Leur contenu était identique au rapport : ils ne portaient AUCUNE information
+-- que `calls` n'avait déjà. C'est ce qui rend cette suppression sûre, et c'est
+-- pour ça que le contrôle a été fait avant de l'écrire, pas après.
+--
+-- ── POURQUOI SUPPRIMER PLUTÔT QUE LAISSER ────────────────────────────────────
+--
+-- Le code les écarte désormais à la lecture (`isDraftStale` rend `true` pour une
+-- correction) et n'en écrit plus (`saveDraft` sort immédiatement). Ils ne
+-- s'afficheraient donc plus jamais, et la purge des 30 jours les emporterait le
+-- 7 octobre.
+--
+-- Mais une ligne que plus rien ne lit finit toujours par faire douter quelqu'un :
+-- il la trouve, il cherche ce qui l'écrit, et il ne trouve rien. Décision de
+-- Chris (2026-09-08) : on les retire tout de suite.
+--
+-- ⚠️ Cette migration ne touche QUE les brouillons de correction. Un brouillon de
+-- première saisie est le comportement attendu et reste intact — c'est la
+-- distinction que porte `answers->>'isCorrection'`.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+delete from public.call_rapport_drafts
+where (answers->>'isCorrection')::boolean is true;
+
+-- Aucune garde en base pour empêcher qu'il s'en recrée : ce serait une deuxième
+-- écriture de la règle, à côté de celle du code, et les deux divergeraient au
+-- premier changement. La règle vit dans `RapportModal.saveDraft`, une seule fois.

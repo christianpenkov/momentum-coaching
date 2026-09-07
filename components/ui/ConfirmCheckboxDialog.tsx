@@ -12,6 +12,16 @@ import { createPortal } from 'react-dom';
  * À NE PAS utiliser pour une simple fermeture : depuis que les brouillons existent,
  * fermer ne perd plus rien, et demander une confirmation pour rien use l'attention
  * qu'on veut garder pour les vraies destructions.
+ *
+ * ⚠️ Cette phrase a UNE exception depuis le 2026-09-08, et il faut la connaître
+ * pour ne pas croire qu'on l'a enfreinte : la CORRECTION d'un rapport déjà soumis
+ * n'écrit aucun brouillon, donc fermer y perd bel et bien le travail en cours.
+ * `RapportModal` y pose sa propre confirmation, à DEUX BOUTONS et sans case à
+ * cocher — la case reste réservée à ce qui efface des réponses enregistrées.
+ *
+ * La règle inchangée est la vraie : on ne demande confirmation que là où il y a
+ * quelque chose à perdre. C'est le périmètre de « quelque chose à perdre » qui
+ * s'est élargi, pas la règle.
  */
 export default function ConfirmCheckboxDialog({
   title,
