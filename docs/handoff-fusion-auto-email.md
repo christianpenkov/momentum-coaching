@@ -63,6 +63,13 @@ fonction :
 La leçon retenue à l'époque avait été d'écrire une fonction SQL partagée
 (`resolve_prospect`). Faire pareil ici, ou l'étendre.
 
+⚠️ **Et la verrouiller.** `revoke execute from anon` et `from authenticated` ne
+suffisent PAS : `PUBLIC` garde `EXECUTE`, et les deux rôles en héritent. Sur une
+fonction `SECURITY DEFINER` qui écrit dans `calls`, cela la laisse appelable sans
+aucune session. Révoquer aussi `from public`, puis **mesurer** —
+`has_function_privilege('anon', …, 'EXECUTE')` doit rendre `false`. Révoquer sans
+vérifier ne prouve rien : c'est précisément ainsi que le trou est passé.
+
 ### 2. Respecter un refus déjà exprimé — ET une séparation
 
 > ⚠️ **Ce point était incomplet dans la version initiale de ce handoff, et le trou
@@ -104,12 +111,6 @@ l'autre non — **en épargnant les paires refusées**.
 aucun e-mail n'apparaît des deux côtés. Le rattrapage ne changera donc rien
 aujourd'hui — il existe pour que la règle soit vraie sur tout l'historique, pas
 seulement à partir de maintenant.
-
-⚠️ **Et la fonction doit être verrouillée.** `revoke execute from anon` et
-`from authenticated` ne suffisent PAS : `PUBLIC` garde `EXECUTE`, et les deux
-rôles en héritent. Sur une fonction `SECURITY DEFINER` qui écrit dans `calls`,
-cela la rend appelable sans aucune session. Révoquer aussi `from public`, puis
-**mesurer** — `has_function_privilege('anon', …, 'EXECUTE')` doit rendre `false`.
 
 ⚠️ Ce zéro ne prouve rien sur l'avenir : la base ne contient que des données de
 test. C'est la même erreur de raisonnement que celle corrigée dans le handoff du
@@ -155,11 +156,12 @@ call en « via DM » quelque part serait un bug.
    fusion, les deux le portent.
 2. Une paire marquée `refusee` **ou `separee`** : la fusion automatique ne
    s'applique pas.
-
-⚠️ **Un cas positif d'abord.** Deux « ne fusionne pas » ne prouvent rien tant
-qu'on n'a pas montré que la fonction fusionne quand elle doit : sans témoin
-positif, ils peuvent venir d'une fonction qui ne marche simplement pas.
 3. Le pipeline montre une seule carte, dans l'onglet Instagram.
 4. `calls.source` est inchangé sur les deux lignes.
 5. La chaîne d'attribution d'une vente désigne toujours le contenu d'origine, pas
    le lead Instagram.
+
+⚠️ **Commencer par le cas 1, et le prouver.** Les deux abstentions du cas 2 ne
+démontrent rien tant qu'on n'a pas montré que la fonction fusionne quand elle
+doit : sans ce témoin positif, elles peuvent venir d'une fonction qui ne marche
+tout simplement pas.
