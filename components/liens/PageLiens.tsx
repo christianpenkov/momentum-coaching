@@ -4794,7 +4794,7 @@ function BoutonsNouvelleSequence({ compact, pleineLargeur, onLeadMagnet, onCalen
   // avant de publier n'a aucun sens visible.
   const aide = {
     lm: "Regroupe des stories déjà publiées et leur associe un lead magnet. Le prospect répond ton mot-clé à la story, et le fichier part en DM automatiquement.",
-    cal: "Crée la séquence AVANT de publier, pour obtenir son lien de réservation à coller dans le sticker « Lien ». Une story déjà publiée ne peut plus recevoir de lien : c'est la seule raison de passer par ici.",
+    cal: "Uniquement si le CTA de cette séquence est un lien Calendly. Il doit exister AVANT que tu publies, pour être collé dans le sticker « Lien » — une story déjà publiée ne peut plus en recevoir. Pour un lead magnet, tu n'as rien à préparer : l'autre bouton suffit.",
   };
 
   return (
