@@ -271,7 +271,28 @@ function buildGroups(deals: DealRow[], details: Record<string, DealDetail>): Gro
     // plus) et `canceled` (la vente n'existe plus).
     if (d.status === 'paid' || d.status === 'ended' || d.status === 'canceled') continue;
     const detail = details[d.id];
-    const remaining = d.amountTotal - d.collected;
+
+    // ── CE QUI A ÉTÉ VERSÉ ≠ CE QUI EST RESTÉ EN CAISSE ─────────────────────
+    //
+    // `collected` est le NET : il déduit déjà le contesté et le perdu en litige.
+    // Une vente de 1 000 € payée puis contestée affiche donc `collected = 0`, et
+    // cet écran la lisait « n'a jamais payé » — il proposait de RELANCER un
+    // client qui conteste son paiement. Relevé par Chris le 2026-09-07 sur Chris
+    // Penkov, qui apparaissait en relance avec son litige en cours.
+    //
+    // Exclure les ventes contestées en bloc serait faux dans l'autre sens : une
+    // vente de 1 500 € dont 500 ont été contestés en garde 1 000 réellement
+    // jamais payés, qu'il faut bien réclamer.
+    //
+    // La règle est donc la même que sur la fiche : pour savoir ce qu'il reste à
+    // encaisser, on compte ce que la personne a VERSÉ — contesté et perdu
+    // compris, puisque cet argent est bien sorti de sa poche. Ce qui manque à la
+    // caisse à cause d'une banque n'est pas une dette du client.
+    const dejaVerse = d.collected + d.disputed + d.perduEnLitige;
+    const remaining = d.amountTotal - dejaVerse;
+
+    // Tout est versé : il n'y a rien à relancer, quoi qu'en dise la caisse.
+    if (remaining <= 0.005) continue;
 
     // Prélèvement refusé : Stripe réessaie seul, l'élève peut envoyer le lien de
     // mise à jour de carte s'il veut aller plus vite.
@@ -337,7 +358,7 @@ function buildGroups(deals: DealRow[], details: Record<string, DealDetail>): Gro
     // Comptant impayé. Sans lien, ne rien affirmer sur un envoi : les deals issus
     // du backfill (anciens calls closés) n'en ont jamais eu, et « lien envoyé »
     // décrirait une action qui n'a pas eu lieu.
-    if (d.collected === 0) {
+    if (dejaVerse <= 0.005) {
       const moyen = moyenDe(d);
       const item: Item = {
         deal: d,
