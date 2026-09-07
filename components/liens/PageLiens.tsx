@@ -4770,14 +4770,31 @@ function BoutonsNouvelleSequence({ compact, pleineLargeur, onLeadMagnet, onCalen
       ? (quoi === 'lm' ? '+ CTA lead magnet' : '+ CTA lien Calendly')
       : (quoi === 'lm' ? 'Nouvelle séquence · CTA lead magnet' : 'Nouvelle séquence · CTA lien Calendly');
 
+  // ── AU REPOS AUSSI, PAS SEULEMENT AU SURVOL ──────────────────────────────
+  //
+  // Bordure `--border` et texte `--muted` sur fond transparent : les deux
+  // boutons se lisaient comme désactivés. Un bouton d'action doit se voir sans
+  // qu'on passe la souris dessus — c'est justement au repos qu'on le cherche.
+  //
+  // Le lead magnet porte un fond léger dès le repos et le Calendly une bordure
+  // en `--muted` avec son texte en encre : la hiérarchie entre les deux tient
+  // au remplissage, plus à un contraste que l'un des deux n'avait pas.
   const base = {
     minHeight: isMobile ? 44 : compact ? 30 : 32,
-    padding: isMobile ? '0 12px' : compact ? '0 10px' : '0 11px',
+    padding: isMobile ? '0 12px' : compact ? '0 11px' : '0 12px',
     fontSize: isMobile ? 12.5 : compact ? 11 : 11.5,
     fontWeight: 600, borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit',
     whiteSpace: 'nowrap' as const,
     flex: isMobile || pleineLargeur ? 1 : undefined,
     transition: `all var(--dur-quick) var(--ease-out)`,
+  };
+
+  // Ce que chaque bouton fait, et pourquoi il existe. Le second explique la
+  // contrainte qui justifie son existence — sans elle, préparer une séquence
+  // avant de publier n'a aucun sens visible.
+  const aide = {
+    lm: "Regroupe des stories déjà publiées et leur associe un lead magnet. Le prospect répond ton mot-clé à la story, et le fichier part en DM automatiquement.",
+    cal: "Crée la séquence AVANT de publier, pour obtenir son lien de réservation à coller dans le sticker « Lien ». Une story déjà publiée ne peut plus recevoir de lien : c'est la seule raison de passer par ici.",
   };
 
   return (
@@ -4791,22 +4808,22 @@ function BoutonsNouvelleSequence({ compact, pleineLargeur, onLeadMagnet, onCalen
       {/* L'accent sur le lead magnet : le survol le remplit, sans changer sa
           taille — un bouton qui grandit au passage de la souris déplace son
           voisin, et on clique à côté. */}
-      <button type="button" onClick={onLeadMagnet}
+      <button type="button" onClick={onLeadMagnet} title={aide.lm}
         onMouseEnter={() => setSurvol('lm')} onMouseLeave={() => setSurvol(null)}
         style={{
           ...base,
           border: `1px solid ${BLUE}`,
-          background: survol === 'lm' ? BLUE : 'transparent',
+          background: survol === 'lm' ? BLUE : BLUE_SOFT,
           color: survol === 'lm' ? '#fff' : BLUE,
         }}>{libelle('lm')}</button>
 
-      <button type="button" onClick={onCalendly}
+      <button type="button" onClick={onCalendly} title={aide.cal}
         onMouseEnter={() => setSurvol('cal')} onMouseLeave={() => setSurvol(null)}
         style={{
           ...base,
-          border: `1px solid ${survol === 'cal' ? INK : BORDER}`,
+          border: `1px solid ${survol === 'cal' ? INK : MUTED}`,
           background: survol === 'cal' ? SURFACE2 : 'transparent',
-          color: survol === 'cal' ? INK : MUTED,
+          color: INK,
         }}>{libelle('cal')}</button>
     </div>
   );
