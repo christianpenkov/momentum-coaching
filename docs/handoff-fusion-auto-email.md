@@ -58,7 +58,19 @@ fonction :
 
 - `supabase/functions/sync-calendly/index.ts` — **c'est celui qui tourne pour de
   vrai** (cron) ;
-- `app/api/webhooks/calendly/route.ts`.
+- `app/api/webhooks/calendly/route.ts` ;
+- `app/api/client/calls` — **ce troisième chemin manquait à ce handoff.** C'est le
+  seul qui produise des `call_type = 'manual'` : un report, un 2e call, le geste
+  « avancer vers RDV pris ». Rien ne les réexamine ensuite — `sync-calendly` ne
+  traite que les événements Calendly, le webhook n'en reçoit aucun, et le
+  rattrapage ne passe qu'une fois. Un call manuel créé demain serait resté
+  orphelin pour toujours. Trouvé et corrigé par le chat Pipeline Leads le
+  2026-09-07.
+
+⚠️ **Et `manual` est de la vente.** Filtrer `call_type = 'calendly'` écarte ces
+rendez-vous de la fusion, comme point d'ancrage ET comme cible. Utiliser
+`CALL_TYPES_VENTE`. Mesuré : un rendez-vous manuel non ignoré porte une adresse et
+une source `ig_description` — exactement le profil que cette fusion doit servir.
 
 La leçon retenue à l'époque avait été d'écrire une fonction SQL partagée
 (`resolve_prospect`). Faire pareil ici, ou l'étendre.

@@ -98,12 +98,18 @@ dans la même fonction.
 
 ---
 
-## Le troisième lecteur, à vérifier
+## Les autres lecteurs, à vérifier
 
-`compterLeads` a **trois** appelants (`fetchIgLeadsCount`, `fetchAllLeadsCount`,
-`fetchLeadsCountsBatch`) : accueil élève, fiche coach, Mes Stats. Le correctif vaut
-pour les trois puisqu'il vit dans `requetesLeads` — vérifier qu'aucun d'eux ne
-reconstruit sa propre requête à côté.
+> ⚠️ **Ce décompte était faux.** J'annonçais trois appelants ; il y en a **six**, et
+> `fetchAllLeadsCount` est appelé EN BOUCLE par élève. Corrigé par le chat Mes
+> Stats, qui a mis le décompte exact en tête de `requetesLeads`.
+>
+> Conséquence à connaître : **ajouter une requête dans `requetesLeads` coûte
+> +2 requêtes par élève** sur l'accueil coach. Ce correctif-ci n'en ajoute aucune —
+> il ne fait que resserrer un filtre existant — mais le prochain devra le savoir.
+
+Le correctif vaut pour tous puisqu'il vit dans `requetesLeads` — vérifier
+qu'aucun d'eux ne reconstruit sa propre requête à côté.
 
 ⚠️ Un quatrième lecteur existe désormais, **et il n'utilise PAS cette fonction** :
 l'entonnoir de « Gérer mes liens » (`PageLiens.tsx`, marche « Leads »), corrigé le

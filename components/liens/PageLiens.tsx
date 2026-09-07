@@ -11,8 +11,7 @@ import { createClient } from '@/lib/supabase/client';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import ModalShell from '@/components/ui/ModalShell';
 import { useIsMobile, isMobileViewport } from '@/lib/useIsMobile';
-import { canalDuDm } from '@/lib/canalDm';
-import { clefPersonne } from '@/lib/salesCallStats';
+import { compterLeadsDuContenu, compterConversationsDuContenu } from '@/lib/entonnoirContenu';
 import { refusSequence } from '@/lib/sequenceDm';
 import { personnesParContenu } from '@/lib/attribution-roles';
 import { SOURCE_DM_ENTRANT, SOURCE_DM_SORTANT } from '@/lib/canalDm';
@@ -5956,110 +5955,25 @@ export default function PageLiens() {
     //
     // `instagram_lead_lm_history` porte bien une ligne par lead magnet reclame,
     // jamais ecrasee : c'est ce qui permet de compter les REPRISES d'une personne.
-    // ── « LEADS » COMPTE DES PERSONNES, PAS DES INTERACTIONS ─────────────────
+    // ── « LEADS » ET « CONVERSATIONS » ────────────────────────────────────────
     //
-    // `lmHistory.length` comptait les LIGNES du journal, donc les demandes de
-    // lead magnet. Mesuré le 2026-09-07 : le compte de Rdjdkz affichait
-    // « 21 leads » pour UNE seule personne, qui avait demandé vingt-et-une fois.
+    // La règle vit dans `lib/entonnoirContenu`, avec ses tests. Elle a été fausse
+    // DEUX FOIS le 2026-09-07 en vivant ici, en ligne : elle comptait d'abord les
+    // lignes du journal — « 21 leads » pour une personne qui avait demandé
+    // vingt-et-une fois — puis elle comptait deux fois quelqu'un présent des deux
+    // côtés. Les deux fois, rien ne pouvait la vérifier.
     //
-    // Régression du 2026-09-06 : jusque-là les deux écrans comptaient la même
-    // table, et le commentaire d'ici disait « la définition de Mes Stats, pour
-    // que le même mot donne le même nombre ». Mes Stats est passé aux personnes
-    // dédoublonnées ce jour-là — la bonne correction — et cette phrase est
-    // devenue fausse sans que rien ne le signale.
-    //
-    // Deux apports, parce que l'entonnoir mesure ce que le CONTENU produit :
-    //
-    //   • les personnes ayant demandé un lead magnet, une par personne ;
-    //   • les rendez-vous pris DIRECTEMENT depuis un contenu — bio, description
-    //     ou sticker de story — sans jamais réclamer de lead magnet. Ce sont des
-    //     prospects réels que la première marche ignorait, alors que la dernière
-    //     les comptait déjà : « la conversation n'est qu'un chemin parmi deux ».
-    //
-    // Le cold DM est exclu des DEUX : quelqu'un que le coach est allé chercher
-    // n'a été produit par aucun contenu. Il ne peut de toute façon pas entrer
-    // par le premier apport, qui part du journal des lead magnets.
-    //
-    // ⚠️ Les deux apports ne se recoupent PAS : le trajet lead magnet ne connaît
-    // qu'un pseudo Instagram, le trajet call qu'un e-mail ou un nom d'invité.
-    // `instagram_leads` n'a aucune colonne e-mail — le seul pont possible est un
-    // call, qui n'existe pas pour quelqu'un qui a seulement pris le lead magnet.
-    // Une personne présente des deux côtés compte donc deux fois, exactement
-    // comme dans Mes Stats aujourd'hui. Résoudre cela demande la fusion de
-    // fiches par e-mail exact, qui vit dans le chantier Pipeline Leads.
-    // Toutes les personnes qui se sont manifestées d'elles-mêmes : celles qui ont
-    // demandé un lead magnet, celles qui ont répondu à une story, et celles qui
-    // ont simplement écrit en DM les premières.
-    //
-    // Le DM entrant en fait partie, et il le DOIT : il compte dans
-    // « Conversations » juste après, et une marche ne peut pas contenir des gens
-    // que la précédente ignore — l'entonnoir afficherait plus de conversations
-    // que de leads. La même règle sert donc aux deux, une seule fois.
-    //
-    // On lit `instagram_leads` et non le journal des lead magnets : toute
-    // personne qui a réclamé un lead magnet a une fiche, et cette table porte en
-    // plus ceux qui ont écrit sans rien réclamer.
-    //
-    // Un cold DM qui prend un lead magnet plus tard reste exclu : `source` ne
-    // change jamais après la création de la fiche, et c'est voulu — cette
-    // personne a été produite par un reach-out, pas par un contenu.
-    const personnesLm = new Set(
-      leads.filter((l: any) => canalDuDm(l.source) !== 'sortant')
-        .map((l: any) => l.ig_user_id || l.ig_username)
-        .filter(Boolean)
-    );
-
-    // Les sources de `calls` sont une AUTRE famille que celles des liens et des
-    // leads : ici `ig_bio`/`ig_description`/`ig_story`/`yt_description`, là
-    // `comment`/`cold_dm`/`story_reply`. `canalDuDm` ne s'applique pas à
-    // celles-ci — c'est le piège principal de ce calcul.
-    //
-    // `ig_story` en fait partie : un rendez-vous pris depuis le sticker d'une
-    // story vient d'un contenu, au même titre qu'un lien en description.
-    // `yt_bio` n'existe pas encore en données, la catégorie est prévue.
-    const SOURCES_CONTENU_DIRECT = new Set(['ig_bio', 'ig_description', 'ig_story', 'yt_bio', 'yt_description']);
-
-    // Les fiches déjà comptées juste au-dessus. Un rendez-vous direct porté par
-    // l'une d'elles décrit une personne DÉJÀ dans le compte : la recompter par
-    // son e-mail l'ajouterait une seconde fois, sous une autre clé.
-    //
-    // Même protection que `compterLeads`, dont la requête Instagram porte
-    // `.is('ig_lead_id', null)` pour exactement cette raison. Zéro cas en base au
-    // 2026-09-07 — aucun call bio/description/story ne porte d'`ig_lead_id` —
-    // mais la fusion de fiches par e-mail en créera dès qu'elle sera en place.
-    //
-    // On compare aux fiches RETENUES, pas à toutes : un cold DM sortant qui
-    // réserve ensuite depuis une bio n'est pas dans `personnesLm`, et son
-    // rendez-vous doit donc bien le faire entrer — il vient d'un contenu.
-    const idsLeadsComptes = new Set(
-      leads.filter((l: any) => canalDuDm(l.source) !== 'sortant').map((l: any) => l.id)
-    );
-
-    // TOUS les calls, pas seulement les actifs : un prospect qui annule reste un
-    // prospect. Ce qu'une annulation retire, c'est un rendez-vous booké — pas un
-    // lead. Même règle que `compterLeads`.
-    const personnesCallsDirects = new Set(
-      calls
-        .filter((c: any) => SOURCES_CONTENU_DIRECT.has(c.source)
-          && !(c.ig_lead_id && idsLeadsComptes.has(c.ig_lead_id)))
-        .map(clefPersonne)
-    );
-
-    const commentaires = personnesLm.size + personnesCallsDirects.size;
-    const personnesManifestees = personnesLm.size;
-    const callsDirectsPersonnes = personnesCallsDirects.size;
+    // Les tests figent notamment l'invariant qui s'est cassé : une marche ne peut
+    // pas contenir des gens que la précédente ignore.
+    const { total: commentaires, personnesManifestees, callsDirectsPersonnes } =
+      compterLeadsDuContenu(leads, calls);
 
     // « Conversations » et non « Accroches ». L'ancienne marche comptait les DM1
     // envoyes (lead_magnet_sent), or le DM1 part a la detection : elle valait
     // donc toujours 100 % des prospects et n'apprenait rien — mesure du
     // 2026-08-27, 4 sur 4. Repondre en DM, en revanche, est un vrai
     // franchissement : 3 sur 4.
-    // Hors cold DM sortant : une conversation née d'un reach-out n'appartient
-    // pas à un entonnoir qui mesure ce que le contenu produit. La règle vit dans
-    // `canalDuDm` — elle était recopiée à sept endroits de PageClientStats,
-    // écrite en négatif, et rangeait dans « sortant » tout ce qu'elle ne
-    // connaissait pas. Une huitième copie ici referait exactement ce défaut.
-    const conversations = leads.filter(l => l.hook_replied && canalDuDm(l.source) !== 'sortant').length;
+    const conversations = compterConversationsDuContenu(leads);
 
     // Calls bookes — TOUS les rendez-vous, pas seulement ceux venus d'un DM.
     //
