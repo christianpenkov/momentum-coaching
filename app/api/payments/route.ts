@@ -425,10 +425,40 @@ export async function GET(request: NextRequest) {
   const collected = actifs.reduce((s, r) => s + r.collectedRetenu, 0);
   const unpaid = actifs.reduce((s, r) => s + r.overdue, 0);
 
+  // ── « RESTE À ENCAISSER » SE COMPTE VENTE PAR VENTE ─────────────────────
+  //
+  // La soustraction globale `contracté − collecté − impayés` se trompait deux
+  // fois, et les deux se voyaient à l'écran le 2026-09-07 : le ruban annonçait
+  // 1 100 € à encaisser alors qu'il n'y avait RIEN à aller chercher.
+  //
+  // 1. Elle comptait le CONTESTÉ comme une dette. `collectedRetenu` dérive du
+  //    net, dont le contesté est déduit : une vente payée puis contestée
+  //    réapparaissait donc intégralement « à encaisser », alors que le client a
+  //    versé. La banque retient ; ce n'est pas au client de repayer.
+  //
+  // 2. Elle ignorait les ventes TERMINÉES. Une vente clôturée dit explicitement
+  //    « le reste ne sera jamais réclamé » — son écran de clôture l'affiche noir
+  //    sur blanc. La compter ici contredisait la promesse faite deux clics plus
+  //    tôt.
+  //
+  // On somme donc, vente par vente, ce qu'on attend ENCORE : le contracté moins
+  // ce que la personne a VERSÉ (`verseParLeClient`, lib/dealCash.ts), et zéro
+  // sur les ventes qui n'attendent plus rien.
+  //
+  // `− unpaid` conserve la disjonction voulue des deux KPI : « Reste à
+  // encaisser » dit ce qui est à venir, « Impayés » ce qui a dépassé sa date.
+  // Ensemble ils font le dû total ; les additionner sans soustraire compterait
+  // deux fois les mêmes euros.
+  const attendu = actifs.reduce((s, r) => {
+    if (r.status === 'ended') return s;
+    const verse = r.collected + r.disputed + r.perduEnLitige;
+    return s + Math.max(0, r.amountTotal - verse);
+  }, 0);
+
   const kpis = {
     contracted,
     collected,
-    remaining: contracted - collected - unpaid,
+    remaining: Math.max(0, Math.round((attendu - unpaid) * 100) / 100),
     unpaid,
     dealsCount: actifs.length,
     collectedRate: contracted > 0 ? Math.round((collected / contracted) * 100) : 0,
