@@ -113,5 +113,25 @@ export async function POST(request: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  // ── FUSION AUTOMATIQUE PAR E-MAIL EXACT ─────────────────────────────────────
+  //
+  // Le TROISIÈME chemin d'écriture d'un rendez-vous de vente, et le seul qui
+  // crée des `manual`. Sans lui, la règle ne s'appliquerait jamais à un
+  // rendez-vous manuel : `sync-calendly` ne traite que les événements Calendly,
+  // le webhook ne reçoit rien, et le rattrapage de la migration ne passe qu'une
+  // fois. Un call manuel créé demain resterait orphelin pour toujours.
+  //
+  // ⚠️ Une règle qui ne couvre pas tous ses chemins d'écriture est une règle
+  // fausse la moitié du temps. C'est le défaut du 2026-08-27 (`prospect_id` posé
+  // par un seul des deux chemins, 11 calls sur 13 jamais rattachés), et c'est
+  // celui-ci qui l'a rouvert d'un cran.
+  //
+  // Ne fait rien quand le lead est déjà connu — le cas courant, puisque cette
+  // route hérite du `ig_lead_id` du rendez-vous parent.
+  if (newCall?.id && !(lead?.id ?? parent?.ig_lead_id) && (invitee_email ?? parent?.invitee_email)) {
+    const { error: errFusion } = await supa.rpc('fusionner_call_par_email', { p_call_id: newCall.id });
+    if (errFusion) console.error('[calls] fusionner_call_par_email:', errFusion.message);
+  }
+
   return NextResponse.json({ ok: true, callId: newCall.id });
 }

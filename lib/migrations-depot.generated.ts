@@ -190,6 +190,8 @@ export const MIGRATIONS_DEPOT: { version: string; nom: string }[] = [
   { version: '20260907110000', nom: 'calls_retirer_index_globaux' },
   { version: '20260907120000', nom: 'fusion_auto_email' },
   { version: '20260907120000', nom: 'ig_sante_periodes_ligne_ecrite_jamais_mesuree' },
+  { version: '20260907130000', nom: 'fusion_auto_email_revoke_public' },
   { version: '20260907130000', nom: 'ig_periodes_dernier_essai' },
+  { version: '20260907140000', nom: 'fusion_auto_email_calls_manuels' },
   { version: '20260907140000', nom: 'ventes_sante_date_ne_pas_accuser_la_date' },
 ];
