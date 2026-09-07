@@ -216,6 +216,73 @@ function dateDeLead(r: LignesLeads['leads'][number]): string | null {
   return r.detected_at;
 }
 
+/**
+ * La PREMIÈRE APPARITION de chaque personne connue par son pseudo Instagram.
+ *
+ * Une seule définition, partagée par les deux compteurs : `compterLeads` (combien de
+ * personnes sont apparues dans la fenêtre) et `compterLeadsActifs` (qui, en plus, compte
+ * les retours). Deux implémentations du même dédoublonnage divergent toujours — c'est
+ * précisément ce défaut qui affichait 18 leads là où le pipeline en montrait 17.
+ *
+ * ⚠️ La date retenue est la PLUS ANCIENNE, toutes sources confondues, et le filtre de
+ * fenêtre s'applique APRÈS. Filtrer chaque source avant de dédupliquer recompterait
+ * comme « nouveau ce mois » un prospect vu en juillet dans `instagram_leads` et revu en
+ * août dans `prospect_links` — un lien est recréé à chaque envoi.
+ */
+export function premieresApparitions(
+  leads: LignesLeads['leads'],
+  liens: LignesLeads['liens'],
+): Map<string, string> {
+  // ── État du cold DM, agrégé par PERSONNE et jamais par ligne ───────────────
+  //
+  // `instagram_leads` porte plusieurs fiches pour la même personne : chaque reprise de
+  // lead magnet, réponse de story ou cold DM en crée une. Sa réponse peut donc être
+  // portée par une AUTRE fiche que celle qu'on lit — juger ligne par ligne écarterait
+  // quelqu'un qui a bel et bien répondu.
+  //
+  // ⚠️ Rétro-compatible par construction : un appelant qui ne fournit pas `source` laisse
+  // `tousDemarches` à faux dès la première fiche, donc n'exclut personne. Le comportement
+  // d'avant le 2026-09-07 est conservé à l'octet près pour qui ne passe pas ces colonnes.
+  const etatCold = new Map<string, { tousDemarches: boolean; aRepondu: boolean }>();
+  for (const r of leads) {
+    if (!r.ig_username) continue;
+    const cle = r.ig_username.toLowerCase();
+    const etat = etatCold.get(cle) ?? { tousDemarches: true, aRepondu: false };
+    if (r.source !== 'cold_dm') etat.tousDemarches = false;
+    if (r.hook_replied_at) etat.aRepondu = true;
+    etatCold.set(cle, etat);
+  }
+
+  const plusAncienne = new Map<string, string>();
+  for (const r of leads) {
+    const date = dateDeLead(r);
+    if (!r.ig_username || !date) continue;
+    const cle = r.ig_username.toLowerCase();
+    const prec = plusAncienne.get(cle);
+    if (!prec || date < prec) plusAncienne.set(cle, date);
+  }
+
+  // ⚠️ Un lien ne doit pas RESSUSCITER un démarché sans réponse.
+  //
+  // `prospect_links` continue d'entrer une personne par lui-même — c'est la règle
+  // d'origine, et elle ne change pas. Une seule exception, sans quoi la règle du cold DM
+  // fuirait par la fenêtre : quelqu'un dont TOUTES les fiches sont des cold DM sans
+  // réponse redeviendrait un lead au seul motif qu'on lui a envoyé un Calendly,
+  // c'est-à-dire encore une action de notre côté.
+  const demarchesSansReponse = new Set<string>();
+  for (const [cle, etat] of etatCold) if (etat.tousDemarches && !etat.aRepondu) demarchesSansReponse.add(cle);
+
+  for (const r of liens) {
+    if (!r.ig_username || !r.created_at) continue;
+    const cle = r.ig_username.toLowerCase();
+    if (demarchesSansReponse.has(cle)) continue;
+    const prec = plusAncienne.get(cle);
+    if (!prec || r.created_at < prec) plusAncienne.set(cle, r.created_at);
+  }
+
+  return plusAncienne;
+}
+
 /** `since` seul répond à « combien depuis telle date ». `jusqua` ferme la fenêtre et
  *  répond à « combien DANS cette fenêtre » — ce dont le graphe a besoin, un point par
  *  fenêtre. Le filtre porte toujours sur la date la plus ancienne connue, après
@@ -232,57 +299,7 @@ export function compterLeads(l: LignesLeads, since: string | null, jusqua?: stri
   // instagram_leads en juillet et dans prospect_links en août (un lien est recréé à
   // chaque envoi) : filtrer chaque source séparément le recomptait comme « nouveau ce
   // mois » alors qu'il était déjà ancien.
-  // ── État du cold DM, agrégé par PERSONNE et jamais par ligne ───────────────
-  //
-  // `instagram_leads` porte plusieurs fiches pour la même personne : chaque reprise de
-  // lead magnet, réponse de story ou cold DM en crée une. Sa réponse peut donc être
-  // portée par une AUTRE fiche que celle qu'on est en train de lire — juger ligne par
-  // ligne écarterait quelqu'un qui a bel et bien répondu.
-  //
-  // ⚠️ Rétro-compatible par construction : un appelant qui ne fournit pas `source` laisse
-  // `tousDemarches` à faux dès la première fiche, donc n'exclut personne. Le comportement
-  // d'avant le 2026-09-07 est conservé à l'octet près pour qui ne passe pas ces colonnes.
-  const etatCold = new Map<string, { tousDemarches: boolean; aRepondu: boolean }>();
-  for (const r of l.leads) {
-    if (!r.ig_username) continue;
-    const cle = r.ig_username.toLowerCase();
-    const etat = etatCold.get(cle) ?? { tousDemarches: true, aRepondu: false };
-    if (r.source !== 'cold_dm') etat.tousDemarches = false;
-    if (r.hook_replied_at) etat.aRepondu = true;
-    etatCold.set(cle, etat);
-  }
-
-  const plusAncienneParUsername = new Map<string, string>();
-  for (const r of l.leads) {
-    const date = dateDeLead(r);
-    if (!r.ig_username || !date) continue;
-    const cle = r.ig_username.toLowerCase();
-    const prec = plusAncienneParUsername.get(cle);
-    if (!prec || date < prec) plusAncienneParUsername.set(cle, date);
-  }
-
-  // ⚠️ Un lien ne doit pas RESSUSCITER un démarché sans réponse.
-  //
-  // `prospect_links` continue d'entrer une personne par lui-même — c'est la règle
-  // d'origine, et elle ne change pas ici. Une seule exception, sans quoi la règle du
-  // cold DM fuirait par la fenêtre : quelqu'un dont TOUTES les fiches sont des cold DM
-  // sans réponse redeviendrait un lead au seul motif qu'on lui a envoyé un Calendly,
-  // c'est-à-dire encore une action de notre côté.
-  //
-  // Mesuré le 2026-09-07 : zéro personne dans ce cas, donc aucun chiffre ne bouge.
-  // C'est un chemin qu'on ferme, pas un compte qu'on corrige.
-  const demarchesSansReponse = new Set<string>();
-  for (const [cle, etat] of etatCold) if (etat.tousDemarches && !etat.aRepondu) demarchesSansReponse.add(cle);
-
-  for (const r of l.liens) {
-    if (!r.ig_username || !r.created_at) continue;
-    const cle = r.ig_username.toLowerCase();
-    if (demarchesSansReponse.has(cle)) continue;
-    const prec = plusAncienneParUsername.get(cle);
-    if (!prec || r.created_at < prec) plusAncienneParUsername.set(cle, r.created_at);
-  }
-
-  const dates = Array.from(plusAncienneParUsername.values());
+  const dates = Array.from(premieresApparitions(l.leads, l.liens).values());
   const parUsername = (since || jusqua)
     ? dates.filter(d => (!since || d >= since) && (!jusqua || d <= jusqua)).length
     : dates.length;
@@ -410,6 +427,105 @@ function requetesLeads(supabase: SupabaseClient, profileIds: string[], since: st
   };
 
   return { leads, liens, callsIg, callsYt };
+}
+
+/* ─── Les ACTIFS d'une période ─────────────────────────────────────────────────
+ *
+ * `compterLeads` répond à « combien de personnes sont APPARUES dans cette fenêtre ».
+ * Sur une période, ce n'est pas ce qu'on veut afficher : tout le monde y est nouveau par
+ * construction, ce qui rendait le badge « +N nouveaux » rigoureusement égal au chiffre
+ * qu'il accompagnait (mesuré : écart 0 sur juin, juillet, août et septembre 2026).
+ *
+ * `compterLeadsActifs` répond à « combien de personnes se sont manifestées dans cette
+ * fenêtre » — la définition que le commentaire de `PageClientStats` décrivait déjà,
+ * mais que le code n'appliquait plus.
+ *
+ * ── Ce qui fait ENTRER quelqu'un dans une période ────────────────────────────
+ *
+ *   1. c'est sa première apparition — quel que soit le chemin ;
+ *   2. il reprend un lead magnet (une ligne de plus dans l'historique) ;
+ *   3. il réserve depuis un lien PARTAGÉ — bio, description, story.
+ *
+ * ── Ce qui ne le fait PAS ────────────────────────────────────────────────────
+ *
+ * La progression dans une conversation déjà ouverte : répondre, cliquer un lien,
+ * recevoir un Calendly, réserver depuis ce Calendly (`utm_medium = 'dm'`).
+ *
+ * L'exemple qui fixe la règle (Chris, 2026-09-07) : quelqu'un commente fin août, puis
+ * répond et réserve depuis le DM début septembre. Il compte en AOÛT, pas en septembre —
+ * on n'a pas gagné un lead, on a déroulé le parcours normal. À l'inverse, quelqu'un qui
+ * réserve depuis une bio en juin puis depuis une description en août compte DEUX fois.
+ *
+ * ⚠️ Conséquence assumée : la somme des périodes DÉPASSE l'all-time, où une personne
+ * reste une personne. Les deux chiffres répondent à deux questions ; l'écran doit le
+ * dire, et son infobulle le dit.
+ *
+ * ⚠️ Limite connue, et elle n'est pas réparable ici : `instagram_leads` n'a AUCUNE
+ * colonne e-mail. Une personne connue par son pseudo (elle a commenté) et par son
+ * e-mail (elle a réservé depuis une bio) occupe deux identités que rien ne rapproche.
+ * `docs/handoff-fusion-auto-email.md` pose la fusion qui les réunira ; le jour où elle
+ * remplit `ig_lead_id` sur ces calls, la ré-attribution ci-dessous les unifie sans autre
+ * changement. Mesuré le 2026-09-07 : zéro paire concernée en base. */
+
+/** Les mediums d'un lien PARTAGÉ. `dm` en est volontairement absent : le Calendly envoyé
+ *  en conversation prolonge un parcours, il n'en ouvre pas un nouveau. */
+const MEDIUMS_PARTAGES = new Set(['bio', 'description', 'story']);
+
+export interface LignesActifs {
+  /** Mêmes lignes que `LignesLeads.leads`. `id` est optionnel et ne sert qu'à
+   *  ré-attribuer un call à son lead quand la fusion l'aura rattaché. */
+  leads: (LignesLeads['leads'][number] & { id?: string | null })[];
+  liens: LignesLeads['liens'];
+  /** `instagram_lead_lm_history` — UNE ligne par reprise, jamais écrasée. C'est elle qui
+   *  permet de voir qu'une personne est revenue, là où `instagram_leads` fige la
+   *  première détection. */
+  reprises: { ig_username: string | null; detected_at: string | null }[];
+  /** TOUS les calls de vente, `utm_medium` compris — y compris ceux rattachés à un lead,
+   *  puisqu'une réservation depuis une bio compte même quand la personne est déjà connue. */
+  calls: (LigneCallLead & {
+    utm_medium?: string | null;
+    booked_at?: string | null;
+    scheduled_at?: string | null;
+    ig_lead_id?: string | null;
+  })[];
+}
+
+/**
+ * ⚠️ `debut` est OBLIGATOIRE, et c'est délibéré : « actif » n'a de sens que sur une
+ * fenêtre. L'all-time garde `compterLeads`, qui compte des personnes. Rendre `debut`
+ * nullable aurait permis d'appeler cette fonction sur tout l'historique et d'y compter
+ * la même personne plusieurs fois — le type l'interdit.
+ */
+export function compterLeadsActifs(l: LignesActifs, debut: string, fin: string | null): number {
+  const dansLaFenetre = (d: string | null | undefined) => !!d && d >= debut && (!fin || d <= fin);
+  const actifs = new Set<string>();
+
+  // 1. Première apparition — exactement la règle de `compterLeads`, pas une copie.
+  for (const [cle, date] of premieresApparitions(l.leads, l.liens)) {
+    if (dansLaFenetre(date)) actifs.add(cle);
+  }
+
+  // 2. Reprise de lead magnet. Pas de garde cold DM ici : reprendre un lead magnet EST
+  //    une manifestation, donc la personne est un lead par ce seul fait.
+  for (const r of l.reprises) {
+    if (r.ig_username && dansLaFenetre(r.detected_at)) actifs.add(r.ig_username.toLowerCase());
+  }
+
+  // 3. Réservation depuis un lien partagé.
+  const usernameParLeadId = new Map<string, string>();
+  for (const r of l.leads) {
+    if (r.id && r.ig_username) usernameParLeadId.set(r.id, r.ig_username.toLowerCase());
+  }
+  for (const c of l.calls) {
+    if (!MEDIUMS_PARTAGES.has((c.utm_medium ?? '').toLowerCase())) continue;
+    // `booked_at` avec repli `scheduled_at` — règle 2 du référentiel. Un rendez-vous PRIS
+    // en août pour septembre appartient à août : c'est la réservation qui est l'entrée.
+    if (!dansLaFenetre(c.booked_at ?? c.scheduled_at)) continue;
+    const viaLead = c.ig_lead_id ? usernameParLeadId.get(c.ig_lead_id) : undefined;
+    actifs.add(viaLead ?? clefPersonne(c));
+  }
+
+  return actifs.size;
 }
 
 function grouper<T extends Record<string, any>>(lignes: T[] | null, cle: 'profile_id' | 'coach_id'): Map<string, T[]> {

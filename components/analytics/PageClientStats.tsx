@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { CALL_TYPES_VENTE } from '@/lib/callTypes';
-import { compterLeads } from '@/lib/salesCallStats';
+import { compterLeads, compterLeadsActifs } from '@/lib/salesCallStats';
 import { CALL_COLUMNS } from '@/lib/supabase/types';
 import { parcoursDesLeads, parcoursDesLiensPartages, type RefsParcours, type CallParcours, type PriseParcours, type CallPartage } from '@/lib/parcoursLeads';
 import InlineLoader from '@/components/ui/InlineLoader';
@@ -1160,7 +1160,7 @@ type ContentSortKey = 'views' | 'watchTime' | 'calls' | 'revenue';
 
 // ─── TAB "Vue générale (B)" — version épurée ─────────────────────────────────
 
-function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, calendlyStaticClicsFromDb, igLive, ytLive, sinceConnection, leads, lmHistory, integrationsReadyAt, allTimeStart, deals, cashParVente, stories }: { ig: IGStats | null; yt: YTStats | null; msgs: IGMessages | null; calls: CallRecord[]; callsAllTime?: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; calendlyStaticClicsFromDb?: number; igLive?: IGStats | null; ytLive?: YTStats | null; sinceConnection?: boolean; leads?: MockLead[]; lmHistory?: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[]; integrationsReadyAt?: string | null; allTimeStart?: string | null; deals?: DealRecord[]; cashParVente?: VenteCash[]; stories?: any[] }) {
+function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, calendlyStaticClicsFromDb, igLive, ytLive, sinceConnection, leads, leadsBruts, reprisesBrutes, lmHistory, integrationsReadyAt, allTimeStart, deals, cashParVente, stories }: { ig: IGStats | null; yt: YTStats | null; msgs: IGMessages | null; calls: CallRecord[]; callsAllTime?: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; calendlyStaticClicsFromDb?: number; igLive?: IGStats | null; ytLive?: YTStats | null; sinceConnection?: boolean; leads?: MockLead[]; leadsBruts?: { ig_username: string | null; detected_at: string | null; source: string | null; hook_replied_at: string | null; id: string | null }[]; reprisesBrutes?: { ig_username: string | null; detected_at: string | null }[]; lmHistory?: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[]; integrationsReadyAt?: string | null; allTimeStart?: string | null; deals?: DealRecord[]; cashParVente?: VenteCash[]; stories?: any[] }) {
   // Etiquette de fenetre. En All-Time les cartes affichaient « 30j » alors que le
   // bandeau annonce « All-Time » — meme defaut que celui corrige dans les onglets
   // Instagram et YouTube (2026-08-22).
@@ -1295,8 +1295,12 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   //
   // Clé de regroupement : l'email de l'invité, avec repli sur son nom — même critère
   // que le pipeline quand il n'a ni prospect_id ni chaîne de reprogrammation.
-  const prospectKeyOf = (c: CallRecord) =>
-    ((c as any).invitee_email || (c as any).invitee_name || (c as any).id || '').toLowerCase();
+  //
+  // ⚠️ La copie locale `prospectKeyOf` a été retirée le 2026-09-07 : elle redisait mot
+  // pour mot `clefPersonne` (`lib/salesCallStats.ts`), qui est exportée depuis le
+  // 2026-09-07 précisément pour éviter cette recopie. Ses deux appelants passent
+  // désormais par `compterLeads`, qui applique la règle lui-même — donc il n'y a plus
+  // qu'UNE définition du dédoublonnage par personne, et elle est testée.
   /* ⚠️ `compterLeads`, la règle partagée — et non un comptage local.
    *
    * Cet écran comptait les personnes ayant au moins une ligne dans
@@ -1321,12 +1325,45 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
    * Les sources étaient DÉJÀ alignées (`archived_at is null`, `not_a_lead = false`
    * des deux côtés) : seule la règle de comptage divergeait. Aucune requête ajoutée,
    * les lignes sont celles que cet écran chargeait déjà. */
-  const leadsCount = compterLeads({
-    leads: (leads ?? []).map(l => ({ ig_username: l.igUsername, detected_at: l.commentedAt })),
+  // ── Les deux chiffres de la carte « Leads » ────────────────────────────────
+  //
+  // Ils répondent à deux questions différentes, et c'est le sens du changement du
+  // 2026-09-07 : le badge affichait exactement le même nombre que la carte (écart 0
+  // mesuré sur juin, juillet, août et septembre), parce que les deux comptaient les
+  // premières apparitions. Tout le monde y était nouveau par construction.
+  //
+  //   carte  → ACTIFS de la fenêtre : première apparition, reprise de lead magnet, ou
+  //            réservation depuis un lien partagé (bio / description / story).
+  //   badge  → NOUVEAUX : première apparition seulement. C'est exactement l'ancien
+  //            chiffre de la carte, déplacé d'un cran — donc la règle déjà éprouvée.
+  //
+  // ⚠️ L'invariant « badge ≤ carte » est verrouillé par un test : toute personne dont la
+  // première apparition tombe dans la fenêtre y est forcément active.
+  //
+  // ⚠️ `leadsBruts` et non `leads` : ce dernier est dédupliqué par personne en gardant la
+  // fiche la PLUS RÉCENTE, ce qui transforme la première apparition en dernière détection
+  // (82 jours d'écart mesurés sur un prospect réel). Voir le commentaire de `leadsBruts`.
+  const lignesLeadsBase = {
+    leads: leadsBruts ?? [],
     liens: (prospectLinksData ?? []).map((p: any) => ({ ig_username: p.ig_username, created_at: p.created_at })),
-    callsIgDirects: directIgCallsInPeriod as any,
-    callsYoutube: ytBookedCallsInPeriod as any,
-  }, ovPeriodStart.toISOString(), _ovPIdx === 0 ? null : ovPeriodEnd.toISOString());
+  };
+  const ovDebutIso = ovPeriodStart.toISOString();
+  const ovFinIso = _ovPIdx === 0 ? null : ovPeriodEnd.toISOString();
+
+  // En all-time, une personne reste une personne : c'est `compterLeads` qui répond, et
+  // il n'a pas bougé. « Actif » n'a de sens que sur une fenêtre — la signature de
+  // `compterLeadsActifs` exige d'ailleurs un début, ce qui rend l'erreur impossible.
+  const leadsCount = sinceConnection
+    ? compterLeads({
+        ...lignesLeadsBase,
+        callsIgDirects: directIgCallsInPeriod as any,
+        callsYoutube: ytBookedCallsInPeriod as any,
+      }, ovDebutIso, ovFinIso)
+    : compterLeadsActifs({
+        ...lignesLeadsBase,
+        reprises: reprisesBrutes ?? [],
+        calls: (callsAllTime ?? []) as any,
+      }, ovDebutIso, ovFinIso);
   // Les calls directs comptent aussi comme "nouveaux" dans le badge : par construction
   // (ig_lead_id null), ils n'ont jamais été vus ailleurs avant ce call. Idem pour les
   // calls YouTube bookés — pas de notion de "lead" préalable pour cette source.
@@ -1336,17 +1373,35 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   const ytBookedCallsNew = sinceConnection
     ? ytBookedCallsInPeriod.filter(c => isNewThisMonth(c.booked_at || c.scheduled_at))
     : ytBookedCallsInPeriod;
-  // Même dédoublonnage par personne que pour leadsCount ci-dessus : un report de
-  // rendez-vous ne crée pas un second prospect.
-  const newLeadsCount = (sinceConnection
-    ? (leads ?? []).filter(l => isNewThisMonth(l.commentedAt)).length
-    : (leads ?? []).filter(l => isLeadInPeriod(l.commentedAt)).length
-  ) + new Set(directIgCallsNew.map(prospectKeyOf)).size
-    + new Set(ytBookedCallsNew.map(prospectKeyOf)).size;
+
+  // ── Le badge « nouveaux » ──────────────────────────────────────────────────
+  //
+  // Il passe par `compterLeads`, c'est-à-dire par L'ANCIEN CHIFFRE DE LA CARTE, déplacé
+  // d'un cran. Rien de neuf à écrire pour lui : les personnes dont la PREMIÈRE
+  // apparition tombe dans la fenêtre, c'est exactement ce que cette fonction compte, et
+  // ses tests la couvrent depuis le 2026-09-01.
+  //
+  // ⚠️ Il additionnait auparavant trois ensembles à la main — `leads.length`, plus deux
+  // Set de calls — sans passer par la règle. Trois écarts en découlaient : `prospect_links`
+  // était absent, la déduplication « date la plus ancienne toutes sources » ne s'appliquait
+  // pas, et une personne présente dans deux volets comptait deux fois. Le faire passer par
+  // la fonction ferme les trois d'un coup.
+  //
+  // ⚠️ Invariant `badge ≤ carte`, verrouillé par un test : toute personne dont la première
+  // apparition tombe dans la fenêtre y est forcément active.
+  const fenetreBadge: [string, string | null] = sinceConnection
+    ? [currentMonthStart.toISOString(), currentMonthEnd.toISOString()]
+    : [ovDebutIso, ovFinIso];
+  const newLeadsCount = compterLeads({
+    ...lignesLeadsBase,
+    callsIgDirects: directIgCallsNew as any,
+    callsYoutube: ytBookedCallsNew as any,
+  }, fenetreBadge[0], fenetreBadge[1]);
+
   const newLeadsBadgeLabel = sinceConnection ? 'ce mois' : 'nouveaux';
   const newLeadsBadgeTitle = sinceConnection
-    ? 'Prospects jamais vus avant, détectés ce mois-ci (différent des leads actifs ce mois, qui incluraient aussi les anciens prospects réactivés)'
-    : 'Prospects jamais vus avant cette période';
+    ? 'Prospects jamais vus avant, apparus ce mois-ci. Le grand chiffre, lui, compte toutes les personnes depuis la mise en route — chacune une seule fois.'
+    : 'Prospects apparus pour la PREMIÈRE fois dans cette période. Le grand chiffre compte tous les ACTIFS : ceux-là, plus ceux qui étaient déjà connus et se sont manifestés à nouveau (reprise de lead magnet, ou rendez-vous pris depuis une bio, une description ou une story). Une personne active sur deux périodes compte dans les deux, mais reste une seule personne en total — la somme des périodes dépasse donc le total, et c\'est normal.';
 
   // ── Métriques business ─────────────────────────────────────────────────────
   // callsEff est déjà filtré par la DB en S-1+ → on filtre juste par status ici.
@@ -10866,7 +10921,10 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     // Paginé (fetchAllPages) — plafond fixe .limit(2000) auparavant, même raison.
     fetchAllPages<any>(() =>
       supabase.from('instagram_lead_lm_history')
-        .select('ig_user_id, keyword_matched, media_id, lead_magnet_sent, detected_at')
+        // `ig_username` : la cle de PERSONNE des compteurs, alignee sur
+        // `instagram_leads` et `prospect_links`. Colonne NOT NULL, ajoutee au select
+        // existant le 2026-09-07 — aucune requete de plus.
+        .select('ig_user_id, ig_username, keyword_matched, media_id, lead_magnet_sent, detected_at')
         .eq('profile_id', targetId)
         // Cette table est archivée à la bascule de compte, comme instagram_leads
         // juste au-dessus — et app/api/client/pipeline/route.ts la filtre déjà. Sans
@@ -11079,6 +11137,29 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
   const encaissementsParJour = joursRpc.data ?? [];
   const cashParVente = ventesRpc.data ?? [];
 
+  // ⚠️ Les lignes BRUTES, non dédupliquées — c'est ce que les COMPTEURS doivent lire.
+  //
+  // `igLeads` juste en dessous garde UNE fiche par personne, la plus récente (la requête
+  // trie `detected_at` décroissant). C'est ce qu'il faut pour l'affichage d'une liste de
+  // prospects, et c'est faux pour compter :
+  //
+  //   * la « première apparition » devient la DERNIÈRE détection. Mesuré le 2026-09-07 :
+  //     `incogniton.734` était datée du 28/08 au lieu du 07/06 — 82 jours d'écart — et
+  //     `rdjdkzjd` du 28/08 au lieu du 28/06. Elles comptaient donc comme nouvelles en
+  //     août alors qu'elles étaient arrivées en juin ;
+  //   * la règle du cold DM ne voit qu'une fiche, donc rate une réponse portée par une
+  //     autre — `compterLeads` agrège par personne, encore faut-il lui donner les lignes.
+  //
+  // C'est aussi une des causes de la divergence avec Stats Clients, qui reçoit déjà les
+  // lignes brutes via `fetchLignesLeadsBatch` et avait donc la bonne date.
+  const leadsBruts = leadsRows.map((l: any) => ({
+    ig_username: l.ig_username as string | null,
+    detected_at: l.detected_at as string | null,
+    source: (l.source ?? null) as string | null,
+    hook_replied_at: (l.hook_replied_at ?? null) as string | null,
+    id: (l.id ?? null) as string | null,
+  }));
+
   // Déduplique leads par ig_user_id — dernière interaction
   const seen = new Set<string>();
   const igLeads: MockLead[] = leadsRows
@@ -11131,6 +11212,23 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
 
   const lmHistory: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[] =
     lmHistoryRows.filter((h: any) => h.ig_user_id && h.keyword_matched && !igUsersEcartes.has(h.ig_user_id));
+
+  // ⚠️ Les REPRISES pour le comptage : SANS le filtre `keyword_matched`.
+  //
+  // `lmHistory` juste au-dessus jette toute ligne sans mot-cle, et cette colonne est
+  // NULLABLE depuis la migration `keyword_matched_nullable` (2026-09-05). Une reprise
+  // sans mot-cle disparaitrait donc du compteur d'actifs sans laisser de trace.
+  //
+  // Mesure du 2026-09-07 : 0 ligne sans mot-cle sur 44, donc aucun ecart aujourd'hui.
+  // Le filtre reste tel quel pour `lmHistory`, qui alimente Business micro — on ne
+  // change pas ce qu'il compte, on ne le laisse simplement pas decider ici.
+  //
+  // L'exclusion des `not_a_lead`, elle, est GARDEE : une personne ecartee sort de tous
+  // les compteurs, exactement comme dans `requetesLeads`.
+  const reprisesBrutes: { ig_username: string | null; detected_at: string | null }[] =
+    lmHistoryRows
+      .filter((h: any) => h.ig_username && !igUsersEcartes.has(h.ig_user_id))
+      .map((h: any) => ({ ig_username: h.ig_username as string, detected_at: h.detected_at as string }));
 
   // Map ig_lead_id (UUID) → media_id pour attribution réelle calls/contenu
   const leadIdToMediaId = new Map<string, string>();
@@ -11393,7 +11491,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     }
   }
 
-  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, deals: dealsRows, encaissementsParJour, cashParVente, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, hookRepliedEvents, lmReclameParLeadId, premierLmReclame, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, joursCollectesShortio, premierJourCollecteShortio, premierClicLienProspect, integrationsReadyAt };
+  return { igLeads, leadsBruts, reprisesBrutes, leadMagnets: lmData, destinations, calls: callsData, deals: dealsRows, encaissementsParJour, cashParVente, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, hookRepliedEvents, lmReclameParLeadId, premierLmReclame, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, shortioChartHistoryStory, joursCollectesShortio, premierJourCollecteShortio, premierClicLienProspect, integrationsReadyAt };
   } catch { return null; }
 }
 
@@ -11494,6 +11592,9 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   });
 
   const igLeads: MockLead[] = supaData?.igLeads ?? [];
+  // Lignes brutes pour les COMPTEURS — voir le commentaire de `leadsBruts`.
+  const leadsBruts = supaData?.leadsBruts ?? [];
+  const reprisesBrutes = supaData?.reprisesBrutes ?? [];
   const leadMagnets: LeadMagnet[] = supaData?.leadMagnets ?? [];
   const destinations: DestinationLink[] = supaData?.destinations ?? [];
   const calls: CallRecord[] = supaData?.calls ?? [];
@@ -12007,7 +12108,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
 
       {loading ? <InlineLoader /> : (
         <>
-          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} msgs={msgsEff} calls={callsEff} callsAllTime={callsAllTimeEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} deals={dealsEff} cashParVente={cashParVente} stories={storiesKpi} />}
+          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} msgs={msgsEff} calls={callsEff} callsAllTime={callsAllTimeEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} leadsBruts={leadsBruts} reprisesBrutes={reprisesBrutes} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} deals={dealsEff} cashParVente={cashParVente} stories={storiesKpi} />}
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} abonnesAujourdHui={ig?.followers ?? null} allTimeStart={allTimeStart} stories={storiesKpi} />}
           {/* La retention est une PROPRIETE DE LA VIDEO, pas une metrique de periode :
               « 45 % de ma video est regardee » ne depend pas de la fenetre consultee.

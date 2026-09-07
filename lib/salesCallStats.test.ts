@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compterLeads, fetchAllLeadsCount, fetchIgLeadsCount, type LignesLeads } from './salesCallStats.ts';
+import { compterLeads, compterLeadsActifs, fetchAllLeadsCount, fetchIgLeadsCount, type LignesActifs, type LignesLeads } from './salesCallStats.ts';
 
 // Lancé par `npm test`. `compterLeads` est la règle PURE du comptage de leads, extraite
 // le 2026-09-01 pour que la version « un élève » (fetchAllLeadsCount) et la version
@@ -211,6 +211,127 @@ test('⚠️ rétro-compatible : sans `source`, personne n\'est écarté', () =>
     leads: [{ ig_username: 'sans_source', detected_at: '2026-08-01T00:00:00Z' }],
   }), null);
   assert.equal(n, 1);
+});
+
+/* ─── Les ACTIFS d'une période ────────────────────────────────────────────────
+ *
+ * Sur une période, « Leads » compte désormais les personnes qui se sont MANIFESTÉES,
+ * et le badge « +N nouveaux » celles qui apparaissent pour la première fois. Avant, les
+ * deux comptaient la même chose et affichaient donc le même nombre. */
+
+const AOUT = ['2026-08-01T00:00:00Z', '2026-08-31T23:59:59Z'] as const;
+const SEPT = ['2026-09-01T00:00:00Z', '2026-09-30T23:59:59Z'] as const;
+
+function actifs(p: Partial<LignesActifs> = {}): LignesActifs {
+  return { leads: [], liens: [], reprises: [], calls: [], ...p };
+}
+const reprise = (u: string, le: string) => ({ ig_username: u, detected_at: le });
+const booking = (id: string, medium: string | null, le: string, email: string | null = null) =>
+  ({ id, invitee_email: email, invitee_name: null, utm_medium: medium, booked_at: le, scheduled_at: null });
+
+test('actifs — l\'exemple qui fixe la règle', () => {
+  // Commente fin août (elle entre), puis répond et réserve depuis le DM début septembre.
+  // Elle compte en AOÛT, pas en septembre : on n'a pas gagné un lead, on a déroulé le
+  // parcours normal.
+  const l = actifs({
+    leads: [commentaire('ana', '2026-08-28T00:00:00Z')],
+    reprises: [reprise('ana', '2026-08-28T00:00:00Z')],
+    calls: [booking('c1', 'dm', '2026-09-03T00:00:00Z', 'ana@x.fr')],
+  });
+  assert.equal(compterLeadsActifs(l, AOUT[0], AOUT[1]), 1, 'compte en août');
+  assert.equal(compterLeadsActifs(l, SEPT[0], SEPT[1]), 0, 'pas en septembre');
+});
+
+test('actifs — deux reprises dans deux périodes = deux fois actif, une seule personne', () => {
+  // Le cas `rdjdkzjd`, mesuré en base : reprise le 28/06 puis le 28/08.
+  const l = actifs({
+    leads: [commentaire('rdjdkzjd', '2026-06-28T00:00:00Z')],
+    reprises: [reprise('rdjdkzjd', '2026-06-28T00:00:00Z'), reprise('rdjdkzjd', '2026-08-28T00:00:00Z')],
+  });
+  assert.equal(compterLeadsActifs(l, '2026-06-01T00:00:00Z', '2026-06-30T23:59:59Z'), 1);
+  assert.equal(compterLeadsActifs(l, AOUT[0], AOUT[1]), 1);
+  // En all-time, c'est UNE personne — l'autre fonction, l'autre question.
+  assert.equal(compterLeads({ ...actifs(), callsIgDirects: [], callsYoutube: [], leads: l.leads, liens: [] }, null), 1);
+});
+
+test('actifs — une réservation depuis un lien PARTAGÉ est une entrée', () => {
+  // bio, description et story ouvrent un parcours ; `dm` le prolonge.
+  for (const medium of ['bio', 'description', 'story']) {
+    const l = actifs({ calls: [booking('c1', medium, '2026-08-10T00:00:00Z', 'zoe@x.fr')] });
+    assert.equal(compterLeadsActifs(l, AOUT[0], AOUT[1]), 1, `${medium} doit compter`);
+  }
+  const dm = actifs({ calls: [booking('c1', 'dm', '2026-08-10T00:00:00Z', 'zoe@x.fr')] });
+  assert.equal(compterLeadsActifs(dm, AOUT[0], AOUT[1]), 0, 'dm ne doit pas compter');
+  const sansMedium = actifs({ calls: [booking('c1', null, '2026-08-10T00:00:00Z', 'zoe@x.fr')] });
+  assert.equal(compterLeadsActifs(sansMedium, AOUT[0], AOUT[1]), 0, 'sans medium, on ne suppose rien');
+});
+
+test('actifs — une réservation bio compte MÊME si la personne a déjà un lead', () => {
+  // C'est le cas que Chris a nommé : elle prend un lead magnet, puis réserve depuis une
+  // description dans une AUTRE période. Elle est active dans les deux.
+  const l = actifs({
+    leads: [commentaire('bea', '2026-06-05T00:00:00Z')],
+    reprises: [reprise('bea', '2026-06-05T00:00:00Z')],
+    calls: [booking('c1', 'description', '2026-08-10T00:00:00Z', 'bea@x.fr')],
+  });
+  assert.equal(compterLeadsActifs(l, '2026-06-01T00:00:00Z', '2026-06-30T23:59:59Z'), 1);
+  assert.equal(compterLeadsActifs(l, AOUT[0], AOUT[1]), 1);
+});
+
+test('actifs — un call rattaché à un lead est recompté SUR ce lead, pas à côté', () => {
+  // ⚠️ La limite des deux espaces de clés : sans `ig_lead_id`, le pseudo et l'e-mail sont
+  // deux personnes. Dès que la fusion rattache le call, cette ré-attribution les unifie —
+  // sans autre changement de code. Ici, une seule personne active en août.
+  const l = actifs({
+    leads: [{ ...commentaire('caro', '2026-06-01T00:00:00Z'), id: 'lead-1' }],
+    reprises: [reprise('caro', '2026-08-05T00:00:00Z')],
+    calls: [{ ...booking('c1', 'bio', '2026-08-10T00:00:00Z', 'caro@x.fr'), ig_lead_id: 'lead-1' }],
+  });
+  assert.equal(compterLeadsActifs(l, AOUT[0], AOUT[1]), 1);
+});
+
+test('actifs — une personne active plusieurs fois DANS la même période compte une fois', () => {
+  const l = actifs({
+    reprises: [reprise('dan', '2026-08-02T00:00:00Z'), reprise('dan', '2026-08-20T00:00:00Z')],
+    calls: [booking('c1', 'bio', '2026-08-25T00:00:00Z', 'dan@x.fr')],
+  });
+  // Le pseudo et l'e-mail restent deux clés tant que la fusion n'a pas rattaché le call :
+  // deux « personnes », donc 2. C'est la limite documentée, figée pour qu'elle se voie.
+  assert.equal(compterLeadsActifs(l, AOUT[0], AOUT[1]), 2);
+});
+
+test('actifs — un cold DM sans réponse n\'est actif dans AUCUNE période', () => {
+  const l = actifs({ leads: [coldDm('dolphin', '2026-08-05T00:00:00Z')] });
+  assert.equal(compterLeadsActifs(l, AOUT[0], AOUT[1]), 0);
+  assert.equal(compterLeadsActifs(l, SEPT[0], SEPT[1]), 0);
+});
+
+test('actifs — un cold DM qui répond est actif dans la période de sa RÉPONSE', () => {
+  const l = actifs({ leads: [coldDm('eve', '2026-08-05T00:00:00Z', '2026-09-10T00:00:00Z')] });
+  assert.equal(compterLeadsActifs(l, AOUT[0], AOUT[1]), 0, 'pas au moment du démarchage');
+  assert.equal(compterLeadsActifs(l, SEPT[0], SEPT[1]), 1, 'actif quand elle répond');
+});
+
+test('⚠️ INVARIANT — le badge est toujours ≤ la carte', () => {
+  // Le badge affiche `compterLeads(période)`, la carte `compterLeadsActifs(période)`.
+  // Toute personne dont la première apparition tombe dans la fenêtre y est forcément
+  // active — c'est la règle 1. Si ce test casse un jour, les deux règles ont divergé et
+  // l'écran affiche un sous-ensemble plus grand que son ensemble.
+  const cas: LignesActifs[] = [
+    actifs({ leads: [commentaire('a', '2026-08-05T00:00:00Z')] }),
+    actifs({
+      leads: [commentaire('a', '2026-06-01T00:00:00Z'), commentaire('b', '2026-08-02T00:00:00Z')],
+      reprises: [reprise('a', '2026-08-20T00:00:00Z')],
+      calls: [booking('c1', 'bio', '2026-08-25T00:00:00Z', 'c@x.fr')],
+    }),
+    actifs({ leads: [coldDm('d', '2026-07-01T00:00:00Z', '2026-08-03T00:00:00Z')] }),
+    actifs({ liens: [{ ig_username: 'e', created_at: '2026-08-09T00:00:00Z' }] }),
+  ];
+  for (const [i, l] of cas.entries()) {
+    const badge = compterLeads({ leads: l.leads, liens: l.liens, callsIgDirects: [], callsYoutube: [] }, AOUT[0], AOUT[1]);
+    const carte = compterLeadsActifs(l, AOUT[0], AOUT[1]);
+    assert.ok(badge <= carte, `cas ${i} : badge ${badge} > carte ${carte}`);
+  }
 });
 
 /* ─── Caractérisation des REQUÊTES ────────────────────────────────────────────
