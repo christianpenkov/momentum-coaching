@@ -58,11 +58,11 @@ export async function journaliser(
 export async function refreshDealStatus(
   supabase: SupabaseClient,
   dealId: string,
-  opts?: { argentEntrant?: boolean },
+  opts?: { argentEntrant?: boolean; remboursementConstate?: boolean },
 ) {
   const { data: deal } = await supabase
     .from('deals')
-    .select('profile_id, amount_total, status, unexpected_payment_at')
+    .select('profile_id, amount_total, status, unexpected_payment_at, refund_explique')
     .eq('id', dealId)
     .maybeSingle();
   if (!deal) return;
@@ -72,7 +72,40 @@ export async function refreshDealStatus(
     .select('amount, status')
     .eq('deal_id', dealId);
 
-  const status = statutDeal(calculerCash(payments), deal.amount_total, deal.status);
+  const cash = calculerCash(payments);
+  const status = statutDeal(cash, deal.amount_total, deal.status);
+
+  // ── Un remboursement de TROP-PERÇU n'appelle aucune explication ──────────
+  //
+  // Et il faut trancher MAINTENANT, pas plus tard : la question « ce
+  // remboursement creuse-t-il la vente ? » se juge contre le montant contracté
+  // AU MOMENT du remboursement. Le relire ensuite avec le montant du jour donne
+  // une réponse fausse dès que le prix a bougé entre-temps.
+  //
+  // Constaté par Chris sur RZK le 2026-09-07 : 500 € versés sur une vente de
+  // 300 €, 200 € rendus — un pur trop-perçu, rien à expliquer. Deux jours plus
+  // tard la vente est portée à 400 €, et l'écran réclame soudain d'expliquer
+  // 100 € « repartis ». La preuve que c'était faux tenait sur la même fiche :
+  // les mêmes 100 € y figuraient AUSSI en « encore à encaisser, envoie ce
+  // lien ». Le même euro ne peut pas être à la fois jamais versé et parti sans
+  // raison.
+  //
+  // On inscrit donc, à l'instant où l'information existe, la part du
+  // remboursement que le trop-perçu explique. `Math.max` avec l'existant : ce
+  // champ cumule aussi les explications données à la main (RaisonRemboursement)
+  // et par l'annulation — on ne redescend jamais ce qu'un humain a déclaré.
+  //
+  // Idempotent, donc sans danger à rejouer : le filet quotidien
+  // (`sync-stripe-payments`) passe par la même porte.
+  if (opts?.remboursementConstate && cash.rembourse > 0.005) {
+    const coussin = Math.max(0, cash.encaisse - Number(deal.amount_total ?? 0));
+    const explique = Math.round(Math.min(cash.rembourse, coussin) * 100) / 100;
+    if (explique > Number(deal.refund_explique ?? 0) + 0.005) {
+      await supabase.from('deals')
+        .update({ refund_explique: explique })
+        .eq('id', dealId);
+    }
+  }
 
   if (status && status !== deal.status) {
     await supabase.from('deals').update({ status }).eq('id', dealId);

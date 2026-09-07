@@ -210,7 +210,7 @@ async function stripeList(acces: AccesStripe, path: string, since: number, extra
  * Les transitions SANS effets (open → partiellement payé, etc.) restent locales :
  * pas de saut réseau sur le chemin courant.
  */
-async function refreshDealStatus(dealId: string, argentEntrant: boolean) {
+async function refreshDealStatus(dealId: string, argentEntrant: boolean, remboursementConstate = false) {
   const { data: deal } = await supabase
     .from('deals').select('amount_total, status').eq('id', dealId).maybeSingle();
   if (!deal) return;
@@ -223,11 +223,15 @@ async function refreshDealStatus(dealId: string, argentEntrant: boolean) {
   const transitionAnnulation = status === 'canceled' && status !== deal.status;
   const argentSurVenteTerminee = argentEntrant && (deal.status === 'ended' || deal.status === 'canceled');
 
-  if (transitionAnnulation || argentSurVenteTerminee) {
+  // ⚠️ Un remboursement constate ICI doit passer par la route partagee, meme sans
+  // transition de statut : la regle du trop-percu (lib/dealStatus.ts) se juge a
+  // l'instant du constat, contre le montant contracte d'alors. La reporter au
+  // prochain evenement la ferait juger contre un montant qui aura bouge.
+  if (transitionAnnulation || argentSurVenteTerminee || remboursementConstate) {
     const res = await fetch(`${PLATFORM_URL}/api/stripe/deal-effects`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${CRON_SECRET}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dealId, argentEntrant }),
+      body: JSON.stringify({ dealId, argentEntrant, remboursementConstate }),
       signal: AbortSignal.timeout(20_000),
     });
     if (!res.ok) {
@@ -390,6 +394,11 @@ async function upsertRefund(
   profileId: string,
   charge: { id: string; created: number; amount_refunded: number; currency: string; metadata?: Record<string, string> | null; billing_details?: { email?: string | null } | null },
   touchedDeals: Set<string>,
+  // ⚠️ Doit etre transmis jusqu'a refreshDealStatus : la regle du trop-percu se
+  // juge a l'instant du constat, contre le montant contracte d'alors. Sans ce
+  // signal, le filet de secours enregistrerait le remboursement sans jamais
+  // trancher la question — et la regle n'existerait que sur le chemin webhook.
+  dealsRembourses?: Set<string>,
 ): Promise<void> {
   // `charge.id` et non `refund_${charge.id}` : c'est ce qu'écrit le webhook sur son
   // cas `charge.refunded`. Un préfixe différent aurait fait coexister DEUX lignes de
@@ -468,6 +477,7 @@ async function upsertRefund(
     match_method: 'metadata',
   });
   if (error && (error as { code?: string }).code !== '23505') throw error;
+  dealsRembourses?.add(dealId);
 
   touchedDeals.add(dealId);
 }
@@ -493,6 +503,7 @@ async function syncProfile(profileId: string, acces: AccesStripe, lastSyncedAt: 
   // terminée »), qu'un remboursement seul ne doit jamais déclencher.
   const touchedDeals = new Set<string>();
   const dealsArgentEntrant = new Set<string>();
+  const dealsRembourses = new Set<string>();
 
   // Charges : les paiements comptant. Factures : les échéances d'abonnement.
   // Un paiement d'abonnement produit les deux — le dédoublonnage se fait en base.
@@ -547,7 +558,7 @@ async function syncProfile(profileId: string, acces: AccesStripe, lastSyncedAt: 
     // 100 donnent 200 puis 300. On réécrit donc la ligne à chaque passage plutôt
     // que de l'additionner.
     if (Number(charge.amount_refunded ?? 0) > 0) {
-      await upsertRefund(profileId, charge, touchedDeals);
+      await upsertRefund(profileId, charge, touchedDeals, dealsRembourses);
     }
     return attache;
   });
@@ -590,7 +601,7 @@ async function syncProfile(profileId: string, acces: AccesStripe, lastSyncedAt: 
       // exactement ce qu'attend upsertRefund, qui réécrit la ligne à chaque fois.
       const charge = await stripeGet(acces, `charges/${chargeId}`, {});
       if (Number(charge.amount_refunded ?? 0) > 0) {
-        await upsertRefund(profileId, charge, touchedDeals);
+        await upsertRefund(profileId, charge, touchedDeals, dealsRembourses);
       }
     });
     refundResults.forEach((r, i) => {
@@ -634,7 +645,7 @@ async function syncProfile(profileId: string, acces: AccesStripe, lastSyncedAt: 
   // sinon le statut serait calculé sur une vue partielle des échéances.
   for (const dealId of touchedDeals) {
     try {
-      await refreshDealStatus(dealId, dealsArgentEntrant.has(dealId));
+      await refreshDealStatus(dealId, dealsArgentEntrant.has(dealId), dealsRembourses.has(dealId));
     } catch (e) {
       errors.push(`deal_status ${dealId}: ${(e as Error).message}`);
     }

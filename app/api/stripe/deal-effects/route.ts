@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   }
 
-  let body: { dealId?: unknown; argentEntrant?: unknown };
+  let body: { dealId?: unknown; argentEntrant?: unknown; remboursementConstate?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -47,6 +47,11 @@ export async function POST(request: NextRequest) {
   try {
     await refreshDealStatus(serviceSupabase(), dealId, {
       argentEntrant: body.argentEntrant === true,
+      // Le filet quotidien constate parfois un remboursement que le webhook a
+      // manqué : il doit alors trancher la question du trop-perçu comme le
+      // webhook l'aurait fait, sinon la règle n'existerait que sur un des deux
+      // chemins — et c'est le chemin de secours qui la perdrait.
+      remboursementConstate: body.remboursementConstate === true,
     });
   } catch (err) {
     // L'appelant (le cron) journalise ce 500 dans cron_runs — c'est lui qui

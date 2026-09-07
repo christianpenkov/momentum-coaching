@@ -368,6 +368,9 @@ async function recordPayment(supabase: Supa, params: {
 
   await refreshDealStatus(supabase, resolvedDealId, {
     argentEntrant: params.status === 'succeeded',
+    // Le trop-perçu qui explique un remboursement se juge à CET instant, contre
+    // le montant contracté d'aujourd'hui — pas dans six jours contre un autre.
+    remboursementConstate: params.status === 'refunded',
   });
   return { attached: true, dealId: resolvedDealId };
 }

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { calculerCash, statutDeal, resteAEncaisser, aRembourser, encaisseRetenu } from './dealCash.ts';
+import { calculerCash, statutDeal, resteAEncaisser, aRembourser, encaisseRetenu, verseParLeClient } from './dealCash.ts';
 import * as copieDeno from '../supabase/functions/_shared/dealCash.ts';
 
 // Lancé par `npm test` (node --test, sans aucune dépendance à installer).
@@ -331,4 +331,53 @@ test('les deux copies s’accordent sur le litige perdu', () => {
     copieDeno.statutDeal(copieDeno.calculerCash(lignes), 1100, 'open'),
     statutDeal(calculerCash(lignes), 1100, 'open'),
   );
+});
+
+// ── VERSÉ PAR LE CLIENT ≠ RESTÉ DANS LA CAISSE ──────────────────────────────
+//
+// La confusion la plus coûteuse du chantier : quatre écrans réclamaient une
+// seconde fois un argent déjà payé, parce qu'un litige fait baisser le net sans
+// que le client doive quoi que ce soit.
+
+test('un litige ne crée aucune dette du client', () => {
+  const c = calculerCash([p(1000, 'succeeded'), p(1000, 'disputed')]);
+  assert.equal(c.net, 0, 'la caisse est vide');
+  assert.equal(verseParLeClient(c), 1000, 'le client a pourtant tout versé');
+  assert.equal(resteAEncaisser(c, 1000), 0, 'il ne doit RIEN — le lien ne doit rien réclamer');
+});
+
+test('un litige PERDU ne crée pas de dette non plus', () => {
+  // La banque garde l'argent, mais le client l'a bien sorti de sa poche.
+  const c = calculerCash([p(1000, 'succeeded'), p(200, 'dispute_lost')]);
+  assert.equal(c.net, 800);
+  assert.equal(verseParLeClient(c), 1000);
+  assert.equal(resteAEncaisser(c, 1000), 0);
+});
+
+test('un REMBOURSEMENT, lui, recrée bien une dette', () => {
+  // L'argent est retourné chez le client : il peut redevoir. C'est toute la
+  // différence avec un litige, et c'est pourquoi `encaisse − rembourse`.
+  const c = calculerCash([p(1000, 'succeeded'), p(300, 'refunded')]);
+  assert.equal(verseParLeClient(c), 700);
+  assert.equal(resteAEncaisser(c, 1000), 300);
+});
+
+test('une dette RÉELLE survit à un litige partiel', () => {
+  // 1 500 € contractés, 500 versés puis contestés : 1 000 n'ont jamais été payés.
+  const c = calculerCash([p(500, 'succeeded'), p(500, 'disputed')]);
+  assert.equal(resteAEncaisser(c, 1500), 1000);
+});
+
+test('« à rembourser » reste sur le NET — on ne rend que ce qu’on tient', () => {
+  // 1 200 versés sur une vente à 1 000, dont 200 retenus par une banque.
+  // Le trop-perçu théorique est 200, mais il n'est pas sur le compte.
+  const c = calculerCash([p(1200, 'succeeded'), p(200, 'disputed')]);
+  assert.equal(verseParLeClient(c), 1200);
+  assert.equal(aRembourser(c, 1000), 0, 'rien de disponible à rendre');
+});
+
+test('les deux copies s’accordent sur le versé', () => {
+  const lignes = [p(1000, 'succeeded'), p(200, 'disputed'), p(100, 'refunded'), p(50, 'dispute_lost')];
+  assert.equal(copieDeno.verseParLeClient(copieDeno.calculerCash(lignes)), verseParLeClient(calculerCash(lignes)));
+  assert.equal(copieDeno.resteAEncaisser(copieDeno.calculerCash(lignes), 2000), resteAEncaisser(calculerCash(lignes), 2000));
 });

@@ -273,8 +273,46 @@ export function statutDeal(
 /**
  * Ce qu'il reste à encaisser. Zéro si la vente est soldée ou en trop-perçu.
  */
+/**
+ * Ce que la personne a VERSÉ de sa poche — et qui n'est pas la même chose que ce
+ * qui reste dans la caisse.
+ *
+ * ── La distinction, et pourquoi elle porte de l'argent ─────────────────────
+ * `net` répond à « combien me reste-t-il ? ». Cette fonction répond à « combien
+ * ce client a-t-il payé ? ». Un remboursement fait baisser les deux : l'argent
+ * est ressorti de la caisse ET il est retourné chez le client. Un LITIGE ne fait
+ * baisser que le premier : la banque retient la somme, mais le client, lui, l'a
+ * bien versée.
+ *
+ * Les confondre produit toujours la même faute — réclamer une seconde fois un
+ * argent déjà payé. Quatre occurrences trouvées le 2026-09-06/07 : un lien de
+ * complément proposé pour un montant contesté, une relance envoyée à un client
+ * en litige, la fiche annonçant « X € encore à encaisser » sur un lien déjà
+ * consommé, et le modèle de données lui-même.
+ *
+ * ⚠️ La règle de tri, pour tout nouvel appelant :
+ *     « combien me reste-t-il ? »        → `net`
+ *     « combien me doit-il encore ? »    → cette fonction
+ *     « combien puis-je lui rendre ? »   → `net` (on ne rend que ce qu'on tient)
+ */
+export function verseParLeClient(cash: Cash): number {
+  return arrondi(cash.encaisse - cash.rembourse);
+}
+
+/**
+ * Ce qu'il reste à ENCAISSER — donc ce qu'un lien de paiement doit réclamer.
+ *
+ * ⚠️ Se calcule sur le VERSÉ, pas sur le net. Cette fonction décide le montant
+ * des liens dans `deals/[id]/amount` et `deals/[id]/terms` : la calculer sur le
+ * net faisait réclamer au client la somme qu'une banque retenait le temps d'un
+ * litige — un second paiement pour un achat déjà payé.
+ *
+ * Un remboursement, lui, recrée bien une dette : l'argent est retourné chez le
+ * client, il peut redevoir. C'est exactement ce que `encaisse − rembourse`
+ * exprime, et c'est pourquoi la distinction se joue sur le contesté seul.
+ */
 export function resteAEncaisser(cash: Cash, montantTotal: number | string | null): number {
-  const manque = nombre(montantTotal) - cash.net;
+  const manque = nombre(montantTotal) - verseParLeClient(cash);
   return manque > CENTIME ? arrondi(manque) : 0;
 }
 
@@ -283,6 +321,17 @@ export function resteAEncaisser(cash: Cash, montantTotal: number | string | null
  * Apparaît quand on baisse un montant déjà payé, ou qu'un client paie deux fois.
  */
 export function aRembourser(cash: Cash, montantTotal: number | string | null): number {
+  // ⚠️ SUR LE NET, et surtout PAS sur `verseParLeClient` — l'asymétrie avec
+  // `resteAEncaisser` est délibérée, ne pas « harmoniser » les deux.
+  //
+  // On ne rend que ce qu'on TIENT. Un client qui a versé 1 200 € sur une vente
+  // ramenée à 1 000 € a bien 200 € de trop ; mais si une banque en retient 200
+  // le temps d'un litige, ils ne sont pas sur le compte et les promettre au
+  // remboursement ferait échouer le geste chez Stripe.
+  //
+  // Les deux fonctions répondent à deux questions opposées, et chacune prend la
+  // grandeur qui la concerne : ce qu'il doit encore (versé), ce qu'on peut lui
+  // rendre (net).
   const surplus = cash.net - nombre(montantTotal);
   return surplus > CENTIME ? arrondi(surplus) : 0;
 }
