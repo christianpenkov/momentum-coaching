@@ -6181,13 +6181,70 @@ export default function PageLiens() {
   // automatique : « Rouvrir » ramène une séquence dormante en un clic, pour une
   // story publiée trois jours plus tard.
   const [sequenceOccupee, setSequenceOccupee] = useState<string | null>(null);
-  // Les stories qu'on a choisi de NE PAS rattacher. En mémoire seulement : la
-  // proposition s'éteint d'elle-même au bout de 24 h, et une story écartée par
-  // erreur se retrouve dans l'onglet Stories, où le « + » du panneau la reprend.
-  const [storiesEcartees, setStoriesEcartees] = useState<Set<string>>(new Set());
   // 48 h après la publication de la dernière story : elle vit 24 h, puis on
   // laisse une journée de plus pour rattacher ce qu'on vient de publier.
   const FENETRE_OUVERTURE_MS = 48 * 60 * 60 * 1000;
+
+  /* Les stories qu'on a choisi de NE PAS rattacher.
+   *
+   * ── Pourquoi ça survit désormais au rechargement ──────────────────────────
+   *
+   * C'était un état de mémoire vive : la croix disait « non », et recharger la
+   * page ramenait la proposition. Assumé à l'écriture — elle s'éteint seule en
+   * 48 h — mais c'est une promesse à moitié tenue : le geste est explicite, et
+   * l'écran l'oubliait.
+   *
+   * ── Pourquoi `localStorage` et pas une colonne ────────────────────────────
+   *
+   * L'état est PERSONNEL (celui qui écarte), ÉPHÉMÈRE (48 h, la durée de vie de
+   * la proposition) et sans conséquence sur les chiffres. Une colonne
+   * demanderait une migration, une purge, et porterait en base un état qui
+   * n'intéresse aucun autre écran. Même usage que la position de lecture des
+   * audios (`PageChat`, `PageClientMessages`), avec le même `try/catch`.
+   *
+   * ⚠️ LA CLÉ PORTE LE `profileId`. Sans lui, deux comptes ouverts dans le même
+   * navigateur partageraient leurs stories écartées — exactement la classe de
+   * défaut corrigée le 2026-09-07 sur `calls`, où une clé sans profil laissait
+   * un compte écraser les rendez-vous d'un autre.
+   *
+   * ⚠️ Chaque entrée porte SA date. Sans elle, `localStorage` grossirait
+   * indéfiniment et une story écartée il y a six mois resterait écartée si son
+   * identifiant réapparaissait. On relit en filtrant sur la même fenêtre que la
+   * proposition : au-delà, l'oubli est le bon comportement. */
+  const CLE_ECARTEES = `stories-ecartees:${profileId}`;
+  const [storiesEcartees, setStoriesEcartees] = useState<Set<string>>(new Set());
+
+  // Relecture au montage, jamais à l'initialisation du `useState` : `localStorage`
+  // n'existe pas au rendu serveur, et y toucher pendant l'hydratation ferait
+  // diverger le premier rendu client du HTML envoyé.
+  useEffect(() => {
+    if (!profileId) return;
+    try {
+      const brut = localStorage.getItem(CLE_ECARTEES);
+      if (!brut) return;
+      const limite = Date.now() - FENETRE_OUVERTURE_MS;
+      const entrees = JSON.parse(brut) as Record<string, number>;
+      const vivantes = Object.entries(entrees).filter(([, t]) => t > limite);
+      setStoriesEcartees(new Set(vivantes.map(([id]) => id)));
+      // Ménage à la lecture : le seul moment où on tient la liste complète, et
+      // il ne coûte rien. Sans lui, rien ne purgerait jamais les entrées mortes.
+      if (vivantes.length !== Object.keys(entrees).length) {
+        localStorage.setItem(CLE_ECARTEES, JSON.stringify(Object.fromEntries(vivantes)));
+      }
+    } catch { /* navigation privée, quota plein : on repart d'un ensemble vide */ }
+  }, [profileId, CLE_ECARTEES, FENETRE_OUVERTURE_MS]);
+
+  /** Écarte une story, et s'en souvient. */
+  const ecarterStory = (id: string) => {
+    setStoriesEcartees(prev => new Set([...prev, id]));
+    if (!profileId) return;
+    try {
+      const brut = localStorage.getItem(CLE_ECARTEES);
+      const entrees = brut ? (JSON.parse(brut) as Record<string, number>) : {};
+      entrees[id] = Date.now();
+      localStorage.setItem(CLE_ECARTEES, JSON.stringify(entrees));
+    } catch { /* l'écran reste juste pour cette session, c'est le repli acceptable */ }
+  };
 
   // Plus de clôture manuelle : deux boutons dont l'un ne servait qu'à annuler
   // l'autre, pour une proposition qui s'éteint déjà toute seule. Le « + » du
@@ -6674,7 +6731,7 @@ export default function PageLiens() {
                       if (ctaStory) openMobileDetail({ type: 'story', post: ctaStory });
                     }}
                     onRattacher={ids => patchSequence(seq.id, { addStoryIds: ids })}
-                    onEcarter={id => setStoriesEcartees(prev => new Set([...prev, id]))}
+                    onEcarter={ecarterStory}
                   />
                 ))
               ) : postsLoading ? (
@@ -6988,7 +7045,7 @@ export default function PageLiens() {
                       if (ctaStory) unsavedGuardApi.guard(() => setRightView({ type: 'story', post: ctaStory }));
                     }}
                     onRattacher={ids => patchSequence(seq.id, { addStoryIds: ids })}
-                    onEcarter={id => setStoriesEcartees(prev => new Set([...prev, id]))}
+                    onEcarter={ecarterStory}
                   />
                 ))
               ) : postsLoading ? (
