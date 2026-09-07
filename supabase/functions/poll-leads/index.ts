@@ -2719,6 +2719,31 @@ async function majPeriodesIg(profileId: string, token: string, igAccountId: stri
   for (const type of ['semaine', 'mois'] as const) {
     try {
       const { debut, fin } = bornes(type, aujourdhui);
+      // ⚠️ Le PREMIER JOUR d'une periode ne se mesure pas, et ce n'est pas une panne.
+      //
+      // `mesurer` borne la fenetre a aujourd'hui. Le lundi, la semaine demandee vaut
+      // donc [aujourd'hui → aujourd'hui] : une fenetre qui ne contient AUCUNE journee
+      // terminee. Meta repond 200 avec un corps sans `total_value`, et `mesurer` leve
+      // « total_value absent ».
+      //
+      // Mesure contre l'API reelle le 2026-09-07, avec temoin positif — c'est la
+      // presence d'une journee TERMINEE qui decide, pas la taille de la fenetre ni le
+      // fait que `until` soit dans le futur :
+      //
+      //   [hier → hier]            → total_value PRESENT
+      //   [aujourd'hui → aujourd'hui] → total_value ABSENT
+      //   [hier → aujourd'hui]     → total_value PRESENT
+      //
+      // Sans cette garde, l'echec se rejouait a CHAQUE passage : aucune ligne n'existe
+      // encore, donc la regle de fraicheur des 6 h ne peut pas freiner la relance.
+      // Mesure du 2026-09-07 a 06h40 : 81 appels Meta perdus depuis minuit, sur la
+      // trajectoire de 288 pour la journee — par profil, chaque lundi, et autant
+      // chaque 1er du mois.
+      //
+      // Attendre est la seule conduite juste : la donnee n'existe pas encore chez
+      // Meta. Le lendemain, la fenetre contient une journee terminee et la periode
+      // s'ecrit normalement, en couvrant retroactivement son premier jour.
+      if (debut >= aujourdhui) continue;
       const dejaLa = existantes.find((p) => p.type === type && p.debut === debut);
       if (dejaLa && Date.now() - new Date(dejaLa.mesure_le).getTime() < FRAICHEUR_MS) continue;
       await ecrire(type, debut, fin, false);
@@ -2822,7 +2847,13 @@ async function majPeriodesIg(profileId: string, token: string, igAccountId: stri
   //
   // Jamais figee : elle grandit tant que le compte vit. `existantes` suffit ici,
   // justement parce qu'une ligne all_time n'est jamais figee.
-  if (departHistorique && departHistorique <= aujourdhui) {
+  // `<` et non `<=` : meme raison que pour la semaine et le mois ci-dessus. Un eleve
+  // qui connecte son compte AUJOURD'HUI a `departHistorique = aujourd'hui`, donc une
+  // fenetre sans journee terminee — Meta ne rend rien, et l'echec se rejouait a chaque
+  // passage jusqu'au lendemain. Le cas ne s'etait jamais presente ici parce qu'aucun
+  // eleve n'est arrive depuis que ce code existe ; il se presentera 40 fois le jour de
+  // la bascule chez Quennel.
+  if (departHistorique && departHistorique < aujourdhui) {
     try {
       const dejaLa = existantes.find((p) => p.type === 'all_time');
       const fraiche = !!dejaLa

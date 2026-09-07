@@ -318,7 +318,8 @@ const SURVEILLANCES: Surveillance[] = [
     surveille:
       'Que la portée dédupliquée de la semaine en cours, du mois en cours et de tout l’historique soit remesurée régulièrement. Le cron passe toutes les 6 h ; l’alerte se déclenche à 24 h.',
     signifie:
-      'Les appels à Meta échouent de façon durable. Un échec isolé est normal et se répare au passage suivant — c’est pour ça que cette vue regarde la conséquence et non les erreurs. Quatre auto-réparations ratées d’affilée, en revanche, veut dire que la mesure ne repart plus.',
+      'Les appels à Meta échouent de façon durable. Un échec isolé est normal et se répare au passage suivant — c’est pour ça que cette vue regarde la conséquence et non les erreurs. Quatre auto-réparations ratées d’affilée, en revanche, veut dire que la mesure ne repart plus.'
+      + ' ⚠️ Ce n’est PAS un début de période : Meta ne sert aucune mesure tant que la fenêtre ne contient pas une journée terminée, donc la ligne de la semaine ne peut pas exister le lundi, ni celle du mois le 1er. Ce cas est explicitement gracié depuis le 2026-09-07 (première mesure possible à J+1, alerte seulement à J+2). Si vous recevez quand même cet e-mail, la période a plus de deux jours et le problème est réel.',
     quoiFaire: [
       '`select * from ig_sante_periodes where etat like \'ALERTE%\';`',
       'Vérifier le jeton du profil concerné : `select provider, status, expires_at from integrations where profile_id = \'…\';`',

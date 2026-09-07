@@ -1303,6 +1303,60 @@ plateforme a déjà encaissé la perte toute seule, c'est une information, pas u
 panne. `posts_muets_definitif` n'est **pas** une anomalie : Meta ne rend aucune
 statistique sur les publications antérieures au passage en compte pro.
 
+## ⚠️ Meta ne mesure rien sur une fenêtre sans journée TERMINÉE
+
+Règle établie contre l'API réelle le 2026-09-07, avec témoin positif — elle n'est
+documentée nulle part chez Meta et coûte cher à redécouvrir :
+
+```
+[hier        → hier]        → total_value PRÉSENT
+[aujourd'hui → aujourd'hui] → total_value ABSENT   ← 200, corps sans total_value
+[hier        → aujourd'hui] → total_value PRÉSENT
+```
+
+Ce n'est **ni** la taille de la fenêtre, **ni** le fait que `until` soit dans le futur :
+c'est la présence d'au moins une journée terminée qui décide. Les deux autres hypothèses
+sont réfutées par les lignes 1 et 3.
+
+**Conséquence : le premier jour d'une période ne se mesure pas.** `mesurer()` borne la
+fenêtre à aujourd'hui, donc le lundi la semaine en cours vaut `[aujourd'hui →
+aujourd'hui]` et l'écriture échoue — chaque lundi, et chaque 1er du mois. `poll-leads`
+saute désormais ce cas (`if (debut >= aujourdhui) continue`) au lieu de le retenter.
+
+⚠️ **Une ligne ABSENTE ne freine rien.** La règle de fraîcheur des 6 h compare
+`mesure_le` : sans ligne, il n'y a rien à comparer, donc l'échec se rejouait **à chaque
+passage**. Mesuré le 2026-09-07 à 06h40 : 81 appels Meta perdus depuis minuit, sur une
+trajectoire de 288 pour la journée, **par profil** — soit ~11 500 par lundi à 40 élèves.
+Le garde-fou habituel (« on ne réécrit pas si c'est frais ») ne protège que le cas où
+l'écriture a déjà réussi une fois.
+
+### Une surveillance ne doit pas juger un état plus jeune que son premier instant observable
+
+`ig_sante_periodes` avait deux branches et une seule portait l'intention de son auteur :
+« figée » attendait 24 h, « jamais mesurée » déclenchait à l'instant du basculement de
+`date_trunc('week', now())`. D'où un e-mail d'alerte **garanti chaque lundi et chaque 1er
+du mois** (~64 jours/an, par élève) sur un état normal et inévitable.
+
+Corrigé le 2026-09-07 : soit `D = greatest(debut_attendu, depart_integration)`, la
+première mesure possible est `D+1`, et l'alerte part à `D+2` — les mêmes 24 h que la
+branche voisine. `greatest` ignore les NULL, ce qui rend `all_time` (sans
+`debut_attendu`) uniforme avec les deux autres. Si les deux ancres sont NULL, l'alerte
+part comme avant : **une ignorance ne doit pas fabriquer du silence.**
+
+⚠️ **Cette grâce ne cache aucune panne durable**, et c'est ce qui la rend acceptable :
+les lignes `mois` et `all_time` du même profil existent déjà et sont rafraîchies toutes
+les 6 h. Si Meta tombe vraiment, leur branche « figée » alerte à 24 h. La branche
+corrigée n'était pas le seul détecteur, seulement le seul à crier sur du normal.
+
+C'est le même principe que `edge_sante_version` (« en attente du prochain passage ») et
+que les deux marges de `migrations_sante` : **on ne juge pas un état tant qu'on n'a pas
+la preuve de l'avoir observé après coup.** Trois surveillances ont eu ce défaut ; devant
+une nouvelle vue, se demander d'emblée quel est son premier instant observable.
+
+⚠️ **Le corollaire piégeux** : faire taire la vue sans corriger le cron aurait rendu les
+288 appels perdus **invisibles** au lieu de les arrêter. Une fausse alerte est parfois le
+seul symptôme visible d'un vrai gaspillage — corriger les deux côtés, ou aucun.
+
 `stripe_sante_rattachement` liste les encaissements que Stripe connaît et qu'aucune
 vente ne revendique. ⚠️ Elle ne voit QUE ce qu'un chemin d'écriture a déjà enregistré :
 un webhook jamais délivré ne laisse aucune trace et reste invisible ici. Seule la passe
