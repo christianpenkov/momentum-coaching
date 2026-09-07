@@ -25,6 +25,7 @@ import { resolveLeadState, ISSUE_KEYS, ISSUE_TO_OUTCOME, MAX_RELANCES, RELANCE_E
 import { useViewerTimeZone } from '@/lib/UserContext';
 import { wallClockToUtc, cityLabelOf, formatDayPartsIn, jourCourantIci } from '@/lib/timezone';
 import { estOrigineDm, flecheDuDm, ORIGINE_COLD_DM } from '@/lib/origineLead';
+import { useMenuRetirerLead, type CibleRetrait } from './useMenuRetirerLead';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -709,7 +710,7 @@ interface CardData {
 }
 
 function PipelineCard({
-  card, stages, isDragging, onDragStart, platform, onConfirmLead, onDeleteLead, onRapportClick, onCardClick, onNotALead,
+  card, stages, isDragging, onDragStart, platform, onConfirmLead, onRapportClick, onCardClick, onNotALead, ouvrirMenu,
 }: {
   card: CardData;
   stages: readonly ColumnDef[];
@@ -717,25 +718,17 @@ function PipelineCard({
   onDragStart: (e: React.DragEvent, cardKey: string) => void;
   platform: 'ig' | 'yt' | 'other';
   onConfirmLead?: (key: string) => void;
-  onDeleteLead?: (key: string, callId?: string | null) => void;
   onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string, isFollowUp: boolean, existing?: RapportExistant | null) => void;
   onCardClick?: (cardKey: string) => void;
+  /** Le bouton direct du bandeau de doublon — distinct du menu au clic droit. */
   onNotALead?: (key: string, callId?: string | null) => void;
+  /** Le menu « retirer » est partagé par tout l'écran — voir useMenuRetirerLead. */
+  ouvrirMenu?: (e: React.MouseEvent, cible: CibleRetrait) => void;
 }) {
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
-  // Trois couches peuvent etre ouvertes en meme temps (menu contextuel, puis une
-  // confirmation par-dessus). Echap ne doit fermer que celle du dessus, sinon on
-  // perd tout le contexte d'un coup — d'ou l'ordre de priorite ci-dessous.
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [deleteConfirmed, setDeleteConfirmed] = useState(false);
-  const [confirmNotALead, setConfirmNotALead] = useState(false);
-  const [notALeadConfirmed, setNotALeadConfirmed] = useState(false);
-
-  useEscapeKey(() => {
-    if (confirmDelete) { setConfirmDelete(false); return; }
-    if (confirmNotALead) { setConfirmNotALead(false); return; }
-    if (ctxMenu) setCtxMenu(null);
-  }, !!ctxMenu || confirmDelete || confirmNotALead);
+  // Le menu « retirer » vit UNE fois pour tout l'ecran (useMenuRetirerLead) et non
+  // ici : cette carte est montee jusqu'a 412 fois dans une seule etape, et chaque
+  // instance montait quatre etats et un ecouteur clavier pour un menu dont une
+  // seule peut etre ouverte a la fois.
   const stage = stages[card.stageIdx] ?? stages[0];
   const ac = avatarColor(card.name);
   const dragStartedRef = useRef(false);
@@ -761,12 +754,11 @@ function PipelineCard({
     && POST_CALL_STAGES.has(card.stageKey);
 
   return (
-    <>
     <div
       draggable
       data-pipeline-card
       onDragStart={e => { dragStartedRef.current = true; onDragStart(e, card.key); }}
-      onContextMenu={e => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
+      onContextMenu={e => ouvrirMenu?.(e, { key: card.key, name: card.name, callId: card.callId, isIgLink: card.isIgLink })}
       onClick={() => {
         if (dragStartedRef.current) { dragStartedRef.current = false; return; }
         onCardClick?.(card.key);
@@ -949,137 +941,6 @@ function PipelineCard({
         </div>
       )}
     </div>
-
-    {/* Menu clic droit */}
-    {ctxMenu && createPortal(
-      <>
-        <div
-          style={{ position: 'fixed', inset: 0, zIndex: 9999 }}
-          onMouseDown={() => setCtxMenu(null)}
-        />
-        <div style={{
-          position: 'fixed', left: ctxMenu.x, top: ctxMenu.y, zIndex: 10000,
-          background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)',
-          padding: '4px 0', minWidth: 160,
-        }}>
-          <button
-            onMouseDown={e => { e.stopPropagation(); setCtxMenu(null); setConfirmNotALead(true); setNotALeadConfirmed(false); }}
-            style={{
-              display: 'block', width: '100%', textAlign: 'left',
-              padding: '8px 14px', fontSize: 12, fontWeight: 500,
-              background: 'none', border: 'none', cursor: 'pointer',
-              color: 'var(--ink)',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-2)'; }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
-          >
-            Ce n'est pas un lead
-          </button>
-          <button
-            onMouseDown={e => { e.stopPropagation(); setCtxMenu(null); setConfirmDelete(true); setDeleteConfirmed(false); }}
-            style={{
-              display: 'block', width: '100%', textAlign: 'left',
-              padding: '8px 14px', fontSize: 12, fontWeight: 500,
-              background: 'none', border: 'none', cursor: 'pointer',
-              color: '#dc2626',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = '#fef2f2'; }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
-          >
-            Supprimer {platform === 'ig' && !card.isIgLink ? `@${card.name}` : card.name}
-          </button>
-        </div>
-      </>,
-      document.body
-    )}
-
-    {/* Modale confirmation suppression */}
-    {confirmDelete && createPortal(
-      <>
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 10001 }} onMouseDown={() => setConfirmDelete(false)} />
-        <div style={{
-          position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
-          zIndex: 10002, background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: 12, padding: '24px 28px', minWidth: 320, boxShadow: '0 8px 32px rgba(0,0,0,.18)',
-        }}>
-          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Supprimer {platform === 'ig' && !card.isIgLink ? `@${card.name}` : card.name} ?</div>
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
-            Cette action supprime définitivement le lead et son historique.
-          </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--ink)', marginBottom: 20, cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={deleteConfirmed}
-              onChange={e => setDeleteConfirmed(e.target.checked)}
-              style={{ width: 14, height: 14, cursor: 'pointer' }}
-            />
-            Je comprends que cette action est irréversible
-          </label>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button
-              onMouseDown={() => { setConfirmDelete(false); setDeleteConfirmed(false); }}
-              style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer' }}
-            >
-              Annuler
-            </button>
-            <button
-              onMouseDown={() => { if (!deleteConfirmed) return; setConfirmDelete(false); setDeleteConfirmed(false); onDeleteLead?.(card.key, card.callId); }}
-              style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: 'none', background: '#dc2626', color: '#fff', cursor: deleteConfirmed ? 'pointer' : 'not-allowed', opacity: deleteConfirmed ? 1 : 0.4 }}
-            >
-              Supprimer
-            </button>
-          </div>
-        </div>
-      </>,
-      document.body
-    )}
-
-    {/* Modale confirmation "pas un lead" */}
-    {confirmNotALead && createPortal(
-      <>
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 10001 }} onMouseDown={() => setConfirmNotALead(false)} />
-        <div style={{
-          position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
-          zIndex: 10002, background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: 12, padding: '24px 28px', minWidth: 320, maxWidth: 380, boxShadow: '0 8px 32px rgba(0,0,0,.18)',
-        }}>
-          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
-            {platform === 'ig' && !card.isIgLink ? `@${card.name}` : card.name} n'est pas un lead ?
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.5 }}>
-            Cette fiche ne sera plus comptée dans les stats et ne sera pas recréée si la
-            personne vous réécrit en DM. Si elle clique un jour sur un lien tracké
-            (commentaire avec mot-clé, lien bio), un nouveau lead sera créé normalement.
-          </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--ink)', marginBottom: 20, cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={notALeadConfirmed}
-              onChange={e => setNotALeadConfirmed(e.target.checked)}
-              style={{ width: 14, height: 14, cursor: 'pointer' }}
-            />
-            Je comprends que cette fiche ne sera plus jamais comptée, quoi qu'elle fasse en DM
-          </label>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button
-              onMouseDown={() => { setConfirmNotALead(false); setNotALeadConfirmed(false); }}
-              style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer' }}
-            >
-              Annuler
-            </button>
-            <button
-              onMouseDown={() => { if (!notALeadConfirmed) return; setConfirmNotALead(false); setNotALeadConfirmed(false); onNotALead?.(card.key, card.callId); }}
-              style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: 'none', background: '#2563EB', color: '#fff', cursor: notALeadConfirmed ? 'pointer' : 'not-allowed', opacity: notALeadConfirmed ? 1 : 0.4 }}
-            >
-              Confirmer
-            </button>
-          </div>
-        </div>
-      </>,
-      document.body
-    )}
-    </>
   );
 }
 
@@ -1416,7 +1277,7 @@ function motifLisible(reason: string | null | undefined): string | null {
 // board.
 
 function PanneauIssue({
-  issue, cards, onFermer, onOuvrirFiche, onRelancer, avatarColor, avatarInitials,
+  issue, cards, onFermer, onOuvrirFiche, onRelancer, avatarColor, avatarInitials, ouvrirMenu,
 }: {
   issue: ColumnDef;
   cards: CardData[];
@@ -1424,6 +1285,8 @@ function PanneauIssue({
   onOuvrirFiche: (key: string) => void;
   /** Marque une relance faite. Absent = le bouton d'action ne s'affiche pas. */
   onRelancer?: (key: string) => void;
+  /** Le menu « retirer », partage avec le kanban et la vue liste. */
+  ouvrirMenu?: (e: React.MouseEvent, cible: CibleRetrait) => void;
   avatarColor: (n: string) => string;
   avatarInitials: (n: string) => string;
 }) {
@@ -1521,11 +1384,18 @@ function PanneauIssue({
                 const echeance = echeanceRelance(issue.key, c);
                 const faites = c.relancesFaites ?? 0;
                 return (
-                  <div key={c.key} style={{
-                    display: 'grid', gridTemplateColumns: grille, gap: 10,
-                    alignItems: 'center', padding: '9px 20px', minHeight: 56,
-                    borderBottom: '1px solid var(--border-soft, #f5f1e7)',
-                  }}>
+                  <div
+                    key={c.key}
+                    // Le clic droit porte sur la LIGNE entière, pas sur le bouton
+                    // du lead : viser un pseudo court au pixel près pour retirer
+                    // une fiche serait une cible plus petite que le geste.
+                    onContextMenu={e => ouvrirMenu?.(e, { key: c.key, name: c.name, callId: c.callId, isIgLink: c.isIgLink })}
+                    style={{
+                      display: 'grid', gridTemplateColumns: grille, gap: 10,
+                      alignItems: 'center', padding: '9px 20px', minHeight: 56,
+                      borderBottom: '1px solid var(--border-soft, #f5f1e7)',
+                    }}
+                  >
                     {/* Le lead : cliquer ouvre sa fiche. Le bouton du bout est une
                         action distincte, il ne doit pas hériter de ce clic — d'où
                         deux zones, et non une ligne entièrement cliquable. */}
@@ -1664,17 +1534,15 @@ function PanneauIssue({
 // contenir plus que n'importe quelle étape.
 
 function TuilesIssues({
-  issues, cardsParIssue, ouverte, onOuvrir, onDrop, onDragOver, onDragLeave, dropTarget, rendreCarte,
+  issues, cardsParIssue, onOuvrir, onDrop, onDragOver, onDragLeave, dropTarget,
 }: {
   issues: readonly ColumnDef[];
   cardsParIssue: Record<string, CardData[]>;
-  ouverte: string | null;
   onOuvrir: (key: string | null) => void;
   onDrop: (e: React.DragEvent, key: string) => void;
   onDragOver: (e: React.DragEvent, key: string) => void;
   onDragLeave: (key: string) => void;
   dropTarget: string | null;
-  rendreCarte: (card: CardData) => React.ReactNode;
 }) {
   const total = issues.reduce((n, i) => n + (cardsParIssue[i.key]?.length ?? 0), 0);
 
@@ -1706,15 +1574,14 @@ function TuilesIssues({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: 1, minHeight: 0 }}>
           {issues.map(issue => {
             const liste = cardsParIssue[issue.key] ?? [];
-            const estOuverte = ouverte === issue.key;
             const cible = dropTarget === issue.key;
             return (
-              <div key={issue.key} style={{ flex: estOuverte ? '2 1 0' : '1 1 0', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              <div key={issue.key} style={{ flex: '1 1 0', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                 <div
                   role="button"
                   tabIndex={0}
-                  onClick={() => onOuvrir(estOuverte ? null : issue.key)}
-                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOuvrir(estOuverte ? null : issue.key); } }}
+                  onClick={() => onOuvrir(issue.key)}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOuvrir(issue.key); } }}
                   onDrop={e => onDrop(e, issue.key)}
                   onDragOver={e => onDragOver(e, issue.key)}
                   onDragLeave={() => onDragLeave(issue.key)}
@@ -1853,7 +1720,7 @@ function CompteurClicsYt({ stage, total, depuis }: {
 
 function KanbanColumn({
   stage, cards, stages, draggingKey, onDragStart, onDrop, onDragOver, onDragLeave,
-  isDropTarget, platform, onConfirmLead, onDeleteLead, onRapportClick, onCardClick, onNotALead,
+  isDropTarget, platform, onConfirmLead, onRapportClick, onCardClick, onNotALead, ouvrirMenu,
   estIssue, replie, onToggleRepli,
 }: {
   stage: ColumnDef;
@@ -1867,10 +1734,10 @@ function KanbanColumn({
   isDropTarget: boolean;
   platform: 'ig' | 'yt' | 'other';
   onConfirmLead?: (key: string) => void;
-  onDeleteLead?: (key: string, callId?: string | null) => void;
   onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string, isFollowUp: boolean, existing?: RapportExistant | null) => void;
   onCardClick?: (cardKey: string) => void;
   onNotALead?: (key: string, callId?: string | null) => void;
+  ouvrirMenu?: (e: React.MouseEvent, cible: CibleRetrait) => void;
   /** Une issue se dessine en carré plein, une étape en pastille ronde. */
   estIssue?: boolean;
   replie?: boolean;
@@ -2002,10 +1869,10 @@ function KanbanColumn({
             onDragStart={onDragStart}
             platform={platform}
             onConfirmLead={onConfirmLead}
-            onDeleteLead={onDeleteLead}
             onRapportClick={onRapportClick}
             onCardClick={onCardClick}
             onNotALead={onNotALead}
+            ouvrirMenu={ouvrirMenu}
           />
         ))}
       </div>
@@ -3591,6 +3458,17 @@ export default function PagePipeline() {
     await refetch();
   }, [refetch]);
 
+  // ── LE MENU « RETIRER UN LEAD », UNE FOIS POUR TOUT L'ECRAN ─────────────────
+  //
+  // Il vivait dans `PipelineCard`, donc sur les seules cartes des colonnes
+  // d'etapes. Un lead affiche dans le panneau d'une issue ou dans la vue liste
+  // n'avait AUCUN moyen d'etre retire — le clic droit n'y declenchait rien.
+  //
+  // Une seule instance, trois surfaces : la cible est portee par l'ouverture du
+  // menu, pas par le composant qui l'ouvre.
+  const { ouvrirMenu, menuRetrait } = useMenuRetirerLead({
+    platform, onDeleteLead: handleDeleteLead, onNotALead: handleNotALead,
+  });
   // ── Actions en lot (vue liste) ──────────────────────────────────────────────
   //
   // Chaque lead est traité séparément côté serveur : il n'existe pas d'API de
@@ -4329,6 +4207,7 @@ export default function PagePipeline() {
         {vue === 'liste' ? (
           <div className="pipeline-desktop" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', paddingBottom: 16 }}>
             <PipelineListView
+              ouvrirMenu={ouvrirMenu}
               cards={caseIsolee ? cards.filter(c => c.stageKey === caseIsolee) : cards}
               columns={caseIsolee ? columns.filter(c => c.key === caseIsolee) : columns}
               stageKeys={stages.map(s => s.key)}
@@ -4412,8 +4291,8 @@ export default function PagePipeline() {
                   onDragLeave={e => handleDragLeave(stage.key)}
                   platform={platform}
                   onConfirmLead={key => { setConfirmedKeys(prev => new Set([...prev, key])); saveOverride(key, platform, 'confirmed_lead'); }}
-                  onDeleteLead={handleDeleteLead}
                   onNotALead={handleNotALead}
+                  ouvrirMenu={ouvrirMenu}
                   onRapportClick={(callId, inviteeName, scheduledAt, isFollowUp, existing) => setRapportModal({ callId, inviteeName, scheduledAt, isFollowUp, existing })}
                   onCardClick={cardKey => setDetailModal({ cardKey, platform })}
                   estIssue={estIssue}
@@ -4433,27 +4312,11 @@ export default function PagePipeline() {
               cardsParIssue={Object.fromEntries(
                 ISSUES.map(i => [i.key, cards.filter(c => c.stageKey === i.key)]),
               )}
-              ouverte={null}
               onOuvrir={key => setPanneauIssue(key)}
               onDrop={handleDrop}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               dropTarget={dropTarget}
-              rendreCarte={card => (
-                <PipelineCard
-                  key={card.key}
-                  card={card}
-                  stages={stages}
-                  isDragging={draggingKey === card.key}
-                  onDragStart={handleDragStart}
-                  platform={platform}
-                  onConfirmLead={key => { setConfirmedKeys(prev => new Set([...prev, key])); saveOverride(key, platform, 'confirmed_lead'); }}
-                  onDeleteLead={handleDeleteLead}
-                  onNotALead={handleNotALead}
-                  onRapportClick={(callId, inviteeName, scheduledAt, isFollowUp, existing) => setRapportModal({ callId, inviteeName, scheduledAt, isFollowUp, existing })}
-                  onCardClick={cardKey => setDetailModal({ cardKey, platform })}
-                />
-              )}
             />
           </div>
         </div>
@@ -4487,6 +4350,7 @@ export default function PagePipeline() {
               onRelancer={key => handleBulkRelance([key])}
               avatarColor={avatarColor}
               avatarInitials={avatarInitials}
+              ouvrirMenu={ouvrirMenu}
             />
           );
         })()}
@@ -4611,6 +4475,12 @@ export default function PagePipeline() {
           onClose={() => { setRapportModal(null); refetch(); }}
         />
       )}
+
+      {/* Le menu « retirer un lead » et ses deux confirmations, rendus UNE fois
+          pour tout l'écran. Les trois surfaces qui l'ouvrent — cartes du kanban,
+          lignes du panneau d'issue, lignes de la vue liste — ne portent que le
+          geste ; l'état et les modales vivent ici. */}
+      {menuRetrait}
 
       {/* Modal détail prospect — timeline chronologique */}
     </div>

@@ -4,6 +4,7 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import Image from 'next/image';
 import Icon from '@/components/ui/Icon';
 import IconeIssue from './IconeIssue';
+import type { CibleRetrait } from './useMenuRetirerLead';
 
 // ── La vue liste ──────────────────────────────────────────────────────────────
 //
@@ -85,6 +86,8 @@ interface Props {
   onBulkDelete: (keys: string[]) => Promise<void> | void;
   onBulkNotALead: (keys: string[]) => Promise<void> | void;
   onBulkRelance: (keys: string[]) => Promise<void> | void;
+  /** Le menu « retirer un lead », partage avec le kanban — voir useMenuRetirerLead. */
+  ouvrirMenu?: (e: React.MouseEvent, cible: CibleRetrait) => void;
 }
 
 function joursDepuis(iso: string | null | undefined, now: number): number | null {
@@ -105,7 +108,7 @@ function libelleAnciennete(j: number | null): string {
 
 export default function PipelineListView({
   cards, columns, stageKeys, tri = 'immobile', tris = [], onTri, avatarColor, avatarInitials,
-  onCardClick, onRapportClick, onBulkDelete, onBulkNotALead, onBulkRelance,
+  onCardClick, onRapportClick, onBulkDelete, onBulkNotALead, onBulkRelance, ouvrirMenu,
 }: Props) {
   const now = Date.now();
   const [triOuvert, setTriOuvert] = useState(false);
@@ -373,6 +376,9 @@ export default function PipelineListView({
                   <div
                     key={c.key}
                     onClick={() => onCardClick(c.key)}
+                    // Le meme menu que le kanban et le panneau d'issue : les
+                    // deux gestes de retrait n'ont rien de propre a une carte.
+                    onContextMenu={e => ouvrirMenu?.(e, { key: c.key, name: c.name, callId: c.callId, isIgLink: c.isIgLink })}
                     // La sélection passe par une CLASSE, plus par un fond en style
                     // inline : l'inline l'emporte sur toute feuille de style, donc
                     // aucun `:hover` n'aurait pu se voir. Les quatre états de la
