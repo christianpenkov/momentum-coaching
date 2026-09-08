@@ -715,9 +715,39 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
     //
     // Fermer sur l'écran paiement ne perd rien : le brouillon garde tout et
     // rouvrir ramène exactement là, pour finir de choisir les modalités.
-    if (a.outcomeChoice === 'closed' && !isCorrection) {
-      goTo('payment');
-      return;
+    // ⚠️ `!isCorrection` couvrait DEUX situations opposées sous un seul test, et
+    // la seconde perdait de l'argent :
+    //
+    //   corriger un appel déjà closé, qui a sa vente  → sauter l'écran est juste
+    //   corriger un appel qui DEVIENT closé           → la vente doit être créée
+    //
+    // Relevé par Chris le 2026-09-08 sur Incogniton : rapport corrigé en « vente
+    // conclue · 900 € », `calls.revenue` écrit, AUCUNE vente en base — donc rien
+    // dans la page Paiements, qui lit `deals` depuis le 2026-08-20. Et donc
+    // aucune modalité demandée, puisque cet écran-là est précisément celui qu'on
+    // avait sauté.
+    //
+    // On demande la vérité à la base plutôt que de la déduire : l'outcome
+    // précédent ne suffit PAS, un closing manuel du kanban ferme un appel sans
+    // créer de vente non plus.
+    if (a.outcomeChoice === 'closed') {
+      let venteExiste = false;
+      if (isCorrection) {
+        try {
+          const r = await fetch(`/api/payments/links?callId=${callId}`);
+          if (!r.ok) throw new Error();
+          venteExiste = !!(await r.json()).deal;
+        } catch {
+          // ⚠️ On ne sait pas : on montre l'écran des modalités. Le pire qu'il
+          // arrive est une question de trop ; l'inverse serait une vente perdue.
+          // La route POST refuse de toute façon d'en créer une seconde.
+          venteExiste = false;
+        }
+      }
+      if (!venteExiste) {
+        goTo('payment');
+        return;
+      }
     }
 
     const ok = await submitRapport(a);

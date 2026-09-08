@@ -33,6 +33,61 @@ const supa = createClient(
 
 const INTERVAL_DAYS = { month: 30, week: 7 } as const;
 
+/**
+ * Cet appel porte-t-il DÉJÀ une vente ?
+ *
+ * GET /api/payments/links?callId=…  →  { deal: { id, amountTotal } | null }
+ *
+ * ── Pourquoi cette lecture existe ──────────────────────────────────────────
+ * Le rapport de vente saute l'écran des modalités — donc la CRÉATION de la vente
+ * — quand il est ouvert en correction. La condition était `!isCorrection`, qui
+ * couvre deux situations opposées sous un seul test :
+ *
+ *   corriger un appel déjà closé, qui a sa vente   → sauter est juste
+ *   corriger un appel qui DEVIENT closé            → la vente doit être créée
+ *
+ * Constaté par Chris le 2026-09-08 sur Incogniton : rapport corrigé en « vente
+ * conclue · 900 € », `calls.revenue` écrit, AUCUNE vente en base. L'argent
+ * n'apparaissait nulle part — la page Paiements lit `deals` depuis le
+ * 2026-08-20. `ventes_sante_montants` l'a signalé (`deal_manquant`), mais une
+ * détection n'est pas une prévention.
+ *
+ * ⚠️ Et le raccourci « l'outcome était déjà closed » ne suffit PAS : le closing
+ * manuel du kanban ferme un appel sans créer de vente non plus. Seule la base
+ * répond à la question, d'où cette route.
+ */
+export async function GET(request: NextRequest) {
+  const supabase = await createServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+
+  const callId = new URL(request.url).searchParams.get('callId');
+  if (!callId) return NextResponse.json({ error: 'callId requis' }, { status: 400 });
+
+  const { data: call } = await supa.from('calls').select('coach_id').eq('id', callId).maybeSingle();
+  if (!call) return NextResponse.json({ error: 'Call introuvable' }, { status: 404 });
+
+  const profileId = await resolveTargetProfile(user.id, call.coach_id);
+  if (!profileId) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
+
+  // `canceled` exclu : une vente annulée ne compte plus, et refaire un rapport
+  // en « vente conclue » après une annulation doit bien recréer une vente.
+  const { data: deal, error } = await supa.from('deals')
+    .select('id, amount_total')
+    .eq('call_id', callId)
+    .neq('status', 'canceled')
+    .maybeSingle();
+
+  // ⚠️ L'erreur est LUE : `data: null` non distingué d'une erreur ferait conclure
+  // « pas de vente », donc en recréer une seconde. Le mode de panne doit être le
+  // refus, pas le doublon.
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  return NextResponse.json({
+    deal: deal ? { id: deal.id, amountTotal: Number(deal.amount_total) } : null,
+  });
+}
+
 export async function POST(request: NextRequest) {
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -43,6 +98,25 @@ export async function POST(request: NextRequest) {
 
   const profileId = await resolveTargetProfile(user.id, body.profileId ?? null);
   if (!profileId) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
+
+  // ── Jamais DEUX ventes sur le même rendez-vous ────────────────────────────
+  // La garde vit ici et pas seulement dans l'écran : un client qui rejoue sa
+  // requête, un double-clic, ou un futur appelant créerait sinon un doublon —
+  // et le cash contracté compterait deux fois la même vente, en silence.
+  //
+  // On rend la vente EXISTANTE plutôt qu'une erreur : l'appelant voulait une
+  // vente sur ce rendez-vous, il en a une.
+  if (body.callId) {
+    const { data: deja, error: dejaErr } = await supa.from('deals')
+      .select('id, short_url')
+      .eq('call_id', body.callId)
+      .neq('status', 'canceled')
+      .maybeSingle();
+    if (dejaErr) return NextResponse.json({ error: dejaErr.message }, { status: 500 });
+    if (deja) {
+      return NextResponse.json({ dealId: deja.id, url: deja.short_url, deja: true });
+    }
+  }
 
   const buyerName = String(body.buyerName ?? '').trim();
   const amount = Number(body.amount);
