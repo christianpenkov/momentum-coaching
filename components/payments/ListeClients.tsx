@@ -3,7 +3,7 @@
 import Icon from '@/components/ui/Icon';
 import Avatar, { getInitials, seedForPerson } from '@/components/ui/Avatar';
 import { useIsMobile } from '@/lib/useIsMobile';
-import { ETATS, libelleEtat, moyenDefini, compteDansLesTotaux, type EtatVente } from './etats';
+import { ETATS, etatDe, libelleEtat, moyenDefini, compteDansLesTotaux, type EtatVente } from './etats';
 import { Barre } from './FicheClient';
 import { fmtEurExact, fmtDateLong, fmtEcheanceLitige, type PersonRow, type DealRow } from './types';
 
@@ -66,7 +66,15 @@ function LigneClient({ person, deals, isMobile, isCoach, onOuvrir }: {
   // toi. Un remboursement sans raison ne change aucun état — la vente reste
   // « Soldée » — et la question ne se voyait donc qu'en ouvrant la fiche, une
   // par une. Une question qu'il faut chercher est une question sans réponse.
-  const aExpliquer = siennes.some(d => d.refundInexplique > 0.005);
+  //
+  // ⚠️ Les ventes ANNULÉES en sont exclues : leur remboursement est expliqué par
+  // l'annulation elle-même. Sans ce filtre, un client dont la vente a été
+  // annulée par un remboursement intégral portait « À EXPLIQUER » pour
+  // toujours, sur une question sans objet — et une pastille permanente qui ne
+  // demande rien finit par masquer celles qui demandent vraiment quelque chose.
+  // La question reste posable depuis la fiche, en ton neutre.
+  const aExpliquer = siennes.some(d =>
+    d.refundInexplique > 0.005 && etatDe(d) !== 'canceled');
   // ── Rien n'est en place pour encaisser cette vente ────────────────────────
   // Meme raison que ci-dessus : la pastille dit l'ETAT (« En cours »), pas qu'il
   // manque une decision. Une vente signee sans moyen de paiement reste « En

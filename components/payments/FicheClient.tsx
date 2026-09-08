@@ -338,6 +338,9 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
   )];
 
   const etat = etatDe(deal);
+  // Une vente annulée n'attend plus rien : le remboursement l'a annulée, donc il
+  // est expliqué. La question reste posable, elle cesse d'être réclamée.
+  const venteAnnulee = etat === 'canceled';
   const e = ETATS[etat];
   const precision = precisionEtat(deal);
   const mode = modeDe(deal);
@@ -643,17 +646,42 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
           </div>
         )}
 
+        {/* ── La MÊME question, deux tons ────────────────────────────────────
+            Sur une vente annulée, le remboursement est déjà expliqué : c'est lui
+            qui l'a annulée. Demander « te doit-il encore cette somme ? » y est
+            faux — il ne doit plus rien, la vente n'existe plus — et « c'est elle
+            qui explique le pourcentage » aussi : le 0 % vient de l'annulation.
+            Deux clients portaient donc une pastille « À EXPLIQUER » permanente
+            pour une question sans objet. Relevé par Chris le 2026-09-09.
+
+            On ne SUPPRIME pas la question pour autant : c'est le seul retour en
+            arrière si le remboursement était une erreur, et retirer un chemin de
+            secours parce qu'on l'utilise rarement, c'est le retirer le jour où
+            il sert. Elle cesse simplement d'être une alarme — fond neutre,
+            bouton discret. Le dépôt a déjà payé la leçon des alertes qu'on
+            n'ouvre plus (voir docs/requetes-qui-echouent-en-silence.md). */}
         {aExpliquer && (
           <div style={{
-            marginTop: 10, background: 'var(--amber-soft)',
-            border: '1px solid rgba(181,128,37,.28)', borderRadius: 10, padding: '12px 14px',
+            marginTop: 10,
+            background: venteAnnulee ? 'var(--surface-2)' : 'var(--amber-soft)',
+            border: `1px solid ${venteAnnulee ? 'var(--border)' : 'rgba(181,128,37,.28)'}`,
+            borderRadius: 10, padding: '12px 14px',
           }}>
-            <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--amber-ink)', marginBottom: 3 }}>
-              Pourquoi {fmtEurExact(deal.refundInexplique)} sont-ils repartis ?
+            <div style={{
+              fontSize: 12.5, fontWeight: 600, marginBottom: 3,
+              color: venteAnnulee ? 'var(--ink-2)' : 'var(--amber-ink)',
+            }}>
+              {venteAnnulee
+                ? <>Cette vente est annulée — le remboursement l’explique</>
+                : <>Pourquoi {fmtEurExact(deal.refundInexplique)} sont-ils repartis ?</>}
             </div>
             <div style={{ fontSize: 11.5, color: 'var(--ink-2)', lineHeight: 1.55 }}>
-              Sans la raison, on ne sait pas si {deal.buyerName.split(' ')[0]} te doit
-              encore cette somme — et c’est elle qui explique le pourcentage ci-dessus.
+              {venteAnnulee
+                ? <>{fmtEurExact(deal.refundInexplique)} sont repartis chez
+                  {' '}{deal.buyerName.split(' ')[0]}, et la vente ne compte plus nulle part.
+                  Il n’y a rien à faire — sauf si tu as remboursé par erreur.</>
+                : <>Sans la raison, on ne sait pas si {deal.buyerName.split(' ')[0]} te doit
+                  encore cette somme — et c’est elle qui explique le pourcentage ci-dessus.</>}
             </div>
             {/* Ce que Stripe SAIT deja : son formulaire de remboursement exige un
                 motif, donc l'information existe toujours quand le remboursement
@@ -667,9 +695,9 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
               </div>
             )}
             <button onClick={() => onAction('raisonRemboursement')}
-              className="btn-primary-brand"
+              className={venteAnnulee ? 'btn-ghost' : 'btn-primary-brand'}
               style={{ fontSize: 12.5, marginTop: 11 }}>
-              Dire pourquoi
+              {venteAnnulee ? 'C’était une erreur' : 'Dire pourquoi'}
             </button>
           </div>
         )}
