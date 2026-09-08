@@ -738,7 +738,7 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
                     fontSize: 12.5, padding: '7px 13px', borderRadius: 8,
                     fontFamily: 'inherit', cursor: 'pointer',
                     background: 'var(--surface)',
-                    border: '1px solid var(--border)',
+                    border: '1px solid var(--ink-2)',
                     color: 'var(--ink-2)', whiteSpace: 'nowrap',
                   }}>
                     Porter la vente à {fmtEurExact(deal.collected)}
@@ -1127,8 +1127,14 @@ function LigneEcheance({ inst, total, mode, finDeVie, payeLe, onChange, onDeclar
             Même déduction depuis une absence que dans le rappel d'échéance et
             dans `terms/route.ts`, corrigés le même jour. */}
         {!payee && !abandonnee && !inst.short_url && mode === 'offline' && (
+          // ⚠️ Cadre en `--ink-2`, la couleur du TEXTE, et non en `--border`.
+          // Ce bouton vit au bout d'une ligne d'échéance, entre un montant et
+          // d'autres traits : un cadre plus pâle que son propre libellé s'y
+          // fondait dans les séparateurs et ne se lisait plus comme cliquable.
+          // Même règle que « Porter la vente à X » plus haut — un bouton neutre
+          // se ressemble partout.
           <button onClick={onDeclarer} style={{
-            fontSize: 11.5, flexShrink: 0, border: '1px solid var(--border)', borderRadius: 7,
+            fontSize: 11.5, flexShrink: 0, border: '1px solid var(--ink-2)', borderRadius: 7,
             padding: '4px 9px', background: 'var(--surface)', cursor: 'pointer',
             fontFamily: 'inherit', color: 'var(--ink-2)',
           }}>Reçu</button>
