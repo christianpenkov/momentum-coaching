@@ -427,16 +427,31 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
   // On range donc par jour, puis par ÉCHÉANCE, puis la cause avant l'effet :
   // « déclaré reçu » précède l'« Encaissé » qu'il explique. Demandé par Chris
   // le 2026-09-08 — et c'est aussi l'ordre dans lequel les faits se produisent.
-  const rangDeLEcheance = new Map(echeances.map(i => [i.id, i.rank]));
-  const cle3 = (quand: string, rang: number, cause: boolean) =>
-    `${quand}|${String(rang).padStart(3, '0')}|${cause ? '0' : '1'}`;
+  // La clé se lit de gauche à droite :
+  //
+  //   1. le JOUR du fait — et non l'horodatage complet. Le champ de saisie ne
+  //      donne qu'une date, donc toute déclaration du jour tombe à minuit,
+  //      tandis qu'un paiement Stripe porte l'heure réelle. Trier sur
+  //      l'horodatage rangeait tous les virements avant un paiement de 19 h,
+  //      quel que soit l'ordre où ils se sont produits.
+  //   2. la MINUTE OÙ C'EST ENTRÉ dans Momentum. C'est elle qui apparie la
+  //      déclaration et l'encaissement qu'elle produit : les deux lignes sont
+  //      écrites dans la même seconde. Tronquer à la minute les regroupe sans
+  //      dépendre de l'ordre exact des deux insertions.
+  //   3. la CAUSE avant l'effet — « déclaré reçu » précède son « Encaissé ».
+  //
+  // ⚠️ Le séparateur date/heure est normalisé : PostgREST rend « …T19:42 » et
+  // Postgres « … 19:42 ». Deux formats pour le même instant, donc deux clés
+  // différentes — et la déclaration cesserait de s'apparier à son encaissement
+  // sans qu'aucune valeur ne soit fausse.
+  const cle3 = (quand: string, saisie: string, cause: boolean) =>
+    `${quand.slice(0, 10)}|${saisie.replace(' ', 'T').slice(0, 16)}|${cause ? '0' : '1'}`;
 
   const chronologie = [
     ...aMontrer.map(p => ({
       cle: `p-${p.id}`,
       quand: p.paid_at ?? p.created_at ?? '',
-      tri: cle3(p.paid_at ?? p.created_at ?? '',
-        (p.installment_id && rangDeLEcheance.get(p.installment_id)) || 0, false),
+      tri: cle3(p.paid_at ?? p.created_at ?? '', p.created_at ?? p.paid_at ?? '', false),
       // ⚠️ `disputed` n'est PAS un echec. Le paiement a bien eu lieu ; la banque
       // du client l'a conteste et Stripe a repris la somme en attendant l'issue.
       // Le repli `Paiement refuse` l'affirmait pourtant — sur la ligne meme ou
@@ -457,8 +472,11 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
     ...journal.map(ev => ({
       cle: `e-${ev.id}`,
       quand: ev.created_at,
+      // `consenti_le` est l'instant réel de la déclaration ; `created_at` (la
+      // colonne `at`) porte désormais la date du FAIT, qui ne suffit plus à
+      // apparier. Repli sur elle pour les événements qui n'en ont pas.
       tri: cle3(ev.created_at,
-        Number((ev.meta as { echeance?: number } | null)?.echeance ?? 0) || 0,
+        String((ev.meta as { consenti_le?: string } | null)?.consenti_le ?? ev.created_at),
         ev.kind === 'offline_received'),
       label: ev.label,
       montant: null as string | null,
