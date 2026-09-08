@@ -65,3 +65,51 @@ Le calcul du nombre de leads (`lib/salesCallStats.ts`) a la même exigence de co
 > Les cinq règles de périmètre qui doivent rester communes sont désormais écrites une
 > seule fois dans **`docs/perimetre-stats-referentiel.md`** — à lire avant de toucher à
 > un compteur de leads, de calls ou de revenus.
+
+## Le verrou s'applique aussi aux COACHS (2026-09-08)
+
+Un coach sans intégrations faisait calculer les écrans de stats sur des sources vides —
+le défaut même que ce verrou existe pour empêcher côté élève.
+
+Le problème à résoudre : `integrations_ready_at` vivait sur `clients`, et **un coach n'a
+pas de ligne `clients` pour lui-même**. Il n'y avait rien à lire.
+
+**Le choix : la même définition, pas une deuxième.** La liste des 7 providers n'a pas été
+recopiée — c'est **la fonction du déclencheur existant** qui a été étendue, pour qu'il
+pose désormais les deux colonnes.
+
+```
+une seule liste (integrations_obligatoires) · un seul déclencheur · deux emplacements
+  élève → clients.integrations_ready_at    (inchangé)
+  coach → profiles.integrations_ready_at   (2026-09-08)
+```
+
+### ⚠️ Les deux colonnes n'ont PAS le même poids — ne jamais les traiter pareil
+
+| | Lecteurs | Effet d'un changement |
+|---|---|---|
+| `profiles.integrations_ready_at` | **1** — le seul verrou de `app/(coach)/layout.tsx` | ouvre ou ferme l'accès, **rien d'autre** |
+| `clients.integrations_ready_at` | **20 fichiers** — calls, deals, leads, pipeline, notifications, stats | c'est **la borne de départ de tout l'historique** |
+
+**Conséquence pratique, et c'est le piège :** débloquer un COACH avec `now()` est sans
+conséquence. Débloquer un ÉLÈVE avec `now()` **efface tout son historique de leads et de
+calls de tous les écrans**, en silence — exactement ce que le rattrapage initial avait
+pris soin d'éviter en n'utilisant pas la date de déploiement.
+
+> **Pour débloquer un élève à la main, utiliser la règle du rattrapage : la donnée métier
+> la plus ancienne connue** (premier lead Instagram, ou premier call réservé). Jamais
+> `now()`, jamais une date de connexion d'intégration.
+
+### Déblocages exceptionnels en cours — à connaître avant de conclure à un bug
+
+| Qui | Intégrations réelles | Débloqué le | Pourquoi |
+|---|---|---|---|
+| **Chris** (coach) | 2/7 | 2026-09-08 | exception demandée : c'est le compte de développement, et le verrou l'aurait enfermé dehors de sa propre plateforme |
+| **Dolphin** (élève) | 2/7 | **2026-08-28** | exception demandée. Date = son premier lead Instagram, **pas** `now()` — sinon 11 jours d'historique disparaissaient |
+
+⚠️ **Voir un compte débloqué avec moins de 7 intégrations n'est donc PAS un défaut du
+verrou.** Le déclencheur ne pose la date que si les 7 sont réunies ; ces deux lignes ont
+été posées à la main, et la colonne ne redescend jamais.
+
+**Quennel reste verrouillé, volontairement** : il doit connecter ses 7 intégrations avant
+d'entrer, c'est le but du mécanisme.
