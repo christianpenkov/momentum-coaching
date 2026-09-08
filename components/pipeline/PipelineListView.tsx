@@ -70,7 +70,22 @@ export interface ListColumn {
 
 interface Props {
   cards: ListCard[];
+  /**
+   * TOUTES les cases, étapes et issues — jamais un sous-ensemble.
+   *
+   * ⚠️ Elle sert à DEUX choses qu'il ne faut pas confondre : construire les
+   * sections, et traduire la clé d'étape d'une ligne en libellé. L'appelant
+   * filtrait cette liste pour n'afficher qu'une case ; la colonne « Étape
+   * actuelle » n'y trouvait alors plus rien et retombait sur la clé brute —
+   * `call_booked` s'affichait à la place de « RDV pris » dans toutes les issues.
+   * Le filtrage vit désormais ici, dans `caseIsolee`.
+   */
   columns: readonly ListColumn[];
+  /**
+   * N'afficher que cette case. Les autres sections disparaissent, mais tous les
+   * libellés restent connus.
+   */
+  caseIsolee?: string | null;
   /** Les étapes seules — sert à savoir si une colonne est une étape ou une issue. */
   stageKeys: readonly string[];
   /** Ordre des lignes dans chaque section. */
@@ -107,15 +122,23 @@ function libelleAnciennete(j: number | null): string {
 }
 
 export default function PipelineListView({
-  cards, columns, stageKeys, tri = 'immobile', tris = [], onTri, avatarColor, avatarInitials,
+  cards, columns, caseIsolee = null, stageKeys, tri = 'immobile', tris = [], onTri,
+  avatarColor, avatarInitials,
   onCardClick, onRapportClick, onBulkDelete, onBulkNotALead, onBulkRelance, ouvrirMenu,
 }: Props) {
   const now = Date.now();
   const [triOuvert, setTriOuvert] = useState(false);
 
+  // Les sections rendues. `columns` reste entière : c'est elle qui sait nommer
+  // l'étape d'une ligne, y compris quand la section affichée est une issue.
+  const sections = useMemo(
+    () => (caseIsolee ? columns.filter(c => c.key === caseIsolee) : columns),
+    [columns, caseIsolee],
+  );
+
   const parColonne = useMemo(() => {
     const m = new Map<string, ListCard[]>();
-    for (const col of columns) m.set(col.key, []);
+    for (const col of sections) m.set(col.key, []);
     for (const c of cards) m.get(c.stageKey)?.push(c);
     // Un rapport à remplir passe TOUJOURS devant, quel que soit le tri : c'est
     // la seule ligne qui bloque une statistique tant qu'elle n'est pas traitée.
@@ -129,7 +152,7 @@ export default function PipelineListView({
       });
     }
     return m;
-  }, [cards, columns, tri]);
+  }, [cards, sections, tri]);
 
   // Repli : les grosses sections arrivent fermées. L'état n'est calculé qu'une
   // fois — rouvrir puis recharger ne doit pas refermer sous les doigts.
@@ -271,7 +294,7 @@ export default function PipelineListView({
             )}
           </span>
         </div>
-        {columns.map(col => {
+        {sections.map(col => {
           const liste = parColonne.get(col.key) ?? [];
           const replie = replies.has(col.key);
           const enRetard = liste.filter(c => c.rapportEnRetard).length;

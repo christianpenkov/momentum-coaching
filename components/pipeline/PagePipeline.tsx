@@ -4314,7 +4314,12 @@ export default function PagePipeline() {
             <PipelineListView
               ouvrirMenu={ouvrirMenu}
               cards={caseIsolee ? cards.filter(c => c.stageKey === caseIsolee) : cards}
-              columns={caseIsolee ? columns.filter(c => c.key === caseIsolee) : columns}
+              // ⚠️ TOUTES les cases, jamais filtrées : la liste s'en sert aussi
+              // pour nommer l'étape de chaque ligne. Filtrer ici privait la
+              // colonne « Étape actuelle » de son libellé, et elle affichait la
+              // clé brute (`call_booked`) dans toutes les issues.
+              columns={columns}
+              caseIsolee={caseIsolee}
               stageKeys={stages.map(s => s.key)}
               tri={tri}
               avatarColor={avatarColor}
