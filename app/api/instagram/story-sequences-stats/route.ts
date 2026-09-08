@@ -74,7 +74,7 @@ async function chainesEtCash(profileId: string) {
  * ⚠️ Sert a repondre a « d'ou vient VRAIMENT ce rendez-vous ». Le repli par fiche
  * presumait qu'un call sans `utm_content` d'un lead rattache a une sequence venait de
  * cette sequence. C'est faux des que la personne a aussi commente un post : mesure le
- * 2026-09-04, le call `af9d5898` etait credite A LA FOIS au post `18056185901693457`
+ * 2026-09-08, le call `af9d5898` etait credite A LA FOIS au post `18056185901693457`
  * (regle du journal, cote page) et a « Sequence test webhook » (ce repli) — deux lignes
  * du meme tableau pour un seul rendez-vous, et le cash aurait double avec.
  *
