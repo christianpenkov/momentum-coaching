@@ -305,6 +305,27 @@ export const libelleRythme = (i: string | null) =>
   i === 'week' ? 'hebdomadaire' : 'mensuel';
 
 /**
+ * Les trois autres tournures du rythme — et pourquoi elles vivent ICI.
+ *
+ * Chaque appelant les dérivait à sa façon, en comparant le libellé à une chaîne :
+ * `libelleRythme(x) === 'mensuel' ? 'chaque mois' : 'chaque semaine'`, écrit à
+ * l'identique dans FinDeVie et ModifierModalites. Deux problèmes, pas un :
+ * la même phrase est construite en plusieurs endroits, et surtout la LOGIQUE
+ * repose sur le texte affiché — renommer « mensuel » ferait basculer tous ces
+ * ternaires en hebdomadaire, en silence et sans qu'aucun test ne parle.
+ *
+ * Ces tournures ne sont pas interchangeables en français : « tous les mois »
+ * mais « toutes les semaines ». C'est justement pour ça qu'elles se calculent
+ * au même endroit que le mot dont elles dépendent.
+ */
+export const parRythme = (i: string | null) =>
+  i === 'week' ? 'par semaine' : 'par mois';
+export const chaqueRythme = (i: string | null) =>
+  i === 'week' ? 'chaque semaine' : 'chaque mois';
+export const tousLesRythme = (i: string | null) =>
+  i === 'week' ? 'toutes les semaines' : 'tous les mois';
+
+/**
  * Le MOYEN d'encaisser, en toutes lettres.
  *
  * ⚠️ Distinct du mode. `libelleMode` répond à « combien de fois » pour un

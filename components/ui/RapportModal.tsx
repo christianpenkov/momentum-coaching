@@ -12,6 +12,10 @@ import celebrationAnimation from '@/public/animations/celebration.json';
 import { useRapportDraftWriter, type RapportDraft } from '@/lib/useRapportDraft';
 import { buildRapportPatch, estimateTotal, countAnswered, objectionsPour, EMPTY_ANSWERS, type RapportAnswers, type ObjectionChoice, type RapportExistant } from '@/lib/rapportPatch';
 import { wallClockToUtc, cityLabelOf, formatDateIn, formatTimeIn, jourCourantIci } from '@/lib/timezone';
+// Le rythme se dit en toutes lettres au même endroit pour toute l'app — la fiche
+// client, l'écran de modalités et ce rapport doivent nommer pareil ce qu'ils
+// écrivent dans la même colonne.
+import { parRythme } from '@/components/payments/etats';
 import { useViewerTimeZone } from '@/lib/UserContext';
 
 // Convertit les valeurs brutes des champs <input type="date"> et <input type="time">
@@ -202,6 +206,14 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
   // du rapport, donc après la suppression du brouillon. Rien à reprendre.
   const [plan, setPlan] = useState<1 | 2 | 3 | 4>(1);
   const [autoDebit, setAutoDebit] = useState(true);
+  // ⚠️ Le rythme se choisissait DÉJÀ côté serveur — `links/route.ts` lit
+  // `installmentInterval` et retombe sur 'month' — mais aucun écran ne l'envoyait :
+  // toute vente créée par un rapport était mensuelle, sans que personne ne l'ait
+  // décidé et sans que rien ne le dise. Le seul recours était de corriger les
+  // modalités APRÈS coup, ce qui, à rythme changé, oblige à refaire la vente
+  // (Stripe réinitialise l'ancre de facturation et prélève immédiatement).
+  // Relevé par Chris le 2026-09-08.
+  const [rythme, setRythme] = useState<'month' | 'week'>('month');
   const [paymentUrl, setPaymentUrl] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   // Hors Stripe : l'argent est-il déjà encaissé, et sinon pour quand ?
@@ -654,7 +666,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               ? 'one_shot'
               : (skipLink || !autoDebit) ? 'installments_manual' : 'installments_auto',
             installmentsCount: plan === 1 ? null : plan,
-            installmentInterval: 'month',
+            installmentInterval: rythme,
           }),
         });
         const d = await r.json();
@@ -1392,10 +1404,32 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                             borderRadius: 999, padding: '9px 17px', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
                           }}>Un lien par échéance</button>
                       </div>
+
+                      {/* ── À quel rythme ────────────────────────────────────
+                          Ce choix n'existait nulle part : toute vente créée ici
+                          partait en mensuel. Il est proposé MAINTENANT et pas
+                          plus tard parce que c'est la seule modification qui,
+                          après coup, oblige à refaire la vente — changer le
+                          rythme réinitialise l'ancre de facturation chez Stripe,
+                          qui prélève alors immédiatement. Ce qu'on ne peut pas
+                          corriger sans dégât se demande au bon moment. */}
+                      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                        {([['month', 'Mensuel'], ['week', 'Hebdomadaire']] as const).map(([v, label]) => (
+                          <button key={v} type="button" onClick={() => setRythme(v)}
+                            style={{
+                              border: `1px solid ${rythme === v ? 'var(--accent-brand)' : 'var(--border)'}`,
+                              background: rythme === v ? 'var(--accent-brand)' : 'var(--surface)',
+                              color: rythme === v ? '#fff' : 'var(--ink-2)',
+                              fontWeight: rythme === v ? 600 : 400,
+                              borderRadius: 999, padding: '9px 17px', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
+                            }}>{label}</button>
+                        ))}
+                      </div>
+
                       {/* C'est ici que se joue le compromis : ce que l'élève aura
-                          à faire ensuite, mois après mois. */}
+                          à faire ensuite, échéance après échéance. */}
                       <div style={{ padding: '12px 14px', background: 'var(--surface-2)', borderRadius: 10, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.55, marginBottom: 18 }}>
-                        {plan} × {Math.round(((parseFloat(revenue.replace(',', '.')) || 0) / plan) * 100) / 100} € par mois,
+                        {plan} × {Math.round(((parseFloat(revenue.replace(',', '.')) || 0) / plan) * 100) / 100} € {parRythme(rythme)},
                         soit {fmtMontant(parseFloat(revenue.replace(',', '.')) || 0)}.{' '}
                         {autoDebit
                           ? 'Le client saisit sa carte une fois, Stripe prélève ensuite tout seul.'

@@ -6,7 +6,7 @@ import ModaleAction, {
   BoutonFin, Rondelle,
   CaseResponsabilite, Encart, Ligne, Section, VersStripe, champStyle,
 } from './ModaleAction';
-import { modeDe, libelleRythme } from './etats';
+import { modeDe, tousLesRythme } from './etats';
 import { useEcheancesAVenir } from './useEcheances';
 import { fmtEurExact, fmtDateLong, type DealRow, type DealDetail } from './types';
 
@@ -108,7 +108,7 @@ export function Cloturer({ deal, onClose, onDone, onArreter }: {
         }>
         <Encart ton="attention" titre="Clôturer maintenant afficherait un mensonge">
           La vente dirait « terminée » pendant que Stripe continuerait de prélever
-          {' '}{prenom} tous les {libelleRythme(deal.installmentInterval) === 'mensuel' ? 'mois' : 'semaines'}.
+          {' '}{prenom} {tousLesRythme(deal.installmentInterval)}.
           <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(181,128,37,.28)' }}>
             Les deux actions se rejoignent sur ce mode de paiement : arrête d’abord
             les prélèvements, et Momentum clôturera la vente tout seul dès qu’il

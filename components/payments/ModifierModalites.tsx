@@ -7,6 +7,7 @@ import ModaleAction, {
 } from './ModaleAction';
 import {
   modeDe, moyenDe, moyenDefini, libelleMoyen, libelleDuMoyen, libelleRythme,
+  parRythme, chaqueRythme,
   type Mode, type Moyen,
 } from './etats';
 import { useEcheancesAVenir } from './useEcheances';
@@ -414,7 +415,7 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
         <div style={{ marginTop: 18 }}>
           <Encart titre={reste > 0.005
             ? aCreer > 1
-              ? `${fmtEurExact(parEcheance)} ${rythme === 'month' ? 'par mois' : 'par semaine'} pendant ${aCreer} fois`
+              ? `${fmtEurExact(parEcheance)} ${parRythme(rythme)} pendant ${aCreer} fois`
               : `${fmtEurExact(reste)} en une fois`
             : 'Rien de plus à encaisser'}>
             {reste > 0.005 && aCreer > 1 && parEcheanceAvant > 0 && nbActuel > 1 && (
@@ -446,7 +447,7 @@ export default function ModifierModalites({ deal, detail, onClose, onDone, onRef
                   lien à {prenom} ; le jour où il le règle, ce paiement compte
                   comme la <strong>première des {nbEffectif} échéances</strong> et
                   enregistre sa carte. Stripe prélève les suivantes tout seul,
-                  {' '}{libelleRythme(rythme) === 'mensuel' ? 'chaque mois' : 'chaque semaine'} à
+                  {' '}{chaqueRythme(rythme)} à
                   {' '}partir de ce jour-là, puis s’arrête.
                 </>
               ) : moyen === 'offline' ? (
