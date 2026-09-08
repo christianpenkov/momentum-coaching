@@ -13,6 +13,7 @@ import RaisonRemboursement from './RaisonRemboursement';
 import ModifierModalites from './ModifierModalites';
 import Rembourser, { type MotifRemboursement } from './Rembourser';
 import { Cloturer, Annuler, ArreterPrelevements, PaiementInattendu } from './FinDeVie';
+import DeclarerRecu from './DeclarerRecu';
 
 /**
  * La fiche d'un CLIENT, et non d'une vente.
@@ -301,6 +302,10 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
   // Sur téléphone, Origine et Journal sont repliés : ils sont utiles quand on
   // les cherche, jamais au premier coup d'œil, et ils repoussent les boutons
   // hors de l'écran.
+  // La fenêtre de déclaration vit ICI et non dans la ligne d'échéance : elle a
+  // besoin du nom de l'acheteur et du nombre d'échéances, que seule la vente
+  // connaît. La ligne se contente de dire LAQUELLE.
+  const [aDeclarer, setADeclarer] = useState<DealDetail['installments'][number] | null>(null);
   const [ouvertes, setOuvertes] = useState({
     echeances: true, historique: !isMobile,
   });
@@ -733,7 +738,8 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
                 <LigneEcheance key={i.id} inst={i} total={echeances.length} mode={mode}
                   finDeVie={deal.status === 'ended' ? 'ended'
                     : deal.status === 'canceled' ? 'canceled' : null}
-                  payeLe={dateDePaiement.get(i.id) ?? null} onChange={onChange} />
+                  payeLe={dateDePaiement.get(i.id) ?? null} onChange={onChange}
+                  onDeclarer={() => setADeclarer(i)} />
               ))
             /* ── Prélèvement automatique ──────────────────────────────────
                L'échéancier vit chez Stripe : la base ne connaît que les
@@ -872,6 +878,17 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
 
       {/* ── La barre d'actions ─────────────────────────────────────────── */}
       <BarreActions deal={deal} etat={etat} mode={mode} onAction={onAction} />
+
+      {aDeclarer && (
+        <DeclarerRecu
+          echeance={{
+            id: aDeclarer.id, rank: aDeclarer.rank,
+            amount: Number(aDeclarer.amount), due_on: aDeclarer.due_on,
+          }}
+          deal={{ buyerName: deal.buyerName, installmentsCount: deal.installmentsCount }}
+          onClose={() => setADeclarer(null)}
+          onDone={async () => { setADeclarer(null); await onChange(); }} />
+      )}
     </div>
   );
 }
@@ -983,7 +1000,7 @@ function Repliable({ titre, ouvert, onToggle, children }: {
  * illisibles, et c'est justement en mode « un lien par échéance » qu'il y en a
  * plusieurs à distinguer.
  */
-function LigneEcheance({ inst, total, mode, finDeVie, payeLe, onChange }: {
+function LigneEcheance({ inst, total, mode, finDeVie, payeLe, onChange, onDeclarer }: {
   inst: DealDetail['installments'][number];
   total: number;
   mode: ReturnType<typeof modeDe>;
@@ -1000,8 +1017,9 @@ function LigneEcheance({ inst, total, mode, finDeVie, payeLe, onChange }: {
   /** Date réelle du paiement, quand elle est connue. */
   payeLe: string | null;
   onChange: () => Promise<unknown> | void;
+  /** Ouvre la fenêtre de déclaration — elle vit chez le parent, qui connaît la vente. */
+  onDeclarer: () => void;
 }) {
-  const [marque, setMarque] = useState(false);
   const payee = inst.status === 'paid';
 
   // Une échéance non payée sur une vente terminée n'est plus attendue : ni en
@@ -1013,18 +1031,6 @@ function LigneEcheance({ inst, total, mode, finDeVie, payeLe, onChange }: {
   // laissait croire qu'il restait du temps.
   const enRetard = !payee && !abandonnee && !!inst.due_on
     && new Date(inst.due_on).getTime() < Date.now() - 86400_000;
-
-  async function declarerRecu() {
-    setMarque(true);
-    try {
-      const r = await fetch('/api/payments/installments', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ installmentId: inst.id, received: true, amount: Number(inst.amount) }),
-      });
-      if (r.ok) await onChange();
-    } finally { setMarque(false); }
-  }
 
   return (
     <div style={{ padding: '6px 0' }}>
@@ -1079,11 +1085,11 @@ function LigneEcheance({ inst, total, mode, finDeVie, payeLe, onChange }: {
             Même déduction depuis une absence que dans le rappel d'échéance et
             dans `terms/route.ts`, corrigés le même jour. */}
         {!payee && !abandonnee && !inst.short_url && mode === 'offline' && (
-          <button onClick={declarerRecu} disabled={marque} style={{
+          <button onClick={onDeclarer} style={{
             fontSize: 11.5, flexShrink: 0, border: '1px solid var(--border)', borderRadius: 7,
-            padding: '4px 9px', background: 'var(--surface)', cursor: marque ? 'default' : 'pointer',
-            fontFamily: 'inherit', color: 'var(--ink-2)', opacity: marque ? .6 : 1,
-          }}>{marque ? '…' : 'Reçu'}</button>
+            padding: '4px 9px', background: 'var(--surface)', cursor: 'pointer',
+            fontFamily: 'inherit', color: 'var(--ink-2)',
+          }}>Reçu</button>
         )}
       </div>
 

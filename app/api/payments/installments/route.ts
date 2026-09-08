@@ -53,6 +53,18 @@ export async function POST(request: NextRequest) {
   // trace que ce montant est DÉCLARÉ et non constaté par Stripe — la
   // distinction ne doit jamais se perdre dans les chiffres.
   if (body.received === true) {
+    // ── La case de responsabilité est exigée ICI, pas seulement à l'écran ────
+    // Une case cochée uniquement côté navigateur est décorative : elle protège
+    // tant que l'appel passe par l'écran prévu, et plus du tout dès qu'un autre
+    // appelant apparaît — c'est exactement comme ça qu'un garde-fou disparaît
+    // sans que personne ne le remarque. La règle vit donc du côté qui écrit.
+    if (body.consentement !== true) {
+      return NextResponse.json({
+        error: 'Cette déclaration engage ta responsabilité : la case doit être cochée.',
+        code: 'consentement_requis',
+      }, { status: 400 });
+    }
+
     const { data: full } = await supa
       .from('deal_installments')
       .select('id, deal_id, amount, rank')
@@ -127,6 +139,44 @@ export async function POST(request: NextRequest) {
     // `argentEntrant: true` — c'est bien un encaissement, pas un remboursement.
     await refreshDealStatus(supa, full.deal_id, { argentEntrant: true });
 
+    // ── La trace, et pourquoi elle est indispensable sur CE mode ────────────
+    // Un paiement Stripe laisse un `pi_` et un `ch_` chez Stripe : on peut
+    // toujours remonter à qui a payé quoi, même des mois après. Un virement
+    // déclaré ne laisse RIEN — ni webhook, ni objet distant. Le journal est
+    // donc la seule preuve que cette somme a été déclarée, par qui et quand.
+    // Sans lui, la case de responsabilité n'engage personne : elle est cochée
+    // puis oubliée. Relevé le 2026-09-08 sur la première vente hors Stripe.
+    //
+    // Le nom est FIGÉ au moment de la déclaration plutôt que résolu à
+    // l'affichage : un profil peut être renommé, et une preuve qui change avec
+    // le présent n'en est plus une.
+    const { data: auteur } = await supa
+      .from('profiles').select('full_name').eq('id', user.id).maybeSingle();
+
+    const { data: laVente } = await supa
+      .from('deals').select('installments_count').eq('id', full.deal_id).maybeSingle();
+    const surCombien = laVente?.installments_count ?? null;
+
+    await supa.from('deal_events').insert({
+      deal_id: full.deal_id,
+      kind: 'offline_received',
+      label: `Virement de ${fmtEur(recu)} déclaré reçu`
+        + (surCombien && surCombien > 1 ? ` · échéance ${full.rank}/${surCombien}` : ''),
+      actor_id: user.id,
+      actor_name: auteur?.full_name ?? null,
+      meta: {
+        montant: recu,
+        attendu: Number(full.amount),
+        recu_le: quand.toISOString().slice(0, 10),
+        echeance: full.rank,
+        sur: surCombien,
+        soldee,
+        // La case cochée fait partie de la preuve, pas de l'interface.
+        consentement: true,
+        consenti_le: new Date().toISOString(),
+      },
+    });
+
     const { count: restantes } = await supa
       .from('deal_installments')
       .select('id', { count: 'exact', head: true })
@@ -149,3 +199,6 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({ ok: true, sent });
 }
+
+const fmtEur = (n: number) =>
+  new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(n);
