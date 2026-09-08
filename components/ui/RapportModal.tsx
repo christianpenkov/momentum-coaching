@@ -220,6 +220,23 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
   const setOfflineReceived = (v: boolean | null) => patch({ offlineReceived: v });
   const manualValid = manualDate && manualTimeStart && manualTimeEnd;
   const setRevenue = (v: string) => patch({ revenue: v });
+
+  /**
+   * Le montant de la PREMIÈRE échéance, arrondi compris.
+   *
+   * ⚠️ `total / plan` n'est pas ce que le serveur écrit : `links/route.ts` met le
+   * reste de division sur le rang 1 (`first = amount − per × (count − 1)`), donc
+   * 1 000 € en 3 fois donnent 333,34 puis 333,33 — et l'écran annonçait 333,33.
+   * Un centime, mais l'écran affirmait un montant que la base ne portait pas.
+   * Même formule des deux côtés, sinon les deux divergeront encore.
+   */
+  const premiereEcheance = (() => {
+    const total = parseFloat(revenue.replace(',', '.')) || 0;
+    if (plan <= 1) return total;
+    const per = Math.round((total / plan) * 100) / 100;
+    return Math.round((total - per * (plan - 1)) * 100) / 100;
+  })();
+
   const setComment = (v: string) => patch({ comment: v });
   const setFoundCall = (v: RapportAnswers['foundCall']) => patch({ foundCall: v });
   const setManualDate = (v: string) => patch({ manualDate: v });
@@ -1325,8 +1342,16 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               ) : (
                 <>
                   <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>En combien de fois ?</div>
+                  {/* Le TOTAL reste sous les yeux pendant tout le choix : on vient de
+                      le saisir à l'écran précédent, et chaque ligne d'ici parle d'une
+                      FRACTION de ce montant. Sans lui, « 3 × 300 € » oblige à
+                      remultiplier de tête pour vérifier qu'on n'a pas mal tapé — au
+                      moment précis où l'erreur coûte le plus cher. Demandé par Chris
+                      le 2026-09-08. */}
                   <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20, lineHeight: 1.6 }}>
-                    Momentum génère le lien de paiement Stripe.
+                    <strong style={{ color: 'var(--ink)' }}>
+                      {fmtMontant(parseFloat(revenue.replace(',', '.')) || 0)}
+                    </strong>{' '}au total. Momentum génère le lien de paiement Stripe.
                   </div>
 
                   {/* Sélection en --accent-brand (le bleu de la marque) et non en
@@ -1370,7 +1395,8 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                       {/* C'est ici que se joue le compromis : ce que l'élève aura
                           à faire ensuite, mois après mois. */}
                       <div style={{ padding: '12px 14px', background: 'var(--surface-2)', borderRadius: 10, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.55, marginBottom: 18 }}>
-                        {plan} × {Math.round(((parseFloat(revenue.replace(',', '.')) || 0) / plan) * 100) / 100} € par mois.{' '}
+                        {plan} × {Math.round(((parseFloat(revenue.replace(',', '.')) || 0) / plan) * 100) / 100} € par mois,
+                        soit {fmtMontant(parseFloat(revenue.replace(',', '.')) || 0)}.{' '}
                         {autoDebit
                           ? 'Le client saisit sa carte une fois, Stripe prélève ensuite tout seul.'
                           : `Tu enverras ${plan} liens, un par échéance. Momentum te rappellera lesquels.`}
@@ -1421,7 +1447,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20, lineHeight: 1.6 }}>
                 {plan === 1
                   ? `${fmtMontant(parseFloat(revenue.replace(',', '.')) || 0)} — Momentum ne peut pas le savoir, aucun paiement hors Stripe ne remonte automatiquement.`
-                  : `${fmtMontant(Math.round(((parseFloat(revenue.replace(',', '.')) || 0) / plan) * 100) / 100)} sur ${plan} versements. Momentum créera l’échéancier et te rappellera chaque versement à sa date.`}
+                  : `${fmtMontant(premiereEcheance)} sur ${plan} versements — ${fmtMontant(parseFloat(revenue.replace(',', '.')) || 0)} au total. Momentum créera l’échéancier et te rappellera chaque versement à sa date.`}
               </div>
 
               <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
