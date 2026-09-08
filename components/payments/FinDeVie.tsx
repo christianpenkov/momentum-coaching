@@ -24,6 +24,9 @@ import { fmtEurExact, fmtDateLong, type DealRow, type DealDetail } from './types
  */
 
 const URL_STRIPE = 'https://dashboard.stripe.com/payments';
+// ⚠️ Arrêter des prélèvements se fait sur la page ABONNEMENTS, pas sur celle des
+// paiements. L'écran envoyait au mauvais endroit tout en prétendant guider.
+const URL_STRIPE_ABONNEMENTS = 'https://dashboard.stripe.com/subscriptions';
 
 /* ══════════════════════════════════════════════════════════════════════════
    CLÔTURER
@@ -404,10 +407,16 @@ export function ArreterPrelevements({ deal, detail, onClose, onDone }: {
       </div>
 
       <div style={{ marginTop: 16 }}>
-        <VersStripe titre="Comment faire, dans Stripe" url={URL_STRIPE} etapes={[
-          <>Ouvre la page de {prenom} dans Stripe.</>,
-          <>Le bouton s’appelle <strong>« Annuler l’abonnement »</strong> — c’est le bon,
-            même si le mot ne correspond pas à ce que tu vends.</>,
+        <VersStripe titre="Comment faire, dans Stripe" url={URL_STRIPE_ABONNEMENTS} etapes={[
+          <>Ouvre <strong>Abonnements</strong> et trouve la ligne de {prenom}.</>,
+          // ⚠️ Libellé relevé DANS Stripe le 2026-09-08, pas de mémoire. Le
+          // texte disait « Annuler l'abonnement », qui n'existe nulle part : le
+          // menu dit « Résilier l'abonnement » depuis la liste, « Annuler »
+          // depuis la fiche. Nommer un bouton introuvable fait douter de tout
+          // le reste de l'écran — et c'est l'écran d'un geste irréversible.
+          <>Le menu <strong>«&nbsp;…&nbsp;»</strong> au bout de sa ligne →
+            {' '}<strong>« Résilier l’abonnement »</strong>. Le mot ne correspond pas à ce
+            que tu vends, mais c’est le bon.</>,
           // ⚠️ « ci-dessus » obligeait à remonter. Sur téléphone les deux blocs
           // sont à un écran d'écart : on redescend, on a oublié lequel donnait
           // quoi, on remonte. La marche répète donc les deux choix et leur

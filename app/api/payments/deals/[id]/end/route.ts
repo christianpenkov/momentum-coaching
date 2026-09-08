@@ -87,7 +87,7 @@ export async function POST(
     }
     if (actif) {
       return NextResponse.json({
-        error: 'Cette vente a des prélèvements en cours. Arrête-les d’abord dans Stripe — le bouton s’y appelle « Annuler l’abonnement ». Momentum clôturera la vente automatiquement dès qu’il l’aura constaté.',
+        error: 'Cette vente a des prélèvements en cours. Arrête-les d’abord dans Stripe : page Abonnements, menu « … » au bout de la ligne, « Résilier l’abonnement ». Momentum clôturera la vente automatiquement dès qu’il l’aura constaté.',
         code: 'prelevement_actif',
         subscriptionId: deal!.stripe_subscription_id,
       }, { status: 409 });

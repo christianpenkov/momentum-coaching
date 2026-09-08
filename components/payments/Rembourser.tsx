@@ -26,6 +26,10 @@ import { fmtEurExact, fmtDateLong, type DealRow, type DealDetail } from './types
  */
 
 const URL_STRIPE = 'https://dashboard.stripe.com/payments';
+// ⚠️ Une page différente pour un geste différent. Le parcours envoyait vers les
+// PAIEMENTS pour demander d'arrêter un ABONNEMENT : il fallait deviner où
+// aller, dans un écran qui prétendait guider. Relevé par Chris le 2026-09-08.
+const URL_STRIPE_ABONNEMENTS = 'https://dashboard.stripe.com/subscriptions';
 
 export type MotifRemboursement =
   /** Le montant a baissé sous l'encaissé — un remboursement PARTIEL. */
@@ -163,11 +167,26 @@ function AttendreStripe({
       {/* ── L'arrêt d'abord, quand il y en a un ──────────────────────────── */}
       {arretRequis && (
         <div style={{ marginBottom: 16 }}>
+          {/* ⚠️ Le libellé exact, relevé DANS Stripe le 2026-09-08 — pas de
+              mémoire. Le texte disait « Annuler l'abonnement », qui n'existe
+              nulle part : le menu dit « Résilier l'abonnement » depuis la liste,
+              et « Annuler » depuis la fiche. Une consigne qui nomme un bouton
+              introuvable fait douter de tout le reste de l'écran. */}
           <Encart ton="attention" titre="Arrête d’abord ses prélèvements">
             Sans ça, {prenom} continuerait d’être prélevé pendant que tu le
-            rembourses. Dans Stripe, le bouton s’appelle
-            {' '}<strong>« Annuler l’abonnement »</strong> — c’est le bon, même si le mot
-            ne correspond pas à ce que tu vends.
+            rembourses.
+            <div style={{ marginTop: 8 }}>
+              Dans Stripe, ouvre <strong>Abonnements</strong>, puis le menu
+              {' '}<strong>«&nbsp;…&nbsp;»</strong> au bout de sa ligne →
+              {' '}<strong>« Résilier l’abonnement »</strong>. Si Stripe te demande à quel
+              moment, prends le plus tôt : tu es en train de rembourser.
+            </div>
+            <div style={{ marginTop: 10 }}>
+              <a href={URL_STRIPE_ABONNEMENTS} target="_blank" rel="noopener noreferrer"
+                className="btn-ghost" style={{ fontSize: 12.5, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                Ouvrir les abonnements dans Stripe
+              </a>
+            </div>
           </Encart>
         </div>
       )}
