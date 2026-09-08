@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
 import { idsDeContinuation } from '@/lib/callSeries';
+import { contenuActivation, type PriseDeLeadMagnet } from '@/lib/attribution-roles';
 import { lireTout } from '@/lib/supabase/lireTout';
 
 const serviceSupabase = createClient(
@@ -67,6 +68,57 @@ async function chainesEtCash(profileId: string) {
  * evenements `hook_replied` ne commencent qu'au 08/07/2026, et un zero affirmerait
  * « personne n'a repondu » la ou la verite est « on ne l'enregistrait pas encore ».
  */
+/**
+ * Le JOURNAL des prises de lead magnet, indexe par personne.
+ *
+ * ⚠️ Sert a repondre a « d'ou vient VRAIMENT ce rendez-vous ». Le repli par fiche
+ * presumait qu'un call sans `utm_content` d'un lead rattache a une sequence venait de
+ * cette sequence. C'est faux des que la personne a aussi commente un post : mesure le
+ * 2026-09-04, le call `af9d5898` etait credite A LA FOIS au post `18056185901693457`
+ * (regle du journal, cote page) et a « Sequence test webhook » (ce repli) — deux lignes
+ * du meme tableau pour un seul rendez-vous, et le cash aurait double avec.
+ *
+ * Le journal n'ecrase rien, contrairement a `instagram_leads.source` et `.media_id`.
+ */
+async function journalParPersonne(profileId: string): Promise<Map<string, PriseDeLeadMagnet[]>> {
+  const { data } = await serviceSupabase
+    .from('instagram_lead_lm_history')
+    .select('media_id, detected_at, lead_magnet_sent, ig_user_id')
+    .eq('profile_id', profileId);
+  const par = new Map<string, PriseDeLeadMagnet[]>();
+  for (const h of data ?? []) {
+    if (!h.ig_user_id) continue;
+    if (!par.has(h.ig_user_id)) par.set(h.ig_user_id, []);
+    par.get(h.ig_user_id)!.push(h as PriseDeLeadMagnet);
+  }
+  return par;
+}
+
+/**
+ * Ce rendez-vous vient-il VRAIMENT de cette sequence ?
+ *
+ * ⚠️ La regle n'est pas reecrite ici : `contenuActivation` est celle qu'applique deja
+ * « Ce que fait chaque contenu » pour les posts. Une seule regle, deux appels — la
+ * reimplementer produirait une troisieme version qui deriverait des deux autres.
+ *
+ * On ne credite que si le contenu en vigueur A LA RESERVATION est une story DE CETTE
+ * sequence. Journal muet = on ne sait pas, donc on n'attribue pas : sans attribution
+ * plutot qu'inventee.
+ */
+function venuDeCetteSequence(
+  call: { booked_at?: string | null; scheduled_at?: string | null; ig_lead_id?: string | null },
+  personneDeLaFiche: Map<string, string>,
+  journal: Map<string, PriseDeLeadMagnet[]>,
+  storiesDeLaSequence: Set<string>,
+): boolean {
+  const quand = call.booked_at ?? call.scheduled_at;
+  if (!quand || !call.ig_lead_id) return false;
+  const personne = personneDeLaFiche.get(call.ig_lead_id);
+  if (!personne) return false;
+  const contenu = contenuActivation(journal.get(personne) ?? [], quand);
+  return !!contenu && storiesDeLaSequence.has(contenu);
+}
+
 async function fichesAyantRepondu(profileId: string, leads: { id: string }[]): Promise<Set<string>> {
   if (!leads.length) return new Set();
   const { data } = await serviceSupabase
@@ -171,7 +223,8 @@ export async function GET(request: Request) {
   // ── Funnel business — pivot instagram_leads.story_sequence_id ─────────────
   const { data: leads } = await serviceSupabase
     .from('instagram_leads')
-    .select('id')
+    // `ig_user_id` : la cle du JOURNAL, seul a dire d'ou vient reellement un rendez-vous.
+    .select('id, ig_user_id')
     .eq('profile_id', targetProfileId)
     .eq('story_sequence_id', sequenceId)
     .is('archived_at', null)
@@ -229,7 +282,7 @@ export async function GET(request: Request) {
     let byLeadQuery = leadIds.length
       ? serviceSupabase
           .from('calls')
-          .select('id, status, scheduled_at, booked_at, no_show, deal_closed, revenue, outcome, utm_content')
+          .select('id, status, scheduled_at, booked_at, no_show, deal_closed, revenue, outcome, utm_content, ig_lead_id')
           .eq('coach_id', targetProfileId)
           .in('ig_lead_id', leadIds)
           .is('utm_content', null)
@@ -243,7 +296,25 @@ export async function GET(request: Request) {
     }
     const { data: bySequence } = await bySequenceQuery;
     const { data: byLead } = byLeadQuery ? await byLeadQuery : { data: [] };
-    const byLeadFiltered = byLead || [];
+
+    // ⚠️ LE REPLI NE SUFFIT PAS : il faut que le JOURNAL le confirme.
+    //
+    // « Un call de ce lead sans contenu identifie vient de cette sequence » est faux des
+    // que la personne a aussi commente un post. Mesure le 2026-09-04 : le call
+    // `af9d5898` etait credite A LA FOIS au post `18056185901693457` (regle du journal,
+    // cote page) et a « Sequence test webhook » (ce repli). Un seul rendez-vous, deux
+    // lignes du meme tableau — et le cash aurait double avec.
+    //
+    // On ne garde que les calls dont le contenu en vigueur A LA RESERVATION est une story
+    // DE CETTE sequence. `contenuActivation` est la meme regle que pour les posts :
+    // appelee, jamais recopiee. Journal muet = on n'attribue pas.
+    const personneDeLaFiche = new Map<string, string>(
+      (leads ?? []).filter(l => l.ig_user_id).map(l => [l.id, l.ig_user_id as string]),
+    );
+    const journal = await journalParPersonne(targetProfileId);
+    const storiesDeLaSequence = new Set(storyIds);
+    const byLeadFiltered = (byLead || []).filter(c =>
+      venuDeCetteSequence(c as any, personneDeLaFiche, journal, storiesDeLaSequence));
 
     const { continuations, montantParCall } = await chainesEtCash(targetProfileId);
     const seenCallIds = new Set<string>();
@@ -395,7 +466,7 @@ async function listSequenceFunnelRows(profileId: string) {
 
   const { data: leads } = await serviceSupabase
     .from('instagram_leads')
-    .select('id, story_sequence_id, lead_magnet_sent, hook_replied')
+    .select('id, story_sequence_id, lead_magnet_sent, hook_replied, ig_user_id')
     .eq('profile_id', profileId)
     .is('archived_at', null)
     .eq('not_a_lead', false)
@@ -409,6 +480,9 @@ async function listSequenceFunnelRows(profileId: string) {
 
   const { continuations, montantParCall } = await chainesEtCash(profileId);
   const ficheARepondu = await fichesAyantRepondu(profileId, leads ?? []);
+  // Une seule lecture du journal pour toutes les sequences : il sert a verifier chaque
+  // repli, et le relire par sequence multiplierait la meme requete par leur nombre.
+  const journal = await journalParPersonne(profileId);
 
   const now = new Date();
   const rows = await Promise.all(sequences.map(async seq => {
@@ -436,10 +510,18 @@ async function listSequenceFunnelRows(profileId: string) {
     let byLeadQuery = leadIds.length
       ? serviceSupabase
           .from('calls')
-          .select('id, status, scheduled_at, booked_at, no_show, deal_closed, revenue, outcome, utm_content')
+          .select('id, status, scheduled_at, booked_at, no_show, deal_closed, revenue, outcome, utm_content, ig_lead_id')
           .eq('coach_id', profileId)
           .in('ig_lead_id', leadIds)
           .is('utm_content', null)
+          // ⚠️ Ce garde existait dans le mode detail et MANQUAIT ici : le meme repli,
+          // corrige d'un seul cote. Une sequence stories se joue en DM, seul un call
+          // `ig_dm` peut en venir. Sans lui, une fiche fusionnee apportant un call de bio
+          // ou de description YouTube sans `utm_content` se serait vu crediter a la
+          // sequence. Ecart mesure le 2026-09-04 : 0 call, donc latent — mais une ligne et
+          // son complement lisent le meme predicat, et n'en corriger qu'un laisse le
+          // defaut entier de l'autre cote.
+          .eq('source', 'ig_dm')
           .neq('ignored', true)
       : null;
     if (callsDateClause) {
@@ -448,7 +530,24 @@ async function listSequenceFunnelRows(profileId: string) {
     }
     const { data: bySequence } = await bySequenceQuery;
     const { data: byLead } = byLeadQuery ? await byLeadQuery : { data: [] };
-    const byLeadFiltered = byLead || [];
+
+    // ⚠️ LE REPLI NE SUFFIT PAS : il faut que le JOURNAL le confirme.
+    //
+    // « Un call de ce lead sans contenu identifie vient de cette sequence » est faux des
+    // que la personne a aussi commente un post. Mesure le 2026-09-04 : le call
+    // `af9d5898` etait credite A LA FOIS au post `18056185901693457` (regle du journal,
+    // cote page) et a « Sequence test webhook » (ce repli). Un seul rendez-vous, deux
+    // lignes du meme tableau — et le cash aurait double avec.
+    //
+    // On ne garde que les calls dont le contenu en vigueur A LA RESERVATION est une story
+    // DE CETTE sequence. `contenuActivation` est la meme regle que pour les posts :
+    // appelee, jamais recopiee. Journal muet = on n'attribue pas.
+    const personneDeLaFiche = new Map<string, string>(
+      seqLeads.filter(l => l.ig_user_id).map(l => [l.id, l.ig_user_id as string]),
+    );
+    const storiesDeLaSequence = new Set(seqStories.map(st => st.ig_story_id));
+    const byLeadFiltered = (byLead || []).filter(c =>
+      venuDeCetteSequence(c as any, personneDeLaFiche, journal, storiesDeLaSequence));
 
     // Deux compteurs séparés (Calendly via bySequence, LM/DM via byLeadFiltered) en plus
     // du total dédupliqué — nécessaire pour distinguer callsBookedLm/revenueLm de

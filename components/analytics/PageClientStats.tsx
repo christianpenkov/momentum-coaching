@@ -7298,8 +7298,29 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // chiffre ne paraisse faux ; un test de `parcoursLeads.test.ts` le démontre.
   const entreeDansLaPeriodeParcours = (p: PriseParcours) => isInPeriod(p.detected_at);
 
+  // ⚠️ Une story entre au journal sous SON identifiant, jamais sous celui de sa
+  // sequence. Or « Ce que fait chaque contenu » compte par SEQUENCE — les stories
+  // individuelles en sont retirees expres, pour ne pas creer de lignes fantomes sans
+  // titre ni vignette. Grouper ici par `media_id` cherchait donc un identifiant qu'on
+  // avait justement enleve : `infoLigne` ne trouvait rien et affichait
+  // « (sans titre) · contenu inconnu », sans vignette et sans meme la teinte story.
+  // Constate le 2026-09-04 sur les deux prises de story du profil de test (mots-cles
+  // META et STORYTEST), ni l'une ni l'autre presente dans les publications, les liens de
+  // contenu ou les liens prospect.
+  //
+  // La traduction se fait A L'AFFICHAGE, jamais en memorisant un identifiant de
+  // sequence : une story change de sequence quand un regroupement en absorbe une autre
+  // (chantier Stories du 2026-09-04), et le journal, lui, garde l'identifiant de la
+  // story, qui ne bouge pas. Lire le lien courant suit donc la reaffectation tout seul.
+  const sequenceDeStory = new Map<string, string>(
+    allStoriesForContent
+      .filter((st: any) => st?.ig_story_id && st?.sequence_id)
+      .map((st: any) => [String(st.ig_story_id), String(st.sequence_id)]),
+  );
   const parcoursParContenu = parcoursDesLeads(
-    lmHistoryPourRoles, p => p.media_id, refsParcours, entreeDansLaPeriodeParcours,
+    lmHistoryPourRoles,
+    p => (p.media_id ? sequenceDeStory.get(p.media_id) ?? p.media_id : null),
+    refsParcours, entreeDansLaPeriodeParcours,
   );
   // Les mots-clés alternatifs comptent pour le lead magnet qu'ils déclenchent : « BEAU »
   // peut pointer sur « Ubizen AI ». Sans ce repli, un contenu à mot-clé custom ouvrirait
@@ -7779,16 +7800,28 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const postLeads = leads.filter(lead => lead.postId === postId);
     const igPost = platform === 'IG' ? igPosts.find(p => p.id === postId) : null;
     const ytVideo = platform === 'YT' ? ytVideos.find(v => v.id === postId) : null;
-    // Story orpheline avec CTA (LM ou Calendly) mais SANS séquence — les stories en
-    // séquence sont déjà gérées séparément (storySequenceContentRows, thumbnail=1ère
-    // story du groupe) ; ne matcher ici que le cas story isolée pour éviter le doublon.
-    const storyMatch = platform === 'IG' && !igPost
-      ? allStoriesForContent.find(s => s.ig_story_id === postId && !s.sequence_id && (s.lm_keyword || s.calendly_short_url))
-      : null;
-    const title = igPost?.caption || ytVideo?.title || (storyMatch ? 'Story' : '(sans titre)');
-    const thumbnail = igPost?.thumbnail || ytVideo?.thumbnail || storyMatch?.storage_url || null;
-    const type = igPost ? (igPost.type === 'VIDEO' || igPost.type === 'REEL' || igPost.type === 'REELS' ? 'Reel' : igPost.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image') : (ytVideo ? (ytVideo.isShort ? 'Short' : 'Vidéo') : storyMatch ? 'Story' : platform === 'IG' ? 'Reel' : 'Vidéo');
-    const views = igPost?.views || ytVideo?.views30d || storyMatch?.views || 0;
+    // ⚠️ IL N'EXISTE PAS DE « STORY ISOLEE AVEC CTA ». Ce bloc cherchait ce cas ; il
+    // etait indecidable par construction, pas seulement vide.
+    //
+    // `app/api/client/stories/route.ts` construit `lm_keyword` et `calendly_short_url`
+    // depuis la SEQUENCE jointe : sans sequence, les deux valent forcement `null`, donc
+    // `!s.sequence_id && (s.lm_keyword || s.calendly_short_url)` ne pouvait jamais etre
+    // vrai. Et le webhook confirme le modele — `lib/instagram-webhook-processor.ts`
+    // ignore une story des que `sequence_id` est absent, avant meme de chercher un
+    // mot-cle. Une story sans sequence est muette : personne ne lui repondra jamais.
+    //
+    // Verdict confirme par la session Stories le 2026-09-04 : poser un lead magnet sur
+    // une story unique CREE une sequence a une story. C'est le parcours normal, et ces
+    // sequences-la vont se multiplier — elles ont deja leur ligne propre via
+    // `storySequenceContentRows`.
+    //
+    // Ecrit en commentaire plutot que supprime en silence : le prochain qui verra une
+    // story sans titre dans ce tableau doit savoir que ce n'est PAS ce cas-la, et ne
+    // pas « reparer » un chemin qui ne peut pas exister.
+    const title = igPost?.caption || ytVideo?.title || '(sans titre)';
+    const thumbnail = igPost?.thumbnail || ytVideo?.thumbnail || null;
+    const type = igPost ? (igPost.type === 'VIDEO' || igPost.type === 'REEL' || igPost.type === 'REELS' ? 'Reel' : igPost.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image') : (ytVideo ? (ytVideo.isShort ? 'Short' : 'Vidéo') : platform === 'IG' ? 'Reel' : 'Vidéo');
+    const views = igPost?.views || ytVideo?.views30d || 0;
     // Vues lifetime pour Cash/Vue — UNIQUEMENT igLive/ytLive, jamais ig/yt ou igPost/ytVideo (qui
     // varient avec periodIndex). Si le post n'est plus dans la fenêtre de fetch live, on ne connaît
     // pas sa valeur actuelle : null (affiché "—"), jamais une valeur bancale qui changerait selon
