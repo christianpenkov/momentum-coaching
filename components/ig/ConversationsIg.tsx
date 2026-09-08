@@ -203,7 +203,7 @@ function ModaleRetrait({
 
 export default function ConversationsIg({
   profileId, prenomEleve, annotable, titre, hauteur = 'min(78vh, 700px)', onFermer,
-  proprietaire = false, peerId,
+  proprietaire = false, peerId, avatarAuteurNotes = null,
 }: {
   profileId: string;
   prenomEleve: string;
@@ -242,6 +242,14 @@ export default function ConversationsIg({
    * de l'élève ne changent pas d'un pixel.
    */
   peerId?: string;
+  /**
+   * La photo de celui qui SIGNE les notes — le coach, quand c'est lui qui les a
+   * posées et pas celui qui regarde. Elle remplace alors le glyphe du bloc note.
+   *
+   * ⚠️ `null` quand il n'a pas de photo, et le glyphe reste. On n'invente pas un
+   * avatar d'initiales : ce serait affirmer une photo qui n'existe pas.
+   */
+  avatarAuteurNotes?: string | null;
 }) {
   const supabase = createSupabase();
   const [fils, setFils] = useState<Fil[] | null>(null);
@@ -359,6 +367,7 @@ export default function ConversationsIg({
         {/* ── Le fil ───────────────────────────────────────────────────────── */}
         {actif
           ? <Fil key={actif.id} fil={actif} annotable={annotable} prenomEleve={prenomEleve}
+                 avatarAuteurNotes={avatarAuteurNotes}
                  onFermer={onFermer} proprietaire={proprietaire}
                  onRetire={() => {
                    // Retiré côté serveur : on l'ôte de la liste et on bascule sur
@@ -410,8 +419,10 @@ function Etiquette({ children, ton }: { children: React.ReactNode; ton: 'amber' 
   );
 }
 
-function Fil({ fil, annotable, prenomEleve, onFermer, proprietaire, onRetire, onNoteFil }: {
+function Fil({ fil, annotable, prenomEleve, avatarAuteurNotes, onFermer, proprietaire, onRetire, onNoteFil }: {
   fil: Fil; annotable: boolean; prenomEleve: string;
+  /** La photo de celui qui signe les notes qu'on lit ici. */
+  avatarAuteurNotes: string | null;
   /** Fournie par l'enveloppe modale seulement — la page de l'élève n'a rien à fermer. */
   onFermer?: () => void;
   /** Vrai côté élève uniquement : c'est son compte Instagram. */
@@ -805,6 +816,7 @@ function Fil({ fil, annotable, prenomEleve, onFermer, proprietaire, onRetire, on
                 <div style={{ maxWidth: '78%', alignSelf: m.sortant ? 'flex-end' : 'flex-start' }}>
                   <BlocNote texte={m.note}
                     auteur={annotable ? undefined : `Note de ${prenomEleve}`}
+                    avatarAuteur={annotable ? null : avatarAuteurNotes}
                     onEditer={annotable ? () => setEdite({ id: m.id, valeur: m.note ?? '' }) : undefined} />
                 </div>
               ) : null}
@@ -979,8 +991,18 @@ function Fil({ fil, annotable, prenomEleve, onFermer, proprietaire, onRetire, on
  * texte en encre secondaire. La note se lit comme une annotation en marge, pas
  * comme une alerte.
  */
-function BlocNote({ texte, entete, auteur, onEditer }: {
-  texte: string; entete?: boolean; auteur?: string; onEditer?: () => void;
+function BlocNote({ texte, entete, auteur, avatarAuteur, onEditer }: {
+  texte: string; entete?: boolean; auteur?: string;
+  /**
+   * La photo de celui qui a écrit la note. Quand elle existe, elle REMPLACE le
+   * glyphe : une note signée d'un nom se lit mieux avec le visage du nom qu'avec
+   * une icône de papeterie, qui ne dit rien de plus que la bordure du bloc.
+   *
+   * ⚠️ Sans photo, le glyphe reste. Des initiales colorées fabriqueraient un
+   * avatar qui n'existe pas, et ce bloc n'a rien à affirmer.
+   */
+  avatarAuteur?: string | null;
+  onEditer?: () => void;
 }) {
   return (
     <div style={{
@@ -992,14 +1014,34 @@ function BlocNote({ texte, entete, auteur, onEditer }: {
       fontSize: entete ? 12.5 : 12,
       color: 'var(--ink-2)', lineHeight: 1.5,
     }}>
-      <span aria-hidden="true" style={{
-        flexShrink: 0,
-        fontSize: entete ? 13 : 11.5,
-        // Cale le glyphe sur la premiere ligne de texte plutot que sur le haut
-        // de la boite : sans ca il flotte, et c'est ce qui fait « pose la ».
-        lineHeight: entete ? '19px' : '18px',
-        filter: 'saturate(.92)',
-      }}>{entete ? '📌' : '📝'}</span>
+      {avatarAuteur ? (
+        // La même hauteur de ligne que le glyphe qu'elle remplace, pour que le
+        // texte reste calé exactement au même endroit qu'avant.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={avatarAuteur}
+          alt=""
+          aria-hidden="true"
+          width={18}
+          height={18}
+          style={{
+            flexShrink: 0, width: 18, height: 18, borderRadius: '50%',
+            objectFit: 'cover', display: 'block', marginTop: entete ? 1 : 0,
+          }}
+          // Une URL de photo peut ne plus répondre (avatar changé, stockage
+          // purgé). Une image cassée est pire que pas d'image : on l'efface.
+          onError={e => { e.currentTarget.style.display = 'none'; }}
+        />
+      ) : (
+        <span aria-hidden="true" style={{
+          flexShrink: 0,
+          fontSize: entete ? 13 : 11.5,
+          // Cale le glyphe sur la premiere ligne de texte plutot que sur le haut
+          // de la boite : sans ca il flotte, et c'est ce qui fait « pose la ».
+          lineHeight: entete ? '19px' : '18px',
+          filter: 'saturate(.92)',
+        }}>{entete ? '📌' : '📝'}</span>
+      )}
       <span style={{ flex: 1, minWidth: 0 }}>
         {auteur && (
           <span style={{ fontWeight: 600, color: 'var(--ink)' }}>{auteur} — </span>

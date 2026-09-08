@@ -1,6 +1,7 @@
 import { NextResponse, after } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
+import { identiteDuCoach } from '@/lib/identiteCoach';
 
 /**
  * L'élève accorde ou retire à son coach le droit de lire ses conversations
@@ -39,14 +40,15 @@ export async function GET() {
     .is('archived_at', null)
     .maybeSingle();
 
-  if (!client) return NextResponse.json({ accorde: false, coachPrenom: null, fils: 0 });
+  if (!client) {
+    return NextResponse.json({ accorde: false, coachPrenom: null, coachAvatarUrl: null, fils: 0 });
+  }
 
-  const { data: coach } = await supa
-    .from('profiles').select('full_name').eq('id', client.coach_id).maybeSingle();
-
-  // « ton coach » n'est qu'un dernier recours : un profil sans nom ne doit pas
-  // produire une phrase sans sujet.
-  const prenom = (coach?.full_name || '').trim().split(/\s+/)[0] || null;
+  // ⚠️ La même lecture que Pipeline Leads, par la même fonction : les deux écrans
+  // affichent « Note de <coach> » et doivent nommer la même personne pareil.
+  // « ton coach » n'est qu'un dernier recours, décidé par l'écran : un profil
+  // sans nom ne doit pas produire une phrase sans sujet.
+  const { prenom, avatarUrl } = await identiteDuCoach(supa, client.coach_id);
 
   const { count } = await supa
     .from('ig_conversations')
@@ -58,6 +60,7 @@ export async function GET() {
     accorde: !!client.ig_dm_lecture_accordee_le,
     depuis: client.ig_dm_lecture_accordee_le,
     coachPrenom: prenom,
+    coachAvatarUrl: avatarUrl,
     fils: count ?? 0,
   });
 }

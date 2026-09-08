@@ -30,20 +30,26 @@ const serviceSupabase = createClient(
 );
 
 /** Le repli, et la valeur par défaut en base. */
-export const LIBELLE_PRODUIT_DEFAUT = 'Accompagnement';
+export const LIBELLE_PRODUIT_DEFAUT = 'Accompagnement / Coaching';
 
 /**
  * Les libellés proposés. Volontairement génériques : le client doit reconnaître
  * l'achat sur son relevé, pas découvrir un nom commercial.
+ *
+ * Quatre entrées, arbitrées par Chris le 2026-09-08 sur une première liste de
+ * sept. Le principe de son arbitrage : deux mots qui décrivent la MÊME vente
+ * ne font qu'une entrée — les séparer force un choix sans conséquence, et deux
+ * coachs qui vendent la même chose apparaîtraient différemment sur un relevé.
+ *   · « Accompagnement » et « Coaching » réunis — c'est la même prestation
+ *   · « Prestation » et « Services » réunis en « Prestation de service »
+ *   · « Consultation » devient « Consulting », le mot du métier
+ *   · « Programme » retiré : il ne dit pas ce qui est vendu
  */
 export const LIBELLES_PRODUIT = [
-  'Accompagnement',
-  'Coaching',
-  'Programme',
+  'Accompagnement / Coaching',
   'Formation',
-  'Consultation',
-  'Prestation',
-  'Services',
+  'Consulting',
+  'Prestation de service',
 ] as const;
 
 export type LibelleProduit = typeof LIBELLES_PRODUIT[number];

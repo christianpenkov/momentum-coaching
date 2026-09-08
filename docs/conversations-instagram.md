@@ -1174,6 +1174,18 @@ l'écran**, pas une par fiche ouverte. Un bouton grisé « pas de conversation �
 la quasi-totalité des fiches (un commentaire de lead magnet n'a jamais de DM) sans rien
 apprendre à personne.
 
+⚠️ **`prenomEleve` désigne L'AUTRE PARTIE, pas l'élève** — malgré son nom. Côté coach c'est
+l'élève ; sur la page de l'élève **et dans le pipeline**, c'est le coach, parce que c'est lui
+qui signe les notes. Le premier jet passait le nom affiché de la fiche, et le fil annonçait
+« Note de @pseudo_du_prospect » : la note était attribuée à la personne dont elle parle.
+L'identité du coach est lue par `lib/identiteCoach.ts` — **une seule fonction** pour les deux
+écrans, sinon ils nommeraient la même personne différemment.
+
+⚠️ **La photo du coach remplace le glyphe 📝** sur une note de message, quand il en a une.
+Sans photo, le glyphe reste : un avatar d'initiales fabriqué affirmerait une photo qui
+n'existe pas. La note épinglée du fil garde son 📌 — la punaise dit « en tête du fil », ce
+qu'aucun visage ne dit.
+
 ⚠️ **Échap ne devait pas fermer les deux.** Le panneau de la fiche écoute `keydown` sur
 `document`, `ModalShell` sur `window` : la même touche déclenchait les deux, et revenir du
 fil faisait disparaître la fiche derrière. Le panneau suspend son écoute tant que le fil est

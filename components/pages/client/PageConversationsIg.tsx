@@ -23,7 +23,12 @@ import ConversationsIg from '@/components/ig/ConversationsIg';
  * sa vie privée. Pour le reste, il a Instagram.
  */
 
-type Etat = { accorde: boolean; coachPrenom: string | null; fils: number } | null;
+type Etat = {
+  accorde: boolean;
+  coachPrenom: string | null;
+  coachAvatarUrl: string | null;
+  fils: number;
+} | null;
 
 export default function PageConversationsIg() {
   const [etat, setEtat] = useState<Etat>(null);
@@ -111,6 +116,9 @@ export default function PageConversationsIg() {
           <ConversationsIg
             profileId={profileId}
             prenomEleve={coach}
+            // Sa photo signe ses notes, à la place du glyphe. `null` s'il n'en a
+            // pas posé : le glyphe reste, on n'invente pas d'avatar.
+            avatarAuteurNotes={etat?.coachAvatarUrl ?? null}
             annotable={false}
             titre="Mes conversations"
             // Pleine hauteur utile : c'est une page, il n'y a rien derrière à

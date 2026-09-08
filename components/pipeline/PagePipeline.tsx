@@ -221,6 +221,12 @@ interface PipelineData {
    * n'en porte pas, et l'absence du bouton vaut mieux qu'un écran cassé.
    */
   conversationsPeerIds?: string[];
+  /**
+   * Le coach de celui qui regarde — il SIGNE les notes posées dans les fils de
+   * DM. Absent sur le pipeline d'un coach : il n'a personne au-dessus de lui, et
+   * aucune note n'est jamais posée sur son propre fil.
+   */
+  coach?: { prenom: string | null; avatarUrl: string | null };
   ytVideoTitles: Record<string, string>; // video_id → titre, résolu côté API (cache DB + oEmbed)
   igPostMeta: Record<string, IgPostMeta>; // media_id → légende/permalink/thumbnail, résolu côté API (cache DB + Graph API)
   storySequenceByMediaId: Record<string, StorySequenceRef>; // ig_story_id → séquence — distingue un media_id "story" (éphémère, sans permalink exploitable) d'un vrai post
@@ -4488,7 +4494,14 @@ export default function PagePipeline() {
           // à montrer.
           const peerId = ctx.lead?.ig_user_id ?? null;
           const conversation = peerId && data.profileId && conversationsAvecFil.has(peerId)
-            ? { profileId: data.profileId, peerId }
+            ? {
+                profileId: data.profileId,
+                peerId,
+                // Le même repli que la page Conversations DM : un coach sans nom
+                // ne doit pas produire « Note de  — ».
+                coachPrenom: data.coach?.prenom || 'Ton coach',
+                coachAvatarUrl: data.coach?.avatarUrl ?? null,
+              }
             : null;
           return (
             <ProspectDetailModal

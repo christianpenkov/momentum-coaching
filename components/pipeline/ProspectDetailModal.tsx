@@ -634,7 +634,19 @@ export default function ProspectDetailModal({ context, displayName, stageLabel, 
    * On ne recode RIEN de l'affichage : c'est le même composant que la fiche
    * client du coach et que la page de l'élève, en mode « un seul fil ».
    */
-  conversation?: { profileId: string; peerId: string } | null;
+  conversation?: {
+    profileId: string;
+    peerId: string;
+    /**
+     * Qui SIGNE les notes du fil — le coach, jamais le prospect. Une note est
+     * posée par le coach sur le fil de son élève ; c'est son nom et sa photo qui
+     * doivent apparaître, exactement comme dans l'onglet Conversations DM.
+     * Écrire « Note de @pseudo_du_prospect » attribuait la note à la personne
+     * dont elle parle.
+     */
+    coachPrenom: string;
+    coachAvatarUrl: string | null;
+  } | null;
   /**
    * Cette fiche a absorbé une fiche e-mail. Présent seulement dans ce cas —
    * absent, rien ne s'affiche : une mention « pas fusionnée » sur toutes les
@@ -824,7 +836,11 @@ export default function ProspectDetailModal({ context, displayName, stageLabel, 
           <ModaleConversationsIg
             profileId={conversation.profileId}
             peerId={conversation.peerId}
-            prenomEleve={displayName}
+            // ⚠️ Malgré son nom, cette prop désigne L'AUTRE PARTIE — celle qui
+            // n'est pas devant l'écran. Côté coach c'est l'élève ; ici, comme sur
+            // la page Conversations DM de l'élève, c'est le coach.
+            prenomEleve={conversation.coachPrenom}
+            avatarAuteurNotes={conversation.coachAvatarUrl}
             // Annoter, c'est le geste du COACH sur le fil de son élève, et la
             // route le vérifie (`clients.coach_id = auth.uid()`). Ici on regarde
             // SON PROPRE fil : un champ de note n'aurait mené qu'à un 403.

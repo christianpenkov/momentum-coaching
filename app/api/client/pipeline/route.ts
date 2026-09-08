@@ -6,6 +6,7 @@ import { resolveYtVideoTitles } from '@/lib/ytVideoTitles';
 import { resolveIgPostMeta } from '@/lib/igPostMeta';
 import { lireTout } from '@/lib/supabase/lireTout';
 import { retirerConversationsIg, peerIdsDuPseudo } from '@/lib/igConversationsRetrait';
+import { identiteDuCoach } from '@/lib/identiteCoach';
 
 const supa = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,10 +24,19 @@ export async function GET() {
   // fois" (posée par un trigger DB, jamais réécrite) — pas une intégration spécifique,
   // voir docs/integrations-ready-at-vs-onboarding-completed-at.md.
   const { data: clientRow } = await supa.from('clients')
-    .select('integrations_ready_at')
+    .select('integrations_ready_at, coach_id')
     .eq('profile_id', user.id)
     .maybeSingle();
   const integrationsReadyAt: string | null = clientRow?.integrations_ready_at ?? null;
+
+  // Qui signe les notes visibles dans un fil de DM. Même lecture que l'écran
+  // « Conversations DM » de l'élève, par la même fonction — sans quoi les deux
+  // écrans nommeraient la même personne différemment.
+  //
+  // Sur le pipeline d'un COACH, il n'y a pas de ligne `clients` et personne
+  // au-dessus : identité inconnue, et c'est exact — aucune note n'est jamais
+  // posée sur son propre fil, il ne peut pas s'annoter lui-même.
+  const coach = await identiteDuCoach(supa, clientRow?.coach_id);
 
   // ⚠️ Les lectures qui GROSSISSENT avec l'activité (leads, liens, calls, clics,
   // événements, historique LM) passent par `lireTout` : PostgREST tronque à 1 000
@@ -249,6 +259,7 @@ export async function GET() {
     lmHistory: lmHistoryRes.data ?? [],
     clicsCalendlyYt,
     conversationsPeerIds,
+    coach,
     ytVideoTitles,
     igPostMeta,
     storySequenceByMediaId,

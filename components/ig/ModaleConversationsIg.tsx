@@ -19,6 +19,7 @@ import ConversationsIg from '@/components/ig/ConversationsIg';
  */
 export default function ModaleConversationsIg({
   profileId, prenomEleve, annotable, onClose, peerId, proprietaire = false,
+  avatarAuteurNotes = null,
 }: {
   profileId: string;
   prenomEleve: string;
@@ -32,6 +33,8 @@ export default function ModaleConversationsIg({
   peerId?: string;
   /** Celui qui regarde est le propriétaire du compte Instagram. */
   proprietaire?: boolean;
+  /** La photo de celui qui a signé les notes qu'on va lire. */
+  avatarAuteurNotes?: string | null;
 }) {
   const filUnique = peerId != null;
   return (
@@ -45,6 +48,7 @@ export default function ModaleConversationsIg({
         annotable={annotable}
         peerId={peerId}
         proprietaire={proprietaire}
+        avatarAuteurNotes={avatarAuteurNotes}
         titre={`Conversations de ${prenomEleve}`}
         hauteur="min(88vh, 940px)"
         // La croix n'est passée QUE d'ici. Sur la page de l'élève, le même
