@@ -15,7 +15,8 @@
     "empreintes-edge": "node scripts/empreintes-edge.mjs",
     "deployer-edge": "node scripts/deployer-edge.mjs",
     "manifeste-migrations": "node scripts/manifeste-migrations.mjs",
-    "verifier-migrations": "node scripts/verifier-migrations.mjs"
+    "verifier-migrations": "node scripts/verifier-migrations.mjs",
+  "purger-deploiements": "node scripts/purger-deploiements-vercel.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",
