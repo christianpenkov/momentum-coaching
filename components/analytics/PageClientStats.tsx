@@ -7317,6 +7317,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
       .filter((st: any) => st?.ig_story_id && st?.sequence_id)
       .map((st: any) => [String(st.ig_story_id), String(st.sequence_id)]),
   );
+  // L'inverse de `sequenceDeStory` : de quelles stories une sequence est faite. Sert aux
+  // colonnes du tunnel, qui se lisent au journal — donc sous l'identifiant des STORIES.
+  const storiesParSequence = new Map<string, string[]>();
+  for (const [story, seq] of sequenceDeStory) {
+    if (!storiesParSequence.has(seq)) storiesParSequence.set(seq, []);
+    storiesParSequence.get(seq)!.push(story);
+  }
+
   const parcoursParContenu = parcoursDesLeads(
     lmHistoryPourRoles,
     p => (p.media_id ? sequenceDeStory.get(p.media_id) ?? p.media_id : null),
@@ -7785,6 +7793,36 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     if (lmName && !lmNameByKeyword.has(altKw)) lmNameByKeyword.set(altKw, lmName);
   }
 
+  /**
+   * Le contenu d'ou vient un rendez-vous — UNE seule fonction pour tout le tableau.
+   *
+   * Extraite de la boucle par contenu, ou elle etait recreee a chaque ligne, pour deux
+   * raisons. D'abord elle est desormais appelee aussi par les lignes de SEQUENCE, qui
+   * doivent etre attribuees par la meme regle que les posts, sinon les deux moities du
+   * meme tableau ne comptent pas pareil. Ensuite une regle recopiee finit par deriver :
+   * c'est le mode de panne que ce fichier traque partout.
+   *
+   * ⚠️ La traduction story → sequence se fait ICI, au bout de la chaine. Le journal
+   * enregistre une prise sous l'identifiant de la STORY ; le tableau, lui, compte par
+   * SEQUENCE. Sans cette derniere etape, un rendez-vous venu d'une story ne
+   * correspondait a AUCUNE ligne : ni a un post (ce n'en est pas un), ni a la sequence
+   * (l'identifiant ne correspond pas). Il disparaissait purement et simplement.
+   *
+   * Elle ne retire rien aux posts : un identifiant de post n'est jamais une story, donc
+   * la table de traduction le laisse tel quel.
+   */
+  const contenuDuCall = (c: CallRecord): string | null => {
+    const brut = contenuConversion({
+      utm_content: c.utm_content,
+      prospect_link_content_id: c.prospect_link_id ? contenuDuLienProspect.get(c.prospect_link_id) ?? null : null,
+      utm_medium: c.utm_medium,
+      source: c.source,
+      booked_at: c.booked_at,
+      scheduled_at: c.scheduled_at,
+    }, (c.ig_lead_id && journalParFiche.get(c.ig_lead_id)) || []);
+    return brut ? (sequenceDeStory.get(brut) ?? brut) : null;
+  };
+
   const rawConsolidatedRows = allPostIds.map(key => {
     const [postId, platform] = key.split('|');
     const descLink = postLinks.find((l: any) => l.postId === postId);
@@ -7901,15 +7939,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     // n'en ont aucun par nature — un trou legitime, jamais un zero.
     //
     // La regle vit dans `lib/attribution-roles.ts`, testee sur fixtures reelles.
-    const matchesContent = (c: CallRecord) =>
-      contenuConversion({
-        utm_content: c.utm_content,
-        prospect_link_content_id: c.prospect_link_id ? contenuDuLienProspect.get(c.prospect_link_id) ?? null : null,
-        utm_medium: c.utm_medium,
-        source: c.source,
-        booked_at: c.booked_at,
-        scheduled_at: c.scheduled_at,
-      }, (c.ig_lead_id && journalParFiche.get(c.ig_lead_id)) || []) === postId;
+    const matchesContent = (c: CallRecord) => contenuDuCall(c) === postId;
     const postCalls = (calls && leadIdToMediaId)
       ? calls.filter(c => matchesContent(c) && isInPeriod(callPeriodDate(c)))
       : [];
@@ -8003,45 +8033,96 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // qualifiedPct lifetime, cash/vue lifetime) restent à 0/null — non calculés côté
   // route funnel pour l'instant, non prioritaires (pas de "lien description" pour
   // une story, cf. décision produit).
-  const storySequenceContentRows = storySequenceRows.map(seq => ({
-    postId: seq.sequenceId,
-    platform: 'STORY_SEQUENCE' as const,
-    title: seq.name,
-    thumbnail: seq.thumbnail,
-    type: 'Séquence',
-    views: seq.views,
-    descLink: undefined,
-    dmProspects: [],
-    lmDetectes: seq.lmDetectes,
-    lmSent: seq.lmSent,
-    lmClics: 0,
-    lmReponses: seq.lmReponses,
-    dmCount: 0,
-    clicsDesc: 0,
-    callsBooked: seq.callsBooked,
-    callsHonored: seq.callsHonored,
-    closed: seq.closed,
-    revenue: seq.revenue,
-    callsBookedDesc: 0, callsHonoredDesc: 0, closedDesc: 0, revenueDesc: 0,
-    callsBookedLm: seq.callsBookedLm ?? 0,
-    callsHonoredLm: seq.callsHonoredLm ?? 0,
-    closedLm: seq.closedLm ?? 0,
-    revenueLm: seq.revenueLm ?? 0,
-    // All-time des deux côtés, comme les posts et les vidéos — donc la colonne
-    // « depuis publication » dit vrai aussi pour cette ligne.
-    //
-    // `story-sequences-stats` n'est PAS bornée à la période : elle ne filtre que sur
-    // `integrations_ready_at`, exactement comme le reste de la plateforme. Ses vues sont
-    // le cumul des instantanés de chaque story de la séquence, ses rendez-vous sont tous
-    // ceux qu'elle a produits. J'avais affirmé le contraire sans avoir lu la route, et
-    // retiré ce ratio à tort le 2026-09-02 ; il est rétabli.
-    vuesParCall: seq.callsBooked > 0 && seq.views > 0 ? Math.round(seq.views / seq.callsBooked) : null,
-    cashParVue: null,
-    qualifiedPct: null, qualifiedCount: 0, qualifiedAnswered: 0,
-    lmName: seq.lmKeyword ? `#${seq.lmKeyword}` : null,
-    lmKeyword: seq.lmKeyword ?? null,
-    postCallsDesc: [], postCallsDescVente: [],
-  }));
+  // ⚠️ LES SEQUENCES SE CALCULENT ICI, PLUS DANS LA ROUTE — et le motif compte.
+  //
+  // Elles prenaient leurs chiffres d'affaires de `story-sequences-stats`, qui n'est
+  // bornee que par `integrations_ready_at` : elle ignore la periode affichee, parce que
+  // la requete cliente ne lui en envoie aucune. Dans la MEME colonne, un post repondait
+  // donc a la semaine choisie et une sequence au total de toujours. Sur « cette
+  // semaine », on comparait un extrait a un cumul.
+  //
+  // Borner la route aurait demande d'y reimplementer DEUX regles de datation — un
+  // rendez-vous se date a la reservation, l'argent a la tenue du rendez-vous de la vente
+  // (regle 7), via les chaines d'opportunite. Ces deux regles vivent ici. Les recopier
+  // cote serveur aurait produit une troisieme version qui aurait derive des deux autres :
+  // exactement le defaut qu'on venait de fermer sur le double comptage.
+  //
+  // Le sens inverse dissout le probleme au lieu de le corriger : les memes expressions
+  // que les posts, ligne pour ligne. La periode, la regle du cash, la deduplication des
+  // 2es rendez-vous et l'attribution deviennent communes par construction — il n'y a plus
+  // deux moities de tableau a tenir d'accord.
+  //
+  // La route reste la source de ce qu'elle seule sait : le nom, la vignette, les vues des
+  // stories, et le tunnel amont (`lmDetectes`, `lmSent`, `lmReponses`), pivote sur
+  // `story_sequence_id`.
+  const storySequenceContentRows = storySequenceRows.map(seq => {
+    const matchesContent = (c: CallRecord) => contenuDuCall(c) === seq.sequenceId;
+    const postCalls = (calls && leadIdToMediaId)
+      ? calls.filter(c => matchesContent(c) && isInPeriod(callPeriodDate(c)))
+      : [];
+    // All-time, pour le seul ratio qui doit l'etre : les vues d'une story sont
+    // cumulatives, les diviser par les rendez-vous d'une seule semaine comparerait un
+    // total a un extrait.
+    const postCallsLifetime = (callsAllTime && leadIdToMediaId) ? callsAllTime.filter(matchesContent) : [];
+    const postCallsVente = (calls && leadIdToMediaId) ? callsVenteInWindow.filter(matchesContent) : [];
+    const postOpportunites = postCalls.filter(c => !continuationsContenu.has(c.id));
+    // « via lead magnet » se lit sur la SOURCE, pas sur le rattachement — meme definition
+    // que pour les posts, pour que le mot veuille dire la meme chose des deux cotes.
+    const postCallsLm = postCalls.filter(c => c.source === 'ig_dm');
+    const postOpportunitesLm = postCallsLm.filter(c => !continuationsContenu.has(c.id));
+    const postCallsLmVente = postCallsVente.filter(c => c.source === 'ig_dm');
+    const opportunitesLifetime = postCallsLifetime.filter(c => !continuationsContenu.has(c.id));
+    const callsBookedLifetime = opportunitesLifetime.filter(c => c.status === 'active').length;
+    return {
+      postId: seq.sequenceId,
+      platform: 'STORY_SEQUENCE' as const,
+      title: seq.name,
+      thumbnail: seq.thumbnail,
+      type: 'Séquence',
+      views: seq.views,
+      descLink: undefined,
+      dmProspects: [],
+      // ⚠️ Ces trois colonnes venaient elles aussi de la route, donc en all-time, alors
+      // que leurs jumelles cote posts sont bornees a la periode : `acquisitionParContenu`
+      // et `activationParContenu` filtrent toutes deux sur `isInPeriod`, malgre leur nom
+      // en « Global » — qui veut dire « toutes personnes », pas « tout temps ». Meme
+      // defaut que les calls, dans des colonnes qu'on aurait pu croire epargnees.
+      //
+      // Elles se lisent au journal, donc sous l'identifiant des STORIES : on additionne
+      // celles de la sequence. `lmSent` compte des PERSONNES, pas des prises — d'ou
+      // l'union des ensembles plutot qu'une somme, sinon quelqu'un qui prend le lead
+      // magnet sur deux stories de la meme sequence compterait deux fois.
+      lmDetectes: (storiesParSequence.get(seq.sequenceId) ?? [])
+        .reduce((n, story) => n + (acquisitionParContenuGlobal.get(story) ?? 0), 0),
+      lmSent: new Set(
+        (storiesParSequence.get(seq.sequenceId) ?? [])
+          .flatMap(story => [...(personnesParContenuLm.get(story) ?? [])]),
+      ).size,
+      lmClics: 0,
+      lmReponses: (storiesParSequence.get(seq.sequenceId) ?? [])
+        .reduce((n, story) => n + (activationParContenuGlobal.get(story) ?? 0), 0),
+      dmCount: 0,
+      clicsDesc: 0,
+      callsBooked: postOpportunites.filter(c => c.status === 'active').length,
+      callsHonored: postOpportunites.filter(c => isCallHonored(c, now)).length,
+      closed: postCalls.filter(c => c.deal_closed).length,
+      revenue: cashDeLot(postCallsVente),
+      // Une story n'a pas de lien en description, par nature — decision produit.
+      callsBookedDesc: 0, callsHonoredDesc: 0, closedDesc: 0, revenueDesc: 0,
+      callsBookedLm: postOpportunitesLm.filter(c => c.status === 'active').length,
+      callsHonoredLm: postOpportunitesLm.filter(c => isCallHonored(c, now)).length,
+      closedLm: postCallsLm.filter(c => c.deal_closed).length,
+      revenueLm: cashDeLot(postCallsLmVente),
+      // All-time des deux cotes, comme les posts : la colonne « depuis publication » dit
+      // donc vrai aussi pour cette ligne.
+      vuesParCall: callsBookedLifetime > 0 && seq.views > 0 ? Math.round(seq.views / callsBookedLifetime) : null,
+      cashParVue: null,
+      qualifiedPct: null, qualifiedCount: 0, qualifiedAnswered: 0,
+      lmName: seq.lmKeyword ? `#${seq.lmKeyword}` : null,
+      lmKeyword: seq.lmKeyword ?? null,
+      postCallsDesc: [], postCallsDescVente: [],
+    };
+  });
 
   const consolidatedRows = [...rawConsolidatedRows, ...storySequenceContentRows]
     .sort((a, b) => b.views - a.views || b.revenue - a.revenue);
