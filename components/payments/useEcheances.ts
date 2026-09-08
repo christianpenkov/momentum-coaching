@@ -3,6 +3,9 @@
 import { useEffect, useState } from 'react';
 import { modeDe } from './etats';
 import type { DealRow, DealDetail } from './types';
+// Les dates de prélèvement suivent une règle qui appartient à Stripe : elle vit
+// dans un seul module, verrouillée par lib/rythmeStripe.test.ts.
+import { avancer, MS_JOUR } from '@/lib/rythmeStripe';
 
 /**
  * Les échéances qui restent à encaisser, quel que soit le mode.
@@ -33,7 +36,6 @@ export interface Echeancier {
   chargement: boolean;
 }
 
-const MS_JOUR = 86400_000;
 
 export function useEcheancesAVenir(deal: DealRow, detail?: DealDetail): Echeancier {
   const mode = modeDe(deal);
@@ -46,6 +48,9 @@ export function useEcheancesAVenir(deal: DealRow, detail?: DealDetail): Echeanci
 
   const [sched, setSched] = useState<{
     perPayment: number | null; interval: string | null; nextPaymentAt: string | null;
+    // La fin du bornage, telle que Stripe la calcule. Lue ici pour une seule
+    // raison : contrôler nos propres dates contre une date de sa main.
+    endsAt: string | null;
   } | null>(null);
   const [chargement, setChargement] = useState(viaStripe);
 
@@ -85,20 +90,41 @@ export function useEcheancesAVenir(deal: DealRow, detail?: DealDetail): Echeanci
   }
 
   // ── Dérouler les dates depuis le prochain prélèvement ────────────────────
-  // Stripe ne donne pas la liste des dates à venir, seulement la prochaine et le
-  // rythme. Les dérouler est exact tant que le rythme ne change pas — et un
-  // changement de rythme oblige de toute façon à refaire la vente.
+  // Stripe n'expose pas la liste des dates à venir : seulement la prochaine
+  // (`current_period_end`) et le rythme. Aucun endpoint ne les rend toutes —
+  // vérifié dans la doc le 2026-09-08, ce n'est pas une supposition héritée.
+  //
+  // Il documente en revanche la règle au mot près : l'ancre fixe le jour du
+  // mois, et quand ce jour n'existe pas Stripe prend le dernier jour du mois
+  // SANS que l'ancre dérive (« ancre au 31 janvier → 28 février, puis 31 mars,
+  // puis 30 avril »). C'est ce que fait `avancer`.
   const dejaPayees = deal.paidCount;
   const restantes = Math.max(0, (deal.installmentsCount ?? 1) - dejaPayees);
-  const pas = sched?.interval === 'week' ? 7 : 30;
-  const depart = sched?.nextPaymentAt ? new Date(sched.nextPaymentAt).getTime() : null;
+  const depart = sched?.nextPaymentAt ? new Date(sched.nextPaymentAt) : null;
   const parEcheance = sched?.perPayment
     ?? (restantes > 0 ? arrondi(Math.max(0, deal.amountTotal - deal.collected) / restantes) : 0);
+
+  // ── Faire vérifier notre calcul par Stripe ────────────────────────────────
+  // Calculer une date, c'est réimplémenter une règle qui appartient à Stripe —
+  // et une règle qui vit à deux endroits finit toujours par diverger. Sauf
+  // qu'ici Stripe nous donne une SECONDE date de sa main : `cancel_at`, la fin
+  // du bornage. Notre dernière échéance plus un intervalle doit tomber
+  // exactement dessus.
+  //
+  // Si l'écart dépasse la journée, c'est que notre règle n'est plus la sienne.
+  // On n'affiche alors AUCUNE date plutôt qu'une date fausse : « à confirmer »
+  // envoie relire Stripe, un mauvais jour annoncé au client ne se rattrape pas.
+  //
+  // Le contrôle ne peut pas se faire quand `cancel_at` est absent — ce qui veut
+  // dire que le bornage n'a pas pris, et c'est déjà remonté par ailleurs.
+  const fin = sched?.endsAt ? new Date(sched.endsAt) : null;
+  const calculAccorde = !depart || !fin
+    || Math.abs(avancer(depart, sched?.interval ?? null, restantes).getTime() - fin.getTime()) < MS_JOUR;
 
   return {
     lignes: Array.from({ length: restantes }, (_, i) => ({
       rang: dejaPayees + i + 1,
-      date: depart ? new Date(depart + i * pas * MS_JOUR).toISOString() : null,
+      date: depart && calculAccorde ? avancer(depart, sched?.interval ?? null, i).toISOString() : null,
       montant: parEcheance,
     })),
     dejaPayees,
@@ -107,3 +133,4 @@ export function useEcheancesAVenir(deal: DealRow, detail?: DealDetail): Echeanci
 }
 
 const arrondi = (n: number) => Math.round(n * 100) / 100;
+
