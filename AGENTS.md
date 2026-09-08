@@ -1475,10 +1475,69 @@ C'est `ventes_sante_sur_encaissement` qui garde le cash, pas une garde à l'écr
 ⚠️ **Le cash a UNE seule règle : `lib/dealCash.ts`.** Ne jamais sommer des paiements à
 la main. Sept lectures le faisaient encore le 2026-08-30 (`.eq('status','succeeded')`
 puis une somme) et n'ont donc JAMAIS déduit un remboursement : 2 800 € affichés pour
-2 600 € en caisse. `calculerCash().net` pour « ce qu'une personne a versé »,
+2 600 € en caisse. `calculerCash().net` pour « ce qui reste dans la caisse »,
 `encaisseRetenu()` pour « quelle part d'une vente est rentrée » — la seconde plafonne
 au montant contracté, sinon un trop-perçu fait dépasser 100 % et vient effacer la dette
 d'un autre client dans les totaux.
+
+## ⚠️ « VERSÉ PAR LE CLIENT » N'EST PAS « RESTÉ DANS LA CAISSE »
+
+**Neuf écrans ont confondu les deux les 6 et 7 septembre 2026**, et la conséquence était
+toujours la même : réclamer une seconde fois un argent déjà payé.
+
+```
+net              = encaissé − remboursé − contesté − perdu en litige
+verseParLeClient = encaissé − remboursé
+```
+
+Un **remboursement** fait baisser les deux : l'argent sort de la caisse ET retourne chez
+le client, qui peut donc redevoir. Un **litige** ne fait baisser que le premier — la
+banque retient, mais le client a bien versé. **Il ne doit rien.**
+
+| La question posée | La grandeur |
+|---|---|
+| combien me reste-t-il ? | `cash.net` |
+| combien me doit-il **encore** ? | `verseParLeClient()` |
+| combien puis-je lui **rendre** ? | `cash.net` — on ne rend que ce qu'on tient |
+
+⚠️ `resteAEncaisser()` prend donc le **versé** et `aRembourser()` le **net** : cette
+asymétrie est délibérée, ne pas « harmoniser » les deux.
+
+Le détail des neuf endroits, et le modèle `dispute_lost` qui en découle, sont dans
+`docs/stripe-paiements.md` §1.
+
+## ⚠️ Une règle ne doit vivre qu'à UN endroit — `npm test` le vérifie
+
+Les 6 et 7 septembre 2026, **onze défauts** ont été trouvés sur les paiements. Tous, sans
+exception, avaient la même forme : *une règle posée d'un côté d'une partition, oubliée de
+l'autre* — `modeDe` corrigé dans l'écran mais pas dans la route, `refreshDealStatus`
+recopié dans deux routes, la règle du cash absente du SQL, le garde « vente signée »
+lisant `deals` d'un côté et `calls.deal_closed` de l'autre…
+
+**Aucun n'était visible en relisant le fichier qu'on modifiait.** Ils vivaient dans
+l'autre fichier, celui qu'on n'ouvrait pas.
+
+```bash
+npm run verifier-regles-uniques    # tourne dans `npm test`
+```
+
+Trois motifs, chacun mesuré sur le dépôt avant d'être retenu : une somme de paiements à
+la main, un ternaire qui décide `'paid'`, un `refreshDealStatus` local. Il a trouvé une
+dixième occurrence à son premier passage.
+
+⚠️ **Ne JAMAIS allonger sa liste d'exceptions pour le faire passer.** La correction est
+de supprimer la copie, pas de la déclarer légitime.
+
+⚠️ **Il ne couvre ni le SQL, ni les gardes métier, ni deux écrans qui posent la même
+question autrement.** Le seul filet général reste le réflexe : **devant un défaut trouvé
+DEUX fois, chercher immédiatement tous les endroits où il peut se produire**, au lieu
+d'en corriger un troisième. C'est ce réflexe qui a sorti les six derniers d'un coup.
+
+⚠️ **Une règle de cash vit potentiellement à TROIS endroits** — `lib/dealCash.ts` (Node),
+sa copie Deno, et le SQL (`ventes_cash_net`, `cash_regles_statut`). Le troisième est
+invisible depuis TypeScript : l'ajout de `dispute_lost` l'a oublié. **Avant d'ajouter une
+valeur à une colonne de statut, `grep` sur le NOM DE LA COLONNE, pas sur le nom du
+module.**
 
 ⚠️ **La règle vaut aussi pour les requêtes de VÉRIFICATION**, et c'est là qu'on l'oublie.
 

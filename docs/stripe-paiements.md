@@ -13,13 +13,73 @@ qu'aucun test ne s'en aperçoive.
 ## 1. La règle de l'argent — une seule, en un seul endroit
 
 ```
-Cash encaissé net = Σ(succeeded) − Σ(refunded) − Σ(disputed)
+Cash encaissé net = Σ(succeeded) − Σ(refunded) − Σ(disputed) − Σ(dispute_lost)
 ```
 
 Le **montant** fait foi, jamais un statut supplémentaire. La règle vaut pour un
 remboursement total, partiel, ou plusieurs successifs.
 
-Elle vit dans `lib/dealCash.ts` — **en deux copies synchronisées** :
+### ⚠️ « VERSÉ PAR LE CLIENT » N'EST PAS « RESTÉ DANS LA CAISSE »
+
+C'est la distinction la plus coûteuse du projet : **neuf écrans l'ont confondue
+les 6 et 7 septembre 2026**, et chaque fois la conséquence était la même —
+réclamer une seconde fois un argent déjà payé.
+
+```
+net              = encaissé − remboursé − contesté − perdu en litige
+verseParLeClient = encaissé − remboursé
+```
+
+Un **remboursement** fait baisser les deux : l'argent sort de la caisse ET
+retourne chez le client, qui peut donc redevoir. Un **litige** ne fait baisser
+que le premier : la banque retient, mais le client a bien versé. Il ne doit rien.
+
+**La règle de tri, pour tout nouvel appelant :**
+
+| La question posée | La grandeur |
+|---|---|
+| combien me reste-t-il ? | `cash.net` |
+| combien me doit-il **encore** ? | `verseParLeClient()` |
+| combien puis-je lui **rendre** ? | `cash.net` — on ne rend que ce qu'on tient |
+
+⚠️ `resteAEncaisser()` prend donc le **versé**, `aRembourser()` prend le **net**,
+et cette asymétrie est délibérée. Ne pas « harmoniser » les deux : elles
+répondent à deux questions opposées.
+
+**Les neuf endroits où la confusion s'était logée**, pour que personne ne croie
+qu'elle est théorique :
+
+| Où | Ce que l'écran faisait |
+|---|---|
+| `resteAEncaisser` lui-même | trois routes en tiraient le montant d'un **lien de paiement** |
+| Fiche client | « 200 € encore à encaisser » sur un lien déjà payé |
+| Lien de complément | proposait d'envoyer un lien pour une somme contestée |
+| Onglet Relances | **relançait un client qui conteste son paiement** |
+| Bandeau des litiges | réclamait une réponse déjà donnée |
+| Ligne client | « réponse à donner » quand il n'y en avait plus |
+| Pastille d'état | muette pendant tout l'examen du litige |
+| Rapport → « pas de vente » | laissait **effacer une vente qu'un client avait payée** |
+| KPI « Reste à encaisser » | annonçait 1 100 € quand il n'y avait rien à aller chercher |
+
+### Un litige PERDU cesse d'être un litige
+
+`dispute_lost` est un statut de `deal_payments` **et** de `deals`. Il se déduit
+du cash exactement comme `disputed`, mais il n'est **pas** versé dans les
+remboursements : l'élève n'a rien choisi de rendre, la banque a repris.
+
+Sans lui, une vente restait « Contestée » en rouge des semaines après le verdict
+— une alerte permanente qui ne demande rien, donc une alerte qu'on cesse de lire.
+La pastille est **ocre**, comme « Arrêtée » : l'affaire est close, il n'y a plus
+aucune action.
+
+⚠️ **Un remboursement de TROP-PERÇU n'appelle aucune explication, et ça se juge
+au moment du remboursement.** Le contracté bouge ; le relire plus tard contre le
+montant du jour donne une réponse fausse. `lib/dealStatus.ts` inscrit donc la
+part expliquée par le trop-perçu dans `refund_explique` à l'instant du constat.
+
+### Où vit la règle
+
+Tout ce qui précède vit dans `lib/dealCash.ts` — **en deux copies synchronisées** :
 
 ```
 lib/dealCash.ts                          ← 3 appelants côté site
@@ -340,3 +400,71 @@ D'où la règle, décidée le 2026-08-26 :
   « Annuler la vente » fait sortir un appel du taux de closing
 
 Deux faits distincts, deux gestes distincts.
+
+---
+
+## 8. Une règle ne doit vivre qu'à UN endroit — et un contrôle le vérifie
+
+Les 6 et 7 septembre 2026, **onze défauts** ont été trouvés sur ces écrans. Neuf
+relevaient de la confusion ci-dessus. Mais tous, sans exception, avaient la même
+forme :
+
+> une règle posée d'un côté d'une partition, oubliée de l'autre.
+
+| La règle | Corrigée ici | Restée fausse là |
+|---|---|---|
+| le mode de paiement réel (`modeDe`) | `components/payments/etats.ts` | `deals/[id]/terms` |
+| le recalcul du statut et ses effets | `lib/dealStatus.ts` | `installments`, `orphans` |
+| la déduction du cash | `lib/dealCash.ts` ×2 | la vue SQL `ventes_cash_net` |
+| le garde « vente signée » | `client/calls/[id]` | `client/pipeline` |
+| la préservation de `refund_reason` | le webhook | la copie Deno |
+| le refus de dé-closer | `calls/[id]/rapport` | `client/calls/[id]` PATCH |
+
+**Aucun n'était visible en relisant le fichier qu'on modifiait.** Ils vivaient
+dans l'autre fichier, celui qu'on n'ouvrait pas.
+
+### Le contrôle
+
+```bash
+npm run verifier-regles-uniques    # tourne aussi dans `npm test`
+```
+
+Il fait échouer le test dès qu'une seconde implémentation apparaît. **Trois
+motifs, et trois seulement** — chacun mesuré sur le dépôt avant d'être retenu :
+
+- un `filter('succeeded')` suivi d'un `reduce` → une somme de cash à la main
+- un ternaire qui rend `'paid'` → une décision de statut hors `statutDeal`
+- une fonction `refreshDealStatus` locale → un recalcul sans ses effets
+
+Il a trouvé une **dixième** occurrence à son premier passage : `deals/[id]/end`
+recalculait le statut en rouvrant une vente, ce qui lui faisait perdre son
+bandeau de litige.
+
+⚠️ **Ne JAMAIS allonger la liste des exceptions pour faire passer ce contrôle.**
+La correction est de supprimer la copie — d'appeler la fonction partagée. Une
+exception de plus signifie qu'on a renoncé à comprendre, pas qu'on a résolu.
+
+⚠️ **Et il ne couvre pas tout, par construction** : il ne voit ni le SQL, ni les
+gardes métier, ni deux écrans qui posent la même question autrement. Le réflexe
+reste le seul filet général — **devant un défaut trouvé deux fois, chercher
+immédiatement tous les endroits où il peut se produire, au lieu d'en corriger un
+troisième.** C'est ce réflexe, appliqué le 2026-09-07, qui a sorti les six
+derniers d'un coup.
+
+### Les trois runtimes
+
+Une règle de cash vit potentiellement à **trois** endroits, et le troisième est
+celui qu'on oublie :
+
+```
+lib/dealCash.ts                          Node
+supabase/functions/_shared/dealCash.ts   Deno    ← `npm test` compare les deux
+public.ventes_cash_net / cash_regles_statut   SQL   ← invisible depuis TypeScript
+```
+
+Le 2026-09-06, l'ajout de `dispute_lost` a été fait dans les deux copies
+TypeScript et **pas** en SQL. Rien ne le signalait depuis le code.
+
+**Avant d'ajouter une valeur à une colonne de statut** : chercher tous les
+runtimes qui la lisent — `grep` sur le NOM DE LA COLONNE, pas sur le nom du
+module.
