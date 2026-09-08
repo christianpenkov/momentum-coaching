@@ -228,6 +228,19 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
   const moyenEffectif = plan === 1 && moyen === 'prelevement' ? 'liens' : moyen;
   const horsStripe = moyenEffectif === 'offline';
   const autoDebit = moyenEffectif === 'prelevement';
+
+  // ⚠️ Le groupe nominal ENTIER, article et nombre compris — pas juste le
+  // chiffre. Deux défauts d'un coup dans « les {plan - 1} suivants », relevés
+  // par Chris le 2026-09-08 sur une vente en 2 fois :
+  //
+  //   · « les 1 suivants » — un pluriel sur un seul élément
+  //   · « les 1suivants » — l'espace mangée à l'affichage, parce que JSX la
+  //     traite comme de la mise en forme et non comme du texte dès qu'elle
+  //     borde une expression
+  //
+  // Une chaîne calculée règle les deux définitivement : plus d'espace confiée à
+  // JSX, plus d'accord confié au hasard du nombre choisi.
+  const suivantsRestants = plan - 1 === 1 ? 'le suivant' : `les ${plan - 1} suivants`;
   const [paymentUrl, setPaymentUrl] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   // Hors Stripe : l'argent est-il déjà encaissé, et sinon pour quand ?
@@ -1496,7 +1509,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                           coches celles que tu as reçues.</>
                         : autoDebit
                           ? <>C&apos;est en payant ce lien que le client saisit sa carte. Stripe
-                            prélève ensuite les {plan - 1} suivants tout seul — tu n&apos;as
+                            prélève ensuite {suivantsRestants} tout seul — tu n&apos;as
                             rien à renvoyer.</>
                           : <>Momentum créera les {plan} échéances et te rappellera chacune
                             à sa date dans l&apos;onglet Relances.</>}
