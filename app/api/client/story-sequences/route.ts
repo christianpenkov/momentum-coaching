@@ -3,6 +3,7 @@ import { construireDestinationShortio } from '@/lib/click-redirect';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
 import { bornerArbitrage } from '@/lib/rattachementStories';
+import { planifierAbsorption, messageRefusPartiel } from '@/lib/absorptionSequences';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -154,7 +155,7 @@ export async function POST(request: Request) {
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
 
-  const { name, ctaStoryId, storyIds, lmId, lmKeyword, lmUrl, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage, wantsCalendly } = body;
+  const { name, ctaStoryId, storyIds, lmId, lmKeyword, lmUrl, dmLmMessage, dmButtonText, dm1Message, dmLinkButtonText, dm2StoryMessage, wantsCalendly, heriterDe } = body;
   const wantsLm = !!lmKeyword;
 
   // ── UNE SÉQUENCE PEUT NAÎTRE AVANT SES STORIES ────────────────────────────
@@ -181,18 +182,79 @@ export async function POST(request: Request) {
 
   // Les deux vérifications n'ont de sens que s'il y a des stories : une séquence
   // préparée n'en a aucune, elle ne peut ni voler ni trouer quoi que ce soit.
+  // ── LA SÉLECTION ABSORBE LES SÉQUENCES QU'ELLE CONTIENT ──────────────────
+  //
+  // Une story déjà en séquence faisait échouer la création. C'était un cul-de-sac
+  // depuis qu'un simple mot-clé posé sur une story crée une séquence à une story :
+  // la story #2 devenue « séquence » interdisait à jamais de grouper #1 à #4, et
+  // la contiguïté refusait aussi de la sauter.
+  //
+  // La règle et ses tests vivent dans `lib/absorptionSequences.ts`. Ici on lit
+  // l'état, on exécute la décision.
+  let absorbees: string[] = [];
+  // ⚠️ La LIGNE ENTIÈRE de la séquence dont on hérite, pas seulement son mot-clé.
+  // Un mot-clé sans ses messages est pire que pas de mot-clé : la séquence
+  // répondrait au prospect avec des champs vides. Les cinq messages, le lead
+  // magnet et son URL font bloc avec lui.
+  let ctaHerite: any = null;
+
   if (ids.length > 0) {
-    // Une story ne peut appartenir qu'à une seule séquence à la fois.
-    const { data: alreadyAssigned } = await serviceSupabase
+    const { data: dejaEnSequence } = await serviceSupabase
       .from('ig_stories')
-      .select('id')
+      .select('id, sequence_id')
       .eq('profile_id', user.id)
       .in('id', ids)
       .not('sequence_id', 'is', null);
-    if (alreadyAssigned && alreadyAssigned.length > 0) {
-      return NextResponse.json({ error: 'Une des stories sélectionnées appartient déjà à une séquence' }, { status: 409 });
+
+    const idsSequences = [...new Set((dejaEnSequence ?? []).map(s => s.sequence_id as string))];
+
+    if (idsSequences.length > 0) {
+      // Le contenu COMPLET de ces séquences, pas seulement les stories cochées :
+      // c'est ce qui permet de distinguer une séquence entièrement reprise d'une
+      // séquence qu'on démantèlerait à moitié.
+      const [{ data: sequences }, { data: toutesLeursStories }] = await Promise.all([
+        serviceSupabase.from('story_sequences')
+          .select('*')
+          .eq('profile_id', user.id).in('id', idsSequences),
+        serviceSupabase.from('ig_stories')
+          .select('id, sequence_id')
+          .eq('profile_id', user.id).is('archived_at', null).in('sequence_id', idsSequences),
+      ]);
+
+      const plan = planifierAbsorption(
+        ids,
+        (sequences ?? []).map(sq => ({
+          id: sq.id,
+          name: sq.name,
+          lm_keyword: sq.lm_keyword,
+          calendly_short_url: sq.calendly_short_url,
+          storyIds: (toutesLeursStories ?? []).filter(st => st.sequence_id === sq.id).map(st => st.id),
+        })),
+        heriterDe,
+      );
+
+      if (plan.type === 'refus-partiel') {
+        return NextResponse.json({ error: messageRefusPartiel(plan.sequence, plan.manquantes) }, { status: 409 });
+      }
+      if (plan.type === 'conflit-cta') {
+        // Rendu au client pour qu'il DEMANDE. En abandonner un ici serait une
+        // perte silencieuse — celle qu'on découvre quand un prospect ne reçoit rien.
+        return NextResponse.json({
+          error: 'Ces stories portent plusieurs CTA. Choisis celui que la nouvelle séquence garde.',
+          conflitCta: plan.candidats,
+        }, { status: 409 });
+      }
+      if (plan.type === 'absorber') {
+        absorbees = plan.sequenceIds;
+        ctaHerite = plan.herite
+          ? (sequences ?? []).find(sq => sq.id === plan.herite!.sequenceId) ?? null
+          : null;
+      }
     }
 
+    // ⚠️ Après le plan d'absorption : les stories des séquences absorbées font
+    // partie de `ids`, donc `validateContiguity` les exclut déjà de sa recherche
+    // de trous. Vérifier avant aurait fait échouer tout regroupement absorbant.
     const contiguity = await validateContiguity(user.id, ids, null);
     if (!contiguity.ok) return NextResponse.json({ error: contiguity.error }, { status: 409 });
   }
@@ -213,14 +275,29 @@ export async function POST(request: Request) {
       profile_id: user.id,
       name: name.trim(),
       cta_story_id: ctaStoryId || null,
-      lm_keyword: wantsLm ? (lmKeyword || '').toUpperCase().trim() : null,
-      lm_id: wantsLm ? (lmId || null) : null,
-      lm_url: wantsLm ? (lmUrl || null) : null,
-      dm_lm_message: wantsLm ? (dmLmMessage || null) : null,
-      dm_button_text: wantsLm ? (dmButtonText || null) : null,
-      dm1_message: wantsLm ? (dm1Message || null) : null,
-      dm_link_button_text: wantsLm ? (dmLinkButtonText || null) : null,
-      dm2_story_message: wantsLm ? (dm2StoryMessage || null) : null,
+      // ── L'HÉRITAGE RATTRAPE, IL N'ÉCRASE JAMAIS ────────────────────────
+      //
+      // Le coach qui remplit le formulaire dit ce qu'il veut : sa saisie gagne
+      // toujours. L'héritage ne sert qu'à ne pas perdre ce qu'une séquence
+      // absorbée portait déjà et que le formulaire ne redemande pas.
+      //
+      // Le bloc lead magnet se transmet ENTIER — mot-clé, lead magnet, URL et les
+      // cinq messages. Reprendre le mot-clé seul donnerait une séquence qui
+      // répond au prospect avec des champs vides.
+      lm_keyword: wantsLm
+        ? (lmKeyword || '').toUpperCase().trim()
+        : (ctaHerite?.lm_keyword ?? null),
+      lm_id: wantsLm ? (lmId || null) : (ctaHerite?.lm_id ?? null),
+      lm_url: wantsLm ? (lmUrl || null) : (ctaHerite?.lm_url ?? null),
+      dm_lm_message: wantsLm ? (dmLmMessage || null) : (ctaHerite?.dm_lm_message ?? null),
+      dm_button_text: wantsLm ? (dmButtonText || null) : (ctaHerite?.dm_button_text ?? null),
+      dm1_message: wantsLm ? (dm1Message || null) : (ctaHerite?.dm1_message ?? null),
+      dm_link_button_text: wantsLm ? (dmLinkButtonText || null) : (ctaHerite?.dm_link_button_text ?? null),
+      dm2_story_message: wantsLm ? (dm2StoryMessage || null) : (ctaHerite?.dm2_story_message ?? null),
+      // Le lien Calendly d'une séquence absorbée est DÉJÀ collé dans une story
+      // publiée : reprendre l'ancien garde ses clics rattachés, alors qu'en
+      // générer un neuf laisserait le lien vivant pointer dans le vide.
+      calendly_short_url: ctaHerite?.calendly_short_url ?? null,
     })
     .select('id')
     .single();
@@ -238,9 +315,38 @@ export async function POST(request: Request) {
     if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
   }
 
-  let calendlyShortUrl: string | null = null;
+  // ── LES SÉQUENCES ABSORBÉES CÈDENT LEURS LEADS AVANT DE DISPARAÎTRE ──────
+  //
+  // L'ORDRE EST OBLIGATOIRE, il n'est pas cosmétique :
+  // `instagram_leads.story_sequence_id` référence `story_sequences` en
+  // `NO ACTION`. Supprimer d'abord ferait échouer la requête sur une violation de
+  // contrainte — et en base le 2026-09-08, les 2 seules séquences à une story
+  // portaient chacune un lead. Le cas nominal, donc, pas un cas limite.
+  //
+  // Migrer plutôt que détacher : ce lead vient bien de cette story, et cette
+  // story appartient maintenant à la nouvelle séquence. Le rattachement reste
+  // vrai, il change simplement d'adresse.
+  if (absorbees.length > 0) {
+    const { error: migrErr } = await serviceSupabase
+      .from('instagram_leads')
+      .update({ story_sequence_id: seq.id })
+      .eq('profile_id', user.id)
+      .in('story_sequence_id', absorbees);
+    if (migrErr) return NextResponse.json({ error: migrErr.message }, { status: 500 });
 
-  if (wantsCalendly) {
+    const { error: delErr } = await serviceSupabase
+      .from('story_sequences')
+      .delete()
+      .in('id', absorbees)
+      .eq('profile_id', user.id);
+    if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
+  }
+
+  // Un lien hérité est déjà publié dans une story : en générer un second ferait
+  // coexister deux liens pour un seul rendez-vous, dont un seul serait suivi.
+  let calendlyShortUrl: string | null = ctaHerite?.calendly_short_url ?? null;
+
+  if (wantsCalendly && !calendlyShortUrl) {
     calendlyShortUrl = await generateCalendlyLink(user.id, seq.id, name);
   }
 
@@ -344,6 +450,33 @@ export async function PATCH(request: Request) {
     }
 
     if (remainingIds.length === 0) {
+      // ── UNE SÉQUENCE QUI A PRODUIT DES LEADS NE SE SUPPRIME PAS ──────────
+      //
+      // `instagram_leads.story_sequence_id` référence cette table en `NO ACTION` :
+      // Postgres REFUSE la suppression dès qu'un lead y pointe. Sans cette garde,
+      // le coach recevait une erreur de contrainte brute en pleine figure — et en
+      // base le 2026-09-08, les 2 seules séquences à une story portaient chacune
+      // un lead, donc le cas n'avait rien d'improbable.
+      //
+      // On refuse plutôt que de contourner. Les deux contournements possibles
+      // perdent quelque chose : détacher les leads efface d'où ils viennent, et
+      // garder une séquence vide fabrique un objet à 0 story porteur
+      // d'historique — que la règle des 7 jours (`fantome`, GET) finirait par
+      // masquer, ses statistiques avec.
+      //
+      // Le regroupement, lui, n'est pas concerné : il MIGRE les leads vers la
+      // nouvelle séquence avant de supprimer l'ancienne (voir `absorber`).
+      const { count: leadsRattaches } = await serviceSupabase
+        .from('instagram_leads')
+        .select('id', { count: 'exact', head: true })
+        .eq('story_sequence_id', id);
+
+      if (leadsRattaches && leadsRattaches > 0) {
+        return NextResponse.json({
+          error: `Cette séquence a déjà reçu ${leadsRattaches} lead${leadsRattaches > 1 ? 's' : ''} : retirer sa dernière story la supprimerait, et leur origine avec. Retire plutôt son mot-clé si tu veux l'arrêter.`,
+        }, { status: 409 });
+      }
+
       // Dernière story retirée — supprime la séquence entière, les stories redeviennent libres.
       const { error: delErr } = await serviceSupabase.from('story_sequences').delete().eq('id', id).eq('profile_id', user.id);
       if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });

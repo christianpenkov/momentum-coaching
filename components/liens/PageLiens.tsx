@@ -16,6 +16,7 @@ import { refusSequence } from '@/lib/sequenceDm';
 import { personnesParContenu } from '@/lib/attribution-roles';
 import { SOURCE_DM_ENTRANT, SOURCE_DM_SORTANT } from '@/lib/canalDm';
 import { storiesARattacher as storiesARattacherPur } from '@/lib/rattachementStories';
+import { etatStory, etatSequence, LIBELLE_ETAT } from '@/lib/etatStory';
 
 import { IG, IgAvatar, IgRecu, IgTemplate, IgEnvoye } from '@/components/ig/primitivesInstagram';
 import { PARAM_STORIES_A_GROUPER } from '@/lib/notifications';
@@ -2666,6 +2667,13 @@ function LigneSequence({ seq, stories, aRattacher, surbrillance, ouverte, occupe
             {!seq.lm_keyword && !seq.calendly_short_url && (
               <span style={{ fontSize: 10, color: FAINT }}>Aucun CTA</span>
             )}
+            {/* Devant une liste de séquences, la question qu'on se pose est
+                « laquelle tourne encore ? ». Une séquence dont toutes les stories
+                ont expiré est RÉELLEMENT morte : le webhook exige un
+                `reply_to.story.id`, et on ne peut plus répondre à une story
+                disparue. On la garde dans la liste — c'est le seul endroit où
+                lire son bilan — mais on cesse de laisser croire qu'elle répond. */}
+            <Pastille etat={etatSequence(stories)} />
             <span style={{ fontSize: 10, color: FAINT }}>
               {vide ? 'en attente de ses stories' : `${seq.story_count} stor${seq.story_count > 1 ? 'ies' : 'y'}`}
             </span>
@@ -3021,12 +3029,21 @@ function TabStoryStats({ story }: { story: Post }) {
   );
 }
 
-function formatDefaultSequenceName(isoDate: string): string {
+/**
+ * Le nom propose par defaut.
+ *
+ * « Sequence » devant UNE story se lit mal : l'objet n'en est pas une, meme si la
+ * plateforme le range au meme endroit — un mot-cle ne peut vivre que sur une
+ * sequence, donc une story seule en fabrique une d'une story. Le nom decrit donc
+ * ce qu'on voit, pas la structure qui le porte. Il reste modifiable.
+ */
+function formatDefaultSequenceName(isoDate: string, uneSeuleStory = false): string {
   const d = new Date(isoDate);
   const dd = String(d.getDate()).padStart(2, '0');
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const hh = String(d.getHours()).padStart(2, '0');
   const min = String(d.getMinutes()).padStart(2, '0');
+  if (uneSeuleStory) return `Story du ${dd}/${mm} - ${hh}h${min}`;
   return `Séquence du ${dd}/${mm} - ${hh}h${min}`;
 }
 
@@ -3080,14 +3097,14 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
       // celui de la publication. Sans ce tri, « la dernière » était la dernière
       // COCHÉE — donc n'importe laquelle.
       const parDate = [...groupStories].sort((a, b) => new Date(a.postedAt || 0).getTime() - new Date(b.postedAt || 0).getTime());
-      setName(formatDefaultSequenceName(parDate[0]?.postedAt || new Date().toISOString()));
+      setName(formatDefaultSequenceName(parDate[0]?.postedAt || new Date().toISOString(), parDate.length === 1));
       // La dernière publiée : on raconte d'abord, on demande à la fin.
       setCtaStoryId(parDate[parDate.length - 1]?.id || '');
     } else if (isExistingSequence && primary) {
       setName(primary.sequenceName || '');
       setCtaStoryId(primary.ctaStoryId || primary.id);
     } else if (primary) {
-      setName(formatDefaultSequenceName(primary.postedAt || new Date().toISOString()));
+      setName(formatDefaultSequenceName(primary.postedAt || new Date().toISOString(), true));
       setCtaStoryId(primary.id);
     }
   }, [primary?.id, isGroup]);
@@ -3095,6 +3112,21 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
   if (!primary) return null;
 
   const candidateStories = isGroup ? groupStories : [primary];
+
+  // ── UNE STORY SEULE, PAS ENCORE AUTOMATISÉE ──────────────────────────────
+  //
+  // C'est l'écran sur lequel on arrive en cliquant une story dans la liste. Il
+  // affichait « Stories de la séquence (0) » et un « + » pour en ajouter
+  // d'autres — donc une TROISIÈME façon de fabriquer une séquence, en plus des
+  // deux boutons de l'onglet Stories, sur un écran qui parlait d'un objet qui
+  // n'existait pas encore.
+  //
+  // Ici on ne peut faire qu'une chose : poser un lead magnet sur CETTE story.
+  // Ça crée une séquence d'une story — obligatoirement, le webhook ne sait lire
+  // un mot-clé que par `ig_stories.sequence_id`. Regrouper plusieurs stories
+  // reste le travail des deux boutons, et d'eux seuls.
+  const storyUniqueLibre = !isGroup && !isExistingSequence;
+
 
   // La story porteuse du CTA, d'où qu'elle vienne : l'état local pendant une
   // création, la valeur enregistrée ensuite. Le bloc de composition est le même
@@ -3188,9 +3220,24 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
   //
   // Toujours triées par date de publication : une séquence se lit dans l'ordre
   // où l'audience l'a vue, jamais dans l'ordre où on a coché les cases.
-  const storiesAffichees = (isGroup ? groupStories : sequenceMates)
+  const storiesAffichees = (isExistingSequence ? sequenceMates : candidateStories)
     .slice()
     .sort((a, b) => new Date(a.postedAt || 0).getTime() - new Date(b.postedAt || 0).getTime());
+  // ── LE LIEN CALENDLY SE PRÉPARE, IL NE SE RATTRAPE PAS ────────────────────
+  //
+  // Un lien Calendly de story vit dans un sticker, et un sticker se pose AU
+  // MOMENT de publier. Devant une story déjà en ligne, cet onglet proposait donc
+  // quelque chose d'impossible — pire, il laissait croire qu'on pouvait encore
+  // équiper une story publiée.
+  //
+  // Il n'a de sens que sur une séquence en préparation : créée avant publication,
+  // elle n'a encore aucune story, et c'est là qu'on vient chercher son lien. Un
+  // lien DÉJÀ généré le garde visible, sinon on ne pourrait plus le recopier.
+  //
+  // Calculé une fois : l'onglet et son contenu doivent disparaître ensemble.
+  // Rattacher une story en étant sur cet onglet laissait sinon le contenu à
+  // l'écran, sans onglet actif pour le désigner.
+  const calendlyDisponible = storiesAffichees.length === 0 || !!primary.calendlyShortUrl;
 
   // Retirer : sur une séquence existante c'est un appel API, pendant un
   // groupement une simple décoche. Le bouton est le même, l'utilisateur n'a pas
@@ -3349,7 +3396,11 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
                   elles ont été publiées. Il n'apparaissait pas pendant le
                   groupement — le moment où l'on compose. */}
               <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 6 }}>
-                Stories de la séquence <span style={{ color: FAINT, fontWeight: 400 }}>({storiesAffichees.length}, dans l'ordre de publication)</span>
+                {storyUniqueLibre ? (
+                  <>Cette story <span style={{ color: FAINT, fontWeight: 400 }}>— le lead magnet ci-dessous s'appliquera à elle seule</span></>
+                ) : (
+                  <>Stories de la séquence <span style={{ color: FAINT, fontWeight: 400 }}>({storiesAffichees.length}, dans l'ordre de publication)</span></>
+                )}
               </label>
               <div style={{ display: 'flex', gap: isMobile ? 10 : 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
                 {storiesAffichees.map((s, i) => {
@@ -3371,13 +3422,26 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
                         background: 'rgba(0,0,0,.62)', color: '#fff', fontSize: 9, fontWeight: 700,
                         lineHeight: '14px', textAlign: 'center', padding: '0 3px', pointerEvents: 'none',
                       }}>{i + 1}</span>
-                      <button onClick={() => retirerStory(s.id)} title="Retirer de la séquence"
-                        style={{ position: 'absolute', top: -6, right: -6, width: croix, height: croix, borderRadius: '50%', border: `1.5px solid ${SURFACE}`, background: '#d32f2f', color: '#fff', fontSize: isMobile ? 12 : 10, lineHeight: 1, textAlign: 'center', cursor: 'pointer', padding: 0 }}>×</button>
+                      {!storyUniqueLibre && (
+                        <button onClick={() => retirerStory(s.id)} title="Retirer de la séquence"
+                          style={{ position: 'absolute', top: -6, right: -6, width: croix, height: croix, borderRadius: '50%', border: `1.5px solid ${SURFACE}`, background: '#d32f2f', color: '#fff', fontSize: isMobile ? 12 : 10, lineHeight: 1, textAlign: 'center', cursor: 'pointer', padding: 0 }}>×</button>
+                      )}
                     </div>
                   );
                 })}
-                <button onClick={() => setAddingStories(v => !v)} title="Ajouter une story"
-                  style={{ width: isMobile ? 52 : 44, height: isMobile ? 52 : 44, borderRadius: 7, border: `1px dashed ${addingStories ? BLUE : BORDER}`, background: 'transparent', color: addingStories ? BLUE : MUTED, fontSize: 18, cursor: 'pointer', flexShrink: 0 }}>+</button>
+                {/* Pas de « + » sur une story seule : ce serait une TROISIÈME
+                    façon de fabriquer une séquence, en plus des deux boutons de
+                    l'onglet Stories, et sur l'écran le moins fait pour ça.
+                    Regrouper des stories est le travail de ces boutons.
+
+                    Sur une séquence EXISTANTE il reste, parce qu'il est devenu la
+                    seule porte de rattrapage : le bandeau de rattachement se tait
+                    48 h après la dernière story, et une story écartée ne revient
+                    plus. Sans lui, une story oubliée serait perdue pour toujours. */}
+                {!storyUniqueLibre && (
+                  <button onClick={() => setAddingStories(v => !v)} title="Rattacher une story oubliée à cette séquence"
+                    style={{ width: isMobile ? 52 : 44, height: isMobile ? 52 : 44, borderRadius: 7, border: `1px dashed ${addingStories ? BLUE : BORDER}`, background: 'transparent', color: addingStories ? BLUE : MUTED, fontSize: 18, cursor: 'pointer', flexShrink: 0 }}>+</button>
+                )}
               </div>
 
               {addingStories && (
@@ -3452,7 +3516,10 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
       <div style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${BORDER}`, background: BG, padding: isMobile ? '0 14px' : '0 24px' }}>
         {([
           { key: 'lm' as const, label: `Lead magnet${primary.lmKeyword ? ' ✓' : ''}` },
-          { key: 'calendly' as const, label: `Calendly${primary.calendlyShortUrl ? ' ✓' : ''}` },
+          // Voir `calendlyDisponible` : l'onglet et son contenu vont ensemble.
+          ...(calendlyDisponible
+            ? [{ key: 'calendly' as const, label: `Calendly${primary.calendlyShortUrl ? ' ✓' : ''}` }]
+            : []),
           // Stats sur une séquence enregistrée comme sur une story seule — pas
           // pendant un groupement en cours, où il n'y a encore ni séquence à
           // interroger ni story unique à décrire.
@@ -3485,13 +3552,23 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
             profileId={profileId} storyIds={candidateStories.map(s => s.id)} leadMagnets={leadMagnets}
             onSaved={onSequenceSaved}
           />
-        ) : (
+        ) : calendlyDisponible ? (
           <TabStoryCalendly
             primary={primary} isExistingSequence={isExistingSequence}
             profileId={profileId} name={name} ctaStoryId={storyCta || ''}
             storyIds={candidateStories.map(s => s.id)}
             onSaved={onSequenceSaved}
           />
+          ) : (
+            // L'onglet vient de disparaître sous les pieds — un rattachement
+            // pendant qu'on était dessus. On retombe sur le lead magnet plutôt
+            // que de laisser un panneau vide.
+            <TabStoryLeadMagnet
+              primary={primary} isExistingSequence={isExistingSequence} isGroup={isGroup}
+              name={name} ctaStoryId={ctaStoryId} candidateStories={candidateStories}
+              profileId={profileId} storyIds={candidateStories.map(s => s.id)} leadMagnets={leadMagnets}
+              onSaved={onSequenceSaved}
+            />
           )}
         </div>
       </>
@@ -3519,8 +3596,28 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
   });
   const [vueMobileStory, setVueMobileStory] = useState<'modifier' | 'apercu'>('modifier');
   const [lmId, setLmId] = useState(leadMagnets[0]?.id || '');
-  const motCleRef = primary.lmKeyword || leadMagnets[0]?.keyword || '';
+
+  // ── CE QU'ON REPREND D'UNE STORY DÉJÀ AUTOMATISÉE ────────────────────────
+  //
+  // En regroupant, la sélection peut contenir une story qui portait DÉJÀ un
+  // mot-clé — une séquence d'une story, créée en posant un lead magnet dessus.
+  // La nouvelle séquence l'absorbe côté serveur, mais l'écran, lui, partait de
+  // `primary`, c'est-à-dire de la PREMIÈRE story cochée. Si celle-là n'avait pas
+  // de mot-clé, le champ se pré-remplissait avec le premier lead magnet de la
+  // liste — et enregistrer écrasait le mot-clé existant sans un mot.
+  //
+  // Exactement la perte silencieuse que le conflit à deux CTA sert à éviter, sauf
+  // qu'ici, avec un seul CTA en lice, rien ne se déclenchait.
+  //
+  // On repart donc de la story qui porte quelque chose, quand il y en a une.
+  const storeuseDuCta = candidateStories.find(st => st.lmKeyword) ?? primary;
+  const motCleRef = storeuseDuCta.lmKeyword || leadMagnets[0]?.keyword || '';
   const [lmKeyword, setLmKeyword] = useState(motCleRef);
+  // Ce qu'on a repris, et d'où : le coach doit voir que ce champ n'est pas vide
+  // par hasard.
+  const ctaRepris = !isExistingSequence && storeuseDuCta !== primary && !!storeuseDuCta.lmKeyword
+    ? storeuseDuCta
+    : null;
 
   // ── Les cinq messages, dans la MÊME forme que les posts ────────────────────
   //
@@ -3540,7 +3637,7 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
     lienBtn:     p.dmLinkButtonText || DM2_DEFAULT_BUTTON,
     relance:     p.dm2StoryMessage || '',
   });
-  const [seq, setSeq] = useState<SeqDm>(() => depuisStory(primary));
+  const [seq, setSeq] = useState<SeqDm>(() => depuisStory(storeuseDuCta));
   const [seqRef, setSeqRef] = useState<SeqDm>(seq);
   const setChamp = (k: keyof SeqDm, v: string) => setSeq(s => ({ ...s, [k]: v }));
 
@@ -3555,16 +3652,28 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
   const nbModifs = (Object.keys(seq) as (keyof SeqDm)[]).filter(k => seq[k] !== seqRef[k]).length
     + (lmKeyword !== motCleRef ? 1 : 0);
 
+  // ── DEUX CTA DANS LA SÉLECTION : ON DEMANDE, ON N'ABANDONNE PAS ──────────
+  //
+  // Regrouper des stories dont deux portent déjà un mot-clé différent n'a pas de
+  // réponse évidente : une séquence n'a qu'un mot-clé et qu'un jeu de messages.
+  // Le serveur rend alors la liste des prétendants plutôt que d'en jeter un —
+  // une perte silencieuse ici, c'est un prospect qui ne reçoit rien trois
+  // semaines plus tard, sans que rien ne l'ait annoncé.
+  const [conflitCta, setConflitCta] = useState<
+    { sequenceId: string; name: string; lmKeyword: string | null; calendlyShortUrl: string | null }[] | null
+  >(null);
+
   // Réinitialisation au changement de story — le panneau n'est pas remonté, donc
   // les `useState` ci-dessus ne rejouent PAS. Sans ce passage, ouvrir la séquence
   // A puis la séquence B laissait les cinq messages de A dans les champs de B, et
   // un « Mettre à jour » les écrivait sur B. Même correctif que TabLm côté posts.
   useEffect(() => {
-    const depuis = depuisStory(primary);
+    const depuis = depuisStory(storeuseDuCta);
     setSeq(depuis);
     setSeqRef(depuis);
-    setLmKeyword(primary.lmKeyword || leadMagnets[0]?.keyword || '');
+    setLmKeyword(storeuseDuCta.lmKeyword || leadMagnets[0]?.keyword || '');
     setError(null);
+    setConflitCta(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [primary.id]);
 
@@ -3577,7 +3686,7 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [primary.id]);
 
-  const submit = async (): Promise<string | null> => {
+  const submit = async (heriterDe?: string): Promise<string | null> => {
     // Même règle que les posts, depuis l'unification des séquences. Voir `refusSequence`.
     const refus = refusSequence(seq);
     if (refus) { setError(refus); return refus; }
@@ -3606,10 +3715,16 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
       const lm = leadMagnets.find(l => l.id === lmId);
       const res = await fetch('/api/client/story-sequences', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profileId, name, ctaStoryId, storyIds, lmId, lmUrl: lm?.url, ...corps }),
+        body: JSON.stringify({ profileId, name, ctaStoryId, storyIds, lmId, lmUrl: lm?.url, heriterDe, ...corps }),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data.error || 'Erreur'); return data.error || 'Erreur'; }
+      if (!res.ok) {
+        // Le serveur ne tranche pas à notre place : il rend les prétendants.
+        if (Array.isArray(data.conflitCta) && data.conflitCta.length > 0) setConflitCta(data.conflitCta);
+        setError(data.error || 'Erreur');
+        return data.error || 'Erreur';
+      }
+      setConflitCta(null);
       onSaved(storyIds, {
         sequenceId: data.id, sequenceName: name, sequenceStoryCount: storyIds.length,
         ctaStoryId, lmId, ...corps, hasLeadMagnet: true,
@@ -3638,6 +3753,48 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
 
   return (
     <>
+      {/* ── LE CHOIX QU'ON NE PEUT PAS FAIRE À SA PLACE ────────────────────
+          Deux des stories sélectionnées portaient déjà un mot-clé. Une séquence
+          n'en a qu'un, avec un seul jeu de messages : il faut trancher, et seul
+          le coach sait lequel des deux lancements il poursuit. En choisir un
+          nous-mêmes couperait une automatisation en silence. */}
+      {conflitCta && (
+        <div style={{ marginBottom: 14, padding: 12, borderRadius: 8, background: AMBER_SOFT, border: `1px solid ${AMBER}` }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: INK, marginBottom: 4 }}>
+            Ces stories portent {conflitCta.length} CTA différents
+          </div>
+          <div style={{ fontSize: 11.5, color: MUTED, marginBottom: 10, lineHeight: 1.5 }}>
+            La nouvelle séquence n'en garde qu'un — avec ses messages. Les autres sont abandonnés.
+          </div>
+          <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
+            {conflitCta.map(c => (
+              <button key={c.sequenceId} type="button" disabled={saving}
+                onClick={() => { setConflitCta(null); submit(c.sequenceId); }}
+                style={{
+                  minHeight: 40, padding: '6px 12px', fontSize: 12, fontWeight: 600,
+                  borderRadius: 7, border: `1px solid ${BORDER}`, background: SURFACE,
+                  color: INK, cursor: saving ? 'default' : 'pointer', fontFamily: 'inherit',
+                  textAlign: 'left',
+                }}>
+                Garder {c.lmKeyword ? `#${c.lmKeyword}` : 'le lien Calendly'}
+                <span style={{ display: 'block', fontSize: 10, color: FAINT, fontWeight: 400 }}>{c.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Ce qui a été REPRIS d'une story déjà automatisée. Sans cette ligne, le
+          champ mot-clé se serait rempli tout seul et le coach aurait cru à une
+          valeur par défaut — puis écrasé son propre lancement en enregistrant. */}
+      {ctaRepris && (
+        <div style={{ marginBottom: 14, padding: '9px 11px', borderRadius: 8, background: SURFACE2, border: `1px solid ${BORDER_SOFT}`, fontSize: 11.5, color: MUTED, lineHeight: 1.5 }}>
+          Une des stories sélectionnées porte déjà <strong style={{ color: INK }}>#{ctaRepris.lmKeyword}</strong>
+          {ctaRepris.sequenceName ? <> (<em>{ctaRepris.sequenceName}</em>)</> : null}.
+          {' '}Son mot-clé et ses messages sont repris ci-dessous, et son ancienne séquence sera remplacée par celle-ci.
+        </div>
+      )}
+
       {!isConfigured && !isExistingSequence && (
         <>
           <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Lead magnet</label>
@@ -3671,7 +3828,7 @@ function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaSto
         story={{ vignette: storyCtaVignette, motCle: lmKeyword || 'MOT-CLÉ' }}
         declencheur="story" lmUrl={primary.lmShortUrl || null}
         nbModifs={nbModifs} saving={saving} error={error}
-        onSave={submit} boutonActif={boutonActif}
+        onSave={() => submit()} boutonActif={boutonActif}
         libelleBouton={saved ? 'Enregistré ✓' : isConfigured ? 'Mettre à jour' : isExistingSequence ? 'Configurer le Lead Magnet' : 'Créer le CTA'}
         igCompte={igCompte} vue={vueMobileStory} setVue={setVueMobileStory}
       />
@@ -4829,9 +4986,23 @@ function BoutonsNouvelleSequence({ compact, pleineLargeur, onLeadMagnet, onCalen
   // Ce que chaque bouton fait, et pourquoi il existe. Le second explique la
   // contrainte qui justifie son existence — sans elle, préparer une séquence
   // avant de publier n'a aucun sens visible.
+  // Mêmes phrases que le bandeau affiché juste après le clic : ce qu'on lit avant
+  // de cliquer doit être ce qu'on relit après.
   const aide = {
-    lm: "Regroupe des stories déjà publiées et leur associe un lead magnet. Le prospect répond ton mot-clé à la story, et le fichier part en DM automatiquement.",
-    cal: "Uniquement si le CTA de cette séquence est un lien Calendly. Le lien Calendly doit exister AVANT que tu publies, pour être collé dans le sticker « Lien » — une story déjà publiée ne peut plus en recevoir. Pour un lead magnet, tu n'as rien à préparer : l'autre bouton suffit.",
+    lm: `Séquence à partir de stories DÉJÀ publiées.
+
+1. ${ETAPES_PARCOURS.lm[0]}
+2. ${ETAPES_PARCOURS.lm[1]}
+3. ${ETAPES_PARCOURS.lm[2]}
+
+Pour une seule story, ouvre-la et pose son lead magnet directement.`,
+    cal: `Séquence préparée AVANT de publier, uniquement si son CTA est un lien Calendly.
+
+1. ${ETAPES_PARCOURS.cal[0]}
+2. ${ETAPES_PARCOURS.cal[1]}
+3. ${ETAPES_PARCOURS.cal[2]}
+
+Pour un lead magnet, tu n'as rien à préparer : l'autre bouton suffit.`,
   };
 
   return (
@@ -4866,6 +5037,65 @@ function BoutonsNouvelleSequence({ compact, pleineLargeur, onLeadMagnet, onCalen
   );
 }
 
+/**
+ * Les trois étapes du parcours en cours, affichées au moment de créer.
+ *
+ * ── POURQUOI ELLES SONT NÉCESSAIRES ──────────────────────────────────────────
+ *
+ * Les deux façons de créer une séquence ne diffèrent pas par ce qu'elles
+ * produisent, mais par QUAND on s'en sert — et c'est invisible sur un bouton :
+ *
+ *   • le lead magnet se pose APRÈS avoir publié, sur des stories qui existent ;
+ *   • le lien Calendly se prépare AVANT, parce qu'il doit être collé dans le
+ *     sticker au moment de publier. Une story en ligne ne peut plus en recevoir.
+ *
+ * Sans cette différence énoncée, le coach cherche un bouton « ajouter un lien
+ * Calendly » sur une story publiée, ne le trouve pas, et croit à un défaut.
+ *
+ * Les mêmes phrases servent aux infobulles des deux boutons : ce qu'on lit avant
+ * de cliquer doit être ce qu'on relit après.
+ */
+const ETAPES_PARCOURS = {
+  lm: [
+    'Tu as déjà publié tes stories.',
+    'Tu les sélectionnes ici, et tu désignes celle qui portera le CTA.',
+    'Tu poses le mot-clé : le prospect y répond, le lead magnet part en DM.',
+  ],
+  // ⚠️ Mêmes phrases que la fenêtre de préparation (« Nouvelle séquence · CTA
+  // lien Calendly »), qui les affiche déjà numérotées. Si elles changent là-bas,
+  // elles changent ici : un même parcours ne peut pas se raconter de deux façons.
+  cal: [
+    'Tu crées la séquence ici : son lien Calendly est généré immédiatement.',
+    'Tu publies tes stories avec le sticker « Lien » — une story déjà publiée ne peut plus en recevoir.',
+    'Tu reviens ici rattacher tes stories et désigner celle qui porte le lien.',
+  ],
+} as const;
+
+function ParcoursSequence({ quoi }: { quoi: 'lm' | 'cal' }) {
+  return (
+    <div style={{
+      padding: '10px 12px', borderRadius: 8, marginBottom: 12,
+      background: SURFACE2, border: `1px solid ${BORDER_SOFT}`,
+    }}>
+      <div style={{ fontSize: 11.5, fontWeight: 700, color: INK, marginBottom: 7 }}>
+        {quoi === 'lm' ? 'Séquence à partir de stories publiées' : 'Séquence préparée avant publication'}
+      </div>
+      <ol style={{ margin: 0, paddingLeft: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 5 }}>
+        {ETAPES_PARCOURS[quoi].map((etape, i) => (
+          <li key={i} style={{ display: 'flex', gap: 8, fontSize: 11.5, color: MUTED, lineHeight: 1.45 }}>
+            <span style={{
+              flexShrink: 0, width: 16, height: 16, borderRadius: '50%',
+              background: SURFACE, border: `1px solid ${BORDER}`, color: INK,
+              fontSize: 9.5, fontWeight: 700, textAlign: 'center', lineHeight: '15px',
+            }}>{i + 1}</span>
+            <span>{etape}</span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
 /** Barre d'actions des stories : sélection en cours, ou création / actualisation. */
 function ActionsStories({ selectionMode, selectedCount, compact, onStartSelection, onCancelSelection, onContinue, onPreparer }: {
   selectionMode: boolean;
@@ -4890,7 +5120,15 @@ function ActionsStories({ selectionMode, selectedCount, compact, onStartSelectio
           {selectedCount} sélectionnée{selectedCount > 1 ? 's' : ''}
         </span>
         <button onClick={onCancelSelection} style={{ ...btn, marginLeft: 'auto' }}>Annuler</button>
-        <button onClick={onContinue} disabled={selectedCount < 2} style={{
+        {/* Une seule story cochée laissait ce bouton mort, sans dire pourquoi ni
+            où aller. Ces boutons servent à REGROUPER ; une story seule se
+            configure depuis son propre écran, où elle fabrique sa séquence
+            d'une story. L'infobulle relie les deux portes. */}
+        <button onClick={onContinue} disabled={selectedCount < 2}
+          title={selectedCount < 2
+            ? "Sélectionne au moins 2 stories. Pour une seule, ouvre-la dans la liste et pose son lead magnet directement."
+            : undefined}
+          style={{
           padding: compact ? '4px 10px' : '5px 12px', fontSize: compact ? 11 : 12, fontWeight: 700, borderRadius: 6, border: 'none',
           background: selectedCount < 2 ? SURFACE2 : BLUE, color: selectedCount < 2 ? MUTED : '#fff',
           cursor: selectedCount < 2 ? 'default' : 'pointer',
@@ -5348,24 +5586,35 @@ function metaContenu(post: Post, court = false): string {
  * une vidéo YouTube restent en ligne indéfiniment, leur séquence tourne tant
  * qu'un mot-clé est configuré — un badge « Active » n'y dirait rien.
  */
-function PastilleEtatStory({ post }: { post: Post }) {
-  const isStory = post.platform === 'STORY';
-  const expiree = isStory && !!post.expiredAt;
-  // Reservee aux stories. Sur un post, « Active » doublait la pastille du lead
-  // magnet — un mot-cle pose suffit a dire que la sequence tourne, et un post ne
-  // perime pas. Une story, si : c'est la seule ou l'etat apprend quelque chose.
-  if (!isStory) return null;
+function Pastille({ etat }: { etat: 'preparation' | 'active' | 'expiree' }) {
+  // Trois teintes pour trois états : le vert dit « ça tourne », le gris « c'est
+  // fini », et l'ambre « il manque quelque chose de ta part » — c'est l'état où
+  // le coach vient chercher son lien Calendly, il doit se repérer d'un coup d'œil.
+  const teinte = etat === 'active'
+    ? { texte: 'var(--green)', fond: 'var(--green-soft)' }
+    : etat === 'preparation'
+      ? { texte: AMBER, fond: AMBER_SOFT }
+      : { texte: MUTED, fond: SURFACE2 };
   return (
     <span style={{
       fontSize: 10, fontWeight: 600, borderRadius: 4, padding: '1px 5px',
-      display: 'inline-flex', alignItems: 'center', gap: 4,
-      color: expiree ? MUTED : 'var(--green)',
-      background: expiree ? SURFACE2 : 'var(--green-soft)',
+      display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap',
+      color: teinte.texte, background: teinte.fond,
     }}>
       <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor' }} />
-      {expiree ? 'Expirée' : 'Active'}
+      {LIBELLE_ETAT[etat]}
     </span>
   );
+}
+
+function PastilleEtatStory({ post }: { post: Post }) {
+  // Reservee aux stories. Sur un post, « Active » doublait la pastille du lead
+  // magnet — un mot-cle pose suffit a dire que la sequence tourne, et un post ne
+  // perime pas. Une story, si : c'est la seule ou l'etat apprend quelque chose.
+  if (post.platform !== 'STORY') return null;
+  // ⚠️ L'état ne se lit PAS sur `expiredAt` seul : il n'est posé qu'au passage du
+  // cron, hebdomadaire. Voir `lib/etatStory.ts`, qui porte la règle et ses tests.
+  return <Pastille etat={etatStory(post)} />;
 }
 
 /**
@@ -6764,6 +7013,8 @@ export default function PageLiens() {
                 // un ORDRE, et une liste verticale de lignes ne le montre pas.
                 // La grille rapproche l'écran de la pellicule Instagram, et le
                 // numéro dit à quel rang chaque story partira.
+                <>
+                <ParcoursSequence quoi="lm" />
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
                   {(() => {
                     // Le rang suit l'ordre de la LISTE, pas l'ordre des clics :
@@ -6783,7 +7034,19 @@ export default function PageLiens() {
                       <button
                         key={post.id}
                         onClick={() => {
-                          if (dejaGroupee) return;
+                          // ── UNE STORY DÉJÀ GROUPÉE EST DÉSORMAIS COCHABLE ──
+                          //
+                          // Elle ne l'était pas, et c'était un cul-de-sac depuis
+                          // qu'un mot-clé posé sur une story crée une séquence
+                          // d'une story : cette story devenait intouchable, et la
+                          // contiguïté refusait aussi de la sauter. Impossible de
+                          // grouper les 4 stories d'un lancement dont une portait
+                          // un mot-clé.
+                          //
+                          // La sélection ABSORBE la séquence : elle en reprend le
+                          // CTA et les leads. Le serveur refuse le seul cas qu'on
+                          // ne veut pas — une séquence prise à moitié, qu'on
+                          // démantèlerait — et demande quand deux CTA s'opposent.
                           setSelectedStoryIds(prev => {
                             const next = new Set(prev);
                             if (next.has(post.id)) next.delete(post.id); else next.add(post.id);
@@ -6793,8 +7056,7 @@ export default function PageLiens() {
                         style={{
                           position: 'relative', padding: 0, border: 'none', background: 'none',
                           aspectRatio: '9 / 16', borderRadius: 10, overflow: 'hidden',
-                          cursor: dejaGroupee ? 'default' : 'pointer',
-                          opacity: dejaGroupee ? 0.4 : 1,
+                          cursor: 'pointer',
                           boxShadow: coche ? `0 0 0 3px ${BLUE}` : `0 0 0 1px ${BORDER}`,
                           transition: `box-shadow var(--dur-quick) var(--ease-out)`,
                         }}>
@@ -6823,18 +7085,21 @@ export default function PageLiens() {
                           }}>CTA</span>
                         )}
 
+                        {/* Elle reste signalée : la cocher n'est pas anodin, sa
+                            séquence actuelle sera reprise par la nouvelle. */}
                         {dejaGroupee && (
                           <span style={{
                             position: 'absolute', left: 6, top: 6,
                             fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 5,
                             background: 'rgba(0,0,0,.6)', color: '#fff',
-                          }}>Déjà groupée</span>
+                          }}>Déjà en séquence</span>
                         )}
                       </button>
                     );
                     });
                   })()}
                 </div>
+                </>
               ) : filteredPosts.map(post => {
                 const isStory = post.platform === 'STORY';
                 const isGroupedElsewhere = isStory && !!post.sequenceId;
@@ -6847,7 +7112,8 @@ export default function PageLiens() {
                     groupedElsewhere={isGroupedElsewhere}
                     onClick={() => {
                       if (isStory && selectionMode) {
-                        if (isGroupedElsewhere) return; // déjà dans une séquence (même solo), non cochable
+                        // Cochable même déjà en séquence : la sélection l'absorbe.
+                        // Voir la grille de sélection, qui porte le raisonnement.
                         setSelectedStoryIds(prev => {
                           const next = new Set(prev);
                           if (next.has(post.id)) next.delete(post.id); else next.add(post.id);
@@ -7095,7 +7361,8 @@ export default function PageLiens() {
                     groupedElsewhere={isGroupedElsewhere}
                     onClick={() => {
                       if (isStory && selectionMode) {
-                        if (isGroupedElsewhere) return; // déjà dans une séquence (même solo), non cochable
+                        // Cochable même déjà en séquence : la sélection l'absorbe.
+                        // Voir la grille de sélection, qui porte le raisonnement.
                         setSelectedStoryIds(prev => {
                           const next = new Set(prev);
                           if (next.has(post.id)) next.delete(post.id); else next.add(post.id);
