@@ -48,19 +48,23 @@ function api(chemin) {
 }
 
 // ── 1. Lister TOUS les déploiements ────────────────────────────────────────────────
-const tous = [];
-let until = null;
-for (let page = 0; page < 60; page++) {
-  let c = `/v6/deployments?projectId=${PROJET}&teamId=${EQUIPE}&limit=100`;
-  if (until) c += `&until=${until}`;
-  const d = api(c);
-  const lot = d.deployments ?? [];
-  tous.push(...lot);
-  const suite = d.pagination?.next;
-  if (!lot.length || !suite) break;
-  until = suite;
+function listerTous() {
+  const liste = [];
+  let until = null;
+  for (let page = 0; page < 60; page++) {
+    let c = `/v6/deployments?projectId=${PROJET}&teamId=${EQUIPE}&limit=100`;
+    if (until) c += `&until=${until}`;
+    const d = api(c);
+    const lot = d.deployments ?? [];
+    liste.push(...lot);
+    const suite = d.pagination?.next;
+    if (!lot.length || !suite) break;
+    until = suite;
+  }
+  return liste.sort((a, b) => b.created - a.created);
 }
-tous.sort((a, b) => b.created - a.created);
+
+const tous = listerTous();
 console.log(`${tous.length} deploiements trouves`);
 
 // ── 2. Quel déploiement sert RÉELLEMENT le site ────────────────────────────────────
@@ -107,20 +111,44 @@ if (!EXECUTER) {
 // TOUS les déploiements, production comprise. Uniquement des identifiants, et
 // uniquement ceux calculés ci-dessus — d'où les deux assertions.
 const LOT = 40;
-let ok = 0, echecs = 0;
-for (let i = 0; i < aSupprimer.length; i += LOT) {
-  const lot = aSupprimer.slice(i, i + LOT).map(d => d.uid);
-  if (!lot.every(u => u.startsWith('dpl_'))) throw new Error('identifiant suspect dans le lot');
-  if (lot.includes(PROD_ID)) throw new Error('la production est dans le lot — on arrete tout');
+
+/** Renvoie null si la CLI a rendu la main sans erreur, sinon son message. */
+function retirer(ids) {
+  if (!ids.every(u => u.startsWith('dpl_'))) throw new Error('identifiant suspect dans le lot');
+  if (ids.includes(PROD_ID)) throw new Error('la production est dans le lot — on arrete tout');
   try {
-    execSync(`npx vercel remove ${lot.join(' ')} --yes`, {
+    execSync(`npx vercel remove ${ids.join(' ')} --yes`, {
       encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'], timeout: 900_000,
     });
-    ok += lot.length;
+    return null;
   } catch (e) {
-    echecs += lot.length;
-    console.error(`  lot en echec : ${String(e.stderr ?? e.message).slice(0, 160)}`);
+    return String(e.stderr ?? e.message).replace(/\s+/g, ' ').slice(0, 160);
+  }
+}
+
+for (let i = 0; i < aSupprimer.length; i += LOT) {
+  const lot = aSupprimer.slice(i, i + LOT).map(d => d.uid);
+  const erreur = retirer(lot);
+  // ⚠️ `vercel remove` fait échouer le LOT ENTIER dès qu'UN seul identifiant lui
+  // déplaît — par exemple un déploiement déjà supprimé entre-temps. Sans cette
+  // reprise, un identifiant périmé emportait ses 39 voisins : le 2026-09-08, deux
+  // purges lancées en parallèle se sont ainsi mutuellement fait rater 302 suppressions.
+  if (erreur) {
+    console.error(`  lot en echec, reprise un par un : ${erreur}`);
+    for (const id of lot) retirer([id]);
   }
   console.log(`  ${Math.min(i + LOT, aSupprimer.length)}/${aSupprimer.length} traites`);
 }
-console.log(`\nTermine : ${ok} supprimes, ${echecs} en echec, ${gardes} gardes.`);
+
+// ── 5. Bilan MESURÉ ────────────────────────────────────────────────────────────────
+//
+// ⚠️ On ne compte PAS les succès annoncés par la CLI : on relit la liste et on regarde
+// ce qui reste vraiment. Le 2026-09-08, le bilan déduit des codes de retour annonçait
+// « 62 en echec » alors que les 62 étaient bel et bien supprimés.
+const cibles = new Set(aSupprimer.map(d => d.uid));
+const restants = listerTous().filter(d => cibles.has(d.uid));
+console.log(`\nTermine : ${cibles.size - restants.length}/${cibles.size} supprimes, ${gardes} gardes.`);
+if (restants.length) {
+  console.error(`${restants.length} n'ont pas pu etre supprimes — relancer le script.`);
+  process.exitCode = 1;
+}
