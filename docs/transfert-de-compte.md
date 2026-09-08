@@ -78,6 +78,66 @@ ce document.**
 
 ---
 
+## 0 ter. Les décisions déjà prises — ne pas les rouvrir sans lire pourquoi
+
+Ce que la suite du document présente comme des options **a été tranché**. Les options
+restent écrites, parce qu'une règle sans son motif se fait supprimer par la première
+personne qui la trouve gênante — mais ce tableau-ci fait foi.
+
+| # | Question | Décision | Date | Ce qui la fonde |
+|---|---|---|---|---|
+| D1 | Transférer ou reconstruire ? | **Transférer** les trois projets | 2026-09-03 | le transfert préserve l'identifiant, les clés, l'URL et le nom : cinq des six points de casse disparaissent (§2) |
+| D2 | L'application **Meta** bouge-t-elle ? | **Non. Elle reste à Chris, qui en reste administrateur** | 2026-09-04 | elle est à lui, et **les 4 permissions sont en ACCÈS AVANCÉ** — donc n'importe quel compte Instagram peut se connecter, **sans être testeur** |
+| D3 | La plateforme **Stripe Connect** bouge-t-elle ? | **Non. Elle reste sur le compte Stripe personnel de Chris** | 2026-09-04 | l'application Connect y est **déjà vérifiée** (pièce d'identité). La déplacer obligerait chaque élève à reconnecter et laisserait les encaissements passés sur l'ancienne plateforme |
+| D4 | Google/YouTube, Calendly, Fathom ? | **Ne bougent pas** | 2026-09-03 | même raisonnement que D2 : tant que l'application ne bouge pas, les jetons survivent |
+| D5 | Quand Quennel connecte-t-il ses comptes ? | **Avant le transfert** | 2026-09-04 | le transfert devient alors un non-événement pour lui, et on vérifie que tout collecte pendant qu'on a encore la main sur tout |
+| D6 | Comment Chris garde-t-il l'accès **Vercel** ? | **Identifiants du repreneur**, Chris continuant de tout piloter depuis ce dossier | 2026-09-04 | choix assumé — voir la mise en garde ci-dessous |
+
+### Ce que D2 + D3 + D4 impliquent, et c'est le plus important
+
+**Aucun élève, et pas davantage Quennel, n'aura quoi que ce soit à reconnecter.**
+
+Un jeton d'intégration est lié au couple **(application OAuth, utilisateur)**. Il n'est
+lié ni à Supabase, ni à Vercel, ni à GitHub. Les applications ne bougeant pas, les jetons
+restent valides ; le projet Supabase étant transféré et non reconstruit, les lignes
+`integrations` sont **les mêmes lignes**.
+
+**Vérifié le 2026-09-04, pas supposé** : aucun chemin de rafraîchissement de jeton
+n'utilise le `redirect_uri` ni l'origine de la plateforme — ni Instagram, ni YouTube, ni
+Calendly, ni Fathom. Le rafraîchissement ne dépend que de `client_id`, `client_secret` et
+`refresh_token`, c'est-à-dire de l'application seule.
+
+⚠️ **Corollaire à ne pas perdre** : le jour où l'une de ces applications changerait de
+compte, **tous les jetons de ce fournisseur mourraient d'un coup** et chaque coach devrait
+reconnecter. C'est la contrepartie de D2/D3/D4, et elle est permanente : la plateforme
+dépend durablement des comptes personnels de Chris. Arbitrage raisonnable aujourd'hui —
+l'inverse coûterait des semaines — mais il contredit à terme « zéro maintenance après
+livraison ». **À rouvrir le jour où la plateforme ne dépendra plus de Chris, pas avant.**
+
+### ⚠️ Ce que D6 suppose, et ce qu'il faut faire pour qu'il tienne
+
+Deux précisions factuelles, à confirmer au moment de faire :
+
+**1. Un seul identifiant du repreneur est réellement nécessaire.** Les deux autres
+piliers n'en demandent aucun :
+
+| | Ce qu'il faut | Identité utilisée |
+|---|---|---|
+| GitHub | **rien** — GitHub ajoute l'ancien propriétaire en collaborateur automatiquement | celle de Chris |
+| Supabase | une invitation en `Administrator`, **gratuite dès le plan Free** | celle de Chris |
+| Vercel | le seul cas où un accès au compte du repreneur est nécessaire | la sienne |
+
+Sur deux piliers sur trois, chacun garde sa propre identité — et **une identité propre ne
+déborde jamais sur les autres projets**.
+
+**2. Sur Vercel, prendre un JETON plutôt qu'un mot de passe.** Ce n'est pas une nuance de
+sécurité, c'est la condition pour que les autres projets de Chris ne basculent pas :
+`vercel login` écrit dans `%APPDATA%/com.vercel.cli/Data/auth.json`, **global à la
+machine**. Se connecter avec le compte du repreneur ferait basculer **tous les dossiers**
+sur son compte. Le jeton, lui, vit dans ce dossier — voir §6 et `npm run vercel --`.
+
+---
+
 ## 1. L'inventaire, re-mesuré le 2026-09-03
 
 Le handoff qui a lancé ce travail donnait un inventaire « mesuré la veille, à vérifier ».
@@ -1289,18 +1349,30 @@ Aucune de ces étapes ne touche la production. Toutes bloquent le jour J si elle
 
 ---
 
-**☐ A1 — Trancher le plan Vercel du repreneur** → §4 P2
+**☐ A1 — Le montage Vercel** → **décidé (D6, §0 ter)** — mais une chose reste à faire
 
-- **Faire** : décider entre les trois montages possibles (encadré « Trois montages » en §4).
-- **Vérifier** : la décision est **écrite**, et si c'est Pro, une carte de paiement est
-  posée sur l'équipe.
-- ✅ **Feu vert si** : la décision est écrite et le moyen de paiement en place.
-- 🛑 **Arrêt si** : « on verra le jour J ». C'est la seule condition préalable qui engage
-  une dépense, et la découvrir en pleine bascule fait choisir dans l'urgence.
+Le montage retenu est celui du **compte du repreneur** (§4, montage 2), pas l'équipe Pro.
+Il tient à une condition, et c'est la seule chose à préparer :
 
-**☐ A2 — Ouvrir l'accès Vercel de Chris**
+- **Faire** : demander au repreneur un **jeton**, limité à ce projet, plutôt qu'un mot de
+  passe :
+  ```bash
+  npx vercel tokens add "chris-momentum" --project momentum-plateforme
+  ```
+  puis le ranger dans `.vercel-token` à la racine de ce dossier (ignoré par git).
+- **Vérifier** : `npm run vercel -- whoami`
+- ✅ **Feu vert si** : la ligne `identite` affiche **« jeton »**, pas « SESSION GLOBALE ».
+- 🛑 **Arrêt si** : on s'apprête à faire `vercel login` avec le compte du repreneur.
+  **Tous les dossiers de la machine basculeraient sur son compte**, y compris les autres
+  projets de Chris — c'est précisément ce qu'on veut éviter. → §6
 
-Deux variantes selon la décision d'A1. **Une seule des deux est à faire.**
+⚠️ **Le plan Hobby interdit l'usage commercial** (« être payé pour créer, mettre à jour ou
+héberger le site »), et c'est déjà vrai aujourd'hui, avant tout transfert. Le montage
+retenu ne règle pas ce point : il le laisse ouvert, en connaissance de cause. Le
+rouvrir un jour, c'est §4.
+
+**☐ A2 — Ouvrir l'accès Vercel de Chris** → **sous D6, c'est A1 qui règle ça (le jeton).
+Cette étape ne sert que si le montage bascule un jour sur l'équipe Pro.**
 
 *Variante montage 1 — équipe Pro*, **le repreneur**, clic par clic :
   1. `https://vercel.com` → sélecteur de portée en haut à gauche → **`Create Team`**
@@ -1403,15 +1475,34 @@ opération irréversible du dossier.
 - ✅ **Feu vert si** : la décision est écrite. ⚠️ **Jamais les deux comptes en parallèle**
   (notifications en double).
 
-**☐ A10 — Décider du sort de Stripe Connect** → §5 phase 3
+**☐ A10 — Stripe Connect** → **décidé (D3, §0 ter)**
 
-- **Faire** : choisir — la plateforme Connect reste chez Chris, ou passe au repreneur.
-- ✅ **Feu vert si** : la décision est écrite, en sachant que **changer de plateforme
-  Connect oblige chaque élève à reconnecter Stripe**, et que les encaissements passés
-  restent sur l'ancienne.
+- ✅ **Rien à faire.** La plateforme Connect reste sur le compte Stripe personnel de
+  Chris, où l'application est déjà vérifiée par pièce d'identité.
+- ⚠️ Ne pas la déplacer « pour faire propre » : changer de plateforme Connect oblige
+  **chaque élève** à reconnecter Stripe, et les encaissements passés restent sur
+  l'ancienne.
 
-> ✅ **Meta, Google/YouTube, Calendly, Fathom : décidé le 2026-09-03 — ils restent chez
-> Chris. Aucune étape, ni en A, ni en B.** → §5 phase 3
+> ✅ **Meta, Google/YouTube, Calendly, Fathom : décidé — ils restent chez Chris. Aucune
+> étape, ni en A, ni en B.** L'application Meta est à lui et ses 4 permissions sont en
+> **accès avancé**, donc n'importe quel compte Instagram peut se connecter **sans être
+> testeur**. → §0 ter (D2, D4)
+
+**☐ A11 — Quennel connecte ses comptes à son profil coach** → **décidé (D5, §0 ter)**
+
+- **Faire** : Instagram, YouTube, Calendly, Fathom, Short.io, puis Stripe.
+- **Vérifier** :
+  ```sql
+  select provider, account_label, status, expires_at from integrations
+  where profile_id = '<profil de Quennel>' order by provider;
+  ```
+- ✅ **Feu vert si** : chaque intégration attendue est là, `status = 'ok'`.
+- ⚠️ **À faire AVANT le transfert, pas après.** Le transfert devient alors un
+  non-événement pour lui : les jetons ne dépendent que des applications OAuth, qui ne
+  bougent pas (§0 ter). **Il n'aura rien à reconnecter, ni le jour J, ni jamais.**
+- ⚠️ **Laisser passer au moins un cycle de collecte** (24 h) avant le jour J, pour que la
+  santé de référence de B0.1 reflète un état vraiment nominal — sinon on relèvera comme
+  « normal » un état où rien n'a encore tourné.
 
 ---
 

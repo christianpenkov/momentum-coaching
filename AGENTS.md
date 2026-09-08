@@ -60,8 +60,10 @@ This version has breaking changes — APIs, conventions, and file structure may 
   la changer sans rejouer le script de réécriture casse d'un coup le lien de bio de
   chaque élève, celui qu'aucune édition de publication ne rattrape.
 - **Transférer la plateforme vers d'autres comptes** (Supabase, Vercel, GitHub) →
-  `docs/transfert-de-compte.md`. La décision y est déjà prise et argumentée : **on
-  transfère les projets, on ne les reconstruit pas** — Supabase et Vercel savent tous
+  `docs/transfert-de-compte.md`, et **d'abord sa §0 ter**, qui liste les six décisions
+  déjà prises avec ce qui les fonde. Le reste du document présente encore des options :
+  ce tableau-là fait foi, et le rouvrir sans le lire fait refaire un arbitrage déjà rendu.
+  L'essentiel en une ligne : **on transfère les projets, on ne les reconstruit pas** — Supabase et Vercel savent tous
   les deux déplacer un projet d'un compte à l'autre en gardant l'identifiant, les clés,
   l'URL et le nom, ce qui neutralise cinq des six points de casse. Le document contient
   aussi la seule opération irréversible du chantier (une collision de nom côté Vercel) et
