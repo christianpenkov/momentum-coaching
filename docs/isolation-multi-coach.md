@@ -109,7 +109,26 @@ prouvant rien, c'est testé :
 ⚠️ Elles **lèvent une exception** au lieu de rendre un résultat vide, et c'est le bon
 choix : un vide ne se distingue pas d'une absence de données.
 
-### 🟠 Une vraie trouvaille — le bucket `resources` est énumérable
+### ✅ Preuve finale — deux vrais coachs, cloisonnement dans les deux sens
+
+**Le 2026-09-04, la plateforme a eu son deuxième coach** (compte de Quennel, créé par
+`npm run creer-coach`). La marche qui manquait à cet audit est donc franchie : tout ce
+qui précède prouvait « un inconnu ne voit rien », ce qui n'est pas la même chose que
+« chaque coach ne voit que les siens ».
+
+| Sens | Mesure |
+|---|---|
+| **Quennel → données de Chris** | `clients 0`, `calls 0`, `deals 0`, `messages 0`, `leads_ig 0`, `integrations 0`, `paiements 0`, `ressources 0`, **`fichiers_de_cours 0`**, `profils 1` (le sien) |
+| **Chris → données de Quennel** | `profils 6` (lui + ses 5 élèves), **`dont_quennel 0`**, `clients 5`, `fichiers 14` (les siens) |
+
+⚠️ **Ce test reste à moitié fait tant que Quennel n'a pas ses propres élèves.** Il prouve
+aujourd'hui que le coach 2 ne voit rien du coach 1, et que le coach 1 ne voit pas le
+coach 2. Le jour où Quennel aura des élèves et des données, **le rejouer dans ce sens-là
+aussi** — c'est la seule façon de prouver que le cloisonnement est symétrique.
+
+### ✅ La trouvaille, et son correctif — le bucket `resources` était énumérable
+
+**Corrigé le 2026-09-04** (migrations `20260904140000` puis `20260904150000`).
 
 **C'est le seul défaut trouvé, et il est exactement du type annoncé : invisible à un
 coach, réel à deux.**
@@ -167,7 +186,46 @@ suppose de passer le bucket en privé et de basculer sur des URL signées — co
 `chat-medias` — ce qui casserait les 4 lignes de `resources.file_url` qui portent une URL
 absolue. **Deux chantiers distincts, à ne pas confondre.**
 
-⚠️ Et rejouer le test après : le coach doit toujours voir ses 14 fichiers, l'inconnu 0.
+#### ⚠️ Le piège rencontré en l'appliquant — à ne pas refaire
+
+La première version de la policy contenait `(storage.foldername(name))[1]` **non
+qualifié** à l'intérieur de la sous-requête sur `clients`. Or **`clients` possède aussi
+une colonne `name`**, et PostgreSQL résout un nom non qualifié au scope le **plus
+interne** : la condition comparait le dossier propriétaire au *nom du client*. **La
+branche « élève » était donc toujours fausse — elle avait l'air d'une protection, elle
+n'en était pas une.**
+
+Trois choses l'ont rendue invisible, et c'est le vrai enseignement :
+
+1. **L'autre branche fonctionnait.** Le test « le coach voit ses 14 fichiers » passait,
+   donc la policy avait l'air bonne.
+2. **Les élèves n'en ont pas besoin** : ils lisent par URL publique, qui ne consulte
+   aucune policy. Rien ne serait jamais tombé en panne.
+3. **Le test manuel du prédicat, réécrit à la main, qualifiait la colonne** (`o.name`) —
+   il corrigeait le défaut au moment même de le vérifier.
+
+Ce qui l'a trouvé : **`explain`**. Le plan montrait un `InitPlan` — donc une sous-requête
+**non corrélée**, alors qu'elle devait dépendre de chaque ligne — et le filtre appliqué
+sur un scan de `clients`. Ni la lecture ni le test ne donnaient cet indice.
+
+> **Deux règles à retenir.** Dans une policy, **toujours qualifier les colonnes de la
+> table protégée** : une sous-requête ouvre un scope où n'importe quel nom commun
+> (`name`, `id`, `created_at`, `profile_id`) peut être capturé en silence. Et pour
+> vérifier une règle, **ne jamais la retaper** : l'exécuter telle qu'elle est stockée, ou
+> lire son plan. Un test réécrit teste l'intention, pas le code.
+
+#### Vérifications faites après application
+
+| Qui | `resources` listables | Attendu |
+|---|---|---|
+| un inconnu | **0** | 0 ✅ |
+| le coach propriétaire | **14** | 14 ✅ |
+| un élève de ce coach | **14** | 14 ✅ |
+| Quennel (coach 2) | **0** | 0 ✅ |
+
+Et la non-régression qui compte le plus : une **URL publique déjà distribuée** répond
+toujours — `HTTP 200`, 400 053 octets, sans authentification. Le bucket reste public,
+seule l'énumération est fermée.
 
 ## Ce que cet audit ne couvre PAS
 
@@ -178,11 +236,12 @@ absolue. **Deux chantiers distincts, à ne pas confondre.**
 - **L'interface.** L'audit porte sur les données, pas sur ce que les écrans affichent.
   Un écran qui agrégerait sans filtrer serait tout de même bloqué par la RLS, mais
   afficherait un total faux plutôt qu'une fuite.
-- **La preuve par un deuxième coach réel.** Tout ci-dessus est mesuré avec un coach
-  fictif, ce qui prouve « il ne voit rien ». La dernière marche est de créer un vrai
-  deuxième coach avec ses élèves et de vérifier que **chacun ne voit que les siens** —
-  c'est-à-dire que le cloisonnement fonctionne dans les deux sens, pas seulement contre
-  un inconnu.
+- **Le cloisonnement quand le coach 2 aura des DONNÉES.** Le test à deux coachs réels est
+  fait, mais Quennel n'a encore ni élèves ni contenus : il prouve que le coach 2 ne voit
+  rien du coach 1. **À rejouer dans l'autre sens** dès qu'il aura ses élèves.
+- **L'accès par URL connue au bucket `resources`.** Le correctif ferme l'énumération, pas
+  l'accès direct : le bucket reste public. Chantier distinct (bucket privé + URL signées),
+  à ouvrir seulement si Quennel juge ses supports sensibles.
 
 ## À rejouer
 
