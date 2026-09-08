@@ -5720,10 +5720,28 @@ function LigneContenu({ post, selected, checked, selectionMode, groupedElsewhere
               )
               : post.platform === 'YT'
                 ? null
-                : <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, color: AMBER, background: AMBER_SOFT, borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>
-                    <span style={{ width: 4, height: 4, borderRadius: '50%', background: AMBER, flexShrink: 0 }} />
-                    Pas de lead magnet
-                  </span>}
+                // ── LE MANQUE NE SE REPROCHE QU'À CE QUI POUVAIT L'AVOIR ─────
+                //
+                // Une story RATTACHÉE À UNE SÉQUENCE n'a pas de lead magnet à
+                // elle : le mot-clé est une propriété de la séquence, jamais de
+                // la story. Lui coller « Pas de lead magnet » en ambre lui
+                // reprochait une absence qui n'a pas de sens à son échelle, et
+                // laissait croire à quelque chose à réparer sur chaque vignette
+                // d'un lancement parfaitement configuré en CTA Calendly.
+                //
+                // On dit alors ce qu'elle a vraiment. Le badge ambre reste sur
+                // une story LIBRE, où il est à la fois vrai et actionnable :
+                // celle-là n'a effectivement aucun CTA, et un clic suffit.
+                : post.sequenceId
+                  ? (post.calendlyShortUrl
+                      ? <span style={{ fontSize: 10, fontWeight: 600, color: MUTED, background: SURFACE2, borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>
+                          CTA Calendly
+                        </span>
+                      : null)
+                  : <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, color: AMBER, background: AMBER_SOFT, borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>
+                      <span style={{ width: 4, height: 4, borderRadius: '50%', background: AMBER, flexShrink: 0 }} />
+                      Pas de lead magnet
+                    </span>}
 
             {isStory && (post.sequenceStoryCount ?? 0) > 1 && (
               <span style={{ fontSize: 10, fontWeight: 600, color: STORY_COLOR, background: STORY_SOFT, borderRadius: 4, padding: '2px 6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 130 }}>📎 {post.sequenceName}</span>
