@@ -274,6 +274,28 @@ export async function GET(request: NextRequest) {
     last_snapshot_error: null,
   }, { onConflict: 'profile_id,provider' });
 
+  // ── LA REPRISE D'HISTORIQUE DU COACH PART D'ICI ────────────────────────────
+  //
+  // Pour un élève, c'est son accord (`/api/client/ig-dm-consentement`) qui sème
+  // la ligne d'état et réveille la reprise. Le coach n'accorde rien — ce sont ses
+  // données — donc rien ne la sèmerait, et il ne verrait que les messages
+  // POSTÉRIEURS à sa connexion, sans que rien ne le dise.
+  //
+  // Une ligne suffit : `poll-leads` ramasse les états non terminés et appelle la
+  // route de reprise. Pas de réveil immédiat ici, la connexion doit rendre la
+  // main tout de suite.
+  //
+  // `ignoreDuplicates` : une reconnexion (bascule de compte) ne doit pas rouvrir
+  // une reprise déjà terminée.
+  {
+    const { data: profil } = await serviceSupabase
+      .from('profiles').select('role').eq('id', user.id).maybeSingle();
+    if (profil?.role === 'coach') {
+      await serviceSupabase.from('ig_backfill_etat')
+        .upsert({ profile_id: user.id }, { onConflict: 'profile_id', ignoreDuplicates: true });
+    }
+  }
+
   // Réabonner aux deux niveaux webhook après chaque connexion
   if (igAccountId) {
     const appToken = `${process.env.INSTAGRAM_CLIENT_ID}|${process.env.INSTAGRAM_CLIENT_SECRET}`;

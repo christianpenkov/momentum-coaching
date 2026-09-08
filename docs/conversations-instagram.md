@@ -551,6 +551,30 @@ la raison en est écrite dans `AGENTS.md`.
 règle durable : aucun appelant futur ne peut l'oublier. Elle vit dans la base, pas dans la
 mémoire de la prochaine personne qui touchera le webhook.
 
+⚠️ **Depuis le 2026-09-08, la question n'est plus « y a-t-il un accord ? » mais
+`collecte_dm_ig_autorisee(profile_id)`** — une fonction, un seul endroit. Elle répond vrai
+dans deux cas :
+
+| Cas | Pourquoi |
+|---|---|
+| l'élève a accordé la lecture à son coach | le partage, tel qu'il était déjà |
+| le profil est un **coach**, sur son propre compte | ce sont ses données, il n'y a personne à qui demander |
+
+Le coach n'a **pas** de ligne dans `clients` — il n'est l'élève de personne. L'ancienne
+formulation le refusait donc en silence, et son pipeline ne pouvait afficher aucune
+conversation. Ce n'est pas un assouplissement de la garde : pour un élève sans accord, rien
+n'est écrit, exactement comme avant.
+
+Trois écrivains lisent cette fonction et **aucun ne recopie la règle** :
+`enregistrer_message_ig`, `enregistrer_messages_ig_lot`, et la route de reprise
+`/api/instagram/backfill-conversations`. La vue `ig_dm_sante` la lit aussi, sans quoi le
+silence de la collecte du coach serait indétectable.
+
+⚠️ **La reprise d'historique du coach ne part PAS du même endroit.** Pour un élève, c'est son
+accord qui sème la ligne dans `ig_backfill_etat` et réveille la route. Un coach n'accorde
+rien : la ligne est semée au retour OAuth Instagram (`app/api/oauth/instagram/callback`), et
+`poll-leads` ramasse ensuite les états non terminés.
+
 ⚠️ Elle est aussi **atomique** : plus de conversation créée sans son message quand
 l'insertion échoue à mi-chemin.
 
@@ -883,7 +907,7 @@ Trois états à couvrir :
 
 | État | Ce qu'il veut dire |
 |---|---|
-| `ALERTE collecte muette` | un élève avec accord de lecture, dont `instagram_leads` a bougé depuis 7 jours, mais dont aucun message n'a été écrit sur la même période — le webhook ne stocke plus |
+| `ALERTE collecte muette` | un profil dont la collecte est autorisée (`collecte_dm_ig_autorisee` : élève avec accord, **ou coach**), dont `instagram_leads` a bougé depuis 7 jours, mais dont aucun message n'a été écrit sur la même période — le webhook ne stocke plus |
 | `ALERTE backfill bloque` | `ig_backfill_etat.termine_le is null` et `demarre_le` a plus de 24 h |
 | `ALERTE purge muette` | des messages hors lead de plus de 31 jours existent encore — le job pg_cron ne tourne plus |
 
@@ -1130,6 +1154,30 @@ Même maître-détail que le coach, à trois différences près :
 **Même périmètre exactement** : les fils de prospects, pas l'inbox complet. Pour le reste,
 l'élève a Instagram. C'est ce qui préserve la quarantaine de 30 jours — et donc le plan
 gratuit.
+
+### Le troisième contexte : un seul fil, depuis Pipeline Leads (2026-09-08)
+
+La fiche de détail d'un lead porte un bouton **« Conversation »**, qui ouvre le fil de CETTE
+personne, seul. Rien n'a été recodé : c'est le même `ConversationsIg`, avec une prop
+`peerId` qui filtre en base et retire la colonne de gauche.
+
+| | Fiche client (coach) | Page (élève) | **Pipeline (fiche de lead)** |
+|---|---|---|---|
+| Colonne des fils | oui | oui | **non** — la personne est déjà choisie |
+| Annoter | oui | non | **non** — la route exige `clients.coach_id = auth.uid()` |
+| Propriétaire | non | oui | **oui** — chacun regarde son propre pipeline |
+| Largeur de la modale | 1500 | (page) | **860** |
+
+⚠️ **Le bouton n'existe que s'il y a un fil.** La route du pipeline rend
+`conversationsPeerIds` — la liste des interlocuteurs archivés, **une lecture pour tout
+l'écran**, pas une par fiche ouverte. Un bouton grisé « pas de conversation » figurerait sur
+la quasi-totalité des fiches (un commentaire de lead magnet n'a jamais de DM) sans rien
+apprendre à personne.
+
+⚠️ **Échap ne devait pas fermer les deux.** Le panneau de la fiche écoute `keydown` sur
+`document`, `ModalShell` sur `window` : la même touche déclenchait les deux, et revenir du
+fil faisait disparaître la fiche derrière. Le panneau suspend son écoute tant que le fil est
+ouvert (`echapDesactive`).
 
 ### Le compteur
 

@@ -420,15 +420,15 @@ const SURVEILLANCES: Surveillance[] = [
     titre: 'Les conversations Instagram ne se collectent plus, ou ne se purgent plus',
     detection: 'toute_ligne',
     surveille:
-      'Que les DM Instagram des élèves qui ont donné leur accord continuent d’être enregistrés, que la reprise d’historique se termine, et que la quarantaine de 30 jours se vide bien.',
+      'Que les DM Instagram des profils dont la collecte est autorisée — élèves ayant donné leur accord, et coachs sur leur propre compte — continuent d’être enregistrés, que la reprise d’historique se termine, et que la quarantaine de 30 jours se vide bien.',
     signifie:
       '⚠️ Trois pannes très différentes derrière la même vue, la colonne `etat` les distingue. « collecte muette » : le webhook n’écrit plus, donc le coach voit des fils qui s’arrêtent net — et comme la rétention purge, la donnée manquante devient irrécupérable. « backfill bloque » / « backfill jamais demarre » : l’élève a donné son accord et son coach voit un écran vide, sans que rien ne le signale. « purge muette » : la quarantaine ne se vide plus, donc les conversations privées de l’élève restent stockées au-delà de ce qui lui a été annoncé, et la base grossit sans borne.',
     quoiFaire: [
       '`select * from ig_dm_sante;` — la colonne `sujet` donne le `profile_id` concerné.',
-      '« collecte muette » : le signal repose sur un fait solide — un lead servi implique un DM parti, donc un echo, donc un message stocké. Vérifier d’abord que le worker tourne (`select * from crons_sante where nom like \'%webhook%\'`), puis que `enregistrer_message_ig` n’a pas été modifiée pour rendre `null` (elle rend `null` quand l’accord manque, c’est normal).',
-      '« backfill jamais demarre » : le réveil part de la route de consentement. Relancer à la main `POST /api/instagram/backfill-conversations` avec le `profile_id`.',
+      '« collecte muette » : le signal repose sur un fait solide — un lead servi implique un DM parti, donc un echo, donc un message stocké. Vérifier d’abord que le worker tourne (`select * from crons_sante where nom like \'%webhook%\'`), puis que `enregistrer_message_ig` n’a pas été modifiée pour ne rien rendre (elle ne rend rien quand la collecte n’est pas autorisée, c’est normal — `select public.collecte_dm_ig_autorisee(\'<profile_id>\');` répond en un coup).',
+      '« backfill jamais demarre » : le réveil part de la route de consentement (élève) ou du retour OAuth Instagram (coach). Relancer à la main `POST /api/instagram/backfill-conversations` avec le `profile_id`.',
       '« purge muette » : `select * from cron.job where jobname = \'purge-ig-messages-daily\';` puis `select public.purge_ig_messages();` à la main pour voir l’erreur.',
-      '⚠️ Ne PAS « corriger » une collecte muette en désactivant la garde d’accord dans `enregistrer_message_ig`. Sans accord, l’absence de messages est le comportement attendu — et la vue ne regarde que les élèves qui ont accordé.',
+      '⚠️ Ne PAS « corriger » une collecte muette en élargissant `collecte_dm_ig_autorisee`. Pour un élève sans accord, l’absence de messages est le comportement attendu, et la vue ne regarde que les profils dont la collecte est autorisée.',
     ],
     docs: [
       'docs/conversations-instagram.md',

@@ -93,10 +93,20 @@ export async function POST(request: Request) {
   }
   if (!profileId) return NextResponse.json({ ok: true, rien_a_faire: true });
 
-  const { data: client } = await supa
-    .from('clients').select('id').eq('profile_id', profileId)
-    .not('ig_dm_lecture_accordee_le', 'is', null).is('archived_at', null).maybeSingle();
-  if (!client) {
+  // ⚠️ LA MÊME RÈGLE QUE L'ÉCRITURE, et par le même chemin : `enregistrer_messages_ig_lot`
+  // consulte `collecte_dm_ig_autorisee` et rendrait 0 en silence si on reprenait
+  // un historique qu'elle refuse. La question était posée ici en dur (« une ligne
+  // `clients` avec un accord »), ce qui excluait le coach sur son propre compte —
+  // il n'est l'élève de personne. Une règle recopiée est une règle qu'on finit
+  // par ne corriger qu'à moitié.
+  const { data: autorisee, error: erreurGarde } = await supa
+    .rpc('collecte_dm_ig_autorisee', { p_profile_id: profileId });
+  // Une panne de la garde n'est PAS un refus : effacer l'état de reprise sur une
+  // erreur réseau perdrait l'historique sans que rien ne le dise.
+  if (erreurGarde) {
+    return NextResponse.json({ error: erreurGarde.message }, { status: 500 });
+  }
+  if (!autorisee) {
     await supa.from('ig_backfill_etat').delete().eq('profile_id', profileId);
     return NextResponse.json({ ok: true, accord_retire: true });
   }
@@ -199,7 +209,7 @@ export async function POST(request: Request) {
     // résultat obtenu avant la fin du déploiement ressemble à un défaut du code
     // et fait chercher un bug qui n'existe pas — c'est arrivé deux fois le
     // 2026-09-04. Changer cette valeur à chaque modification de la règle.
-    regle: 'leads_12_mois_sans_curseur',
+    regle: 'leads_12_mois_sans_curseur_coach_inclus',
   });
 }
 

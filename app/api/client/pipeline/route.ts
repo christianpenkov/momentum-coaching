@@ -178,6 +178,24 @@ export async function GET() {
     depuis: ((clicsYtRows as { depuis?: string | null }[] | null)?.[0]?.depuis ?? null) as string | null,
   };
 
+  // Qui, parmi ces leads, a un fil de conversation archivé ? Uniquement la LISTE
+  // DES INTERLOCUTEURS — pas un message, pas un extrait. Le bouton
+  // « Conversations » de la fiche doit savoir s'il a quelque chose à ouvrir ; le
+  // fil lui-même n'est chargé qu'au clic, par le composant qui l'affiche.
+  //
+  // ⚠️ Une lecture ici, pas une par fiche ouverte. Le panneau de détail s'ouvre
+  // et se ferme des dizaines de fois dans une session : une requête par
+  // ouverture, c'est l'egress payé au NOMBRE de requêtes qui monte pour une
+  // réponse qui ne change pas entre deux clics.
+  //
+  // La vue joint déjà `instagram_leads` : un fil dont l'interlocuteur n'est pas
+  // un lead visible n'en sort pas, donc rien à filtrer de plus ici.
+  const { data: filsRows } = await supa
+    .from('ig_conversations_visibles')
+    .select('peer_id')
+    .eq('profile_id', user.id);
+  const conversationsPeerIds = [...new Set((filsRows ?? []).map(f => String(f.peer_id)))];
+
   if (clicksRes.error) console.warn('[pipeline] shortio_link_daily_snapshots fetch failed:', clicksRes.error.message);
   if (eventsRes.error) console.warn('[pipeline] prospect_events fetch failed:', eventsRes.error.message);
 
@@ -215,6 +233,11 @@ export async function GET() {
   const igPostMeta = await resolveIgPostMeta(user.id, igMediaIds);
 
   return NextResponse.json({
+    // Le propriétaire des données de cet écran. Il sert au composant des
+    // conversations, qui interroge la base depuis le navigateur et a besoin de
+    // savoir de quel compte parler. Ce n'est pas un secret : un `profile_id` est
+    // public depuis le 2026-08-31, il est inscrit dans chaque lien Calendly.
+    profileId: user.id,
     leads: leadsRes.data ?? [],
     prospects,
     nonIgProspects: nonIgProspectsRes.data ?? [],
@@ -225,6 +248,7 @@ export async function GET() {
     events: eventsRes.data ?? [],
     lmHistory: lmHistoryRes.data ?? [],
     clicsCalendlyYt,
+    conversationsPeerIds,
     ytVideoTitles,
     igPostMeta,
     storySequenceByMediaId,

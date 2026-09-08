@@ -203,7 +203,7 @@ function ModaleRetrait({
 
 export default function ConversationsIg({
   profileId, prenomEleve, annotable, titre, hauteur = 'min(78vh, 700px)', onFermer,
-  proprietaire = false,
+  proprietaire = false, peerId,
 }: {
   profileId: string;
   prenomEleve: string;
@@ -231,19 +231,35 @@ export default function ConversationsIg({
    *     élève, depuis le compte du coach.
    */
   proprietaire?: boolean;
+  /**
+   * UN SEUL INTERLOCUTEUR — l'`ig_user_id` de la personne, et rien d'autre à
+   * l'écran. C'est le mode utilisé depuis le pipeline : on y arrive déjà par une
+   * fiche, la personne est donc DÉJÀ choisie. Rendre la colonne de gauche y
+   * poserait une question à laquelle l'utilisateur vient de répondre, et
+   * laisserait cliquer vers d'autres fiches depuis un panneau qui n'en parle pas.
+   *
+   * Absent, c'est le maître-détail complet : la fiche client du coach et la page
+   * de l'élève ne changent pas d'un pixel.
+   */
+  peerId?: string;
 }) {
   const supabase = createSupabase();
   const [fils, setFils] = useState<Fil[] | null>(null);
   const [actif, setActif] = useState<Fil | null>(null);
   const [recherche, setRecherche] = useState('');
 
+  const filUnique = peerId != null;
+
   useEffect(() => {
     let vivant = true;
-    supabase
+    let q = supabase
       .from('ig_conversations_visibles')
       .select('*')
-      .eq('profile_id', profileId)
-      .order('last_message_at', { ascending: false })
+      .eq('profile_id', profileId);
+    // Le filtre est posé EN BASE, pas après coup : en mode fil unique on ne
+    // rapatrie pas 200 fils pour en garder un seul.
+    if (peerId != null) q = q.eq('peer_id', peerId);
+    q.order('last_message_at', { ascending: false })
       .limit(200)
       .then(({ data }) => {
         if (!vivant) return;
@@ -253,7 +269,7 @@ export default function ConversationsIg({
       });
     return () => { vivant = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profileId]);
+  }, [profileId, peerId]);
 
   const filtres = (fils ?? []).filter(f =>
     !recherche.trim() ||
@@ -262,11 +278,12 @@ export default function ConversationsIg({
 
   return (
       <div style={{
-        display: 'grid', gridTemplateColumns: 'minmax(240px, 300px) 1fr',
+        display: 'grid',
+        gridTemplateColumns: filUnique ? '1fr' : 'minmax(240px, 300px) 1fr',
         height: hauteur, overflow: 'hidden', borderRadius: 'inherit',
       }}>
         {/* ── Colonne des fils ─────────────────────────────────────────────── */}
-        <div style={{
+        {!filUnique && <div style={{
           borderRight: '1px solid var(--border)', background: 'var(--surface-2)',
           display: 'flex', flexDirection: 'column', minHeight: 0,
         }}>
@@ -337,7 +354,7 @@ export default function ConversationsIg({
               </button>
             ))}
           </div>
-        </div>
+        </div>}
 
         {/* ── Le fil ───────────────────────────────────────────────────────── */}
         {actif
@@ -364,7 +381,16 @@ export default function ConversationsIg({
                 {onFermer && <CroixFermer onFermer={onFermer} />}
               </div>
               <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: 'var(--muted)', fontSize: 13 }}>
-                Sélectionne une conversation.
+                {/* Trois états, trois phrases. En mode fil unique il n'y a rien à
+                    sélectionner : dire « sélectionne une conversation » y
+                    demanderait un geste impossible. Et « chargement » n'est pas
+                    « aucun message » — un écran qui affirme le vide pendant qu'il
+                    charge fait conclure à une panne. */}
+                {fils === null
+                  ? 'Chargement…'
+                  : filUnique
+                    ? 'Aucun message archivé pour cette personne.'
+                    : 'Sélectionne une conversation.'}
               </div>
             </div>
           )}

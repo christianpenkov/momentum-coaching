@@ -18,19 +18,33 @@ import ConversationsIg from '@/components/ig/ConversationsIg';
  * précisément le geste que cet écran doit épargner au coach.
  */
 export default function ModaleConversationsIg({
-  profileId, prenomEleve, annotable, onClose,
+  profileId, prenomEleve, annotable, onClose, peerId, proprietaire = false,
 }: {
   profileId: string;
   prenomEleve: string;
   annotable: boolean;
   onClose: () => void;
+  /**
+   * Un seul interlocuteur (son `ig_user_id`) : la modale n'affiche que ce fil,
+   * sans la colonne des autres. C'est le mode du pipeline, où la personne est
+   * déjà choisie par la fiche qu'on vient d'ouvrir.
+   */
+  peerId?: string;
+  /** Celui qui regarde est le propriétaire du compte Instagram. */
+  proprietaire?: boolean;
 }) {
+  const filUnique = peerId != null;
   return (
-    <ModalShell onClose={onClose} width={1500}>
+    // 1500 px, c'est la largeur d'un maître-détail. Un fil seul dans 1500 px
+    // donnerait une colonne de bulles perdue au milieu d'un vide — la largeur
+    // suit ce qu'il y a à montrer, pas l'inverse.
+    <ModalShell onClose={onClose} width={filUnique ? 860 : 1500}>
       <ConversationsIg
         profileId={profileId}
         prenomEleve={prenomEleve}
         annotable={annotable}
+        peerId={peerId}
+        proprietaire={proprietaire}
         titre={`Conversations de ${prenomEleve}`}
         hauteur="min(88vh, 940px)"
         // La croix n'est passée QUE d'ici. Sur la page de l'élève, le même

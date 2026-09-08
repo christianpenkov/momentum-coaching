@@ -200,4 +200,5 @@ export const MIGRATIONS_DEPOT: { version: string; nom: string }[] = [
   { version: '20260907203000', nom: 'story_sequences_arbitrage_parution' },
   { version: '20260908120000', nom: 'purge_brouillons_correction' },
   { version: '20260908170000', nom: 'verrou_integrations_pour_les_coachs' },
+  { version: '20260908200000', nom: 'conversations_ig_du_coach' },
 ];

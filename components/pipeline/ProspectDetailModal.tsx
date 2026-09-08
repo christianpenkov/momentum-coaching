@@ -9,6 +9,8 @@ import { avatarColor, avatarInitials } from './PagePipeline';
 import { isYtVideoId } from '@/lib/ytId';
 import { sensDuDm } from '@/lib/origineLead';
 import { isCallHonored } from '@/lib/callHonored';
+import { useIsMobile } from '@/lib/useIsMobile';
+import ModaleConversationsIg from '@/components/ig/ModaleConversationsIg';
 
 // ── TimelineEvent ────────────────────────────────────────────────────────────
 
@@ -570,17 +572,24 @@ interface Props {
 //
 // Sur téléphone il n'y a pas de board : on retombe sur la modale centrée.
 function Enveloppe({
-  onClose, commePanneau, children,
+  onClose, commePanneau, children, echapDesactive = false,
 }: {
   onClose: () => void; commePanneau: boolean;
+  /**
+   * Une modale est ouverte PAR-DESSUS le panneau, et elle écoute déjà Échap.
+   * Sans ce drapeau, les deux écoutes se déclenchent sur la même touche : le fil
+   * de conversation se fermait ET la fiche derrière lui disparaissait, alors
+   * qu'on voulait juste revenir à la fiche.
+   */
+  echapDesactive?: boolean;
   children: React.ReactNode;
 }) {
   useEffect(() => {
-    if (!commePanneau) return;
+    if (!commePanneau || echapDesactive) return;
     const echap = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', echap);
     return () => document.removeEventListener('keydown', echap);
-  }, [commePanneau, onClose]);
+  }, [commePanneau, echapDesactive, onClose]);
 
   if (!commePanneau) return <ModalShell onClose={onClose} width={420}>{children}</ModalShell>;
 
@@ -612,8 +621,20 @@ function Enveloppe({
   );
 }
 
-export default function ProspectDetailModal({ context, displayName, stageLabel, stageColor, onClose, commePanneau = false, fusion }: Props & {
+export default function ProspectDetailModal({ context, displayName, stageLabel, stageColor, onClose, commePanneau = false, fusion, conversation }: Props & {
   commePanneau?: boolean;
+  /**
+   * Le fil de DM Instagram de CETTE personne, quand il en existe un.
+   *
+   * ⚠️ Absent = aucun fil archivé, et le bouton ne s'affiche pas du tout. Un
+   * bouton grisé « pas de conversation » figurerait sur la quasi-totalité des
+   * fiches (un commentaire de lead magnet n'a jamais de DM), pour ne rien
+   * apprendre à personne.
+   *
+   * On ne recode RIEN de l'affichage : c'est le même composant que la fiche
+   * client du coach et que la page de l'élève, en mode « un seul fil ».
+   */
+  conversation?: { profileId: string; peerId: string } | null;
   /**
    * Cette fiche a absorbé une fiche e-mail. Présent seulement dans ce cas —
    * absent, rien ne s'affiche : une mention « pas fusionnée » sur toutes les
@@ -622,7 +643,9 @@ export default function ProspectDetailModal({ context, displayName, stageLabel, 
   fusion?: { nom: string; date: string; onSeparer: () => void } | null;
 }) {
   const [error, setError] = useState(false);
+  const [filOuvert, setFilOuvert] = useState(false);
   const timelineRef = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
 
   // Ouvre la timeline scrollée sur le dernier événement (en bas), pas le tout premier —
   // une seule fois au montage (pas à chaque render), pour ne pas re-forcer le scroll si
@@ -646,7 +669,7 @@ export default function ProspectDetailModal({ context, displayName, stageLabel, 
   const latestCall = context.calls[0];
 
   return (
-    <Enveloppe onClose={onClose} commePanneau={commePanneau}>
+    <Enveloppe onClose={onClose} commePanneau={commePanneau} echapDesactive={filOuvert}>
         {/* Header — badge d'étape dominant */}
         <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--border)' }}>
           <div style={{
@@ -753,7 +776,40 @@ export default function ProspectDetailModal({ context, displayName, stageLabel, 
           </div>
         )}
 
-        <div style={{ padding: '12px 24px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
+        <div style={{
+          padding: '12px 24px', borderTop: '1px solid var(--border)',
+          display: 'flex', alignItems: 'center', gap: 10,
+          justifyContent: conversation ? 'space-between' : 'flex-end',
+        }}>
+          {/* ⚠️ Sur téléphone, la mention remplace le bouton — elle ne le grise
+              pas. Un fil de DM ne tient pas sur 390 px, et la modale des
+              conversations fait 860 px de large. Masquer complètement ferait
+              croire que la conversation n'existe pas. */}
+          {conversation && (isMobile ? (
+            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+              Conversation à lire sur ordinateur
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setFilOuvert(true)}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 7,
+                padding: '7px 14px', fontSize: 12, fontWeight: 600, borderRadius: 7,
+                border: '1px solid var(--border)', background: 'transparent',
+                color: 'var(--ink)', cursor: 'pointer', fontFamily: 'inherit',
+              }}
+            >
+              {/* Le glyphe officiel, comme sur la carte de la fiche client. */}
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
+                <path d="M16 11.37A4 4 0 1112.63 8 4 4 0 0116 11.37z" />
+                <line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
+              </svg>
+              Conversation
+            </button>
+          ))}
           <button
             onClick={onClose}
             style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer' }}
@@ -761,6 +817,24 @@ export default function ProspectDetailModal({ context, displayName, stageLabel, 
             Fermer
           </button>
         </div>
+
+        {/* La fiche RESTE ouverte derrière : le fil se lit en complément de la
+            chronologie, pas à sa place. Fermer le fil rend la fiche telle quelle. */}
+        {filOuvert && conversation && !isMobile && (
+          <ModaleConversationsIg
+            profileId={conversation.profileId}
+            peerId={conversation.peerId}
+            prenomEleve={displayName}
+            // Annoter, c'est le geste du COACH sur le fil de son élève, et la
+            // route le vérifie (`clients.coach_id = auth.uid()`). Ici on regarde
+            // SON PROPRE fil : un champ de note n'aurait mené qu'à un 403.
+            annotable={false}
+            // Celui qui regarde son propre pipeline est le propriétaire du compte
+            // Instagram — « Ouvrir la discussion » mène bien à son inbox.
+            proprietaire
+            onClose={() => setFilOuvert(false)}
+          />
+        )}
     </Enveloppe>
   );
 }

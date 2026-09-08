@@ -197,6 +197,8 @@ export interface IgPostMeta {
 interface StorySequenceRef { sequenceId: string; sequenceName: string; }
 
 interface PipelineData {
+  /** Le propriétaire des données affichées — élève sur son pipeline, coach sur le sien. */
+  profileId?: string;
   leads: IgLead[];
   prospects: ProspectLink[];
   nonIgProspects: NonIgProspect[];
@@ -211,6 +213,14 @@ interface PipelineData {
   // un nom qu'à la réservation. `depuis` = premier jour couvert par les relevés,
   // à afficher avec le total : sans lui, le chiffre se lit « depuis toujours ».
   clicsCalendlyYt?: { total: number; depuis: string | null };
+  /**
+   * Les `ig_user_id` pour lesquels un fil de DM est archivé. Sert UNIQUEMENT à
+   * savoir si le bouton « Conversations » de la fiche a quelque chose à ouvrir —
+   * aucun message ne transite ici, le fil est chargé au clic par le composant qui
+   * l'affiche. Optionnel : une réponse d'API en vol au moment d'un déploiement
+   * n'en porte pas, et l'absence du bouton vaut mieux qu'un écran cassé.
+   */
+  conversationsPeerIds?: string[];
   ytVideoTitles: Record<string, string>; // video_id → titre, résolu côté API (cache DB + oEmbed)
   igPostMeta: Record<string, IgPostMeta>; // media_id → légende/permalink/thumbnail, résolu côté API (cache DB + Graph API)
   storySequenceByMediaId: Record<string, StorySequenceRef>; // ig_story_id → séquence — distingue un media_id "story" (éphémère, sans permalink exploitable) d'un vrai post
@@ -2699,6 +2709,21 @@ export default function PagePipeline() {
   const contractee = (c: { id: string; revenue?: number | null } | null | undefined) =>
     c ? (venteParCall.get(c.id) ?? c.revenue ?? null) : null;
 
+  /**
+   * Les interlocuteurs dont un fil de DM est archivé — un ensemble, pas une
+   * liste : la fiche pose la question une fois par ouverture, et un `includes`
+   * sur plusieurs centaines d'entrées se paierait à chaque clic.
+   *
+   * Vide tant que la réponse n'est pas là, ou si elle vient d'une version de
+   * l'API antérieure au déploiement : dans les deux cas le bouton ne s'affiche
+   * pas, ce qui est le bon comportement — mieux vaut ne rien proposer que
+   * proposer un fil qu'on ne saurait pas ouvrir.
+   */
+  const conversationsAvecFil = useMemo(
+    () => new Set(data?.conversationsPeerIds ?? []),
+    [data],
+  );
+
   const igCards: CardData[] = [];
   if (data) {
     const seen = new Set<string>();
@@ -4454,6 +4479,17 @@ export default function PagePipeline() {
           const prospectFusionne = fusionDuLead
             ? data.nonIgProspects.find(p => p.id === fusionDuLead.prospect_id)
             : undefined;
+          // Le fil de DM de cette personne, s'il existe. La clé est
+          // l'`ig_user_id` : c'est ce que porte `ig_conversations.peer_id`, et
+          // c'est la SEULE clé stable — un pseudo Instagram se change.
+          //
+          // Une fiche YouTube ou une fiche e-mail n'a pas de lead IG : pas de
+          // `peerId`, donc pas de bouton, et c'est la vérité — il n'y a aucun DM
+          // à montrer.
+          const peerId = ctx.lead?.ig_user_id ?? null;
+          const conversation = peerId && data.profileId && conversationsAvecFil.has(peerId)
+            ? { profileId: data.profileId, peerId }
+            : null;
           return (
             <ProspectDetailModal
               context={ctx}
@@ -4467,6 +4503,7 @@ export default function PagePipeline() {
                 date: new Date(fusionDuLead.decided_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }),
                 onSeparer: () => { setDetailModal(null); separerFusion(fusionDuLead.ig_lead_id, fusionDuLead.prospect_id); },
               } : null}
+              conversation={conversation}
             />
           );
         })()}
