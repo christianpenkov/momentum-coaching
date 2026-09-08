@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
-import { getStripeAccess, resolveTargetProfile } from '@/lib/stripe-account';
+import { getStripeAccess, resolveTargetProfile, modeLive } from '@/lib/stripe-account';
 import { createDealPaymentLink } from '@/lib/stripe-payment-links';
 import { isValidContentId } from '@/lib/contentId';
 import { dateDeVente } from '@/lib/callSeries';
@@ -164,8 +164,7 @@ export async function POST(request: NextRequest) {
   // complet — `charges_enabled` reste false alors que les paiements passent
   // (vérifié le 21/08/2026 : 300 € encaissés avec le drapeau à false).
   // Appliquer la garde en test bloquerait des paiements qui fonctionnent.
-  const isLiveMode = !process.env.STRIPE_SECRET_KEY?.startsWith('sk_test');
-  if (isLiveMode && access?.accountId) {
+  if (modeLive() && access?.accountId) {
     try {
       const acct = await access.stripe.accounts.retrieve(access.accountId);
       if (!acct.charges_enabled) {

@@ -148,3 +148,26 @@ export async function resolveTargetProfile(
 
   return clientRow ? requestedProfileId : null;
 }
+
+/**
+ * Le mode de la clé plateforme : live ou test.
+ *
+ * ⚠️ Ce n'est PAS une commodité de confort. Stripe écrit noir sur blanc que
+ * « les URL de vos webhooks de production reçoivent à la fois des webhooks en
+ * mode production ET des webhooks de test » (docs.stripe.com/connect/webhooks),
+ * et recommande de vérifier `livemode` à la réception. Sans cette garde, une
+ * fois la plateforme passée en live, le moindre essai en mode test sur un compte
+ * connecté serait enregistré comme du vrai cash — signature valide à l'appui,
+ * donc indétectable.
+ *
+ * Deuxième usage, plus ancien : en mode test un compte Connect encaisse alors
+ * que `charges_enabled` est resté false (constaté le 2026-08-21, 300 € encaissés
+ * avec le drapeau à false). La garde d'activation ne vaut donc qu'en live.
+ *
+ * Un seul endroit pour le discriminant, parce qu'il en existait déjà deux
+ * lectures possibles et qu'une règle divergente sur le mode ferait entrer de
+ * l'argent de test dans la comptabilité réelle.
+ */
+export function modeLive(): boolean {
+  return !process.env.STRIPE_SECRET_KEY?.startsWith('sk_test');
+}

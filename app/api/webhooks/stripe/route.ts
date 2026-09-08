@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import Stripe from 'stripe';
-import { getStripeAccess } from '@/lib/stripe-account';
+import { getStripeAccess, modeLive } from '@/lib/stripe-account';
 import { ensureInstallmentSchedule, METADATA_KEYS } from '@/lib/stripe-payment-links';
 import { sendPushToProfile } from '@/lib/googleCalendarService';
 import { refreshDealStatus, journaliser } from '@/lib/dealStatus';
@@ -1052,6 +1052,24 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     console.error('[stripe] signature invalide', err);
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+  }
+
+  // ── L'événement doit venir du MÊME monde que la clé ───────────────────────
+  // Stripe : « les URL de vos webhooks de production reçoivent à la fois des
+  // webhooks en mode production ET des webhooks de test »
+  // (docs.stripe.com/connect/webhooks). L'endpoint live délivre donc aussi les
+  // événements de test — signés par SON secret, donc parfaitement valides ici.
+  // Sans cette garde, le premier essai en mode test après la bascule entrerait
+  // dans la comptabilité réelle sans laisser la moindre trace d'anomalie.
+  //
+  // 200 et non 500 : on ne veut pas que Stripe rejoue pendant trois jours un
+  // événement qu'on écarte volontairement.
+  if (event.livemode !== modeLive()) {
+    console.warn(
+      `[stripe] événement ${event.type} ignoré : livemode=${event.livemode}, `
+      + `clé plateforme en ${modeLive() ? 'live' : 'test'}`,
+    );
+    return NextResponse.json({ received: true, ignored: 'mode' });
   }
 
   try {
