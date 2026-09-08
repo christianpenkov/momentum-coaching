@@ -13,6 +13,16 @@ interface UserProfile {
   initials: string;
   onboardingStep: string | null;
   onboardingData: Record<string, unknown>;
+  /**
+   * Verrou d'accès du COACH : posé par le trigger `recalc_integrations_ready_at`
+   * quand les 7 intégrations obligatoires sont réunies, et jamais réécrit ensuite.
+   *
+   * ⚠️ Pour un ÉLÈVE, ce n'est PAS cette valeur qui fait foi mais
+   * `clients.integrations_ready_at`, lue par `ClientSelfContext`. Les deux existent
+   * et portent la même information ; ne pas remplacer l'une par l'autre sans relire
+   * docs/integrations-ready-at-vs-onboarding-completed-at.md.
+   */
+  integrationsReadyAt: string | null;
 }
 
 interface UserContextValue {
@@ -71,7 +81,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('role, full_name, avatar_url, onboarding_step, onboarding_data, timezone')
+      .select('role, full_name, avatar_url, onboarding_step, onboarding_data, timezone, integrations_ready_at')
       .eq('id', authUser.id)
       .single();
 
@@ -108,6 +118,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       initials,
       onboardingStep,
       onboardingData,
+      integrationsReadyAt: (profile as { integrations_ready_at?: string | null } | null)?.integrations_ready_at ?? null,
     });
     setLoading(false);
     syncTimeZone(authUser.id);

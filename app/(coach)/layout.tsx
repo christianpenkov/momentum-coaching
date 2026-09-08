@@ -28,10 +28,31 @@ function CoachLayoutInner({ children, shellRef, navRef }: {
   // lancement partait des la session resolue et laissait apparaitre le loader
   // de la page pendant que ses donnees chargeaient encore.
   const { loading: dataLoading } = useSupabaseClients();
+
+  // Verrou d'acces : tant que les 7 integrations obligatoires ne sont pas connectees,
+  // le coach ne voit que l'ecran de connexion. Meme regle que pour l'eleve
+  // (app/(client)/layout.tsx) et meme raison : `integrations_ready_at` est la borne de
+  // depart de TOUTES les stats. Un coach entre sans integration faisait calculer les
+  // ecrans sur des sources vides.
+  //
+  // La difference est l'EMPLACEMENT, pas la regle : un coach n'a pas de ligne `clients`
+  // pour lui-meme, la date vit donc sur `profiles`. La LISTE des providers, elle, reste
+  // unique — elle n'existe que dans `integrations_obligatoires()`, lue par le trigger
+  // qui pose les deux colonnes. Rien n'est recopie ici, donc rien ne peut diverger.
+  //
+  // ⚠️ `!!user` est indispensable, comme `!!clientRow` cote eleve : sans lui, un profil
+  // pas encore charge serait lu comme « pas pret » et verrouillerait tout le monde a
+  // chaque chargement. Une absence n'est pas un non.
+  const accesVerrouille =
+    !userLoading && !dataLoading && !!user && user.role === 'coach' && !user.integrationsReadyAt;
+
   usePushNotifications(user?.id ?? null);
   const [moreOpen, setMoreOpen] = useState(false);
   return (
-    <OnboardingWizardProvider autoOpen={user?.onboardingStep === 'not_started'}>
+    <OnboardingWizardProvider
+      autoOpen={user?.onboardingStep === 'not_started'}
+      locked={accesVerrouille}
+    >
       {/* Voir (client)/layout.tsx : prolonge l'ecran de demarrage jusqu'a ce
           que la session soit resolue, pour eviter le loader qui clignote. */}
       <SplashHold show={userLoading || dataLoading} owner />
