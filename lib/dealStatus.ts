@@ -36,9 +36,21 @@ export async function journaliser(
   kind: string,
   label: string,
   meta?: Record<string, unknown>,
+  /**
+   * Qui a fait le geste, quand c'est un humain.
+   *
+   * Absent pour tout ce que Stripe nous apprend — un litige n'a pas d'auteur
+   * chez nous. Renseigné dès qu'une PERSONNE décide : rattacher un paiement à
+   * une vente, déclarer un virement. Ces gestes-là engagent quelqu'un, et le
+   * nom est figé au moment du geste parce qu'un profil peut être renommé.
+   */
+  auteur?: { id: string; nom: string | null },
 ): Promise<void> {
   try {
-    await supabase.from('deal_events').insert({ deal_id: dealId, kind, label, meta: meta ?? null });
+    await supabase.from('deal_events').insert({
+      deal_id: dealId, kind, label, meta: meta ?? null,
+      ...(auteur ? { actor_id: auteur.id, actor_name: auteur.nom } : {}),
+    });
   } catch (err) {
     console.error(`[stripe] journal impossible (deal ${dealId})`, err);
   }

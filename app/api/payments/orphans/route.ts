@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { resolveTargetProfile } from '@/lib/stripe-account';
 import { calculerCash, resteAEncaisser, type LignePaiement } from '@/lib/dealCash';
-import { refreshDealStatus } from '@/lib/dealStatus';
+import { refreshDealStatus, journaliser } from '@/lib/dealStatus';
 
 /**
  * Réconciliation des paiements orphelins.
@@ -271,7 +271,7 @@ export async function POST(request: NextRequest) {
 
   const { data: payment } = await supa
     .from('stripe_payments')
-    .select('payment_id, amount, currency, date, subscription_id')
+    .select('payment_id, amount, currency, date, subscription_id, buyer_email, orphan_cause')
     .eq('profile_id', profileId)
     .eq('payment_id', body.paymentId)
     .maybeSingle();
@@ -389,6 +389,36 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // ── La trace, parce que c'est un JUGEMENT et pas un constat ──────────────
+  // Rattacher un orphelin fait entrer du cash sur une vente, et c'est une
+  // décision humaine : l'écran prévient lui-même que « deux ventes du même
+  // montant se ressemblent ». Si le rapprochement est faux, rien ne disait six
+  // mois plus tard qui l'avait décidé ni sur quel indice — alors qu'un
+  // remboursement ou un litige, eux, laissaient une ligne.
+  //
+  // Même famille que le virement déclaré sans journal, trouvée en cherchant
+  // volontairement ce défaut ailleurs (2026-09-08).
+  const { data: auteur } = await supa
+    .from('profiles').select('full_name').eq('id', user.id).maybeSingle();
+
+  await journaliser(
+    supa, deal.id, 'orphan_attached',
+    `Paiement de ${fmtEur(Number(payment.amount))} rattaché à la main`,
+    {
+      paiement: payment.payment_id,
+      montant: Number(payment.amount),
+      paye_le: payment.date,
+      email_du_paiement: payment.buyer_email ?? null,
+      cause_orpheline: payment.orphan_cause ?? null,
+      // Ce qui a justifié le rapprochement au moment du clic : c'est cet indice
+      // qu'on voudra relire si le rattachement se révèle faux.
+      confiance: body.confiance ?? null,
+      raison: body.raison ?? null,
+      abonnement,
+    },
+    { id: user.id, nom: auteur?.full_name ?? null },
+  );
+
   // ── Les marques d'orphelin décrivent un état RÉVOLU ───────────────────────
   // `orphan_cause` la laisser en place la ferait afficher comme un fait actuel —
   // « ce paiement visait une vente supprimée » alors qu'il en a désormais une.
@@ -431,3 +461,6 @@ export async function POST(request: NextRequest) {
 //
 // La fonction locale est supprimée. `lib/dealStatus.ts` est la seule règle.
 // Relevé le 2026-09-07, en préparant la reconstitution de cinq ventes perdues.
+
+const fmtEur = (n: number) =>
+  new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(n);
