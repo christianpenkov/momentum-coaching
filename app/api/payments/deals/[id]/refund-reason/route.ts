@@ -4,6 +4,7 @@ import { createClient as createServerClient } from '@/lib/supabase/server';
 import { getStripeAccess, resolveTargetProfile } from '@/lib/stripe-account';
 import { createDealPaymentLink } from '@/lib/stripe-payment-links';
 import { calculerCash, statutDeal, type LignePaiement } from '@/lib/dealCash';
+import { nomComplement } from '@/lib/libelleProduit';
 
 /**
  * Pourquoi un remboursement a eu lieu — et ce que ça change.
@@ -196,7 +197,7 @@ export async function POST(
       profileId: deal.profile_id,
       dealId,
       amount: montantRembourse,
-      productName: `Complément — ${deal.buyer_name}`,
+      productName: nomComplement(deal.buyer_name),
       leadId: deal.ig_lead_id,
       contentId: deal.first_touch_content_id,
     }, access!);

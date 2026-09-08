@@ -72,7 +72,20 @@ const BASE_INTEGRATIONS: IntegrationDef[] = [
     name: 'Stripe',
     icon: 'stripe',
     desc: 'Paiements encaissés rattachés automatiquement à leurs deals',
-    mode: 'both',
+    // ⚠️ `'oauth'` et non `'both'` depuis le 2026-09-08 : le repli par clé
+    // restreinte faisait apparaître « ou une clé » et « Utiliser une clé » à
+    // côté de « Connecter », sans qu'un utilisateur puisse deviner lequel
+    // choisir. Depuis que Connect est en production, l'OAuth suffit dans tous
+    // les cas courants.
+    //
+    // Le repli n'a PAS disparu du code : le champ, la validation et le chemin
+    // `api_key` de `getStripeAccess` sont intacts. Il reste une seule situation
+    // où il servirait — Stripe le documente : « depuis juin 2021, les
+    // plateformes utilisant OAuth en read_write ne peuvent plus se connecter à
+    // des comptes Standard contrôlés par une autre plateforme » (Kajabi,
+    // Systeme.io…). Si un coach s'y heurte un jour, remettre `'both'` sur cette
+    // ligne rend l'option visible — c'est le seul geste nécessaire.
+    mode: 'oauth',
     oauthPath: '/api/oauth/stripe',
     placeholder: 'rk_live_... ou sk_live_...',
     wizardCopy: 'Chaque euro encaissé remonte tout seul, rattaché à son deal et au contenu qui l\'a produit.',
@@ -83,9 +96,10 @@ const BASE_INTEGRATIONS: IntegrationDef[] = [
       // L'avertissement doit venir avant, pas au premier deal perdu.
       { text: 'Ton compte Stripe doit être activé pour encaisser : identité, description de ton activité et IBAN renseignés chez Stripe. Sans ça la connexion fonctionne, mais aucun paiement ne pourra aboutir.' },
       { text: 'Vérifier l\'activation de mon compte →', href: 'https://dashboard.stripe.com/account/onboarding', hrefLabel: 'dashboard.stripe.com' },
-      { text: 'Si Stripe refuse la connexion (compte déjà relié à une autre plateforme type Kajabi ou Systeme.io), utilise une clé restreinte à la place.' },
-      { text: 'Créer une clé restreinte →', href: 'https://dashboard.stripe.com/apikeys/create', hrefLabel: 'dashboard.stripe.com/apikeys/create' },
-      { text: 'Donne-lui les droits Lecture sur Clients, Paiements, Abonnements et Factures, puis colle-la ci-dessous.' },
+      // Les trois lignes qui expliquaient le repli par clé restreinte sont
+      // retirées avec lui : elles disaient « colle-la ci-dessous » sous un
+      // champ qui n'existe plus. Une consigne qui désigne un élément absent est
+      // pire que pas de consigne — elle fait chercher.
     ],
   },
   {

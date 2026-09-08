@@ -8,6 +8,7 @@ import {
   ajusterPrelevements,
 } from '@/lib/stripe-payment-links';
 import { calculerCash, aRembourser, resteAEncaisser, statutDeal, type LignePaiement } from '@/lib/dealCash';
+import { libelleProduitDe, nomProduit, nomComplement } from '@/lib/libelleProduit';
 
 /**
  * Corriger le montant d'une vente.
@@ -75,6 +76,9 @@ export async function PATCH(
 
   const allowed = await resolveTargetProfile(user.id, deal.profile_id);
   if (!allowed) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
+
+  // Le mot affiché à l'acheteur sur la page Stripe, choisi dans Réglages.
+  const libelle = await libelleProduitDe(deal.profile_id);
 
   // Une vente annulée n'a plus de montant à corriger : elle est sortie des
   // chiffres, la modifier n'aurait aucun effet visible.
@@ -234,7 +238,7 @@ export async function PATCH(
           profileId: deal.profile_id,
           dealId,
           amount: parEcheance.get(e.id) ?? 0,
-          productName: `Accompagnement — ${deal.buyer_name} — ${e.rank}/${echeances.length}`,
+          productName: nomProduit(libelle, deal.buyer_name, { rang: e.rank, total: echeances.length }),
           leadId: deal.ig_lead_id,
           installmentId: e.id,
           contentId: deal.first_touch_content_id,
@@ -259,8 +263,8 @@ export async function PATCH(
         dealId,
         amount: reste,
         productName: complement
-          ? `Complément — ${deal.buyer_name}`
-          : `Accompagnement — ${deal.buyer_name}`,
+          ? nomComplement(deal.buyer_name)
+          : nomProduit(libelle, deal.buyer_name),
         leadId: deal.ig_lead_id,
         contentId: deal.first_touch_content_id,
       }, access);

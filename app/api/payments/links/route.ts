@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { getStripeAccess, resolveTargetProfile, modeLive } from '@/lib/stripe-account';
 import { createDealPaymentLink } from '@/lib/stripe-payment-links';
+import { libelleProduitDe, nomProduit } from '@/lib/libelleProduit';
 import { isValidContentId } from '@/lib/contentId';
 import { dateDeVente } from '@/lib/callSeries';
 import { contenuConversion, contenuActivation } from '@/lib/attribution-roles';
@@ -609,7 +610,10 @@ export async function POST(request: NextRequest) {
   // Au-delà d'ici `access` est garanti non-null par le retour ci-dessus ; la
   // constante le rend explicite pour le typage des appels Stripe.
   const stripeAccess = access;
-  const productName = `Accompagnement — ${buyerName}`;
+  // Le mot que verra l'acheteur sur sa page de paiement puis sur son relevé.
+  // Choisi par le coach dans Réglages — voir lib/libelleProduit.ts.
+  const libelle = await libelleProduitDe(profileId);
+  const productName = nomProduit(libelle, buyerName);
 
   try {
     // ── Mode manuel : N échéances, N liens ───────────────────────────────────
@@ -639,7 +643,7 @@ export async function POST(request: NextRequest) {
           profileId,
           dealId: deal.id,
           amount: amt,
-          productName: `${productName} — ${rank}/${count}`,
+          productName: nomProduit(libelle, buyerName, { rang: rank, total: count }),
           leadId: igLeadId,
           installmentId: inst.id,
           contentId: firstTouch,

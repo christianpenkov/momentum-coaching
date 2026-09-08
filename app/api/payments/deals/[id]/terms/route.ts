@@ -7,6 +7,7 @@ import {
   ajusterPrelevements, ajusterNombreEcheances,
 } from '@/lib/stripe-payment-links';
 import { calculerCash, resteAEncaisser, type LignePaiement } from '@/lib/dealCash';
+import { libelleProduitDe, nomProduit } from '@/lib/libelleProduit';
 import { modeDe as modeDePartage } from '@/components/payments/etats';
 
 /**
@@ -86,6 +87,9 @@ export async function PATCH(
 
   const allowed = await resolveTargetProfile(user.id, deal.profile_id);
   if (!allowed) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
+
+  // Le mot affiché à l'acheteur sur la page Stripe, choisi dans Réglages.
+  const libelleProduit = await libelleProduitDe(deal.profile_id);
 
   if (deal.status === 'canceled') {
     return NextResponse.json({
@@ -239,9 +243,7 @@ export async function PATCH(
         profileId: deal.profile_id,
         dealId,
         amount: somme,
-        productName: nbEcheances > 1
-          ? `Accompagnement — ${deal.buyer_name} — ${rank}/${nbEcheances}`
-          : `Accompagnement — ${deal.buyer_name}`,
+        productName: nomProduit(libelleProduit, deal.buyer_name, { rang: rank, total: nbEcheances }),
         leadId: deal.ig_lead_id,
         // ⚠️ TOUJOURS transmis, meme en une fois. Le garde `nbEcheances > 1`
         // supposait qu'un comptant n'a pas d'echeance — or la boucle ci-dessus en

@@ -8,6 +8,9 @@ import { createClient } from '@/lib/supabase/client';
 import { cropImageToSquare } from '@/lib/cropImageToSquare';
 import { useUser } from '@/lib/UserContext';
 import { messageErreurOAuth } from '@/lib/oauth-errors';
+// La liste des libellés vit avec la fonction qui compose le nom envoyé à Stripe :
+// un mot ajouté ici sans y être ajouté là-bas retomberait sur le défaut sans rien dire.
+import { LIBELLES_PRODUIT, LIBELLE_PRODUIT_DEFAUT } from '@/lib/libelleProduit';
 import LegalFooter from '@/components/ui/LegalFooter';
 import ShortioDomainPicker from '@/components/settings/ShortioDomainPicker';
 import FathomSetupHint from '@/components/ui/FathomSetupHint';
@@ -46,6 +49,7 @@ export default function PageClientSettings() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [profileId, setProfileId] = useState<string | null>(null);
   const [name, setName] = useState('');
+  const [libelleProduit, setLibelleProduit] = useState<string>(LIBELLE_PRODUIT_DEFAUT);
   const [email, setEmail] = useState('');
   // Cast partiel : Provider (lib/supabase/types) couvre aussi 'anthropic' et
   // 'stripe_webhook', absents de cette page. Même pattern que la page coach.
@@ -73,8 +77,12 @@ export default function PageClientSettings() {
       setProfileId(user.id);
       setEmail(user.email || '');
 
-      const { data: profile } = await supabase.from('profiles').select('full_name, avatar_url').eq('id', user.id).single();
-      if (profile) { setName(profile.full_name || ''); setAvatarUrl(profile.avatar_url || null); }
+      const { data: profile } = await supabase.from('profiles').select('full_name, avatar_url, libelle_produit').eq('id', user.id).single();
+      if (profile) {
+        setName(profile.full_name || '');
+        setAvatarUrl(profile.avatar_url || null);
+        setLibelleProduit(profile.libelle_produit || LIBELLE_PRODUIT_DEFAUT);
+      }
 
       const { data: clientRow } = await supabase.from('clients').select('coach_id').eq('profile_id', user.id).maybeSingle();
       if (clientRow?.coach_id) {
@@ -239,6 +247,29 @@ export default function PageClientSettings() {
     else showToast(data.error || 'Erreur sync Calendly');
   }
 
+  /**
+   * Le libellé s'enregistre au CHANGEMENT, sans bouton.
+   *
+   * Un bouton « Enregistrer » séparé aurait produit le pire des cas : la liste
+   * montre le nouveau mot, la base garde l'ancien, et le prochain lien de
+   * paiement part avec un libellé que l'écran ne montre plus. En cas d'échec on
+   * remet la valeur d'avant et on le dit — jamais un état affiché que la base
+   * ne porte pas (voir lib/mutate.ts, même règle).
+   */
+  async function enregistrerLibelleProduit(valeur: string) {
+    if (!profileId) return;
+    const avant = libelleProduit;
+    setLibelleProduit(valeur);
+    const { error } = await supabase.from('profiles')
+      .update({ libelle_produit: valeur }).eq('id', profileId);
+    if (error) {
+      setLibelleProduit(avant);
+      showToast('Impossible d’enregistrer le libellé. Réessaie.');
+      return;
+    }
+    showToast('Libellé enregistré ✓');
+  }
+
   async function saveProfile() {
     if (!profileId) return;
     const { error } = await supabase.from('profiles')
@@ -377,6 +408,34 @@ export default function PageClientSettings() {
                       <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 2 }}>{integrationLabels[cfg.provider]}</div>
                     )}
                     {cfg.provider === 'fathom' && integrations.fathom && <FathomSetupHint />}
+                    {/* ── Le mot que verra l'acheteur ────────────────────────
+                        Ce libellé part sur la page de paiement Stripe, puis sur
+                        le relevé bancaire du client — et il n'est plus
+                        modifiable une fois le paiement encaissé. Il était écrit
+                        en dur (« Accompagnement ») dans cinq fichiers : tous les
+                        coachs ne vendent pas un accompagnement.
+
+                        Posé ICI, sur la ligne Stripe, parce que c'est le seul
+                        endroit où ce mot a un effet. Dans le bloc « Mon profil »
+                        il ressemblerait à une préférence d'affichage. */}
+                    {cfg.provider === 'stripe' && connected && (
+                      <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>Affiché au client&nbsp;:</span>
+                        <select
+                          value={libelleProduit}
+                          onChange={e => enregistrerLibelleProduit(e.target.value)}
+                          style={{
+                            fontSize: 12, fontFamily: 'inherit', color: 'var(--ink)',
+                            background: 'var(--surface)', border: '1px solid var(--border)',
+                            borderRadius: 'var(--r-md)', padding: '5px 9px', cursor: 'pointer',
+                          }}>
+                          {LIBELLES_PRODUIT.map(l => <option key={l} value={l}>{l}</option>)}
+                        </select>
+                        <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                          «&nbsp;{libelleProduit} — {name || 'Nom du client'}&nbsp;»
+                        </span>
+                      </div>
+                    )}
                   </div>
                   {integrationsLoading ? (
                     <LoadingDots />

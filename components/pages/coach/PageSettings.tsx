@@ -314,9 +314,12 @@ export default function PageSettings() {
                   <div className="settings-row-main" style={{ flex: 1, minWidth: 140 }}>
                     <div className="settings-row-head" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>{cfg.name}</span>
-                      {cfg.mode !== 'apikey' && (
-                        <span style={{ fontSize: 10, padding: '2px 7px', background: 'var(--accent-soft)', color: 'var(--accent)', borderRadius: 20, fontWeight: 600, flexShrink: 0 }}>OAuth</span>
-                      )}
+                      {/* Pas de pastille « OAuth » ici : le mot ne dit rien à
+                          qui n'est pas développeur, et il ne décrit pas un état
+                          — juste la mécanique interne de la connexion. Ce qu'on
+                          vient chercher sur cette ligne, c'est « connecté ou
+                          pas », et c'est la pastille juste en dessous qui le
+                          dit. Retiré à la demande de Chris le 2026-09-08. */}
                       {/* Statut remonté près du nom sur mobile (voir .settings-row-status
                           dans globals.css) : c'est l'info qu'on vient chercher, elle ne
                           doit pas être noyée dans la rangée de boutons après le wrap. */}
