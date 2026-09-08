@@ -4,6 +4,7 @@ import { createClient as createServerClient } from '@/lib/supabase/server';
 import { getStripeAccess, resolveTargetProfile, modeLive } from '@/lib/stripe-account';
 import { createDealPaymentLink } from '@/lib/stripe-payment-links';
 import { libelleProduitDe, nomProduit } from '@/lib/libelleProduit';
+import { avancer } from '@/lib/rythmeStripe';
 import { isValidContentId } from '@/lib/contentId';
 import { dateDeVente } from '@/lib/callSeries';
 import { contenuConversion, contenuActivation } from '@/lib/attribution-roles';
@@ -32,7 +33,11 @@ const supa = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const INTERVAL_DAYS = { month: 30, week: 7 } as const;
+// ⚠️ Plus de table « 30 jours = un mois ». Les dates d'échéance suivent la même
+// règle que les prélèvements Stripe — même jour du mois, repli sur le dernier
+// jour quand il n'existe pas, sans dérive de l'ancre. Deux règles de calendrier
+// dans la même application finiraient par annoncer deux dates différentes pour
+// la même échéance selon l'écran qui la montre. Voir lib/rythmeStripe.ts.
 
 /**
  * Cet appel porte-t-il DÉJÀ une vente ?
@@ -568,7 +573,7 @@ export async function POST(request: NextRequest) {
     const signedAt = new Date();
     const rows = Array.from({ length: count }, (_, i) => {
       const rank = i + 1;
-      const due = new Date(signedAt.getTime() + i * INTERVAL_DAYS[interval] * 86400_000);
+      const due = avancer(signedAt, interval, i);
       return {
         deal_id: deal.id,
         rank,
@@ -628,7 +633,7 @@ export async function POST(request: NextRequest) {
 
       for (let rank = 1; rank <= count; rank++) {
         const amt = rank === 1 ? first : per;
-        const due = new Date(signedAt.getTime() + (rank - 1) * INTERVAL_DAYS[interval] * 86400_000);
+        const due = avancer(signedAt, interval, rank - 1);
 
         const { data: inst, error: instErr } = await supa.from('deal_installments').insert({
           deal_id: deal.id,

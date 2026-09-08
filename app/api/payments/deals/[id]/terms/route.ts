@@ -8,6 +8,7 @@ import {
 } from '@/lib/stripe-payment-links';
 import { calculerCash, resteAEncaisser, type LignePaiement } from '@/lib/dealCash';
 import { libelleProduitDe, nomProduit } from '@/lib/libelleProduit';
+import { avancer } from '@/lib/rythmeStripe';
 import { modeDe as modeDePartage } from '@/components/payments/etats';
 
 /**
@@ -37,7 +38,8 @@ const supa = createClient(
 
 const CENTIME = 0.01;
 const arrondi = (n: number) => Math.round(n * 100) / 100;
-const JOURS = { month: 30, week: 7 } as const;
+// ⚠️ Voir lib/rythmeStripe.ts : un mois n'est pas 30 jours, et cette table le
+// supposait comme trois autres endroits avant elle.
 
 type Plan = 'one_shot' | 'installments_auto' | 'installments_manual' | 'offline';
 
@@ -225,7 +227,7 @@ export async function PATCH(
     for (let i = 0; i < aCreer; i++) {
       const rank = dejaPayees + i + 1;
       const somme = i === 0 ? premiere : part;
-      const echeance = new Date(depart + i * JOURS[interval] * 86400_000);
+      const echeance = avancer(new Date(depart), interval, i);
 
       const { data: cree } = await supa.from('deal_installments').insert({
         deal_id: dealId,

@@ -205,7 +205,13 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
   // Plan de paiement — hors `answers` : l'étape paiement vient APRÈS la soumission
   // du rapport, donc après la suppression du brouillon. Rien à reprendre.
   const [plan, setPlan] = useState<1 | 2 | 3 | 4>(1);
-  const [autoDebit, setAutoDebit] = useState(true);
+  // ⚠️ Un MOYEN à trois valeurs, et non plus un booléen « prélèvement oui/non ».
+  // Hors Stripe était un bouton séparé en bas de l'écran, qui emmenait ailleurs :
+  // il se lisait comme une sortie du parcours alors que c'est un moyen
+  // d'encaissement au même titre que les deux autres. Et il n'apparaissait pas
+  // du tout sur un comptant — or un virement unique est le cas le plus courant
+  // hors carte. Relevé par Chris le 2026-09-08.
+  const [moyen, setMoyen] = useState<'prelevement' | 'liens' | 'offline'>('prelevement');
   // ⚠️ Le rythme se choisissait DÉJÀ côté serveur — `links/route.ts` lit
   // `installmentInterval` et retombe sur 'month' — mais aucun écran ne l'envoyait :
   // toute vente créée par un rapport était mensuelle, sans que personne ne l'ait
@@ -214,6 +220,14 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
   // (Stripe réinitialise l'ancre de facturation et prélève immédiatement).
   // Relevé par Chris le 2026-09-08.
   const [rythme, setRythme] = useState<'month' | 'week'>('month');
+
+  // Sur un comptant, le prélèvement automatique n'existe pas : il n'y a qu'une
+  // échéance, donc rien à prélever ensuite. On retombe sur le lien plutôt que
+  // d'interdire la combinaison — l'utilisateur qui passe de 3× à Comptant ne
+  // doit pas voir son choix devenir invalide sous ses yeux.
+  const moyenEffectif = plan === 1 && moyen === 'prelevement' ? 'liens' : moyen;
+  const horsStripe = moyenEffectif === 'offline';
+  const autoDebit = moyenEffectif === 'prelevement';
   const [paymentUrl, setPaymentUrl] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   // Hors Stripe : l'argent est-il déjà encaissé, et sinon pour quand ?
@@ -1363,7 +1377,10 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                   <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20, lineHeight: 1.6 }}>
                     <strong style={{ color: 'var(--ink)' }}>
                       {fmtMontant(parseFloat(revenue.replace(',', '.')) || 0)}
-                    </strong>{' '}au total. Momentum génère le lien de paiement Stripe.
+                    </strong>{' '}au total.{' '}
+                    {horsStripe
+                      ? 'Tu encaisses toi-même — Momentum n’appelle pas Stripe.'
+                      : 'Momentum génère le lien de paiement Stripe.'}
                   </div>
 
                   {/* Sélection en --accent-brand (le bleu de la marque) et non en
@@ -1384,35 +1401,45 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                     ))}
                   </div>
 
+                  {/* ── Par quel moyen ? ──────────────────────────────────
+                      Les trois moyens sur UNE ligne, toujours affichée. Hors
+                      Stripe était auparavant un bouton en bas de l'écran qui
+                      emmenait ailleurs : il se lisait comme une sortie du
+                      parcours, alors que c'est un moyen d'encaissement au même
+                      titre que les deux autres — et il n'apparaissait pas du
+                      tout sur un comptant, où le virement unique est pourtant
+                      le cas le plus courant hors carte.
+
+                      Sur un comptant il n'y a que deux options : prélever
+                      « ensuite » n'a aucun sens quand il n'y a pas de suite. */}
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                    {(plan > 1
+                      ? [['prelevement', 'Prélèvement auto'], ['liens', 'Un lien par échéance'], ['offline', 'Hors Stripe']]
+                      : [['liens', 'Lien de paiement'], ['offline', 'Hors Stripe']]
+                    ).map(([v, label]) => (
+                      <button key={v} type="button" onClick={() => setMoyen(v as typeof moyen)}
+                        style={{
+                          border: `1px solid ${moyenEffectif === v ? 'var(--accent-brand)' : 'var(--border)'}`,
+                          background: moyenEffectif === v ? 'var(--accent-brand)' : 'var(--surface)',
+                          color: moyenEffectif === v ? '#fff' : 'var(--ink-2)',
+                          fontWeight: moyenEffectif === v ? 600 : 400,
+                          borderRadius: 999, padding: '9px 17px', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
+                        }}>{label}</button>
+                    ))}
+                  </div>
+
                   {plan > 1 && (
                     <>
-                      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-                        <button type="button" onClick={() => setAutoDebit(true)}
-                          style={{
-                            border: `1px solid ${autoDebit ? 'var(--accent-brand)' : 'var(--border)'}`,
-                            background: autoDebit ? 'var(--accent-brand)' : 'var(--surface)',
-                            color: autoDebit ? '#fff' : 'var(--ink-2)',
-                            fontWeight: autoDebit ? 600 : 400,
-                            borderRadius: 999, padding: '9px 17px', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
-                          }}>Prélèvement auto</button>
-                        <button type="button" onClick={() => setAutoDebit(false)}
-                          style={{
-                            border: `1px solid ${!autoDebit ? 'var(--accent-brand)' : 'var(--border)'}`,
-                            background: !autoDebit ? 'var(--accent-brand)' : 'var(--surface)',
-                            color: !autoDebit ? '#fff' : 'var(--ink-2)',
-                            fontWeight: !autoDebit ? 600 : 400,
-                            borderRadius: 999, padding: '9px 17px', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
-                          }}>Un lien par échéance</button>
-                      </div>
-
                       {/* ── À quel rythme ────────────────────────────────────
                           Ce choix n'existait nulle part : toute vente créée ici
                           partait en mensuel. Il est proposé MAINTENANT et pas
                           plus tard parce que c'est la seule modification qui,
                           après coup, oblige à refaire la vente — changer le
                           rythme réinitialise l'ancre de facturation chez Stripe,
-                          qui prélève alors immédiatement. Ce qu'on ne peut pas
-                          corriger sans dégât se demande au bon moment. */}
+                          qui prélève alors immédiatement.
+
+                          Affiché aussi hors Stripe : les échéances y ont bien
+                          des dates, simplement personne ne les prélève. */}
                       <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
                         {([['month', 'Mensuel'], ['week', 'Hebdomadaire']] as const).map(([v, label]) => (
                           <button key={v} type="button" onClick={() => setRythme(v)}
@@ -1425,28 +1452,35 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                             }}>{label}</button>
                         ))}
                       </div>
-
-                      {/* C'est ici que se joue le compromis : ce que l'élève aura
-                          à faire ensuite, échéance après échéance. */}
-                      <div style={{ padding: '12px 14px', background: 'var(--surface-2)', borderRadius: 10, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.55, marginBottom: 18 }}>
-                        {plan} × {Math.round(((parseFloat(revenue.replace(',', '.')) || 0) / plan) * 100) / 100} € {parRythme(rythme)},
-                        soit {fmtMontant(parseFloat(revenue.replace(',', '.')) || 0)}.{' '}
-                        {autoDebit
-                          ? 'Le client saisit sa carte une fois, Stripe prélève ensuite tout seul.'
-                          : `Tu enverras ${plan} liens, un par échéance. Momentum te rappellera lesquels.`}
-                      </div>
                     </>
                   )}
 
+                  {/* Ce que l'élève aura à faire ENSUITE, échéance après
+                      échéance : c'est là que se joue le compromis entre les
+                      trois moyens, et il ne se devine pas depuis leurs noms. */}
+                  <div style={{ padding: '12px 14px', background: 'var(--surface-2)', borderRadius: 10, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.55, marginBottom: 18 }}>
+                    {plan > 1 && <>
+                      {plan} × {Math.round(((parseFloat(revenue.replace(',', '.')) || 0) / plan) * 100) / 100} € {parRythme(rythme)},
+                      soit {fmtMontant(parseFloat(revenue.replace(',', '.')) || 0)}.{' '}
+                    </>}
+                    {horsStripe
+                      ? <>Tu encaisses toi-même, par virement ou en espèces, et tu déclares
+                        {plan > 1 ? ' chaque échéance reçue' : ' le paiement reçu'}.
+                        Momentum ne peut rien constater seul sur ce moyen.</>
+                      : autoDebit
+                        ? 'Le client saisit sa carte une fois, Stripe prélève ensuite tout seul.'
+                        : plan > 1
+                          ? `Tu enverras ${plan} liens, un par échéance. Momentum te rappellera lesquels.`
+                          : 'Un seul lien à envoyer. Momentum constate le paiement tout seul.'}
+                  </div>
+
+                  {/* ⚠️ Le bouton dit ce qui va se passer, pas « Continuer ».
+                      Hors Stripe, aucun lien n'est créé : promettre « Générer le
+                      lien de paiement » puis n'en produire aucun ferait chercher
+                      un lien qui n'existe pas. */}
                   <button className="btn-primary-brand" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700, marginBottom: 10 }}
-                    disabled={saving} onClick={() => createDeal(false)}>
-                    {saving ? 'Création…' : 'Générer le lien de paiement'}
-                  </button>
-                  {/* Le deal est enregistré dans tous les cas — c'est lui qui
-                      porte le cash et l'attribution, pas le lien Stripe. */}
-                  <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, border: '1px solid var(--border)' }}
-                    disabled={saving} onClick={() => setStep('offline')}>
-                    Paiement hors Stripe (virement, espèces)
+                    disabled={saving} onClick={() => (horsStripe ? setStep('offline') : createDeal(false))}>
+                    {saving ? 'Création…' : horsStripe ? 'Enregistrer la vente' : 'Générer le lien de paiement'}
                   </button>
                   {/* ⚠️ Deux modes, deux promesses — et l'une des deux était fausse.
                       En prélèvement automatique, Momentum ne crée AUCUNE échéance
@@ -1456,12 +1490,16 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                       pas est pire que de ne rien promettre. */}
                   {plan > 1 && (
                     <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8, lineHeight: 1.5, textAlign: 'center' }}>
-                      {autoDebit
-                        ? <>C&apos;est en payant ce lien que le client saisit sa carte. Stripe
-                          prélève ensuite les {plan - 1} suivants tout seul — tu n&apos;as
-                          rien à renvoyer.</>
-                        : <>Momentum créera les {plan} échéances et te rappellera chacune
-                          à sa date dans l&apos;onglet Relances.</>}
+                      {horsStripe
+                        ? <>Momentum créera les {plan} échéances avec leurs dates, et te
+                          rappellera chacune dans l&apos;onglet Relances. C&apos;est toi qui
+                          coches celles que tu as reçues.</>
+                        : autoDebit
+                          ? <>C&apos;est en payant ce lien que le client saisit sa carte. Stripe
+                            prélève ensuite les {plan - 1} suivants tout seul — tu n&apos;as
+                            rien à renvoyer.</>
+                          : <>Momentum créera les {plan} échéances et te rappellera chacune
+                            à sa date dans l&apos;onglet Relances.</>}
                     </div>
                   )}
                 </>
