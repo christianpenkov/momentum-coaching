@@ -417,10 +417,26 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
   // pas ici : ils viennent des evenements `refund`, un par remboursement, a leur
   // vraie date — la ligne de paiement, elle, porte le cumul et la date de la
   // charge d'origine.
+  // ── Ce qui départage deux entrées du MÊME instant ────────────────────────
+  // Un virement déclaré produit DEUX lignes qui racontent le même fait : la
+  // déclaration (journal) et l'encaissement (paiement). Elles portent désormais
+  // la même date — celle où l'argent est arrivé — donc la seule chronologie ne
+  // suffit plus à les ranger, et deux échéances déclarées le même jour
+  // s'entremêlaient : les deux « Encaissé », puis les deux déclarations.
+  //
+  // On range donc par jour, puis par ÉCHÉANCE, puis la cause avant l'effet :
+  // « déclaré reçu » précède l'« Encaissé » qu'il explique. Demandé par Chris
+  // le 2026-09-08 — et c'est aussi l'ordre dans lequel les faits se produisent.
+  const rangDeLEcheance = new Map(echeances.map(i => [i.id, i.rank]));
+  const cle3 = (quand: string, rang: number, cause: boolean) =>
+    `${quand}|${String(rang).padStart(3, '0')}|${cause ? '0' : '1'}`;
+
   const chronologie = [
     ...aMontrer.map(p => ({
       cle: `p-${p.id}`,
       quand: p.paid_at ?? p.created_at ?? '',
+      tri: cle3(p.paid_at ?? p.created_at ?? '',
+        (p.installment_id && rangDeLEcheance.get(p.installment_id)) || 0, false),
       // ⚠️ `disputed` n'est PAS un echec. Le paiement a bien eu lieu ; la banque
       // du client l'a conteste et Stripe a repris la somme en attendant l'issue.
       // Le repli `Paiement refuse` l'affirmait pourtant — sur la ligne meme ou
@@ -441,13 +457,16 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
     ...journal.map(ev => ({
       cle: `e-${ev.id}`,
       quand: ev.created_at,
+      tri: cle3(ev.created_at,
+        Number((ev.meta as { echeance?: number } | null)?.echeance ?? 0) || 0,
+        ev.kind === 'offline_received'),
       label: ev.label,
       montant: null as string | null,
       // L'ocre des fins de vie pour l'argent qui repart, l'accent pour le reste :
       // la couleur dit la NATURE du fait, comme les pastilles d'etat ailleurs.
       couleur: ev.kind === 'refund' ? 'var(--taupe)' : 'var(--accent-brand)',
     })),
-  ].filter(x => x.quand).sort((x, y) => x.quand.localeCompare(y.quand));
+  ].filter(x => x.quand).sort((x, y) => x.tri.localeCompare(y.tri));
 
   // ── Y a-t-il un lien à envoyer sur la vente elle-même ? ──────────────────
   // Le cas du comptant, et celui du prélèvement automatique PAS ENCORE

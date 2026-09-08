@@ -159,6 +159,13 @@ export async function POST(request: NextRequest) {
 
     await supa.from('deal_events').insert({
       deal_id: full.deal_id,
+      // ⚠️ L'événement est daté du jour où l'argent est ARRIVÉ, pas de l'instant
+      // où on le déclare. Sans ça, un virement reçu lundi et déclaré jeudi
+      // apparaissait au jeudi, trois jours après la ligne « Encaissé » qu'il
+      // explique — deux entrées pour un même fait, séparées dans la
+      // chronologie. Le moment de la déclaration n'est pas perdu pour autant :
+      // il vit dans `meta.consenti_le`, qui est ce qui compte comme preuve.
+      at: quand.toISOString(),
       kind: 'offline_received',
       label: `Virement de ${fmtEur(recu)} déclaré reçu`
         + (surCombien && surCombien > 1 ? ` · échéance ${full.rank}/${surCombien}` : ''),
