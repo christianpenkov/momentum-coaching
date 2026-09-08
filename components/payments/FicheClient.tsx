@@ -355,6 +355,25 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
       .map(p => [p.installment_id as string, p.paid_at as string]),
   );
 
+  // ── Combien a DÉJÀ été encaissé sur chaque échéance ─────────────────────
+  // Une échéance ne se règle pas toujours d'un coup : un virement peut arriver
+  // amputé des frais bancaires, ou en deux fois. La route l'accepte depuis
+  // toujours et accumule les déclarations sans les écraser — mais l'écran
+  // continuait d'annoncer le montant NOMINAL de l'échéance et de le proposer
+  // tel quel à la déclaration suivante. Déclarer 480 € puis rouvrir la ligne
+  // proposait 500 € : la vente aurait encaissé 1 480 € sur 1 000.
+  //
+  // Le même défaut que le montant supposé, un cran plus bas : ce qui reste dû
+  // sur une ligne ne se déduit pas de son montant affiché.
+  const dejaSurEcheance = new Map<string, number>();
+  for (const p of paiements) {
+    if (!p.installment_id) continue;
+    const signe = p.status === 'succeeded' ? 1 : p.status === 'refunded' ? -1 : 0;
+    if (!signe) continue;
+    const cle = p.installment_id;
+    dejaSurEcheance.set(cle, (dejaSurEcheance.get(cle) ?? 0) + signe * Number(p.amount));
+  }
+
   // En prélèvement automatique, l'échéancier vit chez Stripe : on va l'y lire
   // plutôt que d'afficher la seule ligne que la base connaît.
   const { lignes: prelevements } = useEcheancesAVenir(deal, detail);
@@ -739,6 +758,7 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
                   finDeVie={deal.status === 'ended' ? 'ended'
                     : deal.status === 'canceled' ? 'canceled' : null}
                   payeLe={dateDePaiement.get(i.id) ?? null} onChange={onChange}
+                  dejaRecu={Math.round((dejaSurEcheance.get(i.id) ?? 0) * 100) / 100}
                   onDeclarer={() => setADeclarer(i)} />
               ))
             /* ── Prélèvement automatique ──────────────────────────────────
@@ -885,6 +905,7 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
             id: aDeclarer.id, rank: aDeclarer.rank,
             amount: Number(aDeclarer.amount), due_on: aDeclarer.due_on,
           }}
+          dejaRecu={Math.round((dejaSurEcheance.get(aDeclarer.id) ?? 0) * 100) / 100}
           deal={{ buyerName: deal.buyerName, installmentsCount: deal.installmentsCount }}
           onClose={() => setADeclarer(null)}
           onDone={async () => { setADeclarer(null); await onChange(); }} />
@@ -1000,7 +1021,7 @@ function Repliable({ titre, ouvert, onToggle, children }: {
  * illisibles, et c'est justement en mode « un lien par échéance » qu'il y en a
  * plusieurs à distinguer.
  */
-function LigneEcheance({ inst, total, mode, finDeVie, payeLe, onChange, onDeclarer }: {
+function LigneEcheance({ inst, total, mode, finDeVie, payeLe, onChange, onDeclarer, dejaRecu }: {
   inst: DealDetail['installments'][number];
   total: number;
   mode: ReturnType<typeof modeDe>;
@@ -1019,6 +1040,8 @@ function LigneEcheance({ inst, total, mode, finDeVie, payeLe, onChange, onDeclar
   onChange: () => Promise<unknown> | void;
   /** Ouvre la fenêtre de déclaration — elle vit chez le parent, qui connaît la vente. */
   onDeclarer: () => void;
+  /** Ce qui a déjà été encaissé sur CETTE ligne — un virement peut arriver en deux fois. */
+  dejaRecu: number;
 }) {
   const payee = inst.status === 'paid';
 
@@ -1092,6 +1115,18 @@ function LigneEcheance({ inst, total, mode, finDeVie, payeLe, onChange, onDeclar
           }}>Reçu</button>
         )}
       </div>
+
+      {/* ── Un versement partiel se DIT sur la ligne ────────────────────────
+          Sans ça, une échéance de 500 € dont 480 € sont arrivés s'affiche
+          exactement comme une échéance dont rien n'est arrivé : même montant,
+          même bouton. L'argent déjà déclaré devenait invisible, et le reste dû
+          impossible à connaître depuis l'écran. */}
+      {!payee && dejaRecu > 0.005 && (
+        <div style={{ fontSize: 11.5, color: 'var(--amber-ink)', marginTop: 3, marginLeft: 18 }}>
+          {fmtEurExact(dejaRecu)} déjà reçus · il reste{' '}
+          {fmtEurExact(Math.max(0, Number(inst.amount) - dejaRecu))} sur cette échéance
+        </div>
+      )}
 
       {!payee && inst.short_url && (
         <LigneLien url={inst.short_url} clics={inst.clicks ?? 0} envoye={!!inst.sent_at}

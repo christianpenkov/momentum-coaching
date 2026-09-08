@@ -37,13 +37,23 @@ import { fmtEurExact, fmtDateLong } from './types';
  * visibles avant de valider, pas qu'ils soient vides.
  */
 
-export default function DeclarerRecu({ echeance, deal, onClose, onDone }: {
+export default function DeclarerRecu({ echeance, deal, dejaRecu, onClose, onDone }: {
   echeance: { id: string; rank: number; amount: number; due_on: string | null };
   deal: { buyerName: string; installmentsCount: number | null };
+  /** Ce qui a déjà été déclaré sur CETTE échéance — voir le commentaire ci-dessous. */
+  dejaRecu: number;
   onClose: () => void;
   onDone: () => Promise<void> | void;
 }) {
-  const attendu = Number(echeance.amount);
+  // ⚠️ L'attendu, c'est ce qui RESTE dû sur la ligne, pas le montant nominal de
+  // l'échéance. Un virement peut arriver amputé des frais bancaires, ou en deux
+  // fois : la route accumule les déclarations sans les écraser, mais la fenêtre
+  // proposait toujours le montant plein. Déclarer 480 € sur une échéance de
+  // 500 € puis rouvrir la ligne proposait 500 € — la vente aurait encaissé
+  // 1 480 € sur 1 000. Trouvé en éprouvant le versement partiel en réel le
+  // 2026-09-08, juste après avoir corrigé le montant supposé un cran plus haut.
+  const nominal = Number(echeance.amount);
+  const attendu = Math.max(0, Math.round((nominal - dejaRecu) * 100) / 100);
   const [montant, setMontant] = useState(attendu.toFixed(2).replace('.', ','));
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [coche, setCoche] = useState(false);
@@ -95,8 +105,8 @@ export default function DeclarerRecu({ echeance, deal, onClose, onDone }: {
           {fait.soldee
             ? <>Cette échéance est soldée.</>
             : <>Cette échéance n’est <strong>pas encore soldée</strong> : il y manque{' '}
-              {fmtEurExact(Math.max(0, attendu - fait.montant))}. Tu pourras déclarer le
-              reste sur la même ligne, sans écraser ce que tu viens d’enregistrer.</>}
+              {fmtEurExact(Math.max(0, nominal - dejaRecu - fait.montant))}. Tu pourras déclarer
+              le reste sur la même ligne, sans écraser ce que tu viens d’enregistrer.</>}
           <div style={{ marginTop: 8 }}>
             La déclaration est inscrite au <strong>journal de la vente</strong>, à ton nom
             et avec l’heure. C’est la seule trace qui existe sur ce mode de paiement.
@@ -136,6 +146,18 @@ export default function DeclarerRecu({ echeance, deal, onClose, onDone }: {
           celui-ci. Ce que tu saisis ici devient le cash encaissé de la vente.
         </div>
 
+        {dejaRecu > 0.005 && (
+          <div style={{
+            fontSize: 12, color: 'var(--amber-ink)', background: 'var(--amber-soft)',
+            border: '1px solid rgba(181,128,37,.28)', borderRadius: 9,
+            padding: '10px 12px', marginBottom: 16, lineHeight: 1.55,
+          }}>
+            {fmtEurExact(dejaRecu)} ont déjà été déclarés sur cette échéance de{' '}
+            {fmtEurExact(nominal)}. Il reste <strong>{fmtEurExact(attendu)}</strong> —
+            c'est ce montant qui est proposé ci-dessous.
+          </div>
+        )}
+
         <Section marge={0}>Montant réellement reçu</Section>
         <ChampMontant valeur={montant} onChange={setMontant} autoFocus />
 
@@ -146,9 +168,10 @@ export default function DeclarerRecu({ echeance, deal, onClose, onDone }: {
         {valide && Math.abs(ecart) > 0.005 && (
           <div style={{ fontSize: 12, color: 'var(--amber-ink)', marginTop: 7, lineHeight: 1.5 }}>
             {ecart < 0
-              ? <>{fmtEurExact(-ecart)} de moins que l’échéance attendue ({fmtEurExact(attendu)}).
-                Le reste restera dû sur cette ligne.</>
-              : <>{fmtEurExact(ecart)} de plus que l’échéance attendue ({fmtEurExact(attendu)}).</>}
+              ? <>{fmtEurExact(-ecart)} de moins que {dejaRecu > 0.005 ? 'le reste dû' : 'l’échéance attendue'}
+                {' '}({fmtEurExact(attendu)}). Le solde restera dû sur cette ligne.</>
+              : <>{fmtEurExact(ecart)} de plus que {dejaRecu > 0.005 ? 'le reste dû' : 'l’échéance attendue'}
+                {' '}({fmtEurExact(attendu)}).</>}
           </div>
         )}
 
