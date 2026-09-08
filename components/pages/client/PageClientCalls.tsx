@@ -51,6 +51,12 @@ interface Call {
   deal_closed: boolean | null;
   revenue: number | null;
   outcome: string | null;
+  /**
+   * Le prospect était-il la cible ? Sert à rouvrir le rapport sur la réponse déjà
+   * donnée. `CALL_COLUMNS` le sélectionne — il manquait seulement à ce type local,
+   * et un cast le masquait.
+   */
+  qualified: boolean | null;
   lead_rapport_comment: string | null;
   objection: string | null;
   objection_autre: string | null;
@@ -970,7 +976,11 @@ export default function PageClientCalls() {
                 revenue: call.revenue ?? null,
                 comment: call.lead_rapport_comment ?? null,
                 outcome: call.outcome ?? null,
-                qualified: (call as { qualified?: boolean | null }).qualified ?? null,
+                // Sans cast : `CALL_COLUMNS` sélectionne `qualified` et le type le
+                // déclare. Le cast qui était là ne protégeait de rien et aurait tu
+                // l'erreur le jour où la colonne quitterait la requête — c'est
+                // exactement ce qui est arrivé côté pipeline.
+                qualified: call.qualified ?? null,
                 objection: call.objection ?? null,
                 objectionAutre: call.objection_autre ?? null,
                 relanceAt: call.relance_at ?? null,

@@ -114,6 +114,20 @@ interface Call {
   /** Lien du replay Fathom. Nul tant que Fathom n'a reçu aucun enregistrement —
    *  ce qui est le cas depuis le début : la chronologie l'affiche en pointillé. */
   fathom_share_url: string | null;
+  /**
+   * Le prospect était-il la cible ? Saisi au rapport, relu pour rouvrir la modale
+   * sur la réponse déjà donnée.
+   *
+   * ⚠️ Ce champ MANQUAIT au `select` de la route, et trois lectures le prenaient
+   * quand même via `(call as { qualified?: boolean | null })`. Le cast disait à
+   * TypeScript de faire confiance : plus aucune alerte, et la valeur arrivait
+   * toujours à `null`. Rouvrir une correction depuis le pipeline montrait donc la
+   * question SANS la réponse, même quand la base l'avait.
+   *
+   * Declaré ici, le cast n'a plus lieu d'être — et si quelqu'un retire la colonne
+   * du `select`, c'est `undefined` qui remontera au lieu d'un silence.
+   */
+  qualified: boolean | null;
   /** Ce qui a bloqué, saisi au rapport. Affiché sur la ligne « Résultat ». */
   objection: string | null;
   objection_autre: string | null;
@@ -2903,7 +2917,7 @@ export default function PagePipeline() {
         callRevenue: call?.revenue ?? null,
         venteContractee: contractee(call),
         callComment: call?.lead_rapport_comment ?? null,
-        callQualified: (call as { qualified?: boolean | null } | undefined)?.qualified ?? null,
+        callQualified: call?.qualified ?? null,
         callObjection: call?.objection ?? null,
         callObjectionAutre: call?.objection_autre ?? null,
         callRelanceAt: call?.relance_at ?? null,
@@ -3059,7 +3073,7 @@ export default function PagePipeline() {
         callRevenue: call.revenue ?? null,
         venteContractee: contractee(call),
         callComment: call.lead_rapport_comment ?? null,
-        callQualified: (call as { qualified?: boolean | null }).qualified ?? null,
+        callQualified: call.qualified ?? null,
         callObjection: call.objection ?? null,
         callObjectionAutre: call.objection_autre ?? null,
         callRelanceAt: call.relance_at ?? null,
@@ -3245,7 +3259,7 @@ export default function PagePipeline() {
         callRevenue: latestCall.revenue ?? null,
         venteContractee: contractee(latestCall),
         callComment: latestCall.lead_rapport_comment ?? null,
-        callQualified: (latestCall as { qualified?: boolean | null }).qualified ?? null,
+        callQualified: latestCall.qualified ?? null,
         callObjection: latestCall.objection ?? null,
         callObjectionAutre: latestCall.objection_autre ?? null,
         callRelanceAt: latestCall.relance_at ?? null,
