@@ -463,8 +463,19 @@ a { color: inherit; text-decoration: none; }
   border-color: var(--border);
 }
 .btn-secondary:hover { background: var(--surface-2); }
-.btn-ghost { color: var(--ink-2); }
-.btn-ghost:hover { background: rgba(0,0,0,0.03); }
+/* Un bouton s'encadre TOUJOURS. Sans fond ni bordure, `btn-ghost` se lisait
+   comme du texte : « J'ai compris » sous un avertissement ambre n'avait plus
+   l'air cliquable, et « Ignorer » non plus. Deux endroits l'avaient déjà
+   corrigé chacun dans son coin (`.settings-row-actions`, `.call-action-rapport`)
+   — la règle existait, posée deux fois au lieu d'une. Elle vit ici désormais.
+   La hiérarchie tient par la couleur du texte, plus par l'absence de cadre :
+   primaire = fond plein · secondaire = cadre + encre · discret = cadre + encre pâle. */
+.btn-ghost {
+  color: var(--ink-2);
+  background: var(--surface);
+  border-color: var(--border);
+}
+.btn-ghost:hover { background: var(--surface-2); border-color: var(--muted); }
 .btn-sm { padding: 5px 10px; font-size: 12px; }
 .btn-client-archive { background: var(--surface); border: 1px solid var(--border); color: var(--accent); }
 .btn-client-archive:hover { background: var(--surface-2); border-color: var(--muted); }
