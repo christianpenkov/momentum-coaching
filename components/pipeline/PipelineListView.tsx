@@ -460,7 +460,18 @@ export default function PipelineListView({
                     </span>
 
                     <span style={{ color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {columns.find(x => x.key === c.stage)?.label ?? c.stage}
+                      {/* ⚠️ L'ISSUE PREND LE PAS SUR L'ÉTAPE (choix de Chris,
+                          2026-09-08). Un lead classé n'est plus en progression :
+                          annoncer « RDV pris » sur une ligne closée décrivait un
+                          état qu'il a quitté. Une ligne active n'a pas d'issue et
+                          affiche donc son étape, comme avant.
+
+                          `columns` porte les deux natures — c'est la même
+                          recherche pour l'une comme pour l'autre. */}
+                      {(() => {
+                        const cle = c.issue ?? c.stage;
+                        return columns.find(x => x.key === cle)?.label ?? cle;
+                      })()}
                     </span>
 
                     <span style={{ color: dort ? '#cd5b3f' : 'var(--muted)', fontWeight: dort ? 600 : 400 }}>
