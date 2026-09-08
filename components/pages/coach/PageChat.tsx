@@ -99,10 +99,12 @@ const WAVEFORM = [4,9,15,20,12,18,8,22,14,6,17,10,19,13,5,8,16,11,21,7,14,9,18,1
 
 // ─── AudioBubble ─────────────────────────────────────────────────────────────
 
-function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl, initials, seed }: {
+function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl, initials, seed, nom }: {
   id: string; url: string; duration?: number; isMe: boolean;
   listened?: boolean; onListened?: (id: string) => void;
   avatarUrl?: string | null; initials: string; seed?: string;
+  /** Nom de la personne — graine de couleur. Prime sur `seed`, voir lib/avatars.ts. */
+  nom?: string | null;
 }) {
   const { activeId, setActive } = useContext(AudioContext);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -316,7 +318,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
     <div style={{ display: 'flex', flexWrap: 'nowrap', alignItems: 'flex-start', gap: 10, width: 300, maxWidth: '100%' }}>
       <audio ref={audioRef} src={url} preload="metadata" />
       <div className="audio-avatar-col" style={{ position: 'relative', flexShrink: 0 }}>
-        <Avatar initials={initials} avatarUrl={avatarUrl} size={42} seed={seed} />
+        <Avatar initials={initials} avatarUrl={avatarUrl} size={42} nom={nom} seed={seed} />
         {/* Icône micro — overlay discret sur l'avatar, signale "ceci est un vocal" (WhatsApp). */}
         <span style={{
           position: 'absolute', bottom: -1, right: -1,
@@ -712,7 +714,7 @@ function EditBubbleOverlay({ rect, isMe, editText, setEditText, originalText, on
 
 // ─── MessageBubble — une bulle de message, isolée pour porter useLongPress proprement ──
 
-function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, onDoubleTapReact, isMenuTarget, liftPx, onEnterViewport, registerBubbleRef, animate, onListened, quotedMsg, onQuoteClick, clientName, clientAvatarUrl, clientInitials, myAvatarUrl, myInitials }: {
+function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, onDoubleTapReact, isMenuTarget, liftPx, onEnterViewport, registerBubbleRef, animate, onListened, quotedMsg, onQuoteClick, clientName, clientAvatarUrl, clientInitials, myAvatarUrl, myInitials, myName }: {
   msg: Msg; userId: string; isContinued: boolean; isLast: boolean;
   isEditing: boolean; editRect: DOMRect | null; editText: string; setEditText: (v: string) => void;
   onStartEdit: () => void; onCancelEdit: () => void; onSaveEdit: () => void;
@@ -731,6 +733,8 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
   clientName: string;
   clientAvatarUrl?: string | null;
   clientInitials?: string;
+  /** Nom de l'utilisateur courant — graine de couleur de SON avatar. */
+  myName?: string | null;
   myAvatarUrl?: string | null;
   myInitials?: string;
 }) {
@@ -910,7 +914,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
             listened={!!msg.listened_at} onListened={isMe ? undefined : onListened}
             avatarUrl={isMe ? myAvatarUrl : clientAvatarUrl}
             initials={(isMe ? myInitials : clientInitials) || '?'}
-            seed={msg.sender_id}
+            nom={isMe ? myName : clientName}
           />
         ) : isImage && msg.audio_url ? (
           <div style={{ maxWidth: 260 }}>
@@ -1685,7 +1689,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
             </button>
           )}
           <div style={{ position: 'relative', flexShrink: 0 }}>
-            <Avatar initials={clientInitials} avatarUrl={clientAvatarUrl} size={40} seed={clientId} />
+            <Avatar initials={clientInitials} avatarUrl={clientAvatarUrl} size={40} nom={clientName} />
             <div style={{ position: 'absolute', bottom: 1, right: 1, width: 9, height: 9, borderRadius: '50%', background: isOnline ? 'var(--accent-brand)' : 'var(--faint)', border: '2px solid var(--surface)', transition: 'background 0.4s' }} />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0, overflow: 'hidden' }}>
@@ -1803,6 +1807,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
                       clientInitials={clientInitials}
                       myAvatarUrl={myAvatarUrl}
                       myInitials={myInitials}
+                      myName={user?.full_name}
                       registerBubbleRef={(id, el) => {
                         if (el) bubbleRefsMap.current.set(id, el);
                         else bubbleRefsMap.current.delete(id);
@@ -2289,7 +2294,7 @@ export default function PageChat() {
                   transition: 'background 100ms',
                 }}>
                   <div style={{ position: 'relative', flexShrink: 0 }}>
-                    <Avatar initials={initials} avatarUrl={cl.avatar_url} size={34} seed={cl.id} />
+                    <Avatar initials={initials} avatarUrl={cl.avatar_url} size={34} nom={cl.name} />
                     <div style={{ position: 'absolute', bottom: 0, right: 0, width: 9, height: 9, borderRadius: '50%', background: isOnline ? 'var(--accent-brand)' : 'var(--faint)', border: '2px solid var(--surface)', transition: 'background 0.4s' }} />
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>

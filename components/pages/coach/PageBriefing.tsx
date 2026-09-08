@@ -45,7 +45,7 @@ export default function PageBriefing({ id }: Props) {
     <div className="page-content">
       <div className="page-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <Avatar initials={client.initials || getInitials(client.name)} avatarUrl={realAvatarUrl} size={42} seed={client.id} />
+          <Avatar initials={client.initials || getInitials(client.name)} avatarUrl={realAvatarUrl} size={42} nom={client.name} />
           <div>
             <h1 className="page-title">Briefing IA — {client.name}</h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

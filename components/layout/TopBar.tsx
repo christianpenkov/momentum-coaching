@@ -51,7 +51,7 @@ export default function TopBar() {
         </button>
 
         <div title={name} className="topbar-avatar" style={{ cursor: 'pointer' }}>
-          <Avatar initials={initials} avatarUrl={user?.avatar_url} size={30} seed={user?.id} />
+          <Avatar initials={initials} avatarUrl={user?.avatar_url} size={30} nom={user?.full_name} />
         </div>
       </div>
 

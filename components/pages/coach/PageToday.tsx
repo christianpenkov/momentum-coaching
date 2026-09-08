@@ -23,6 +23,7 @@ import { isCallReallyOver, isCallJoinable } from '@/lib/sessionRapport';
 import { readAccueilShape, writeAccueilShape, EMPTY_SHAPE, type AccueilShape } from '@/lib/accueilLayoutHint';
 import TrendBadge from '@/components/ui/TrendBadge';
 import type { Call } from '@/lib/supabase/types';
+import { identiteDe } from '@/lib/avatars';
 
 const WIDGET_VISIBILITY_WINDOW_MS = 24 * 3600_000;
 
@@ -42,7 +43,7 @@ function pickAccueilCall(calls: Call[], now: number): Call | null {
 }
 
 export default function PageToday() {
-  const { clients, calls, business, loading, refetch } = useSupabaseClients();
+  const { clients, calls, photosInstagram, business, loading, refetch } = useSupabaseClients();
   const { user } = useUser();
   const [showCreateCallModal, setShowCreateCallModal] = useState(false);
   const { notifs, refresh: refreshNotifs } = useNotifications(user?.id ?? null, false);
@@ -391,7 +392,14 @@ export default function PageToday() {
                 // filtré archived_at is null) alors que ses calls ne le sont pas. Repli
                 // sur invitee_name (vente) ou un libellé neutre (coaching), jamais "??".
                 const name = call.invitee_name || (call.call_type === 'google' ? 'Élève archivé' : 'Prospect');
-                return { id: call.id, name, initials: getInitials(name), avatar_url: null };
+                // La photo d'un prospect vient d'Instagram, via `call.ig_lead_id`.
+                // `id` sert de graine de couleur : c'était `call.id`, donc la même
+                // personne changeait de couleur à chaque ligne. Voir lib/avatars.ts.
+                const ident = identiteDe({
+                  nom: name,
+                  photoInstagram: call.ig_lead_id ? photosInstagram[call.ig_lead_id] : null,
+                });
+                return { id: ident.graine, name: ident.nom, initials: ident.initiales, avatar_url: ident.photo };
               }} />
             </div>
           </div>

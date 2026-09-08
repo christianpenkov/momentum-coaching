@@ -308,7 +308,7 @@ export default function PageClientSettings() {
                 </div>
               ) : (
                 <>
-                  <Avatar initials={getInitials(name)} avatarUrl={avatarUrl} size={72} seed={profileId || undefined} />
+                  <Avatar initials={getInitials(name)} avatarUrl={avatarUrl} size={72} nom={name} />
                   <div style={{
                     position: 'absolute', inset: 0, borderRadius: '50%',
                     background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center',

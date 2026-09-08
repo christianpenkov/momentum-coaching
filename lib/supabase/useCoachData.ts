@@ -56,6 +56,14 @@ export interface ClientSelfData extends ClientWithMetrics {
   business: ClientSelfBusinessData;
   coachFullName: string | null;
   coachAvatarUrl: string | null;
+  /**
+   * Photo Instagram par `instagram_leads.id`, pour les prospects des calls de
+   * vente. Ces écrans codaient `avatar_url: null` en dur, avec un commentaire
+   * « pas d'avatar réel » devenu faux le jour où les photos IG ont existé : un
+   * call de vente porte `ig_lead_id`, donc la photo est atteignable.
+   * Voir lib/avatars.ts pour la règle de résolution.
+   */
+  photosInstagram: Record<string, string>;
 }
 
 // Hook léger pour l'espace client (vue client connecté)
@@ -227,6 +235,21 @@ export function useClientSelfData() {
       // n'ont pas de notion de deal closé/revenue et fausseraient ces stats.
       const allSalesCalls: Call[] = [...(salesCallsAllTimeRes.data || []), ...(manualCallsAllTimeRes.data || [])];
 
+      // Photos Instagram des prospects de ces calls. Requête non bloquante et
+      // bornée aux leads réellement présents : un échec laisse les initiales, il
+      // ne vide pas l'écran. Par paquets — PostgREST plafonne à 1000 lignes sans
+      // le dire.
+      const idsLeads = [...new Set(allSalesCalls
+        .map(c => (c as { ig_lead_id?: string | null }).ig_lead_id)
+        .filter((v): v is string => typeof v === 'string' && v.length > 0))];
+      const photosInstagram: Record<string, string> = {};
+      for (let i = 0; i < idsLeads.length; i += 200) {
+        const { data: leadsPhotos } = await supabase.from('instagram_leads')
+          .select('id, avatar_url')
+          .in('id', idsLeads.slice(i, i + 200));
+        for (const l of leadsPhotos || []) if (l.avatar_url) photosInstagram[l.id] = l.avatar_url;
+      }
+
       // Les deals suivent le périmètre des calls retenus : les requêtes ci-dessus
       // écartent déjà les calls hors fenêtre integrations_ready_at, un deal issu
       // de l'un d'eux doit l'être aussi. Un deal SANS call est toujours compté —
@@ -295,6 +318,7 @@ export function useClientSelfData() {
         coachName,
         coachFullName,
         coachAvatarUrl,
+        photosInstagram,
         avatar_url: (ownProfileRes as { data: { avatar_url: string | null } | null }).data?.avatar_url ?? null,
         business: {
           upcomingCalls: (nextCallRes.data || []) as Call[],

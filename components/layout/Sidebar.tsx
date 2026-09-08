@@ -77,7 +77,7 @@ export default function Sidebar() {
           );
         })}
         <div className="sidebar-coach-info">
-          <Avatar initials={user?.initials || getInitials(user?.full_name)} avatarUrl={user?.avatar_url} size={30} seed={user?.id} />
+          <Avatar initials={user?.initials || getInitials(user?.full_name)} avatarUrl={user?.avatar_url} size={30} nom={user?.full_name} />
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>{user?.full_name || user?.email || '—'}</div>
             <div style={{ fontSize: 11, color: 'var(--muted)' }}>Coach · {clients.length} élève{clients.length !== 1 ? 's' : ''}</div>

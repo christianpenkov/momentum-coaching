@@ -24,6 +24,7 @@ import type { Call } from '@/lib/supabase/types';
 import { isCallReallyOver, isCallJoinable } from '@/lib/sessionRapport';
 import { useViewerTimeZone } from '@/lib/UserContext';
 import { formatTimeIn, formatDateIn } from '@/lib/timezone';
+import { identiteDe } from '@/lib/avatars';
 
 const PRIORITY_CONFIG = {
   high:   { label: 'Haute',   color: 'var(--red)',   bg: '#ef444420' },
@@ -258,8 +259,17 @@ export default function PageClientView() {
     if (isCoachingCall(call)) {
       return { id: 'coach', name: client!.coachFullName || client!.coachName || 'Coach', initials: null, avatar_url: client!.coachAvatarUrl };
     }
-    const name = call.invitee_name || 'Prospect';
-    return { id: call.id, name, initials: getInitials(name), avatar_url: null };
+    // La photo d'un prospect vient d'Instagram, via `call.ig_lead_id` — elle était
+    // codée `null` ici. Et `id` sert de graine de couleur : c'était `call.id`,
+    // donc la même personne changeait de couleur à chaque appel de sa liste.
+    // Règle et graine dans lib/avatars.ts, pour que tous les écrans s'accordent.
+    const ident = identiteDe({
+      nom: call.invitee_name || 'Prospect',
+      photoInstagram: (call as { ig_lead_id?: string | null }).ig_lead_id
+        ? (client?.photosInstagram ?? {})[(call as { ig_lead_id?: string | null }).ig_lead_id!]
+        : null,
+    });
+    return { id: ident.graine, name: ident.nom, initials: ident.initiales, avatar_url: ident.photo };
   }
 
   return (

@@ -5,6 +5,7 @@ import Icon from '@/components/ui/Icon';
 import type { Resource } from './ResourceModal';
 import type { ClientWithMetrics } from '@/lib/supabase/useCoachData';
 import ResourceThumbnail from './ResourceThumbnail';
+import { couleurDe } from '@/lib/avatars';
 
 interface Props {
   resource: Resource;
@@ -16,12 +17,8 @@ interface Props {
 }
 
 // Couleur stable par personne (hash de son id) — même palette que components/ui/Avatar.tsx.
-const AVATAR_COLORS = ['#7C3AED', '#2563EB', '#059669', '#D97706', '#EA580C', '#DB2777', '#0891B2', '#65A30D'];
-function avatarColor(seed: string) {
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) & 0xffffffff;
-  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
-}
+// Palette locale retiree au profit de `lib/avatars.ts` : elle semait sur l'ID du
+// client, donc la meme personne avait ici une couleur et ailleurs une autre.
 
 export default function ResourceCardCoach({ resource, accessClients, onEdit, onDelete, onManageAccess, onOpen }: Props) {
   const MAX_AVATARS = 4;
@@ -153,7 +150,7 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
                     title={c.name}
                     style={{
                       width: 24, height: 24, borderRadius: '50%',
-                      background: c.avatar_url ? undefined : avatarColor(c.id),
+                      background: c.avatar_url ? undefined : couleurDe(c.name),
                       border: '2px solid var(--surface)',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       fontSize: 9, fontWeight: 700, color: '#fff',

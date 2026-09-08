@@ -4084,7 +4084,7 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
                       style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', cursor: 'pointer', fontSize: 12, color: INK, borderBottom: `1px solid ${BORDER}` }}
                       onMouseEnter={e => (e.currentTarget.style.background = SURFACE2)}
                       onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                      <Avatar initials={getInitials(l.ig_username)} avatarUrl={l.avatar_url} seed={l.ig_user_id || l.ig_username} size={24} />
+                      <Avatar initials={getInitials(l.ig_username)} avatarUrl={l.avatar_url} nom={l.ig_username} size={24} />
                       {/* L'arobase ne vaut que pour un pseudo Instagram : un
                           invité de call s'appelle par son nom. */}
                       <span style={{ fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -4317,7 +4317,7 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
               // le lien sur toute la largeur, les actions dessous.
               <div key={h.id} style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: isMobile ? 8 : 12, padding: '11px 14px', background: SURFACE, opacity: isDeleting ? 0.4 : 1, transition: 'opacity .15s' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: isMobile ? '1 1 100%' : 1, minWidth: 0 }}>
-                  <Avatar initials={getInitials(h.ig_username)} avatarUrl={lead?.avatar_url ?? null} seed={lead?.ig_user_id || h.ig_username} size={30} />
+                  <Avatar initials={getInitials(h.ig_username)} avatarUrl={lead?.avatar_url ?? null} nom={h.ig_username} size={30} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
                     <span style={{ fontSize: 12.5, fontWeight: 600, color: INK, flexShrink: 0 }}>{lead?.ig_user_id ? `@${h.ig_username}` : h.ig_username}</span>

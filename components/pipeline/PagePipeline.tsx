@@ -26,6 +26,7 @@ import { useViewerTimeZone } from '@/lib/UserContext';
 import { wallClockToUtc, cityLabelOf, formatDayPartsIn, jourCourantIci } from '@/lib/timezone';
 import { estOrigineDm, flecheDuDm, ORIGINE_COLD_DM } from '@/lib/origineLead';
 import { useMenuLead, type CibleMenu } from './useMenuLead';
+import { couleurDe as avatarColor, initialesDe as avatarInitials } from '@/lib/avatars';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -416,16 +417,12 @@ function computeNextDue(
   return null;
 }
 
-const AVATAR_COLORS = ['#7C3AED','#2563EB','#059669','#D97706','#EA580C','#DB2777','#0891B2','#65A30D'];
-export function avatarColor(name: string): string {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffffffff;
-  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
-}
-
-export function avatarInitials(name: string): string {
-  return name.replace(/^@/, '').split(/[\s._-]/).map(w => w[0] || '').join('').toUpperCase().slice(0, 2) || '??';
-}
+// Copies retirees : elles avaient la meme palette et le meme hash que
+// `lib/avatars.ts`, mais SANS normaliser la casse — « Leroy » et « leroy » y
+// donnaient deux couleurs, et les initiales rendaient « ?? » la ou tout le reste
+// du produit rend « ? ». Reexportees sous leurs anciens noms : quatre fichiers du
+// pipeline les importent d'ici.
+export { avatarColor, avatarInitials };
 
 // ── resolveYtSource ───────────────────────────────────────────────────────────
 // Résout le titre de la vidéo YouTube (via ytVideoTitles) quand le call vient d'un
@@ -3069,7 +3066,14 @@ export default function PagePipeline() {
         callIsFollowUp: call.is_follow_up ?? false,
         naturalKey: state.stage,
         hasProspectLink: false,
-        avatarUrl: null,
+        // Cette carte est celle d'un call venu d'un lien Instagram SANS lead DM :
+        // il n'y a donc en général personne dans `data.leads` à qui rattacher un
+        // visage. Mais si le call porte quand même un `ig_lead_id` (Calendly a pu
+        // le résoudre par l'UTM), la photo existe — autant la montrer plutôt que
+        // de la coder à `null` par principe.
+        avatarUrl: (call as { ig_lead_id?: string | null }).ig_lead_id
+          ? (data.leads.find(l => l.id === (call as { ig_lead_id?: string | null }).ig_lead_id)?.avatar_url ?? null)
+          : null,
         isIgLink: true,
       });
     }

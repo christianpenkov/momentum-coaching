@@ -8,6 +8,7 @@ import { getInitials } from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import type { Resource } from './ResourceModal';
+import { couleurDe } from '@/lib/avatars';
 
 interface Props {
   resource: Resource;
@@ -125,12 +126,8 @@ export default function AccessSheet({ resource, onClose, onChanged, onDefaultCha
 
   // Couleur stable par personne (hash de son id) — pas par position dans la liste,
   // qui changeait de couleur à chaque tri/filtre. Même palette que components/ui/Avatar.tsx.
-  const AVATAR_COLORS = ['#7C3AED', '#2563EB', '#059669', '#D97706', '#EA580C', '#DB2777', '#0891B2', '#65A30D'];
-  function avatarColor(seed: string): string {
-    let h = 0;
-    for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) & 0xffffffff;
-    return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
-  }
+  // Palette locale retiree au profit de `lib/avatars.ts` : elle semait sur l'ID du
+  // client, donc la meme personne changeait de couleur d'un ecran a l'autre.
 
   const hasDraftChanges = validClients.some(c => {
     const id = c.profile_id!;
@@ -245,7 +242,7 @@ export default function AccessSheet({ resource, onClose, onChanged, onDefaultCha
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20 }}>
                     {validClients.map((client) => {
                       const hasAccess = draft[client.profile_id!] ?? false;
-                      const color = avatarColor(client.id);
+                      const color = couleurDe(client.name);
                       const initials = client.initials || getInitials(client.name);
 
                       return (

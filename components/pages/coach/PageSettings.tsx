@@ -254,7 +254,7 @@ export default function PageSettings() {
                 </div>
               ) : (
                 <>
-                  <Avatar initials={getInitials(coachName)} avatarUrl={avatarUrl} size={72} seed={profileId || undefined} />
+                  <Avatar initials={getInitials(coachName)} avatarUrl={avatarUrl} size={72} nom={coachName} />
                   <div style={{
                     position: 'absolute', inset: 0, borderRadius: '50%',
                     background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center',

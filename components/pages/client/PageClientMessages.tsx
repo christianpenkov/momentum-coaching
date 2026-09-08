@@ -105,10 +105,12 @@ const WAVEFORM = [4,9,15,20,12,18,8,22,14,6,17,10,19,13,5,8,16,11,21,7,14,9,18,1
 
 // ─── AudioBubble — player custom coordonné ───────────────────────────────────
 
-function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl, initials, seed }: {
+function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl, initials, seed, nom }: {
   id: string; url: string; duration?: number; isMe: boolean;
   listened?: boolean; onListened?: (id: string) => void;
   avatarUrl?: string | null; initials: string; seed?: string;
+  /** Nom de la personne — graine de couleur. Prime sur `seed`, voir lib/avatars.ts. */
+  nom?: string | null;
 }) {
   const { activeId, setActive } = useContext(AudioContext);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -330,7 +332,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
 
       {/* Avatar (rappel écouté/non écouté) + bouton play/pause séparé, comme WhatsApp */}
       <div className="audio-avatar-col" style={{ position: 'relative', flexShrink: 0 }}>
-        <Avatar initials={initials} avatarUrl={avatarUrl} size={42} seed={seed} />
+        <Avatar initials={initials} avatarUrl={avatarUrl} size={42} nom={nom} seed={seed} />
         {/* Icône micro — overlay discret sur l'avatar, signale "ceci est un vocal" (WhatsApp). */}
         <span style={{
           position: 'absolute', bottom: -1, right: -1,
@@ -813,7 +815,7 @@ function EditBubbleOverlay({ rect, isMe, editText, setEditText, originalText, on
 
 // ─── MessageBubble — une bulle de message, isolée pour porter useLongPress proprement ──
 
-function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, onDoubleTapReact, isMenuTarget, liftPx, onEnterViewport, registerBubbleRef, animate, onListened, quotedMsg, onQuoteClick, coachName, coachAvatarUrl, coachInitials, myAvatarUrl, myInitials }: {
+function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, onDoubleTapReact, isMenuTarget, liftPx, onEnterViewport, registerBubbleRef, animate, onListened, quotedMsg, onQuoteClick, coachName, coachAvatarUrl, coachInitials, myAvatarUrl, myInitials, myName }: {
   msg: Msg; userId: string;
   isContinued: boolean; isLast: boolean;
   isEditing: boolean; editRect: DOMRect | null; editText: string; setEditText: (v: string) => void;
@@ -835,6 +837,8 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
   coachInitials?: string;
   myAvatarUrl?: string | null;
   myInitials?: string;
+  /** Nom de l'utilisateur courant — graine de couleur de SON avatar. */
+  myName?: string | null;
 }) {
   const isMe = msg.sender_id === userId;
   const isAudio = msg.type === 'audio';
@@ -1017,7 +1021,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
             listened={!!msg.listened_at} onListened={isMe ? undefined : onListened}
             avatarUrl={isMe ? myAvatarUrl : coachAvatarUrl}
             initials={(isMe ? myInitials : coachInitials) || '?'}
-            seed={msg.sender_id}
+            nom={isMe ? myName : coachName}
           />
         ) : isImage && msg.audio_url ? (
           <div style={{ maxWidth: 260 }}>
@@ -2047,6 +2051,7 @@ export default function PageClientMessages() {
                       coachInitials={coachInitials}
                       myAvatarUrl={myAvatarUrl}
                       myInitials={myInitials}
+                      myName={user?.full_name}
                       registerBubbleRef={(id, el) => {
                         if (el) bubbleRefsMap.current.set(id, el);
                         else bubbleRefsMap.current.delete(id);

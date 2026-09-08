@@ -361,7 +361,7 @@ export default function PageCalendar() {
                   const d = new Date(call.scheduled_at!);
                   return (
                     <div key={call.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <Avatar initials={client?.initials || getInitials(client?.name || call.invitee_name)} avatarUrl={client?.avatar_url} size={28} seed={client?.id} />
+                      <Avatar initials={client?.initials || getInitials(client?.name || call.invitee_name)} avatarUrl={client?.avatar_url} size={28} nom={client?.name || call.invitee_name} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>{client?.name || '—'}</div>
                         <div style={{ fontSize: 11, color: 'var(--muted)' }}>

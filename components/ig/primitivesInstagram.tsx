@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import Icon, { type IconName } from '@/components/ui/Icon';
+import { couleurDe, initialesDe } from '@/lib/avatars';
 
 /**
  * Les primitives de rendu d'un fil Instagram, partagées.
@@ -65,7 +66,9 @@ export function IgAvatar({ url, taille }: { url: string | null; taille: number }
 export function IgAvatarSimple({ url, pseudo, taille }: {
   url: string | null; pseudo: string | null; taille: number;
 }) {
-  const initiales = (pseudo || '?').replace(/^@/, '').slice(0, 2).toUpperCase();
+  // `slice(0, 2)` brut rendait « ma » pour @marc_dupont, là où tout le reste du
+  // produit rend « MD ». Même fonction que partout ailleurs désormais.
+  const initiales = initialesDe(pseudo);
   return (
     <span style={{
       width: taille, height: taille, borderRadius: '50%', flexShrink: 0, overflow: 'hidden',
@@ -83,13 +86,9 @@ export function IgAvatarSimple({ url, pseudo, taille }: {
 // Même palette et même hachage que components/ui/Avatar.tsx : la couleur d'une
 // personne doit être la MÊME partout, sinon la pastille cesse d'aider à la
 // reconnaître.
-const COULEURS = ['#7C3AED', '#2563EB', '#059669', '#D97706', '#EA580C', '#DB2777', '#0891B2', '#65A30D'];
-function couleurStable(graine: string): string {
-  const g = graine.trim().toLowerCase();
-  let h = 0;
-  for (let i = 0; i < g.length; i++) h = (h * 31 + g.charCodeAt(i)) & 0xffffffff;
-  return COULEURS[Math.abs(h) % COULEURS.length];
-}
+// Palette locale retiree : identique a celle de `lib/avatars.ts`, donc une copie
+// de plus a maintenir pour zero difference de rendu.
+const couleurStable = couleurDe;
 
 /**
  * Une bulle À GAUCHE, grise.

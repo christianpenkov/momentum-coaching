@@ -31,6 +31,49 @@
  * conversations. Prendre l'autre le ferait changer de visage d'un écran à l'autre.
  */
 
+/**
+ * La palette des avatars sans photo.
+ *
+ * ⚠️ UNE SEULE dans tout le dépôt. Il en existait CINQ copies — même hash, mêmes
+ * huit couleurs, mais semées différemment : `PagePipeline`, `ResourceCardCoach`,
+ * `AccessSheet`, `primitivesInstagram` et celle-ci. La même personne changeait
+ * donc de couleur entre le pipeline et sa fiche.
+ */
+const COULEURS_AVATAR = ['#7C3AED', '#2563EB', '#059669', '#D97706', '#EA580C', '#DB2777', '#0891B2', '#65A30D'];
+
+/**
+ * La graine d'une personne : son NOM, normalisé.
+ *
+ * ── Pourquoi le nom et pas un identifiant ──────────────────────────────────
+ *
+ * La couleur d'un avatar sans photo est une aide à la reconnaissance : on
+ * retrouve quelqu'un à sa pastille avant de lire son nom. Elle ne tient cette
+ * promesse que si elle est la MÊME partout.
+ *
+ * Or chaque écran connaît la personne par un identifiant différent — id de
+ * client ici, id de lead là, id de CALL ailleurs (donc une couleur par ligne
+ * pour la même personne). Le nom est la seule chose que tous affichent, par
+ * construction.
+ *
+ * Deux homonymes partageront une couleur. C'est le prix, et il est juste : on ne
+ * les distingue pas non plus à l'œil.
+ */
+export function graineDe(nom: string | null | undefined): string {
+  return (nom ?? '').trim().toLowerCase();
+}
+
+/** La couleur d'une graine. Déterministe, donc stable d'un écran à l'autre. */
+export function couleurDeGraine(graine: string): string {
+  let h = 0;
+  for (let i = 0; i < graine.length; i++) h = (h * 31 + graine.charCodeAt(i)) & 0xffffffff;
+  return COULEURS_AVATAR[Math.abs(h) % COULEURS_AVATAR.length];
+}
+
+/** La couleur d'une personne, depuis son nom. Le chemin le plus court et le seul juste. */
+export function couleurDe(nom: string | null | undefined): string {
+  return couleurDeGraine(graineDe(nom));
+}
+
 /** Tout ce dont un écran a besoin pour afficher quelqu'un. */
 export interface IdentiteAffichee {
   nom: string;
@@ -84,7 +127,7 @@ export function identiteDe(opts: {
     nom,
     initiales: initialesDe(opts.nom),
     photo,
-    graine: nom.toLowerCase(),
+    graine: graineDe(nom),
   };
 }
 

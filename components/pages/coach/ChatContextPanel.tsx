@@ -124,7 +124,7 @@ export default function ChatContextPanel({ client, calls, open, onClose }: ChatC
               propre. L'avatar restait donc collé à gauche pendant que le nom, lui, était
               bien centré — un décalage qu'on voit sans savoir le nommer. */}
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}>
-            <Avatar initials={client.initials || getInitials(client.name)} avatarUrl={client.avatar_url} size={60} seed={client.id} />
+            <Avatar initials={client.initials || getInitials(client.name)} avatarUrl={client.avatar_url} size={60} nom={client.name} />
           </div>
           <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--ink)' }}>{client.name}</div>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
