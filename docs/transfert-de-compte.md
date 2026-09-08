@@ -874,8 +874,74 @@ Le risque grandit avec le nombre de projets ouverts sur le poste, et il devient 
 le jour du transfert** : les quatre pointeurs sont alors tous à repointer, et il suffit
 d'en oublier un.
 
-**La parade, mise en place le 2026-09-03 :** l'identité est déclarée une fois dans
-`PROJET.json`, à la racine du dépôt, et tout le reste est vérifié contre elle.
+#### Ce qui est isolé par le dossier, et ce qui ne l'est pas
+
+Mesuré le 2026-09-04. La distinction n'est pas une question de discipline : elle est
+structurelle, et elle ne se devine pas.
+
+| | Vit où | Isolé par dossier ? |
+|---|---|---|
+| `.env.local` | le dossier | ✅ oui |
+| `.vercel/project.json` | le dossier | ✅ oui |
+| `supabase/.temp/project-ref` | le dossier | ✅ oui |
+| Le dépôt distant git | `.git/config` du dossier | ✅ oui |
+| **La session Vercel** (`vercel login`) | `%APPDATA%/com.vercel.cli/Data/auth.json` | 🔴 **NON — la machine entière** |
+| **La session Supabase** (`supabase login`) | le profil utilisateur | 🔴 **NON — la machine entière** |
+| Une variable posée dans le profil du terminal | le shell | 🔴 non |
+
+**Prouvé, pas supposé** : depuis `C:/Users/chris` — un dossier sans aucun rapport avec ce
+projet — `npx vercel whoami` répond déjà le compte connecté.
+
+> 🔴 **Conséquence directe, le jour où ce projet vit sur le compte de quelqu'un
+> d'autre :** faire `vercel login` avec SES identifiants ferait basculer **tous les
+> dossiers de la machine** sur son compte — y compris les autres projets, qui n'ont rien
+> demandé. Et l'inverse est vrai aussi : une session ouverte pour un autre projet
+> piloterait celui-ci.
+
+#### Les trois règles qui séparent ce projet des autres
+
+**1. Un seul identifiant du repreneur est nécessaire — et ce n'est même pas un mot de
+passe.** Les deux autres piliers n'en demandent aucun :
+
+| | Ce qu'il faut | Identité utilisée |
+|---|---|---|
+| GitHub | rien — GitHub ajoute l'ancien propriétaire en collaborateur **automatiquement** | **celle de Chris** |
+| Supabase | une invitation en `Administrator`, **gratuite dès le plan Free** | **celle de Chris** |
+| Vercel | un **jeton**, limité à ce projet (§4, montage 2 bis) | celle du repreneur, mais bornée |
+
+**Prendre les trois mots de passe serait donc à la fois inutile et contaminant.** Sur
+deux piliers sur trois, Chris garde sa propre identité — et une identité propre ne
+déborde jamais sur les autres projets.
+
+**2. Le jeton Vercel vit dans le DOSSIER, jamais dans la machine.**
+
+```bash
+# le proprietaire du projet, une seule fois :
+npx vercel tokens add "chris-momentum" --project momentum-plateforme
+
+# ici : le jeton va dans .vercel-token (ignore par git), et TOUTES les commandes
+# passent par le wrapper, qui verifie la cible avant d'agir :
+npm run vercel -- env ls production
+npm run vercel -- link
+```
+
+Le jeton est créé avec `--project` : **même utilisé par erreur depuis un autre dossier,
+il ne peut rien toucher d'autre que ce projet.** La portée est garantie des deux côtés —
+par le dossier ici, par le jeton chez Vercel.
+
+⚠️ Sans jeton, le wrapper **ne bloque pas** : il retombe sur la session globale **en
+disant laquelle**. Un repli silencieux ferait exactement ce qu'il existe pour empêcher —
+agir sous une identité que personne n'a choisie.
+
+**3. `vercel env pull` écrase `.env.local`, et emporte ce que Vercel ne connaît pas.**
+`MOMENTUM_REDIRECT_ORIGIN` a été ajoutée à la main sous la ligne « Created by Vercel
+CLI » : un `env pull` la fait disparaître **sans rien dire**, et
+`scripts/reecrire-liens-shortio.mjs` n'écrit alors plus rien vers nulle part. Le wrapper
+sauvegarde d'abord (`.env.local.avant-pull`) et **énumère les variables perdues** après
+coup. Témoin positif joué le 2026-09-04.
+
+**La parade générale, mise en place le 2026-09-03 :** l'identité est déclarée une fois
+dans `PROJET.json`, à la racine du dépôt, et tout le reste est vérifié contre elle.
 
 ```bash
 npm run verifier-cible

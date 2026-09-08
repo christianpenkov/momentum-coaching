@@ -9,6 +9,7 @@
     "start": "next start",
     "test": "node --test lib/*.test.ts && node scripts/empreintes-edge.mjs --verifier --depuis-head && node scripts/verifier-cible.mjs && node scripts/verifier-migrations.mjs && node scripts/verifier-cash-sql.mjs && node scripts/verifier-regles-uniques.mjs",
     "verifier-cible": "node scripts/verifier-cible.mjs",
+    "vercel": "node scripts/vercel.mjs",
     "verifier-regles-uniques": "node scripts/verifier-regles-uniques.mjs",
     "empreintes-edge": "node scripts/empreintes-edge.mjs",
     "deployer-edge": "node scripts/deployer-edge.mjs",

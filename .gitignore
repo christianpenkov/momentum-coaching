@@ -54,3 +54,9 @@ supabase/.temp/
 
 # Worktrees de sessions parallèles — dépôts git imbriqués, jamais à committer
 .claude/worktrees/
+
+# Jeton Vercel propre a CE dossier (voir scripts/vercel.mjs) — jamais versionne
+.vercel-token
+
+# Sauvegardes de .env.local (transfert de compte, env pull)
+.env.local.avant-*

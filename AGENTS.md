@@ -107,7 +107,8 @@ référence Supabase, projet et équipe Vercel, dépôt git. **C'est la seule so
 vérité**, et le seul endroit où l'identité se change le jour d'un transfert.
 
 ```bash
-npm run verifier-cible    # ✓ sur chaque pointeur, ou refus motivé
+npm run verifier-cible          # ✓ sur chaque pointeur, ou refus motivé
+npm run vercel -- env ls production   # Vercel, borné à CE projet
 ```
 
 Les outils en ligne de commande gardent leur session dans le **compte**, pas dans le
@@ -138,6 +139,19 @@ d'identité, pas un paramètre de confort : on ne l'édite que quand le projet a
 
 Témoin positif joué le 2026-09-03 : trois pointeurs faussés volontairement, trois écarts
 signalés, le quatrième resté juste déclaré juste.
+
+⚠️ **La session des CLI est GLOBALE à la machine, pas au dossier.** Mesuré le
+2026-09-04 : depuis `C:/Users/chris`, `npx vercel whoami` répond déjà le compte connecté
+(`%APPDATA%/com.vercel.cli/Data/auth.json`). Donc **ne jamais faire `vercel login` avec
+le compte d'un tiers** : tous les dossiers de la machine basculeraient sur son compte.
+Passer par `npm run vercel --`, qui lit un jeton posé dans `.vercel-token` (ignoré par
+git) et vérifie la cible avant d'agir. Le jeton est créé avec `--project` : même utilisé
+ailleurs par erreur, il ne peut toucher que ce projet.
+
+⚠️ **`vercel env pull` écrase `.env.local`** et emporte `MOMENTUM_REDIRECT_ORIGIN`, qui
+n'existe pas côté Vercel dans ce fichier — sans rien dire, et
+`scripts/reecrire-liens-shortio.mjs` cesse alors d'écrire vers quoi que ce soit. Le
+wrapper sauvegarde en `.env.local.avant-pull` et énumère les variables perdues.
 
 # ⚠️ Le dépôt est PUBLIC — un secret écrit ici est un secret publié
 
