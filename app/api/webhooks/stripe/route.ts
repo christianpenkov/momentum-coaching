@@ -162,6 +162,36 @@ async function motifDuRemboursement(profileId: string, chargeId: string): Promis
   }
 }
 
+/**
+ * La vente d'un paiement déjà enregistré, cherchée par ses identifiants Stripe.
+ *
+ * Un même encaissement existe chez Stripe sous plusieurs noms — facture `in_…`,
+ * PaymentIntent `pi_…`, charge `ch_…` — et Momentum n'en garde qu'un, celui que
+ * l'événement d'origine portait. Un remboursement arrive avec les autres.
+ *
+ * On essaie donc les trois, dans l'ordre où ils ont le plus de chances d'être
+ * celui qu'on a stocké : la facture d'abord (c'est sous elle que sont écrites
+ * les échéances d'abonnement), puis le PaymentIntent (les comptants), puis la
+ * charge elle-même.
+ */
+async function dealDuPaiementDOrigine(
+  supabase: Supa, identifiants: (string | null)[],
+): Promise<string | null> {
+  for (const id of identifiants) {
+    if (!id) continue;
+    const { data } = await supabase
+      .from('deal_payments')
+      .select('deal_id')
+      .eq('stripe_payment_id', id)
+      // Un remboursement déjà enregistré porterait le même identifiant qu'une
+      // charge : on ne veut que la ligne du paiement, pas celle du retour.
+      .neq('status', 'refunded')
+      .maybeSingle();
+    if (data?.deal_id) return data.deal_id;
+  }
+  return null;
+}
+
 async function recordPayment(supabase: Supa, params: {
   profileId: string;
   stripePaymentId: string;
@@ -180,12 +210,29 @@ async function recordPayment(supabase: Supa, params: {
   subscriptionId?: string | null;
   /** Lu sur charge.billing_details.email / invoice.customer_email / session. */
   buyerEmail?: string | null;
+  /**
+   * La vente retrouvée par le PAIEMENT D'ORIGINE — le seul chemin possible pour
+   * un remboursement d'échéance d'abonnement.
+   *
+   * ⚠️ Stripe ne recopie PAS les metadata de l'abonnement vers les charges qu'il
+   * génère. Une charge d'échéance n'en porte donc aucune, et `charge.refunded`
+   * ne transmettait pas non plus l'abonnement : les deux résolutions
+   * échouaient, et le remboursement partait en orphelin pendant que la vente
+   * continuait d'afficher l'argent encaissé. Constaté en production le
+   * 2026-09-08 sur TestYT — 0,50 € rendus, 0,50 € toujours comptés.
+   *
+   * Un remboursement appartient par construction à la vente du paiement qu'il
+   * rembourse : c'est un lien qu'aucune metadata ne peut démentir, et il vaut
+   * donc AVANT les autres.
+   */
+  dealIdParOrigine?: string | null;
 }) {
   const dealId = params.metadata?.[METADATA_KEYS.deal] ?? null;
   const installmentId = params.metadata?.[METADATA_KEYS.installment] ?? null;
 
-  let resolvedDealId = dealId;
-  let matchMethod: 'metadata' | 'subscription' = 'metadata';
+  let resolvedDealId = params.dealIdParOrigine ?? dealId;
+  let matchMethod: 'metadata' | 'subscription' | 'origine' =
+    params.dealIdParOrigine ? 'origine' : 'metadata';
 
   let cause: OrphanCause = null;
 
@@ -650,6 +697,26 @@ async function handleEvent(event: Stripe.Event) {
       const charge = event.data.object as Stripe.Charge;
       await recordPayment(supabase, {
         profileId,
+        // ⚠️ La vente se retrouve par le PAIEMENT D'ORIGINE, pas par les
+        // metadata. Une charge issue d'un abonnement n'en porte aucune — Stripe
+        // ne les recopie pas de l'abonnement vers ses charges — et la ligne
+        // d'origine est enregistrée sous l'identifiant de FACTURE (`in_…`), que
+        // la charge porte dans `invoice`. Sans ce lien, rembourser une échéance
+        // de prélèvement automatique laissait la vente afficher un argent
+        // reparti. Constaté en production le 2026-09-08.
+        //
+        // `invoice` est lu par un cast : le type `Charge` du SDK épinglé sur
+        // dahlia ne l'expose plus, alors que la charge utile le porte toujours
+        // pour une charge d'abonnement. Même situation que `readInvoiceSubscription`
+        // plus haut — on lit ce que Stripe envoie, pas ce que les types disent.
+        dealIdParOrigine: await dealDuPaiementDOrigine(supabase, [
+          (() => {
+            const inv = (charge as unknown as { invoice?: string | { id: string } | null }).invoice;
+            return typeof inv === 'string' ? inv : inv?.id ?? null;
+          })(),
+          typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id ?? null,
+          charge.id,
+        ]),
         stripePaymentId: charge.id,
         amountMinor: charge.amount_refunded,
         currency: charge.currency,
