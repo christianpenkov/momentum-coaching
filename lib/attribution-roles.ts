@@ -134,6 +134,36 @@ export const SANS_CONTENU = '__sans_contenu__';
  * Une prise sans `ig_user_id` est comptée comme une personne distincte : on ne peut pas
  * la rapprocher d'une autre, et la fondre dans une voisine inventerait un regroupement.
  */
+/**
+ * Combien de PERSONNES distinctes sur plusieurs contenus a la fois.
+ *
+ * ⚠️ EXISTE POUR EMPECHER UNE ADDITION FAUSSE, et elle a deja ete faite.
+ *
+ * `acquisitionParContenu` rend un nombre de personnes DEJA dedoublonne par contenu.
+ * Additionner ces nombres sur plusieurs contenus recompte donc quiconque apparait dans
+ * deux d'entre eux. Le cas n'est pas theorique : une sequence de stories regroupe
+ * plusieurs contenus, et le webhook enregistre chaque reponse sous l'identifiant de la
+ * story REPONDUE — deux reponses de la meme personne sur deux stories d'une meme
+ * sequence produisent deux entrees, chacune comptant une personne.
+ *
+ * Le defaut a ete introduit puis attrape en relecture le 2026-09-08 : `lmSent` prenait
+ * bien l'union, son voisin immediat `lmDetectes` sommait. Une phrase de commentaire
+ * disait deja pourquoi il ne fallait pas ; elle n'a pas suffi, d'ou cette fonction.
+ *
+ * Passer par les ENSEMBLES et non par leurs tailles est la seule facon de rendre
+ * l'erreur impossible plutot que deconseillee.
+ */
+export function personnesReunies(
+  parContenu: Map<string, Set<string>>,
+  cles: readonly string[],
+): number {
+  const toutes = new Set<string>();
+  for (const cle of cles) {
+    for (const personne of parContenu.get(cle) ?? []) toutes.add(personne);
+  }
+  return toutes.size;
+}
+
 export function acquisitionParContenu(historique: PriseDeLeadMagnet[]): Map<string, number> {
   const parContenu = new Map<string, number>();
   for (const [cle, personnes] of personnesParContenu(historique)) parContenu.set(cle, personnes.size);

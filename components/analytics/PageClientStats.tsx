@@ -45,7 +45,7 @@ const CATS_DM_CALENDLY = new Set<string>(CATEGORY_GROUPS.dmCalendly);
 const CATS_DM_LM = new Set<string>(CATEGORY_GROUPS.dmLm);
 const CATS_STORY = new Set<string>(CATEGORY_GROUPS.story);
 import { isCallHonored } from '@/lib/callHonored';
-import { contenuConversion, acquisitionParContenu, contenuActivation, SANS_CONTENU } from '@/lib/attribution-roles';
+import { contenuConversion, acquisitionParContenu, personnesParContenu, personnesReunies, contenuActivation, SANS_CONTENU } from '@/lib/attribution-roles';
 import { isCallCanceled } from '@/lib/sessionRapport';
 import { usePeriodesIg, porteeDeLaPeriode, typePeriodePour, type TypePeriodeIg } from '@/lib/porteeIg';
 import { bucketCallsByBookedDay, parisDayRange, tauxOuTrou, idsDeContinuation, representantDOpportunite } from '@/lib/callSeries';
@@ -1822,7 +1822,7 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   // chiffre etait exact, il se lisait comme une panne, et on a d'abord bascule la
   // carte en inventaire du compte.
   //
-  // Retour en arriere, decide par Chris le 2026-09-04 : un inventaire se serait
+  // Retour en arriere, decide par Chris le 2026-09-08 : un inventaire se serait
   // compare, ligne a ligne, avec un reach et des calls qui comptent l'activite
   // DEPUIS L'INSCRIPTION. Deux natures cote a cote sous le meme selecteur, c'est la
   // classe de defaut que ce fichier passe son temps a corriger. Un « 0 » surprenant
@@ -2257,7 +2257,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
   // ⚠️ « Reach · personnes » lisait la SOMME DES JOURNEES. Une personne vue trois
   // jours y comptait trois fois — sous un libelle qui annonce des PERSONNES.
   //
-  // Mesure du 2026-09-04 sur le compte de test, en All-Time : somme des journees 506,
+  // Mesure du 2026-09-08 sur le compte de test, en All-Time : somme des journees 506,
   // portee reellement dedupliquee 207. Deux fois et demie trop haut, et surtout en
   // contradiction avec la carte « Composition de ton reach » du MEME ecran, qui
   // affiche 207 — deux chiffres pour la meme chose a quelques centimetres.
@@ -2326,7 +2326,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
 
 
   // ⚠️ Ici, et SEULEMENT ici, le denominateur est la somme des journees — pas la
-  // portee dedupliquee. Raison donnee par Chris le 2026-09-04, et elle est juste :
+  // portee dedupliquee. Raison donnee par Chris le 2026-09-08, et elle est juste :
   //
   //   les interactions sont un FLUX (une meme personne peut liker, commenter,
   //   enregistrer, revenir le lendemain) ; la portee dedupliquee est un STOCK (cette
@@ -7169,6 +7169,18 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const acquisitionParContenuGlobal = acquisitionParContenu(
     lmHistoryPourRoles.filter(h => isInPeriod(h.detected_at)),
   );
+  // Les mêmes prises, mais en gardant QUI plutôt que combien.
+  //
+  // ⚠️ `acquisitionParContenu` rend `personnes.size` : un nombre DÉJÀ dédoublonné par
+  // contenu. Additionner ces nombres sur plusieurs contenus recompte donc quiconque
+  // apparaît dans deux d'entre eux — ce qui arrive dès qu'une personne répond à deux
+  // stories d'une même séquence, le webhook écrivant l'identifiant de la story répondue.
+  // Une séquence doit prendre l'UNION de ces ensembles, jamais la somme des comptes.
+  // Exactement le raisonnement déjà appliqué à `lmSent` ; il valait aussi pour son
+  // voisin, et il y manquait.
+  const personnesParContenuAcquisition = personnesParContenu(
+    lmHistoryPourRoles.filter(h => isInPeriod(h.detected_at)),
+  );
 
   // ── PARCOURS DES LEADS — ce que la chaîne sait des personnes ────────────────
   //
@@ -7304,13 +7316,13 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // titre ni vignette. Grouper ici par `media_id` cherchait donc un identifiant qu'on
   // avait justement enleve : `infoLigne` ne trouvait rien et affichait
   // « (sans titre) · contenu inconnu », sans vignette et sans meme la teinte story.
-  // Constate le 2026-09-04 sur les deux prises de story du profil de test (mots-cles
+  // Constate le 2026-09-08 sur les deux prises de story du profil de test (mots-cles
   // META et STORYTEST), ni l'une ni l'autre presente dans les publications, les liens de
   // contenu ou les liens prospect.
   //
   // La traduction se fait A L'AFFICHAGE, jamais en memorisant un identifiant de
   // sequence : une story change de sequence quand un regroupement en absorbe une autre
-  // (chantier Stories du 2026-09-04), et le journal, lui, garde l'identifiant de la
+  // (chantier Stories du 2026-09-08), et le journal, lui, garde l'identifiant de la
   // story, qui ne bouge pas. Lire le lien courant suit donc la reaffectation tout seul.
   const sequenceDeStory = new Map<string, string>(
     allStoriesForContent
@@ -7848,7 +7860,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     // ignore une story des que `sequence_id` est absent, avant meme de chercher un
     // mot-cle. Une story sans sequence est muette : personne ne lui repondra jamais.
     //
-    // Verdict confirme par la session Stories le 2026-09-04 : poser un lead magnet sur
+    // Verdict confirme par la session Stories le 2026-09-08 : poser un lead magnet sur
     // une story unique CREE une sequence a une story. C'est le parcours normal, et ces
     // sequences-la vont se multiplier — elles ont deja leur ligne propre via
     // `storySequenceContentRows`.
@@ -8092,12 +8104,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
       // celles de la sequence. `lmSent` compte des PERSONNES, pas des prises — d'ou
       // l'union des ensembles plutot qu'une somme, sinon quelqu'un qui prend le lead
       // magnet sur deux stories de la meme sequence compterait deux fois.
-      lmDetectes: (storiesParSequence.get(seq.sequenceId) ?? [])
-        .reduce((n, story) => n + (acquisitionParContenuGlobal.get(story) ?? 0), 0),
-      lmSent: new Set(
-        (storiesParSequence.get(seq.sequenceId) ?? [])
-          .flatMap(story => [...(personnesParContenuLm.get(story) ?? [])]),
-      ).size,
+      lmDetectes: personnesReunies(personnesParContenuAcquisition, storiesParSequence.get(seq.sequenceId) ?? []),
+      lmSent: personnesReunies(personnesParContenuLm, storiesParSequence.get(seq.sequenceId) ?? []),
       lmClics: 0,
       lmReponses: (storiesParSequence.get(seq.sequenceId) ?? [])
         .reduce((n, story) => n + (activationParContenuGlobal.get(story) ?? 0), 0),

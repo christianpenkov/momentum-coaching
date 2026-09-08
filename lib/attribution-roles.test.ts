@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   acquisitionParContenu,
   personnesParContenu,
+  personnesReunies,
   contenuActivation,
   activationParContenu,
   contenuConversion,
@@ -10,6 +11,7 @@ import {
   conversionParContenu,
   ecartConversionOpportunites,
   SANS_CONTENU,
+  type PriseDeLeadMagnet,
 } from './attribution-roles.ts';
 import { idsDeContinuation } from './callSeries.ts';
 
@@ -417,4 +419,44 @@ test('INVARIANT : la somme des credits de Conversion egale le nombre d opportuni
 test('INVARIANT : une divergence est signalee, jamais avalee', () => {
   const conv = new Map([[GUIDE, 3]]);
   assert.deepEqual(ecartConversionOpportunites(conv, 2), { credits: 3, opportunites: 2 });
+});
+
+// ── personnesReunies : l'addition qui recompte ──────────────────────────────────
+//
+// Ces trois cas encadrent le defaut attrape en relecture le 2026-09-08 : `lmDetectes`
+// sommait des comptes de personnes deja dedoublonnes, alors que son voisin `lmSent`
+// prenait bien l'union. Un commentaire disait deja pourquoi ; il n'a pas suffi.
+
+test('personnesReunies ne compte pas deux fois quelqu\'un present sur deux contenus', () => {
+  const parContenu = new Map<string, Set<string>>([
+    ['story_A', new Set(['alice', 'bob'])],
+    ['story_B', new Set(['alice', 'chloe'])],
+  ]);
+  // La somme des tailles donnerait 4. Les personnes distinctes sont 3.
+  assert.equal(personnesReunies(parContenu, ['story_A', 'story_B']), 3);
+  assert.notEqual(
+    personnesReunies(parContenu, ['story_A', 'story_B']),
+    (parContenu.get('story_A')!.size + parContenu.get('story_B')!.size),
+  );
+});
+
+test('personnesReunies ignore une cle inconnue au lieu d\'echouer', () => {
+  const parContenu = new Map<string, Set<string>>([['story_A', new Set(['alice'])]]);
+  // Une sequence peut nommer une story dont aucune prise n'existe sur la periode.
+  assert.equal(personnesReunies(parContenu, ['story_A', 'story_jamais_vue']), 1);
+  assert.equal(personnesReunies(parContenu, []), 0);
+});
+
+test('personnesReunies sur un seul contenu rend le meme nombre qu\'acquisitionParContenu', () => {
+  // Le garde-fou de coherence : pour un contenu unique, la nouvelle fonction ne doit pas
+  // s'ecarter de celle qui existait deja, sinon les posts et les sequences divergeraient.
+  const journal: PriseDeLeadMagnet[] = [
+    { media_id: 'post_1', detected_at: '2026-09-01T10:00:00Z', ig_user_id: 'alice' },
+    { media_id: 'post_1', detected_at: '2026-09-02T10:00:00Z', ig_user_id: 'alice' },
+    { media_id: 'post_1', detected_at: '2026-09-03T10:00:00Z', ig_user_id: 'bob' },
+  ];
+  assert.equal(
+    personnesReunies(personnesParContenu(journal), ['post_1']),
+    acquisitionParContenu(journal).get('post_1'),
+  );
 });

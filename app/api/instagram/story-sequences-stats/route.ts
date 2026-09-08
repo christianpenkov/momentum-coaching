@@ -300,7 +300,7 @@ export async function GET(request: Request) {
     // ⚠️ LE REPLI NE SUFFIT PAS : il faut que le JOURNAL le confirme.
     //
     // « Un call de ce lead sans contenu identifie vient de cette sequence » est faux des
-    // que la personne a aussi commente un post. Mesure le 2026-09-04 : le call
+    // que la personne a aussi commente un post. Mesure le 2026-09-08 : le call
     // `af9d5898` etait credite A LA FOIS au post `18056185901693457` (regle du journal,
     // cote page) et a « Sequence test webhook » (ce repli). Un seul rendez-vous, deux
     // lignes du meme tableau — et le cash aurait double avec.
@@ -518,7 +518,7 @@ async function listSequenceFunnelRows(profileId: string) {
           // corrige d'un seul cote. Une sequence stories se joue en DM, seul un call
           // `ig_dm` peut en venir. Sans lui, une fiche fusionnee apportant un call de bio
           // ou de description YouTube sans `utm_content` se serait vu crediter a la
-          // sequence. Ecart mesure le 2026-09-04 : 0 call, donc latent — mais une ligne et
+          // sequence. Ecart mesure le 2026-09-08 : 0 call, donc latent — mais une ligne et
           // son complement lisent le meme predicat, et n'en corriger qu'un laisse le
           // defaut entier de l'autre cote.
           .eq('source', 'ig_dm')
@@ -534,7 +534,7 @@ async function listSequenceFunnelRows(profileId: string) {
     // ⚠️ LE REPLI NE SUFFIT PAS : il faut que le JOURNAL le confirme.
     //
     // « Un call de ce lead sans contenu identifie vient de cette sequence » est faux des
-    // que la personne a aussi commente un post. Mesure le 2026-09-04 : le call
+    // que la personne a aussi commente un post. Mesure le 2026-09-08 : le call
     // `af9d5898` etait credite A LA FOIS au post `18056185901693457` (regle du journal,
     // cote page) et a « Sequence test webhook » (ce repli). Un seul rendez-vous, deux
     // lignes du meme tableau — et le cash aurait double avec.
