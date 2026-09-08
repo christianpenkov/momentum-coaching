@@ -125,15 +125,18 @@ export default function DeclarerRecu({ echeance, deal, onClose, onDone }: {
         </button>
       }>
 
-      <Section>
-        <div style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.6, marginBottom: 14 }}>
+      {/* ⚠️ PAS de <Section> autour du formulaire. `Section` porte la classe
+          `.mono` — 10 px, majuscules, monospace, gris : c'est le style d'un
+          TITRE de section, pas d'un conteneur. Y envelopper le contenu mettait
+          tout l'écran en capitales monospace, phrases comprises. Section
+          n'entoure qu'un intitulé, jamais ce qu'il annonce. */}
+      <div style={{ marginTop: 4 }}>
+        <div style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.6, marginBottom: 16 }}>
           Momentum ne voit pas les virements : aucun webhook ne viendra confirmer
           celui-ci. Ce que tu saisis ici devient le cash encaissé de la vente.
         </div>
 
-        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
-          Montant réellement reçu
-        </div>
+        <Section marge={0}>Montant réellement reçu</Section>
         <ChampMontant valeur={montant} onChange={setMontant} autoFocus />
 
         {/* ── L'écart se DIT, il ne se devine pas ────────────────────────────
@@ -149,9 +152,7 @@ export default function DeclarerRecu({ echeance, deal, onClose, onDone }: {
           </div>
         )}
 
-        <div style={{ fontSize: 12, color: 'var(--muted)', margin: '16px 0 6px' }}>
-          Date de réception
-        </div>
+        <Section marge={18}>Date de réception</Section>
         <input
           type="date"
           value={date}
@@ -163,8 +164,9 @@ export default function DeclarerRecu({ echeance, deal, onClose, onDone }: {
             Échéance attendue jusqu’au {fmtDateLong(echeance.due_on)}.
           </div>
         )}
-      </Section>
+      </div>
 
+      <div style={{ marginTop: 20 }} />
       <CaseResponsabilite
         niveau="rouge"
         coche={coche}

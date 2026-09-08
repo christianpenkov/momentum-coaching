@@ -379,6 +379,17 @@ export function Chip({ on, onClick, children, disabled }: {
 }
 
 /** Titre de section à l'intérieur d'une modale. */
+/**
+ * L'INTITULÉ d'une section — jamais son contenu.
+ *
+ * ⚠️ `.mono` vaut 10 px, majuscules, monospace, gris : c'est un style de
+ * libellé. Y envelopper le contenu d'un écran met tout en capitales monospace,
+ * phrases entières comprises — arrivé le 2026-09-08 sur la fenêtre de
+ * déclaration d'un virement, où le nom du composant se lisait comme
+ * « une section de l'écran » plutôt que comme « le titre d'une section ».
+ *
+ * Le contenu qui suit va À CÔTÉ, pas dedans.
+ */
 export function Section({ children, marge = 18 }: { children: React.ReactNode; marge?: number }) {
   return <div className="mono" style={{ marginTop: marge, marginBottom: 9 }}>{children}</div>;
 }
