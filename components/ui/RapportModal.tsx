@@ -1299,13 +1299,22 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                   </button>
                   {/* Où retrouver ce lien plus tard : sans cette phrase, fermer la
                       modale donne l'impression d'avoir perdu le lien, alors qu'il
-                      vit dans la page Paiements — avec un lien par échéance quand le
-                      paiement est en plusieurs fois. */}
+                      vit dans la page Paiements.
+                      ⚠️ La suite dépend du MODE, pas seulement du nombre de fois.
+                      En prélèvement automatique il n'y a AUCUN lien par échéance :
+                      `deal_installments` reste vide, l'échéancier vit chez Stripe et
+                      la fiche le lit via /api/payments/schedule. La phrase promettait
+                      des liens qui n'existent pas — relevé par Chris le 2026-09-08
+                      sur incogniton.734, vérifié en base (0 échéance). */}
                   <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '11px 13px', background: 'var(--accent-brand-soft)', borderRadius: 10, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.55, marginBottom: 14 }}>
                     <Icon name="info" size={14} style={{ flexShrink: 0, marginTop: 1, color: 'var(--accent-brand)' }} />
                     <span>
                       Tu retrouveras ce lien dans <strong>Paiements</strong>, sur la fiche de {inviteeName || 'ce client'}
-                      {plan > 1 ? <> — avec un lien par échéance, et le suivi de celles déjà payées.</> : <>.</>}
+                      {plan === 1
+                        ? <>.</>
+                        : autoDebit
+                          ? <> — avec le détail des prélèvements à venir, tels que Stripe les exécute.</>
+                          : <> — avec un lien par échéance, et le suivi de celles déjà payées.</>}
                     </span>
                   </div>
                   <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, border: '1px solid var(--border)' }}
@@ -1379,10 +1388,20 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                     disabled={saving} onClick={() => setStep('offline')}>
                     Paiement hors Stripe (virement, espèces)
                   </button>
+                  {/* ⚠️ Deux modes, deux promesses — et l'une des deux était fausse.
+                      En prélèvement automatique, Momentum ne crée AUCUNE échéance
+                      (`deal_installments` reste vide) et le cron des rappels exclut
+                      explicitement `installments_auto` : rien n'était rappelé, parce
+                      qu'il n'y a rien à faire. Promettre des rappels qui ne viendront
+                      pas est pire que de ne rien promettre. */}
                   {plan > 1 && (
                     <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8, lineHeight: 1.5, textAlign: 'center' }}>
-                      Momentum créera les {plan} échéances et te rappellera chacune
-                      à sa date dans l&apos;onglet Relances.
+                      {autoDebit
+                        ? <>C&apos;est en payant ce lien que le client saisit sa carte. Stripe
+                          prélève ensuite les {plan - 1} suivants tout seul — tu n&apos;as
+                          rien à renvoyer.</>
+                        : <>Momentum créera les {plan} échéances et te rappellera chacune
+                          à sa date dans l&apos;onglet Relances.</>}
                     </div>
                   )}
                 </>
