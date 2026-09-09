@@ -124,7 +124,27 @@ export async function refreshDealStatus(
   }
 
   if (status && status !== deal.status) {
-    await supabase.from('deals').update({ status }).eq('id', dealId);
+    // ── Une clôture RENSEIGNE toujours comment elle est arrivée ──────────────
+    //
+    // `end/route.ts` pose `ended_by` / `ended_at` / `ended_reason` en même temps
+    // que le statut, et l'écran les lit : `etats.ts` choisit « Clôturée » ou
+    // « Arrêtée » sur `ended_by`, et la fiche affiche la raison. Ce chemin-ci
+    // n'écrivait que le statut — donc une vente terminée sans date ni motif,
+    // c'est-à-dire un état que rien ne raconte.
+    //
+    // Constaté le 2026-09-09, sur le premier passage réel du nouveau code :
+    // Incogniton portait `status = 'ended'` avec les trois colonnes à NULL,
+    // pendant que le backfill de la migration du matin, lui, les avait bien
+    // remplies. La migration et le code écrivaient deux états différents pour le
+    // même fait — la partition, encore, entre le rattrapage et le chemin vivant.
+    await supabase.from('deals').update({
+      status,
+      ...(status === 'ended' ? {
+        ended_by: 'stripe',
+        ended_at: new Date().toISOString(),
+        ended_reason: 'Remboursement intégral constaté chez Stripe',
+      } : {}),
+    }).eq('id', dealId);
 
     // ── Une vente qui se termine emporte ses liens ──────────────────────────
     // Ce chemin-ci n'est PAS le parcours guidé : c'est un remboursement intégral
