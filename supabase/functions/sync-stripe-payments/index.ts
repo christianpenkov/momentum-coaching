@@ -212,22 +212,38 @@ async function stripeList(acces: AccesStripe, path: string, since: number, extra
  */
 async function refreshDealStatus(dealId: string, argentEntrant: boolean, remboursementConstate = false) {
   const { data: deal } = await supabase
-    .from('deals').select('amount_total, status').eq('id', dealId).maybeSingle();
+    // `cancel_requested_at` : sans lui, statutDeal recevrait `false` et
+    // transformerait une annulation réellement demandée en simple clôture.
+    .from('deals').select('amount_total, status, cancel_requested_at').eq('id', dealId).maybeSingle();
   if (!deal) return;
 
   const { data: payments } = await supabase
     .from('deal_payments').select('amount, status').eq('deal_id', dealId);
 
-  const status = statutDeal(calculerCash(payments), deal.amount_total, deal.status);
+  const status = statutDeal(
+    calculerCash(payments), deal.amount_total, deal.status, !!deal.cancel_requested_at,
+  );
 
-  const transitionAnnulation = status === 'canceled' && status !== deal.status;
+  // ⚠️ `ended` AUTANT que `canceled`, et c'est le piège de ce fichier.
+  //
+  // Cette condition décide si les effets de bord partent chez la route partagée.
+  // Depuis le 2026-09-09, un remboursement intégral SANS annulation demandée rend
+  // `ended` et non plus `canceled` : la garder sur le seul `canceled` aurait fait
+  // tomber ce cas dans la branche locale ci-dessous, qui écrit le statut et RIEN
+  // d'autre — donc une vente terminée dont les liens de paiement seraient restés
+  // payables pour toujours. Exactement le défaut que le commentaire ci-dessus
+  // décrit comme « consommer la transition ».
+  //
+  // C'est la forme de défaut n°1 du dépôt : la règle a changé dans dealCash.ts,
+  // et son lecteur, ici, ne l'aurait pas su.
+  const transitionFinDeVie = (status === 'canceled' || status === 'ended') && status !== deal.status;
   const argentSurVenteTerminee = argentEntrant && (deal.status === 'ended' || deal.status === 'canceled');
 
   // ⚠️ Un remboursement constate ICI doit passer par la route partagee, meme sans
   // transition de statut : la regle du trop-percu (lib/dealStatus.ts) se juge a
   // l'instant du constat, contre le montant contracte d'alors. La reporter au
   // prochain evenement la ferait juger contre un montant qui aura bouge.
-  if (transitionAnnulation || argentSurVenteTerminee || remboursementConstate) {
+  if (transitionFinDeVie || argentSurVenteTerminee || remboursementConstate) {
     const res = await fetch(`${PLATFORM_URL}/api/stripe/deal-effects`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${CRON_SECRET}`, 'Content-Type': 'application/json' },

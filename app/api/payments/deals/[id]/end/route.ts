@@ -36,7 +36,7 @@ async function chargerVente(userId: string, dealId: string) {
   const { data: deal } = await supa
     .from('deals')
     .select(`id, profile_id, status, amount_total, buyer_name, stripe_subscription_id,
-             ended_by, deal_payments(amount, status),
+             ended_by, cancel_requested_at, deal_payments(amount, status),
              deal_installments(id, status)`)
     .eq('id', dealId)
     .maybeSingle();
@@ -177,12 +177,21 @@ export async function DELETE(
   // `null` en statut actuel, délibérément : la règle refuse de recalculer une
   // vente `ended`, et c'est justement ce qu'on est en train de défaire. Même
   // motif que la hausse de montant sur une vente soldée (deals/[id]/amount).
+  // ⚠️ `false`, et la colonne EFFACÉE dans le même geste.
+  //
+  // Rouvrir une vente, c'est dire « non, elle est vivante ». Une demande
+  // d'annulation qui traînerait sur la ligne la ferait ré-annuler au prochain
+  // événement Stripe, sans que personne ne comprenne pourquoi la réouverture
+  // n'a pas tenu. La laisser en base et se contenter de passer `false` ici
+  // aurait produit exactement ce défaut : deux lectures de la même donnée, l'une
+  // qui l'ignore et l'autre qui l'applique.
   await supa.from('deals').update({
-    status: statutDeal(cash, deal!.amount_total, null) ?? 'open',
+    status: statutDeal(cash, deal!.amount_total, null, false) ?? 'open',
     ended_by: null,
     ended_at: null,
     ended_reason: null,
     unexpected_payment_at: null,
+    cancel_requested_at: null,
   }).eq('id', dealId);
 
   await supa.from('deal_events').insert({

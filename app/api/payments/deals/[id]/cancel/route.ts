@@ -96,8 +96,29 @@ export async function POST(
     // donc une explication en avance sur le remboursement ne fabrique rien. Et si
     // l'eleve rembourse PLUS que ce qu'il avait decide, l'exces reste inexplique —
     // ce qui est le comportement voulu.
+    // ── L'INTENTION D'ANNULER SE STOCKE ICI, ET SEULEMENT ICI ────────────────
+    //
+    // C'est le seul endroit du dépôt où quelqu'un dit « je veux annuler cette
+    // vente » sur une vente qui a encaissé. L'annulation, elle, se conclura
+    // plusieurs minutes plus tard, dans `refreshDealStatus`, quand le
+    // remboursement arrivera de Stripe — et jusqu'au 2026-09-09 cette
+    // fonction-là n'avait aucun moyen de savoir que ce geste avait eu lieu.
+    //
+    // Conséquence mesurée : elle rendait `canceled` pour TOUT remboursement
+    // intégral, demandé ou non, et ne déclassait l'appel dans aucun des deux cas.
+    // Un remboursement fait dans Stripe sans rien demander annulait une vente ;
+    // une annulation réellement demandée laissait l'appel dans le taux de closing,
+    // alors que l'écran venait de promettre le contraire. Les deux erreurs
+    // tenaient à cette seule donnée manquante.
+    //
+    // Posée AVANT le remboursement, comme `refund_explique` juste ci-dessus et
+    // pour la même raison : l'intention est connue maintenant, elle ne le sera
+    // pas mieux plus tard, et l'écran promet qu'on peut fermer la fenêtre.
     await supa.from('deals')
-      .update({ refund_explique: Math.round((Number(deal.refund_explique ?? 0) + cash.net) * 100) / 100 })
+      .update({
+        refund_explique: Math.round((Number(deal.refund_explique ?? 0) + cash.net) * 100) / 100,
+        cancel_requested_at: new Date().toISOString(),
+      })
       .eq('id', dealId);
 
     await supa.from('deal_events').insert({

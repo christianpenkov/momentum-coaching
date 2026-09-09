@@ -56,53 +56,83 @@ test('pending et failed ne comptent pas dans le net', () => {
 // ── Le statut de la vente ───────────────────────────────────────────────────
 
 test('rien encaissé sur une vente neuve — elle reste en attente', () => {
-  assert.equal(statutDeal(calculerCash([]), 1500, 'open'), 'open');
+  assert.equal(statutDeal(calculerCash([]), 1500, 'open', false), 'open');
 });
 
 test('tout encaissé — la vente est soldée', () => {
-  assert.equal(statutDeal(calculerCash([p(1500, 'succeeded')]), 1500, 'open'), 'paid');
+  assert.equal(statutDeal(calculerCash([p(1500, 'succeeded')]), 1500, 'open', false), 'paid');
 });
 
 test('un centime manquant ne fait pas passer pour impayé', () => {
   // 1000 € en 3 fois : 333,33 × 3 = 999,99. Sans tolérance, jamais soldé.
   const c = calculerCash([p(333.33, 'succeeded'), p(333.33, 'succeeded'), p(333.33, 'succeeded')]);
-  assert.equal(statutDeal(c, 1000, 'open'), 'paid');
+  assert.equal(statutDeal(c, 1000, 'open', false), 'paid');
 });
 
 test('un paiement en échec distingue past_due de open', () => {
   const c = calculerCash([p(500, 'succeeded'), p(500, 'failed')]);
-  assert.equal(statutDeal(c, 1500, 'open'), 'past_due');
+  assert.equal(statutDeal(c, 1500, 'open', false), 'past_due');
 });
 
-test('tout remboursé après avoir encaissé — la vente passe en annulée', () => {
-  // Sans cette règle, la vente retomberait en « open » et relancerait un
-  // client qu'on vient de rembourser.
+// ── Tout reparti : annulée ou clôturée, selon ce qui a été DEMANDÉ ───────────
+//
+// Les deux branches partagent la protection qui a motivé cette règle le
+// 2026-08-28 — ne pas retomber en « open » et relancer un client qu'on vient de
+// rembourser. `ended` la porte autant que `canceled` (dealCash.ts:251, liens
+// désactivés, aucun rappel, hors Relances). Ce qui les sépare est ailleurs :
+// `canceled` efface EN PLUS la vente du cash contracté et déclasse l'appel.
+
+test('tout remboursé APRÈS avoir demandé l’annulation — la vente est annulée', () => {
   const c = calculerCash([p(1500, 'succeeded'), p(1500, 'refunded')]);
-  assert.equal(statutDeal(c, 1500, 'paid'), 'canceled');
+  assert.equal(statutDeal(c, 1500, 'paid', true), 'canceled');
 });
 
-test('une vente jamais soldée, dont l’acompte est remboursé, passe aussi en annulée', () => {
+test('tout remboursé SANS annulation demandée — la vente est clôturée, pas annulée', () => {
+  // « un remboursement intégral c'est pas une annulation de la vente » (Chris,
+  // 2026-09-09). La vente a bien eu lieu, l'argent est simplement reparti :
+  // elle reste dans le cash contracté et son appel reste un closing.
+  const c = calculerCash([p(1500, 'succeeded'), p(1500, 'refunded')]);
+  assert.equal(statutDeal(c, 1500, 'paid', false), 'ended');
+});
+
+test('une vente jamais soldée, dont l’acompte est remboursé, suit la même règle', () => {
   const c = calculerCash([p(500, 'succeeded'), p(500, 'refunded')]);
-  assert.equal(statutDeal(c, 1500, 'open'), 'canceled');
+  assert.equal(statutDeal(c, 1500, 'open', true), 'canceled');
+  assert.equal(statutDeal(c, 1500, 'open', false), 'ended');
+});
+
+test('ni annulée ni clôturée ne retombent JAMAIS en open — la protection d’origine', () => {
+  // Le motif du commit 91f74504 : « et non "en attente", qui aurait relancé un
+  // client qu'on vient de rembourser ». Il doit tenir dans les DEUX branches —
+  // c'est ce qui autorisait à en scinder une.
+  const c = calculerCash([p(1500, 'succeeded'), p(1500, 'refunded')]);
+  for (const demande of [true, false]) {
+    const s = statutDeal(c, 1500, 'paid', demande);
+    assert.notEqual(s, 'open');
+    assert.notEqual(s, 'past_due');
+  }
 });
 
 test('une vente soldée reste soldée après un remboursement partiel', () => {
   // Geste commercial : rendre 300 € sur 1 500 €. La vente ne repart pas en
   // attente — ce serait relancer sur l’argent qu’on vient de rendre.
   const c = calculerCash([p(1500, 'succeeded'), p(300, 'refunded')]);
-  assert.equal(statutDeal(c, 1500, 'paid'), 'paid');
+  assert.equal(statutDeal(c, 1500, 'paid', false), 'paid');
 });
 
 test('une vente annulée ne se recalcule JAMAIS, même si de l’argent arrive', () => {
   // Lien retrouvé dans une conversation, dernier prélèvement en vol : le
   // paiement est enregistré, mais l’annulation est une décision humaine.
   const c = calculerCash([p(1500, 'succeeded')]);
-  assert.equal(statutDeal(c, 1500, 'canceled'), null);
+  assert.equal(statutDeal(c, 1500, 'canceled', false), null);
 });
 
-test('une vente vide et jamais payée ne bascule pas en annulée', () => {
-  // Le garde `encaisse > 0` : sans lui, toute vente fraîche serait annulée.
-  assert.equal(statutDeal(calculerCash([]), 1500, 'open'), 'open');
+test('une vente vide et jamais payée ne bascule ni en annulée ni en clôturée', () => {
+  // Le garde `encaisse > 0` : sans lui, toute vente fraîche serait annulée —
+  // y compris celle dont on vient de DEMANDER l'annulation sans rien encaisser,
+  // que cancel/route.ts traite lui-même sur-le-champ.
+  assert.equal(statutDeal(calculerCash([]), 1500, 'open', false), 'open');
+  assert.equal(statutDeal(calculerCash([]), 1500, 'open', true), 'open');
 });
 
 // ── Le litige ───────────────────────────────────────────────────────────────
@@ -119,19 +149,22 @@ test('un litige passe la vente en contestée, jamais en annulée', () => {
   // Y faire tomber un litige la figerait là, et gagner le litige ne la
   // ramènerait pas.
   const c = calculerCash([p(1500, 'succeeded'), p(1500, 'disputed')]);
-  assert.equal(statutDeal(c, 1500, 'paid'), 'disputed');
+  assert.equal(statutDeal(c, 1500, 'paid', false), 'disputed');
+  // Et même si une annulation a été demandée : le litige réclame une réponse
+  // sous quelques jours, il prime sur une fin de vie qui ne réclame plus rien.
+  assert.equal(statutDeal(c, 1500, 'paid', true), 'disputed');
 });
 
 test('litige gagné : la ligne disparaît et la vente redevient soldée', () => {
   // `charge.dispute.funds_reinstated` retire la ligne contestée.
   const c = calculerCash([p(1500, 'succeeded')]);
-  assert.equal(statutDeal(c, 1500, 'disputed'), 'paid');
+  assert.equal(statutDeal(c, 1500, 'disputed', false), 'paid');
 });
 
 test('un litige prime sur un remboursement partiel', () => {
   const c = calculerCash([p(1500, 'succeeded'), p(200, 'refunded'), p(1300, 'disputed')]);
   assert.equal(c.net, 0);
-  assert.equal(statutDeal(c, 1500, 'paid'), 'disputed');
+  assert.equal(statutDeal(c, 1500, 'paid', false), 'disputed');
 });
 
 // ── Les ventes terminées avant leur terme ───────────────────────────────────
@@ -141,12 +174,12 @@ test('une vente terminée ne se recalcule JAMAIS, même si de l’argent arrive'
   // est signalé par `unexpected_payment_at`, sans défaire la façon dont elle
   // s'était terminée.
   const c = calculerCash([p(1500, 'succeeded')]);
-  assert.equal(statutDeal(c, 1500, 'ended'), null);
+  assert.equal(statutDeal(c, 1500, 'ended', false), null);
 });
 
 test('une vente terminée puis intégralement remboursée reste terminée', () => {
   const c = calculerCash([p(600, 'succeeded'), p(600, 'refunded')]);
-  assert.equal(statutDeal(c, 900, 'ended'), null);
+  assert.equal(statutDeal(c, 900, 'ended', false), null);
 });
 
 // ── Ce qui reste dû, ce qui est en trop ─────────────────────────────────────
@@ -270,11 +303,16 @@ test('les deux copies du module donnent exactement le même résultat', () => {
     const laBas = copieDeno.calculerCash(j.paiements);
     assert.deepEqual(laBas, ici, `calculerCash diverge sur ${JSON.stringify(j)}`);
 
-    assert.equal(
-      copieDeno.statutDeal(laBas, j.total, j.statut),
-      statutDeal(ici, j.total, j.statut),
-      `statutDeal diverge sur ${JSON.stringify(j)}`,
-    );
+    // ⚠️ Les DEUX valeurs de `annulationDemandee`. N'en jouer qu'une laisserait
+    // les copies diverger précisément sur la branche que ce paramètre a créée —
+    // c'est-à-dire sur la seule chose que ce chantier a changée.
+    for (const demande of [true, false]) {
+      assert.equal(
+        copieDeno.statutDeal(laBas, j.total, j.statut, demande),
+        statutDeal(ici, j.total, j.statut, demande),
+        `statutDeal diverge sur ${JSON.stringify(j)} (annulationDemandee=${demande})`,
+      );
+    }
     assert.equal(copieDeno.resteAEncaisser(laBas, j.total), resteAEncaisser(ici, j.total));
     assert.equal(copieDeno.aRembourser(laBas, j.total), aRembourser(ici, j.total));
     assert.equal(copieDeno.encaisseRetenu(laBas, j.total), encaisseRetenu(ici, j.total));
@@ -306,14 +344,14 @@ test('un litige perdu ne compte PAS comme un remboursement', () => {
 
 test('un litige perdu donne son propre état, pas « Contestée »', () => {
   const c = calculerCash([p(1000, 'succeeded'), p(200, 'dispute_lost')]);
-  assert.equal(statutDeal(c, 1100, 'disputed'), 'dispute_lost');
+  assert.equal(statutDeal(c, 1100, 'disputed', false), 'dispute_lost');
 });
 
 test('un litige EN COURS prime sur un litige déjà perdu', () => {
   // Deux litiges sur la même vente : le second réclame une réponse sous
   // quelques jours, le premier ne réclame plus rien.
   const c = calculerCash([p(1000, 'succeeded'), p(200, 'dispute_lost'), p(300, 'disputed')]);
-  assert.equal(statutDeal(c, 1500, 'open'), 'disputed');
+  assert.equal(statutDeal(c, 1500, 'open', false), 'disputed');
 });
 
 test('tout repris par la banque n’est PAS une vente annulée', () => {
@@ -321,15 +359,18 @@ test('tout repris par la banque n’est PAS une vente annulée', () => {
   // l'élève n'a rien annulé et n'a rien rendu.
   const c = calculerCash([p(1000, 'succeeded'), p(1000, 'dispute_lost')]);
   assert.equal(c.net, 0);
-  assert.equal(statutDeal(c, 1000, 'open'), 'dispute_lost');
+  assert.equal(statutDeal(c, 1000, 'open', false), 'dispute_lost');
+  // Et une annulation demandée ne le transforme pas non plus : la banque a
+  // repris l'argent, l'élève ne l'a pas rendu. Deux histoires différentes.
+  assert.equal(statutDeal(c, 1000, 'open', true), 'dispute_lost');
 });
 
 test('les deux copies s’accordent sur le litige perdu', () => {
   const lignes = [p(1000, 'succeeded'), p(200, 'dispute_lost'), p(100, 'refunded')];
   assert.deepEqual(copieDeno.calculerCash(lignes), calculerCash(lignes));
   assert.equal(
-    copieDeno.statutDeal(copieDeno.calculerCash(lignes), 1100, 'open'),
-    statutDeal(calculerCash(lignes), 1100, 'open'),
+    copieDeno.statutDeal(copieDeno.calculerCash(lignes), 1100, 'open', false),
+    statutDeal(calculerCash(lignes), 1100, 'open', false),
   );
 });
 

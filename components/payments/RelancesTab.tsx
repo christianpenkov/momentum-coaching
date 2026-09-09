@@ -6,7 +6,14 @@ import Icon from '@/components/ui/Icon';
 import Avatar, { getInitials, seedForPerson } from '@/components/ui/Avatar';
 import { estEnvoye, moyenDe, libelleDuMoyen } from './etats';
 import type { DealRow, DealDetail } from './types';
-import { fmtEur, fmtDateLong, fmtRelative } from './types';
+// ⚠️ `fmtEurExact` et non `fmtEur`. Ailleurs l'arrondi est le bon choix — « en
+// high-ticket, les centimes sont du bruit » — mais cet onglet dit COMBIEN
+// réclamer et donne le lien qui l'encaisse : une échéance de 497,50 € s'y
+// affichait « 498 € » pendant que le lien juste à côté en prélève 497,50.
+// C'est le critère que types.ts pose lui-même pour `fmtEurExact` : « réservé aux
+// écrans qui touchent à l'argent ». Relances en est un — relevé par Chris le
+// 2026-09-09 sur une échéance de 0,50 € affichée « 1 € ».
+import { fmtEurExact, fmtDateLong, fmtRelative } from './types';
 
 /**
  * Ce qu'il reste à aller chercher, groupé par CAUSE — parce que la cause dicte le
@@ -199,7 +206,7 @@ function RelanceRow({ item, first, onChange, onOuvrir }: {
           <span style={{ fontSize: 11.5, color: sent ? 'var(--green)' : 'var(--muted)' }}>Envoyé</span>
         </button>
       )}
-      <span className="tabular" style={{ fontSize: 13, fontWeight: 600, width: 84, textAlign: 'right' }}>{fmtEur(item.amount)}</span>
+      <span className="tabular" style={{ fontSize: 13, fontWeight: 600, width: 84, textAlign: 'right' }}>{fmtEurExact(item.amount)}</span>
       {/* Sans lien (deals repris de l'historique), un bouton « Copier le lien »
           grisé serait trompeur : il n'y a rien à copier. On dit ce qui manque. */}
       {item.url ? (

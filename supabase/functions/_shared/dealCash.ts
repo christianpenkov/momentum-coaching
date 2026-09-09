@@ -247,6 +247,20 @@ export function statutDeal(
   cash: Cash,
   montantTotal: number | string | null,
   statutActuel: string | null,
+  /**
+   * L'élève a-t-il DEMANDÉ l'annulation ? — `deals.cancel_requested_at`.
+   *
+   * ⚠️ OBLIGATOIRE, et c'est le point : rendre ce paramètre facultatif aurait
+   * laissé chaque appelant l'oublier en silence, c'est-à-dire recréé la forme de
+   * défaut n°1 de ce dépôt — une règle posée d'un côté d'une partition, absente
+   * de l'autre. Ici le compilateur refuse de laisser passer un appelant qui n'a
+   * pas répondu à la question.
+   *
+   * ⚠️ Répondre `false` sans avoir LU la colonne est le seul angle mort restant :
+   * une vraie annulation deviendrait une clôture, sans erreur. Tout appelant doit
+   * donc sélectionner `cancel_requested_at`, pas se contenter de passer `false`.
+   */
+  annulationDemandee: boolean,
 ): StatutDeal | null {
   if (statutActuel === 'canceled' || statutActuel === 'ended') return null;
 
@@ -263,7 +277,26 @@ export function statutDeal(
   // s'est fait reprendre l'argent, ce qui n'est pas la même histoire et ne se
   // raconte pas pareil au client.
   if (cash.perduEnLitige > CENTIME) return 'dispute_lost';
-  if (cash.encaisse > 0 && cash.net <= CENTIME) return 'canceled';
+  // ── Tout reparti : ANNULÉE si on l'a demandé, CLÔTURÉE sinon ──────────────
+  //
+  // Cette ligne rendait `canceled` dans les deux cas depuis le 2026-08-28, et son
+  // motif d'origine est juste : ne pas retomber en « en attente », qui relancerait
+  // un client qu'on vient de rembourser. Mais `canceled` était une réponse plus
+  // FORTE que le motif ne l'exigeait — il efface aussi la vente du cash contracté
+  // et déclasse l'appel, alors que le besoin était seulement « arrête de réclamer ».
+  //
+  // `ended` porte exactement les quatre protections voulues — liens désactivés,
+  // aucun rappel d'échéance, sortie de l'onglet Relances, statut qui ne se
+  // recalcule plus — sans les deux effets de trop. Un remboursement dit qu'un
+  // mouvement d'argent a eu lieu, jamais que la vente n'a pas eu lieu ; seul un
+  // geste explicite peut dire ça, et il pose `cancel_requested_at`.
+  //
+  // Relevé par Chris le 2026-09-09 : « un remboursement intégral c'est pas une
+  // annulation de la vente […] tu peux pas annuler une vente si y a de
+  // l'encaissé, à ce moment-là c'est CLÔTURER une vente ».
+  if (cash.encaisse > 0 && cash.net <= CENTIME) {
+    return annulationDemandee ? 'canceled' : 'ended';
+  }
   if (cash.net >= total - CENTIME) return 'paid';
   if (statutActuel === 'paid' && cash.net > 0) return 'paid';
   if (cash.aEchoue) return 'past_due';

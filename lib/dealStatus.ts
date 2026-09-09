@@ -74,7 +74,11 @@ export async function refreshDealStatus(
 ) {
   const { data: deal } = await supabase
     .from('deals')
-    .select('profile_id, amount_total, status, unexpected_payment_at, refund_explique')
+    // ⚠️ `cancel_requested_at` et `call_id` ne sont pas décoratifs : le premier
+    // décide entre « annulée » et « clôturée », le second porte le déclassement
+    // de l'appel. Les oublier ne casse rien visiblement — ça transforme
+    // silencieusement une annulation voulue en clôture.
+    .select('profile_id, amount_total, status, unexpected_payment_at, refund_explique, cancel_requested_at, call_id')
     .eq('id', dealId)
     .maybeSingle();
   if (!deal) return;
@@ -85,7 +89,7 @@ export async function refreshDealStatus(
     .eq('deal_id', dealId);
 
   const cash = calculerCash(payments);
-  const status = statutDeal(cash, deal.amount_total, deal.status);
+  const status = statutDeal(cash, deal.amount_total, deal.status, !!deal.cancel_requested_at);
 
   // ── Un remboursement de TROP-PERÇU n'appelle aucune explication ──────────
   //
@@ -122,15 +126,47 @@ export async function refreshDealStatus(
   if (status && status !== deal.status) {
     await supabase.from('deals').update({ status }).eq('id', dealId);
 
-    // ── Une vente qui s'annule emporte ses liens ────────────────────────────
+    // ── Une vente qui se termine emporte ses liens ──────────────────────────
     // Ce chemin-ci n'est PAS le parcours guidé : c'est un remboursement intégral
     // fait directement dans le dashboard Stripe, sans passer par Momentum. Le
     // parcours désactive les liens lui-même ; ici personne ne l'aurait fait, et
     // un lien resterait payable sur une vente sortie des chiffres.
-    if (status === 'canceled') {
+    //
+    // ⚠️ `ended` AUTANT que `canceled` depuis le 2026-09-09. C'est le motif
+    // d'origine de la règle — « ne pas relancer un client qu'on vient de
+    // rembourser » — et il ne tient pas qu'aux notifications : il tient d'abord
+    // à ce lien-là. Le nouvel état ne doit surtout pas le perdre en route.
+    if (status === 'canceled' || status === 'ended') {
       await desactiverLiensDuDeal(supabase, dealId, deal.profile_id);
-      await journaliser(supabase, dealId, 'canceled',
-        'Vente annulée — remboursement intégral constaté chez Stripe');
+      await journaliser(supabase, dealId, status,
+        status === 'canceled'
+          ? 'Vente annulée — remboursement intégral constaté chez Stripe'
+          : 'Vente clôturée — remboursement intégral constaté chez Stripe');
+    }
+
+    // ── L'appel ne cesse de compter que sur une annulation VOULUE ───────────
+    //
+    // Le parcours guidé promet, à l'écran : « L'appel passera en perdu, sans
+    // objection dans tes statistiques, et sortira de ton taux de closing »
+    // (components/payments/FinDeVie.tsx). Quand rien n'était encaissé,
+    // cancel/route.ts tenait cette promesse lui-même. Quand de l'argent était
+    // là, l'annulation ne se conclut qu'ICI, plusieurs minutes plus tard — et
+    // personne ne déclassait l'appel. La promesse n'était donc tenue que sur la
+    // moitié des ventes, celle où il n'y avait pas d'argent à rendre.
+    //
+    // Mesuré le 2026-09-09 : les deux ventes annulées du compte de test portaient
+    // encore `deal_closed = true`, donc comptaient dans le taux de closing pendant
+    // que le cash contracté les excluait. Deux populations sur la même ligne de KPI.
+    //
+    // ⚠️ Et SEULEMENT sur `canceled`. Une clôture ne touche pas à l'appel : la
+    // vente a bien eu lieu, l'argent est simplement reparti. C'est toute la
+    // distinction que `cancel_requested_at` porte.
+    if (status === 'canceled' && deal.call_id) {
+      await supabase.from('calls').update({
+        deal_closed: false,
+        revenue: 0,
+        outcome: 'lost',
+      }).eq('id', deal.call_id);
     }
   }
 
@@ -170,14 +206,21 @@ export async function refreshDealStatus(
     } catch { /* la notification est un confort, jamais une condition */ }
   }
 
-  // ⚠️ ON NE TOUCHE PAS À L'APPEL ICI — ni `deal_closed`, ni `outcome`.
+  // ⚠️ ON NE TOUCHE À L'APPEL QUE SUR UNE ANNULATION DEMANDÉE — voir plus haut.
   //
-  // Un remboursement dit qu'un mouvement d'argent a eu lieu, jamais pourquoi.
-  // Erreur de saisie, geste commercial, rétractation du client : trois raisons
-  // courantes, deux conclusions opposées sur « cette vente a-t-elle eu lieu ».
-  // Momentum voit l'argent, pas l'intention — deviner se tromperait une fois sur
-  // trois, et ferait bouger une carte du kanban que personne n'a demandé à
-  // déplacer.
+  // Ce bloc a dit « ON NE TOUCHE PAS À L'APPEL ICI » jusqu'au 2026-09-09, et son
+  // raisonnement reste exact ligne pour ligne : un remboursement dit qu'un
+  // mouvement d'argent a eu lieu, jamais pourquoi. Erreur de saisie, geste
+  // commercial, rétractation du client : trois raisons courantes, deux
+  // conclusions opposées sur « cette vente a-t-elle eu lieu ». Momentum voit
+  // l'argent, pas l'intention — deviner se tromperait une fois sur trois, et
+  // ferait bouger une carte du kanban que personne n'a demandé à déplacer.
+  //
+  // Ce qui a changé, c'est que l'intention est maintenant LUE au lieu d'être
+  // devinée : `cancel_requested_at` la porte. Quand elle est là, on ne devine
+  // rien — quelqu'un a cliqué « Annuler la vente » et l'écran lui a annoncé que
+  // l'appel passerait en perdu. Quand elle est absente, ce bloc s'applique
+  // toujours intégralement, et l'appel n'est pas touché.
   //
   // Le geste qui déclasse une vente existe, et il est explicite : « Annuler la
   // vente », qui annonce à l'écran que l'appel passera en perdu. Deux faits

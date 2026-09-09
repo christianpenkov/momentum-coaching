@@ -64,7 +64,7 @@ export async function PATCH(
 
   const { data: deal } = await supa
     .from('deals')
-    .select(`id, profile_id, status, amount_total, buyer_name, payment_plan, installments_count, refund_explique,
+    .select(`id, profile_id, status, amount_total, buyer_name, payment_plan, installments_count, refund_explique, cancel_requested_at,
              installment_interval, currency, stripe_subscription_id, stripe_payment_link_id,
              moyen_encaissement, ig_lead_id, first_touch_content_id,
              deal_payments(amount, status),
@@ -297,9 +297,10 @@ export async function PATCH(
   // vient d'une décision inverse — on a relevé le prix — et l'argent est bien dû.
   // On neutralise donc la règle dans ce seul cas, en ne lui passant pas l'état
   // « soldé » qu'elle protégerait.
+  const annulationDemandee = !!deal.cancel_requested_at;
   const statutApres = reste > CENTIME && deal.status === 'paid'
-    ? (statutDeal(cash, montant, null) ?? 'open')
-    : (statutDeal(cash, montant, deal.status) ?? deal.status);
+    ? (statutDeal(cash, montant, null, annulationDemandee) ?? 'open')
+    : (statutDeal(cash, montant, deal.status, annulationDemandee) ?? deal.status);
 
   // ── L'INTENTION S'ENREGISTRE A LA DECISION, PAS A L'ARRIVEE DE L'ARGENT ────
   //

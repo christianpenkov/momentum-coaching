@@ -60,7 +60,7 @@ export async function POST(
 
   const { data: deal } = await supa
     .from('deals')
-    .select('id, profile_id, status, amount_total, buyer_name, call_id, refund_explique, deal_payments(amount, status)')
+    .select('id, profile_id, status, amount_total, buyer_name, call_id, refund_explique, cancel_requested_at, deal_payments(amount, status)')
     .eq('id', dealId)
     .maybeSingle();
 
@@ -120,7 +120,7 @@ export async function POST(
     annulee = true;
 
   } else {
-    const suivant = statutDeal(apres, Number(deal.amount_total), deal.status);
+    const suivant = statutDeal(apres, Number(deal.amount_total), deal.status, !!deal.cancel_requested_at);
     if (suivant && suivant !== deal.status) {
       await supa.from('deals').update({ status: suivant }).eq('id', dealId);
     }
