@@ -25,7 +25,7 @@ export const EMPREINTES_EDGE: Record<string, string> = {
   'poll-stories': 'f52ec7d716b26fd3', // 3 fichiers
   'refresh-ig-posts': '31ee8af3239dfdd3', // 3 fichiers
   'send-pending-dm3': '339fd254c0b8a26e', // 2 fichiers
-  'sync-calendly': 'b84dfe7616d33512', // 2 fichiers
+  'sync-calendly': '95c1bef630618c40', // 2 fichiers
   'sync-stripe-payments': 'd1e5a0b765792099', // 3 fichiers
 };
 
