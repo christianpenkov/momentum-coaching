@@ -201,4 +201,8 @@ export const MIGRATIONS_DEPOT: { version: string; nom: string }[] = [
   { version: '20260908120000', nom: 'purge_brouillons_correction' },
   { version: '20260908170000', nom: 'verrou_integrations_pour_les_coachs' },
   { version: '20260908200000', nom: 'conversations_ig_du_coach' },
+  { version: '20260908210000', nom: 'libelle_produit_stripe' },
+  { version: '20260908220000', nom: 'libelle_produit_liste_reduite' },
+  { version: '20260908230000', nom: 'match_method_origine' },
+  { version: '20260909103000', nom: 'ventes_sante_montants_vente_annulee_pas_absente' },
 ];

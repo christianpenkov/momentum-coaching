@@ -1582,6 +1582,38 @@ pas du temps. **Avant d'accuser l'horloge, comparer les deux requêtes.**
 rapport de call et le deal qui en découle. Les écrans lisent `deals` ; une ligne ici
 signifie qu'un élève a saisi un montant que ses stats n'affichent pas.
 
+⚠️ **Exclure une ligne dans un LEFT JOIN, c'est la transformer en ABSENCE** — et si
+l'absence est ce que l'autre branche dénonce, l'exclusion produit l'alerte qu'elle
+croyait éteindre.
+
+Cette vue en a fait la démonstration le 2026-09-09, avec la **première alerte de toute
+son existence** : un faux positif. Son auteur avait écrit `d.status <> 'canceled'` dans
+le `on` pour dire « une vente annulée n'a pas à concorder » — son commentaire d'origine
+le dit mot pour mot. Mais un `LEFT JOIN` ne retire pas la ligne écartée, il la remplace
+par des NULL : la vente annulée se présentait donc au `where` avec `d.id is null`,
+c'est-à-dire sous l'apparence exacte d'une vente **jamais créée**, le seul cas que
+`deal_manquant` signale sans condition. **Écarter se fait dans le `where`, ou par un
+`not exists` ; le `on` ne sert qu'à apparier.**
+
+⚠️ **Un appel reste marqué « vente conclue » après l'annulation de sa vente, et c'est
+DÉLIBÉRÉ.** `payments/deals/[id]/cancel` le dit : « c'est ici, et seulement ici, qu'un
+appel est déclassé — un remboursement fait dans Stripe n'y touche jamais, il dit qu'un
+mouvement d'argent a eu lieu, pas que la vente n'a pas eu lieu ». `calls.revenue` reste
+la trace de ce qui a été déclaré, `deals` reste la source du cash. Ne pas « corriger »
+les trois autres écrivains de `deals.status = 'canceled'` (`declare-refund`,
+`calls/[id]/rapport`, et `lib/dealStatus.ts` pour le chemin automatique) en croyant
+réparer un oubli de partition.
+
+⚠️ **La conséquence sur le taux de closing n'est PAS traitée** : `computeSalesCallStats`
+compte `calls.deal_closed`, donc une vente annulée puis intégralement remboursée compte
+encore comme un closing. C'est une question de produit — « une vente annulée est-elle un
+closing ? » — pas un défaut technique, et elle n'a pas été tranchée.
+
+⚠️ **Une surveillance dont le cas visé n'est JAMAIS survenu n'a jamais rien détecté.**
+Avant de croire une alerte, compter sur toute la base les occurrences de chaque cas
+qu'elle prétend distinguer. Ici : 0 call sans aucun deal, 2 avec des deals tous annulés.
+La requête tenait en dix lignes et a renversé le diagnostic.
+
 `ventes_sante_contenu` compare les DEUX lectures de l'attribution d'une vente :
 `deals.first_touch_content_id`, que lisent les **quatre routes de paiement**
 (`payments/by-origin`, `payments/chain`, `payments/deals/[id]/amount` et `/terms`), et

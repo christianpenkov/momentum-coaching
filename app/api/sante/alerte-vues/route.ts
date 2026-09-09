@@ -192,7 +192,8 @@ const SURVEILLANCES: Surveillance[] = [
     quoiFaire: [
       '`select * from ventes_sante_montants;`',
       'Une correction faite depuis la page Paiements ne réécrit pas le rapport : c’est le cas le plus fréquent et il est légitime.',
-      'Si le deal manque complètement, c’est le chemin d’écriture des paiements qu’il faut regarder.',
+      'Si le deal manque complètement, c’est le chemin d’écriture des paiements qu’il faut regarder — vérifier d’abord qu’aucun deal ANNULÉ ne porte ce `call_id` : une vente annulée est un état normal, et elle n’est plus signalée depuis le 2026-09-09.',
+      '⚠️ Un appel reste marqué « vente conclue » après l’annulation de sa vente, et c’est voulu : seul un geste humain déclasse un appel (`payments/deals/[id]/cancel`), jamais un remboursement constaté chez Stripe.',
     ],
     docs: ['docs/stripe-paiements.md', 'docs/perimetre-stats-referentiel.md (règle 7)'],
   },
