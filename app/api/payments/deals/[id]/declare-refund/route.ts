@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { resolveTargetProfile } from '@/lib/stripe-account';
-import { calculerCash, statutDeal, type LignePaiement } from '@/lib/dealCash';
+import { calculerCash, statutDeal, prelevementsAVenir, type LignePaiement } from '@/lib/dealCash';
 
 /**
  * Déclarer un remboursement fait hors Stripe.
@@ -60,7 +60,7 @@ export async function POST(
 
   const { data: deal } = await supa
     .from('deals')
-    .select('id, profile_id, status, amount_total, buyer_name, call_id, refund_explique, cancel_requested_at, deal_payments(amount, status)')
+    .select('id, profile_id, status, amount_total, buyer_name, call_id, refund_explique, cancel_requested_at, payment_plan, stripe_subscription_id, installments_count, deal_payments(amount, status)')
     .eq('id', dealId)
     .maybeSingle();
 
@@ -120,7 +120,12 @@ export async function POST(
     annulee = true;
 
   } else {
-    const suivant = statutDeal(apres, Number(deal.amount_total), deal.status, !!deal.cancel_requested_at);
+    const suivant = statutDeal(apres, Number(deal.amount_total), deal.status, {
+      annulationDemandee: !!deal.cancel_requested_at,
+      prelevementsAVenir: prelevementsAVenir(
+        apres, deal.payment_plan, deal.stripe_subscription_id, deal.installments_count,
+      ),
+    });
     if (suivant && suivant !== deal.status) {
       await supa.from('deals').update({ status: suivant }).eq('id', dealId);
     }

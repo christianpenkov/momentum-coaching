@@ -331,6 +331,29 @@ function buildGroups(deals: DealRow[], details: Record<string, DealDetail>): Gro
       continue;
     }
 
+    // ── Le prélèvement automatique ne se relance PAS ────────────────────────
+    //
+    // C'est Stripe qui porte l'échéancier — `deal_installments` reste vide — et
+    // il prélève tout seul. Il n'y a aucun geste à faire, donc rien à afficher
+    // dans un onglet qui existe pour dire quoi faire.
+    //
+    // ⚠️ Cette règle existait déjà, mais d'un seul côté de la partition :
+    // `installment-reminders` écarte explicitement `installments_auto` et le dit
+    // dans son code (« Aucun risque de notifier un prélèvement automatique »),
+    // alors que cet écran-ci les gardait. Le cron et l'onglet répondaient donc
+    // différemment à la même question — « qu'y a-t-il à relancer ? ».
+    //
+    // Elle ne s'est vue qu'en devenant atteignable : jusqu'au 2026-09-09, une
+    // vente en prélèvement dont l'argent était intégralement reparti basculait
+    // en `canceled`, donc sortait juste au-dessus. Maintenant qu'elle reste
+    // `open` tant que l'abonnement tourne, elle serait apparue ici — avec
+    // « aucun paiement », sur une vente que Stripe prélèvera le mois prochain.
+    //
+    // ⚠️ APRÈS le bloc `hasFailure`, et c'est délibéré : une carte refusée sur
+    // un prélèvement automatique DOIT se voir. C'est le seul cas de ce mode où
+    // l'élève peut agir — envoyer le lien de mise à jour de carte.
+    if (d.paymentPlan === 'installments_auto' && !detail?.installments.length) continue;
+
     // Mode manuel : une échéance dont la date est passée et le lien pas encore envoyé.
     const next = detail?.installments.find(i => i.status !== 'paid');
     if (next) {

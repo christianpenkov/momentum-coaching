@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { getStripeAccess, appelStripe, resolveTargetProfile } from '@/lib/stripe-account';
 import { desactiverLiensDuDeal } from '@/lib/stripe-payment-links';
-import { calculerCash, statutDeal, type LignePaiement } from '@/lib/dealCash';
+import { calculerCash, statutDeal, prelevementsAVenir, type LignePaiement } from '@/lib/dealCash';
 
 /**
  * Clôturer une vente, ou la rouvrir.
@@ -36,7 +36,8 @@ async function chargerVente(userId: string, dealId: string) {
   const { data: deal } = await supa
     .from('deals')
     .select(`id, profile_id, status, amount_total, buyer_name, stripe_subscription_id,
-             ended_by, cancel_requested_at, deal_payments(amount, status),
+             ended_by, cancel_requested_at, payment_plan, installments_count,
+             deal_payments(amount, status),
              deal_installments(id, status)`)
     .eq('id', dealId)
     .maybeSingle();
@@ -186,7 +187,12 @@ export async function DELETE(
   // aurait produit exactement ce défaut : deux lectures de la même donnée, l'une
   // qui l'ignore et l'autre qui l'applique.
   await supa.from('deals').update({
-    status: statutDeal(cash, deal!.amount_total, null, false) ?? 'open',
+    status: statutDeal(cash, deal!.amount_total, null, {
+      annulationDemandee: false,
+      prelevementsAVenir: prelevementsAVenir(
+        cash, deal!.payment_plan, deal!.stripe_subscription_id, deal!.installments_count,
+      ),
+    }) ?? 'open',
     ended_by: null,
     ended_at: null,
     ended_reason: null,

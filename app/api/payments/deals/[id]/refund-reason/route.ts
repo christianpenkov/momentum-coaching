@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { getStripeAccess, resolveTargetProfile } from '@/lib/stripe-account';
 import { createDealPaymentLink } from '@/lib/stripe-payment-links';
-import { calculerCash, statutDeal, type LignePaiement } from '@/lib/dealCash';
+import { calculerCash, statutDeal, prelevementsAVenir, type LignePaiement } from '@/lib/dealCash';
 import { nomComplement } from '@/lib/libelleProduit';
 
 /**
@@ -69,6 +69,7 @@ export async function POST(
   const { data: deal } = await supa
     .from('deals')
     .select(`id, profile_id, status, amount_total, buyer_name, currency, refund_explique, cancel_requested_at,
+             payment_plan, stripe_subscription_id, installments_count,
              ig_lead_id, first_touch_content_id,
              deal_payments(id, stripe_payment_id, amount, status, refund_reason),
              deal_installments(rank)`)
@@ -143,7 +144,12 @@ export async function POST(
     // en cours remboursée en partie (1 000 € vendus, 300 € encaissés, 100 €
     // rendus), baisser le montant à 900 € ne la solde évidemment pas — elle
     // aurait été affichée « Soldée » avec 200 € encaissés sur 900.
-    const statut = statutDeal(cash, apres, deal.status, !!deal.cancel_requested_at) ?? deal.status;
+    const statut = statutDeal(cash, apres, deal.status, {
+      annulationDemandee: !!deal.cancel_requested_at,
+      prelevementsAVenir: prelevementsAVenir(
+        cash, deal.payment_plan, deal.stripe_subscription_id, deal.installments_count,
+      ),
+    }) ?? deal.status;
 
     await supa.from('deals').update({
       amount_total: apres,

@@ -7,7 +7,7 @@ import {
   desactiverLiensDuDeal,
   ajusterPrelevements,
 } from '@/lib/stripe-payment-links';
-import { calculerCash, aRembourser, resteAEncaisser, statutDeal, type LignePaiement } from '@/lib/dealCash';
+import { calculerCash, aRembourser, resteAEncaisser, statutDeal, prelevementsAVenir, type LignePaiement } from '@/lib/dealCash';
 import { libelleProduitDe, nomProduit, nomComplement } from '@/lib/libelleProduit';
 
 /**
@@ -297,10 +297,15 @@ export async function PATCH(
   // vient d'une décision inverse — on a relevé le prix — et l'argent est bien dû.
   // On neutralise donc la règle dans ce seul cas, en ne lui passant pas l'état
   // « soldé » qu'elle protégerait.
-  const annulationDemandee = !!deal.cancel_requested_at;
+  const ctxStatut = {
+    annulationDemandee: !!deal.cancel_requested_at,
+    prelevementsAVenir: prelevementsAVenir(
+      cash, deal.payment_plan, deal.stripe_subscription_id, deal.installments_count,
+    ),
+  };
   const statutApres = reste > CENTIME && deal.status === 'paid'
-    ? (statutDeal(cash, montant, null, annulationDemandee) ?? 'open')
-    : (statutDeal(cash, montant, deal.status, annulationDemandee) ?? deal.status);
+    ? (statutDeal(cash, montant, null, ctxStatut) ?? 'open')
+    : (statutDeal(cash, montant, deal.status, ctxStatut) ?? deal.status);
 
   // ── L'INTENTION S'ENREGISTRE A LA DECISION, PAS A L'ARRIVEE DE L'ARGENT ────
   //

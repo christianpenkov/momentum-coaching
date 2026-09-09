@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { calculerCash, statutDeal } from '@/lib/dealCash';
+import { calculerCash, statutDeal, prelevementsAVenir } from '@/lib/dealCash';
 import { desactiverLiensDuDeal } from '@/lib/stripe-payment-links';
 import { sendPushToProfile } from '@/lib/googleCalendarService';
 
@@ -78,7 +78,7 @@ export async function refreshDealStatus(
     // décide entre « annulée » et « clôturée », le second porte le déclassement
     // de l'appel. Les oublier ne casse rien visiblement — ça transforme
     // silencieusement une annulation voulue en clôture.
-    .select('profile_id, amount_total, status, unexpected_payment_at, refund_explique, cancel_requested_at, call_id')
+    .select('profile_id, amount_total, status, unexpected_payment_at, refund_explique, cancel_requested_at, call_id, payment_plan, stripe_subscription_id, installments_count')
     .eq('id', dealId)
     .maybeSingle();
   if (!deal) return;
@@ -89,7 +89,12 @@ export async function refreshDealStatus(
     .eq('deal_id', dealId);
 
   const cash = calculerCash(payments);
-  const status = statutDeal(cash, deal.amount_total, deal.status, !!deal.cancel_requested_at);
+  const status = statutDeal(cash, deal.amount_total, deal.status, {
+    annulationDemandee: !!deal.cancel_requested_at,
+    prelevementsAVenir: prelevementsAVenir(
+      cash, deal.payment_plan, deal.stripe_subscription_id, deal.installments_count,
+    ),
+  });
 
   // ── Un remboursement de TROP-PERÇU n'appelle aucune explication ──────────
   //

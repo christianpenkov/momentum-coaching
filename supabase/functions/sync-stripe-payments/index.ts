@@ -1,6 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { RateLimiter, mapWithConcurrency } from '../_shared/rate-limit.ts';
-import { calculerCash, statutDeal } from '../_shared/dealCash.ts';
+import { calculerCash, statutDeal, prelevementsAVenir } from '../_shared/dealCash.ts';
 // ⚠️ L'empreinte du code SOURCE de cette fonction, pour que `edge_sante_version` puisse
 // dire si la version en ligne est celle du depot. Une Edge Function ne part pas avec
 // `git push` : le 2026-09-03, `poll-leads` a tourne deux jours avec du code vieux de huit
@@ -214,15 +214,19 @@ async function refreshDealStatus(dealId: string, argentEntrant: boolean, rembour
   const { data: deal } = await supabase
     // `cancel_requested_at` : sans lui, statutDeal recevrait `false` et
     // transformerait une annulation réellement demandée en simple clôture.
-    .from('deals').select('amount_total, status, cancel_requested_at').eq('id', dealId).maybeSingle();
+    .from('deals').select('amount_total, status, cancel_requested_at, payment_plan, stripe_subscription_id, installments_count').eq('id', dealId).maybeSingle();
   if (!deal) return;
 
   const { data: payments } = await supabase
     .from('deal_payments').select('amount, status').eq('deal_id', dealId);
 
-  const status = statutDeal(
-    calculerCash(payments), deal.amount_total, deal.status, !!deal.cancel_requested_at,
-  );
+  const cash = calculerCash(payments);
+  const status = statutDeal(cash, deal.amount_total, deal.status, {
+    annulationDemandee: !!deal.cancel_requested_at,
+    prelevementsAVenir: prelevementsAVenir(
+      cash, deal.payment_plan, deal.stripe_subscription_id, deal.installments_count,
+    ),
+  });
 
   // ⚠️ `ended` AUTANT que `canceled`, et c'est le piège de ce fichier.
   //

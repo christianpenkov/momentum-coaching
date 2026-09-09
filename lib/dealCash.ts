@@ -90,6 +90,15 @@ export interface Cash {
   net: number;
   /** Au moins un paiement en échec — sert à distinguer `past_due` de `open`. */
   aEchoue: boolean;
+  /**
+   * COMBIEN de paiements ont réussi — le nombre de lignes, pas leur somme.
+   *
+   * Un remboursement ne le fait pas redescendre : il répond à « combien de fois
+   * a-t-on été prélevé », pas « combien reste-t-il ». C'est ce qui permet de
+   * savoir qu'un plan 3× n'a encaissé qu'une échéance, même si l'argent est
+   * ressorti — donc que l'abonnement va prélever les deux autres.
+   */
+  nbEncaissements: number;
 }
 
 /**
@@ -191,10 +200,15 @@ export function calculerCash(paiements: LignePaiement[] | null | undefined): Cas
     encaisse: 0, rembourse: 0, conteste: 0, perduEnLitige: 0,
   };
 
+  let nbEncaissements = 0;
   for (const p of paiements ?? []) {
     const regle = REGLES_CASH[p.status ?? ''];
     if (!regle) continue;
     if (regle.champ) sommes[regle.champ] += nombre(p.amount);
+    // Compté depuis la MÊME table que les sommes : un statut qui alimente la
+    // caisse est un encaissement, par définition. Le déduire d'un `=== 'succeeded'`
+    // écrit ici aurait créé une seconde liste de statuts, à côté de REGLES_CASH.
+    if (regle.champ === 'encaisse') nbEncaissements += 1;
     if (p.status === 'failed') aEchoue = true;
   }
 
@@ -213,7 +227,42 @@ export function calculerCash(paiements: LignePaiement[] | null | undefined): Cas
     void statut;
   }
 
-  return { encaisse, rembourse, conteste, perduEnLitige, net, aEchoue };
+  return { encaisse, rembourse, conteste, perduEnLitige, net, aEchoue, nbEncaissements };
+}
+
+/**
+ * Ce qu'il faut savoir, en plus du cash, pour trancher un statut.
+ * Voir `statutDeal` pour le motif de chaque champ.
+ */
+export interface ContexteStatut {
+  /** `deals.cancel_requested_at` est renseignée — quelqu'un a cliqué « Annuler la vente ». */
+  annulationDemandee: boolean;
+  /** Un abonnement Stripe encore en vol prélèvera d'autres échéances. Voir `prelevementsAVenir`. */
+  prelevementsAVenir: boolean;
+}
+
+/**
+ * Reste-t-il des prélèvements à venir sur cette vente ?
+ *
+ * ⚠️ Vit ICI, avec la règle qui la lit, et pas chez ses six appelants. Recopiée
+ * six fois, elle aurait divergé au premier ajustement — c'est exactement le
+ * défaut que ce fichier existe pour empêcher.
+ *
+ * On compte les encaissements RÉUSSIS, jamais l'argent restant : une échéance
+ * remboursée a bien été prélevée, et Stripe ne la reprélèvera pas pour autant.
+ *
+ * `stripe_subscription_id` seul ne suffirait pas — il survit à la fin du plan.
+ * C'est la comparaison au nombre d'échéances qui dit si le plan est allé au bout.
+ */
+export function prelevementsAVenir(
+  cash: Cash,
+  planPaiement: string | null,
+  abonnementId: string | null,
+  nombreEcheances: number | null,
+): boolean {
+  if (planPaiement !== 'installments_auto' || !abonnementId) return false;
+  const total = nombre(nombreEcheances);
+  return total > 0 && cash.nbEncaissements < total;
 }
 
 /**
@@ -248,19 +297,20 @@ export function statutDeal(
   montantTotal: number | string | null,
   statutActuel: string | null,
   /**
-   * L'élève a-t-il DEMANDÉ l'annulation ? — `deals.cancel_requested_at`.
+   * Ce que le cash seul ne peut pas savoir. Les DEUX champs sont obligatoires.
    *
-   * ⚠️ OBLIGATOIRE, et c'est le point : rendre ce paramètre facultatif aurait
-   * laissé chaque appelant l'oublier en silence, c'est-à-dire recréé la forme de
-   * défaut n°1 de ce dépôt — une règle posée d'un côté d'une partition, absente
-   * de l'autre. Ici le compilateur refuse de laisser passer un appelant qui n'a
-   * pas répondu à la question.
+   * ⚠️ Un objet, et non deux booléens positionnels : `statutDeal(c, t, s, true,
+   * false)` et `statutDeal(c, t, s, false, true)` compilent tous les deux et
+   * disent le contraire l'un de l'autre. Nommer les champs rend l'inversion
+   * impossible.
    *
-   * ⚠️ Répondre `false` sans avoir LU la colonne est le seul angle mort restant :
-   * une vraie annulation deviendrait une clôture, sans erreur. Tout appelant doit
-   * donc sélectionner `cancel_requested_at`, pas se contenter de passer `false`.
+   * ⚠️ Et obligatoires, pas facultatifs : un défaut aurait laissé chaque
+   * appelant l'oublier en silence — la forme de défaut n°1 de ce dépôt, une
+   * règle posée d'un côté d'une partition et absente de l'autre. Ici le
+   * compilateur refuse de laisser passer un appelant qui n'a pas répondu.
+   * Il a déjà trouvé son premier piège tout seul (voir sync-stripe-payments).
    */
-  annulationDemandee: boolean,
+  ctx: ContexteStatut,
 ): StatutDeal | null {
   if (statutActuel === 'canceled' || statutActuel === 'ended') return null;
 
@@ -295,7 +345,24 @@ export function statutDeal(
   // annulation de la vente […] tu peux pas annuler une vente si y a de
   // l'encaissé, à ce moment-là c'est CLÔTURER une vente ».
   if (cash.encaisse > 0 && cash.net <= CENTIME) {
-    return annulationDemandee ? 'canceled' : 'ended';
+    if (ctx.annulationDemandee) return 'canceled';
+    // ⚠️ Un abonnement encore en vol va PRÉLEVER. Terminer la vente ici la
+    // figerait (`ended` ne se recalcule plus), et le prélèvement suivant serait
+    // signalé comme « paiement reçu sur une vente terminée » — alors que c'est
+    // une échéance parfaitement normale d'un plan dont UNE seule a été remboursée.
+    //
+    // Le motif de cette règle est « ne pas relancer un client remboursé ». En
+    // prélèvement automatique, Momentum ne relance JAMAIS : `installment-reminders`
+    // écarte explicitement `installments_auto`, et l'échéancier vit chez Stripe.
+    // La protection est donc sans objet ici, et son coût bien réel.
+    //
+    // La vente se terminera d'elle-même quand l'abonnement s'arrêtera :
+    // `customer.subscription.deleted` la passe en `ended` (webhooks/stripe).
+    //
+    // Trouvé le 2026-09-09 au premier passage réel : Incogniton, plan 3×, une
+    // échéance remboursée sur trois, déclarée terminée alors que Stripe
+    // prélèverait encore le 8 octobre et le 8 novembre.
+    if (!ctx.prelevementsAVenir) return 'ended';
   }
   if (cash.net >= total - CENTIME) return 'paid';
   if (statutActuel === 'paid' && cash.net > 0) return 'paid';
