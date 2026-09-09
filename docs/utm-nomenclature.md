@@ -265,16 +265,55 @@ Les deux fichiers Next importent `lib/contentId.ts`. L'Edge Function ne le peut 
 copies signalées par un commentaire pointant vers l'original. Une copie qui se sait
 copie vaut mieux que trois implémentations qui s'ignorent.
 
-### Piège de la vue `utm_anomalies`
+### La vue `utm_anomalies`
 
-Elle retourne **tous** les calls Calendly, avec une colonne `anomalie` valant `NULL`
-quand tout va bien. `SELECT count(*) FROM utm_anomalies` compte donc l'historique des
-rendez-vous, pas les anomalies.
+**Elle est VIDE quand tout va bien**, comme les 17 autres vues de santé. `SELECT
+count(*) FROM utm_anomalies` compte donc bien les anomalies.
 
-```sql
--- ✅ le bon comptage
-SELECT count(*) FROM utm_anomalies WHERE anomalie IS NOT NULL;
-```
+> ⚠️ **Ce ne fut pas toujours le cas.** Jusqu'au 2026-09-09 elle retournait *tous* les
+> rendez-vous Calendly avec une colonne `anomalie` à `NULL` quand la ligne était saine —
+> d'où un « piège du comptage » qu'il fallait connaître. Ce piège n'existe plus. Si vous
+> lisez un `WHERE anomalie IS NOT NULL` quelque part, c'est un reste sans effet, pas une
+> précaution nécessaire.
+
+Ce piège avait un coût invisible : il rendait la vue **insurveillable**.
+`/api/sante/alerte-vues` ne connaît que deux formes de détection — `alerte` (colonne
+`etat`) et `toute_ligne` (vide quand tout va bien). `utm_anomalies` n'entrait dans
+aucune des deux, et **personne ne la lisait** : 18 vues de santé surveillées, pas
+elle. Une surveillance qu'il faut penser à consulter n'est pas une surveillance.
+
+#### Ce que la vue croise, et pourquoi elle ne peut pas se contenter de la forme
+
+Un identifiant de vidéo YouTube est **réellement** 11 caractères de `[A-Za-z0-9_-]`.
+C'est la définition, pas une approximation. Un pseudo Instagram de 11 caractères est
+donc **indiscernable** d'un identifiant YouTube par sa seule forme — aucune regex ne
+les séparera jamais.
+
+La vue croise donc la forme avec la **plateforme** portée par `source` :
+
+| Anomalie | Ce qu'elle attrape |
+|---|---|
+| forme YouTube sur une source Instagram | un pseudo de 11 caractères pris pour une vidéo |
+| forme Instagram sur une source YouTube | l'inverse |
+| `utm_content` sur un lien de **bio** | une bio ne vient d'aucun contenu, par nature |
+
+⚠️ **Ne resserrez pas la règle de forme dans `lib/contentId.ts`** en découvrant ce
+sujet : c'est le premier réflexe, et il ne peut pas marcher. La correction est
+contextuelle, jamais lexicale.
+
+⚠️ La copie SQL utilise `[0-9]{15,20}` pour un identifiant de post Instagram là où les
+trois copies TypeScript utilisent `\d{10,}`. **C'est volontaire** : un détecteur plus
+strict que l'écrivain signale ce que l'écrivain a laissé passer. L'aligner réduirait la
+détection sans rien gagner.
+
+#### La vue surveillée est `utm_sante_attribution`, pas `utm_anomalies`
+
+`utm_anomalies` porte `invitee_name` et `revenue`. Or l'alerte sérialise jusqu'à cinq
+lignes dans le corps de l'e-mail, et la règle inscrite au-dessus de `SURVEILLANCES` est
+explicite : **jamais une donnée métier d'un compte client**. La vue compagne
+`utm_sante_attribution` porte le même signal — le type d'anomalie et son nombre — sans
+aucune donnée personnelle. C'est elle qui est surveillée ; `utm_anomalies` reste
+l'outil de détail, à consulter à la main.
 
 ### Vérifier une correction
 

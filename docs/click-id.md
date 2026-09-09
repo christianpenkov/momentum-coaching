@@ -150,7 +150,8 @@ garde censée refuser les valeurs non-contenu, et sa plateforme aurait été dé
 **YouTube**. `utm_anomalies` porte une copie SQL de la même règle : elle ne l'aurait pas
 signalé. La corruption était invisible de bout en bout.
 
-⚠️ **Cette faiblesse dépasse ce chantier — voir « Chantier séparé » plus bas.**
+⚠️ **Cette faiblesse dépasse ce chantier** — voir « Déduire la plateforme de la forme
+d'un identifiant » plus bas, qui dit ce qui a été fermé depuis et ce qui reste.
 
 #### La règle
 
@@ -783,7 +784,7 @@ existe pour fermer.
 
 ---
 
-## Chantier séparé — déduire la plateforme de la forme d'un identifiant
+## Déduire la plateforme de la forme d'un identifiant — état au 2026-09-09
 
 **Ce n'est pas une regex à resserrer. C'est une déduction à retirer.**
 
@@ -792,35 +793,51 @@ la définition, pas une approximation. `link_in_bio` fait 11 caractères de
 `[A-Za-z0-9_-]`. Les deux sont donc **indistinguables par la forme**, et aucune règle
 portant sur la seule chaîne ne pourra jamais les séparer.
 
-Écrit ici parce que la première réaction devant ce défaut est de durcir
-`isYtVideoId` — et qu'on y perdrait du temps pour rien, tout en rejetant de vrais
-identifiants.
+Écrit ainsi parce que la première réaction devant ce défaut est de durcir `isYtVideoId`
+— et qu'on y perdrait du temps pour rien, tout en rejetant de vrais identifiants.
 
-La seule correction possible est **contextuelle** : la plateforme se lit sur
-`utm_source`, qui la dit, pas sur la forme de `utm_content`, qui ne la dit pas. Le
-dépôt fait aujourd'hui l'inverse à plusieurs endroits (relevé le 2026-09-01) :
+### ✅ Ce qui a été fermé, et par quoi
+
+| Chemin | Fermé par |
+|---|---|
+| Un tiers injecte `utm_content` sur un lien de **bio, description ou story** | La route `/r/` (ce chantier) : elle ne recopie plus les `utm_*` reçus, elle les reconstruit depuis `s`/`m`/`c`, et refuse tout contenu sur un lien de bio. |
+| Un rendez-vous **DM** crédité au mauvais contenu | Commit `2831acb8` (2026-09-03) : pour `utm_medium = 'dm'`, le contenu crédité vient du **journal** à l'heure de réservation, plus de `utm_content`, qui n'est qu'un repli. Voir `docs/audit-attribution-contenu.md`. |
+| Le pseudo du prospect écrit dans `utm_content` | Le générateur écrit `mediaId` dans `utm_content` et le pseudo dans `utm_term` (`lib/instagram-webhook-processor.ts`). Corrigé le 2026-08-19. |
+| La cécité de la surveillance | `utm_anomalies` croise désormais la forme avec la **plateforme** de `source`, et `utm_sante_attribution` la rend surveillable sans donnée personnelle (2026-09-09). |
+
+### Ce qui reste, et pourquoi ce n'est pas urgent
+
+`lib/contentId.ts` accepte toujours n'importe quelle chaîne de 11 caractères, et six
+endroits déduisent encore la plateforme de la forme :
 
 | Fichier | Ce qui est déduit |
 |---|---|
-| `components/analytics/PageClientStats.tsx:6417` | `isValidYtVideoId(l.postId) ? 'YT' : 'IG'` |
-| `components/analytics/PageClientStats.tsx:6422` | idem, sur `h.media_id` |
-| `components/analytics/PageClientStats.tsx:6435` | idem, sur `h.media_id` |
-| `app/api/shortio/stats/route.ts:135` | `if (utmMedium === 'description' && isYtVideoId(utmContent)) return 'YT'` |
-| `components/pipeline/PagePipeline.tsx:402` | un `utm_content` de description est traité comme une vidéo YouTube |
-| `components/pipeline/ProspectDetailModal.tsx:219` | idem |
-| `lib/contentId.ts` — `resolveCallSource` | plateforme déduite du contenu quand `utm_source` n'est pas `ig`/`yt` |
+| `components/analytics/PageClientStats.tsx` (3 sites) | `isValidYtVideoId(id) ? 'YT' : 'IG'` |
+| `app/api/shortio/stats/route.ts` | `utmMedium === 'description' && isYtVideoId(utmContent)` → `'YT'` |
+| `components/pipeline/PagePipeline.tsx`, `ProspectDetailModal.tsx` | un `utm_content` de description traité comme une vidéo |
+| `lib/contentId.ts` — `resolveCallSource` | plateforme déduite du contenu **quand `utm_source` n'est pas `ig`/`yt`** |
 
-Le dernier est le plus exposé : il ne se déclenche que si `utm_source` n'est **pas**
-une plateforme connue — ce qui est le cas des liens créés avant juillet 2026, qui
-portent le domaine Short.io dans `utm_source`. Sur ces liens-là, un `utm_content`
-de 11 caractères suffit à faire basculer un rendez-vous Instagram en YouTube.
+⚠️ **Les numéros de ligne ne sont pas donnés à dessein** : ils étaient faux moins d'une
+semaine après avoir été écrits (`PageClientStats.tsx:6417` était devenu `:7774`). Un
+`grep isYtVideoId` les retrouve tous.
 
-⚠️ La règle a une **copie SQL** dans la vue `utm_anomalies` (migration
-`20260819150000`). Elle a donc la même cécité, et ne signalera pas ce qu'elle est
-censée surveiller. Toute correction doit traiter les deux.
+Le dernier est le plus exposé en théorie — mais **il ne se déclenche jamais en
+pratique** : il exige `utm_source` hors de `{ig, yt}`, ce qui n'arrive plus que sur des
+liens d'avant juillet 2026. Mesuré le 2026-09-09 : les 19 rendez-vous actifs ont tous une
+`source` valide, et aucun `utm_content` hors forme.
 
-Ce chantier ne touche pas au Click ID : la route, elle, ne déduit plus rien — elle lit
-`s`, qu'on a écrit nous-mêmes.
+**Le risque résiduel, mesuré le 2026-09-09** : un seul lien vivant porte un pseudo de
+11 caractères, `prendre-rdv-leroymerlin`. Il est **orphelin** — absent de
+`prospect_links`, donc la plateforme ne l'envoie à personne — et n'a jamais produit de
+rendez-vous. Les trois autres liens hérités portent des pseudos de 8, 14 et 16
+caractères, que la garde rejette déjà.
+
+### Si vous reprenez ce chantier
+
+La correction est **contextuelle, jamais lexicale** : la plateforme se lit sur
+`utm_source`, qui la dit, pas sur la forme de `utm_content`, qui ne la dit pas. C'est
+exactement ce que fait déjà `utm_anomalies` depuis le 2026-09-09 — la même règle est
+donc à porter côté TypeScript, pas à réinventer.
 
 ## Hors périmètre
 

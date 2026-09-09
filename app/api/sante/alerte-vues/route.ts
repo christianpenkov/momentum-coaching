@@ -274,6 +274,23 @@ const SURVEILLANCES: Surveillance[] = [
     docs: ['docs/stripe-paiements.md'],
   },
   {
+    cle: 'sante_utm_attribution',
+    source: 'utm_sante_attribution',
+    titre: 'Un rendez-vous est attribué à un contenu qui n’en est pas un',
+    detection: 'toute_ligne',
+    surveille:
+      'Que `source`, `utm_medium` et `utm_content` d’un rendez-vous restent cohérents entre eux — et que `utm_content` porte bien un identifiant de contenu, jamais un pseudo ni une valeur inventée par un tiers.',
+    signifie:
+      'Un rendez-vous est crédité au mauvais contenu, ou à un contenu qui n’existe pas. Conséquence : « Performance par contenu » attribue des calls et du chiffre d’affaires à la mauvaise publication, et la décision de quoi produire ensuite s’appuie sur un faux. ⚠️ Une chaîne de 11 caractères est INDISCERNABLE d’un identifiant de vidéo YouTube par sa seule forme — c’est pourquoi la détection croise la forme avec la plateforme de `source`, et non la forme seule.',
+    quoiFaire: [
+      '`select * from utm_sante_attribution;` pour le type d’anomalie et son volume.',
+      '`select * from utm_anomalies;` pour le détail rendez-vous par rendez-vous.',
+      'Remonter au lien Short.io qui a produit le clic : c’est presque toujours un lien d’une génération antérieure, dont la destination porte encore l’ancienne nomenclature.',
+      '⚠️ Ne PAS resserrer la règle de forme dans `lib/contentId.ts` : un vrai identifiant YouTube EST 11 caractères de [A-Za-z0-9_-]. Seul le contexte tranche.',
+    ],
+    docs: ['docs/utm-nomenclature.md', 'docs/click-id.md'],
+  },
+  {
     cle: 'sante_clics_redirection',
     source: 'clics_sante_redirection',
     titre: 'La redirection qui pose le Click ID ne compte plus les clics',
