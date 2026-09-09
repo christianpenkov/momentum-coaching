@@ -55,8 +55,17 @@ function resolveClickId(entrant: string | null | undefined): string | null {
  * Certains vieux liens portent le domaine Short.io dans utm_source, ce qui
  * produisait `ubizenai.s.gy_description` — inexploitable pour l'attribution,
  * qui regroupe par plateforme. Quand utm_source n'est pas une plateforme
- * connue, on la déduit du contenu ; sinon on n'écrit rien, même règle que pour
- * utm_content (mieux vaut pas de source qu'une source fausse).
+ * connue, on la déduit du contenu — mais d'une SEULE forme sur les deux :
+ *
+ * - ✅ id de post Instagram (chiffres) : aucune ambiguïté.
+ * - ❌ id de vidéo YouTube (11 caractères) : déduction RETIRÉE le 2026-09-09. Un
+ *   vrai id YouTube EST exactement 11 caractères de [A-Za-z0-9_-], donc un pseudo
+ *   de 11 caractères en est indiscernable — et il s'en trouve sur les liens de DM
+ *   d'avant le 19 août. La déduction classait alors un rendez-vous Instagram en
+ *   YouTube. Ce n'est pas une regex à resserrer, c'est une déduction à retirer.
+ *
+ * Sans plateforme : `undefined`, et l'appelant OMET la clé plutôt que d'écrire
+ * `null` par-dessus une valeur correcte.
  */
 /**
  * ⚠️ Équivalent Deno de `resolveUtmMedium` (lib/contentId.ts).
@@ -79,7 +88,7 @@ function resolveCallSource(
   if (!utmSource) return undefined;
   const platform = ['ig', 'yt'].includes(utmSource)
     ? utmSource
-    : (utmContent && /^[A-Za-z0-9_-]{11}$/.test(utmContent)) ? 'yt'
+    // Volontairement PAS de branche « 11 caracteres = YouTube » : voir ci-dessus.
     : (utmContent && /^\d{10,}$/.test(utmContent)) ? 'ig'
     : null;
   if (!platform) return undefined;
@@ -524,15 +533,30 @@ async function syncCalendlyEleve(
       invitee_name: inviteeName,
       prospect_id: finalProspectId,
       calendly_qa: questionsAndAnswers,
-      // Si le call vient d'un lien description ou bio IG, garder la source UTM (ig_description / ig_bio)
-      // Écraser en ig_dm seulement si c'est un vrai DM (pas de medium description/bio)
-      source: finalIgLeadId && utmMedium !== 'description' && utmMedium !== 'bio'
-        ? 'ig_dm'
-        : (source ?? inheritedSource),
       status: isCanceled ? 'canceled' : 'active',
       // ready / reminder_sent : colonnes vestiges, retirees de l'ecriture le 2026-09-04
       // (jamais lues, jamais posees a une autre valeur que leur defaut - audit).
     };
+
+    // ⚠️ `source` rejoint les champs gardés, et ce n'est pas cosmétique.
+    //
+    // Elle était posée SANS condition dans le littéral : quand la plateforme
+    // n'était pas résoluble, `null` était écrit PAR-DESSUS une source correcte, à
+    // chaque passage de 30 minutes. C'est exactement le défaut décrit plus haut
+    // dans ce fichier — « une ligne correcte était VIDÉE, en silence » — qui avait
+    // été corrigé pour invitee_email et calendly_qa, mais pas pour source.
+    //
+    // Le risque était latent tant que la déduction par la forme rattrapait presque
+    // tout ; il devient réel maintenant qu'elle est retirée pour les identifiants
+    // de 11 caractères. La garde vient donc AVANT, dans le même mouvement.
+    //
+    // Si le call vient d'un lien description ou bio IG, garder la source UTM
+    // (ig_description / ig_bio) ; n'écraser en ig_dm que pour un vrai DM.
+    const sourceEffective = finalIgLeadId && utmMedium !== 'description' && utmMedium !== 'bio'
+      ? 'ig_dm'
+      : (source ?? inheritedSource);
+    if (sourceEffective) upsertData.source = sourceEffective;
+
     // Écrits seulement s'ils existent : un call redevenu actif (report) ne doit
     // pas conserver la date d'annulation du précédent, et un upsert avec null
     // écraserait une valeur déjà correcte.

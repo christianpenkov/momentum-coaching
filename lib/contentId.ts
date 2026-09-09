@@ -1,4 +1,8 @@
-import { isYtVideoId } from '@/lib/ytId';
+// Import RELATIF et non `@/lib/ytId` : c'est strictement équivalent pour Next, et
+// c'est ce qui rend ce fichier chargeable par `node --test`. Sans ça la règle qui
+// décide de l'attribution d'un rendez-vous n'avait aucun test — l'alias seul
+// l'empêchait.
+import { isYtVideoId } from './ytId.ts';
 
 // ID de post Instagram = uniquement des chiffres, 10+ caractères (même règle que
 // isValidIgPostId dans components/analytics/PageClientStats.tsx).
@@ -58,10 +62,31 @@ export function resolveUtmContent(
  * du type `ubizenai.s.gy_description` — inexploitables pour l'attribution, qui
  * regroupe par plateforme.
  *
- * Quand utm_source n'est pas une plateforme connue, on la déduit du contenu :
- * un identifiant YouTube (11 caractères) ou de post Instagram (chiffres) suffit
- * à trancher. Sinon on renvoie undefined — mieux vaut pas de source qu'une
- * source fausse, même règle que pour utm_content.
+ * Quand utm_source n'est pas une plateforme connue, on la déduit du contenu —
+ * mais **d'une seule forme sur les deux**, et l'asymétrie est le cœur du sujet :
+ *
+ * - ✅ **Un identifiant de post Instagram** (que des chiffres, 10+) : aucune
+ *   ambiguïté. Et même dans le cas tordu où ce serait un pseudo entièrement
+ *   numérique, la déduction donnerait quand même « ig » — la bonne réponse,
+ *   puisqu'un pseudo ne se trouve que sur un lien Instagram.
+ *
+ * - ❌ **Un identifiant de vidéo YouTube** (11 caractères de `[A-Za-z0-9_-]`) :
+ *   déduction RETIRÉE le 2026-09-09. Un vrai identifiant YouTube EST exactement
+ *   cela, donc un pseudo de 11 caractères en est indiscernable — et il s'en
+ *   trouve sur les liens de DM d'avant la nomenclature du 19 août
+ *   (`prendre-rdv-leroymerlin` portait `utm_content=leroymerlin`). La déduction
+ *   aurait alors classé un rendez-vous **Instagram** en **YouTube**.
+ *
+ * ⚠️ **Ce n'est pas une regex à resserrer.** Aucune règle portant sur la seule
+ * chaîne ne séparera jamais les deux : c'est une déduction à retirer, pas à
+ * affiner. La forme ne peut trancher que là où elle est non ambiguë.
+ *
+ * Sans plateforme, on renvoie `undefined` — mieux vaut pas de source qu'une
+ * source fausse, même règle que pour utm_content. ⚠️ Les appelants doivent alors
+ * OMETTRE la clé, jamais écrire `null` par-dessus une valeur correcte.
+ *
+ * ⚠️ Copie Deno dans `supabase/functions/sync-calendly/index.ts` : toute
+ * évolution doit y être répercutée, et la fonction redéployée.
  */
 /**
  * Canaux valides pour `utm_medium` — nomenclature fermée (docs/utm-nomenclature.md).
@@ -100,7 +125,7 @@ export function resolveCallSource(
 
   const platform = ['ig', 'yt'].includes(utmSource)
     ? utmSource
-    : isYtVideoId(utmContent) ? 'yt'
+    // Volontairement PAS de branche `isYtVideoId` ici : voir le bloc ci-dessus.
     : isIgPostId(utmContent) ? 'ig'
     : null;
 

@@ -131,9 +131,15 @@ async function fetchFromShortio(creds: { apiKey: string; domain: string; domainI
       const utmSource = u.searchParams.get('utm_source') || '';
       const utmMedium = u.searchParams.get('utm_medium') || '';
       const utmContent = u.searchParams.get('utm_content') || '';
+      // ⚠️ L'ordre compte : ce que `utm_source` DIT passe avant ce que la forme
+      // de `utm_content` suggère. Une chaîne de 11 caractères est indiscernable
+      // d'un identifiant de vidéo YouTube, donc la forme ne peut trancher que
+      // lorsque la source est muette. Auparavant la ligne « forme » venait avant
+      // le cas `ubizenai`, et un lien Instagram hérité portant un contenu de
+      // 11 caractères aurait été compté en YouTube.
       if (utmSource === 'yt') return 'YT';
-      if (utmMedium === 'description' && isYtVideoId(utmContent)) return 'YT';
       if (utmSource === 'ig' || utmSource.includes('ubizenai')) return 'IG';
+      if (utmMedium === 'description' && isYtVideoId(utmContent)) return 'YT';
     } catch {}
     return null;
   };

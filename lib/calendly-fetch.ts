@@ -284,11 +284,19 @@ export async function syncCalendlyEleve(
         invitee_email: inviteeEmail,
         invitee_name: inviteeName,
         calendly_qa: questionsAndAnswers,
-        source: finalIgLeadId ? 'ig_dm' : (source ?? inheritedSource),
         status: isCanceled ? 'canceled' : 'active',
         // ready / reminder_sent : colonnes vestiges, retirees de l'ecriture le 2026-09-04
         // (jamais lues, jamais posees a une autre valeur que leur defaut - audit).
       };
+      // ⚠️ `source` rejoint les champs gardés — elle était le seul du lot posé sans
+      // condition. Quand la plateforme n'est pas résoluble, écrire `null` par-dessus
+      // une source correcte la VIDE, à chaque passage. Le risque était masqué par la
+      // déduction sur la forme d'un identifiant ; celle-ci ayant été retirée pour les
+      // chaînes de 11 caractères (lib/contentId.ts), la garde vient dans le même
+      // mouvement. Même règle que `utm_content` juste en dessous : une valeur absente
+      // n'écrase jamais une valeur présente.
+      const sourceEffective = finalIgLeadId ? 'ig_dm' : (source ?? inheritedSource);
+      if (sourceEffective)      upsertData.source          = sourceEffective;
       if (utmCampaign)          upsertData.utm_campaign    = utmCampaign;
       let contenuValide: string | undefined;
       if (utmContent) {
