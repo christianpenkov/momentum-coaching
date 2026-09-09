@@ -1490,10 +1490,26 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                   {/* ⚠️ Le bouton dit ce qui va se passer, pas « Continuer ».
                       Hors Stripe, aucun lien n'est créé : promettre « Générer le
                       lien de paiement » puis n'en produire aucun ferait chercher
-                      un lien qui n'existe pas. */}
+                      un lien qui n'existe pas.
+
+                      ⚠️ Et il dit COMBIEN de liens, et de quelle nature. « Générer
+                      le lien de paiement » était le même texte dans les trois modes
+                      Stripe, alors que le choix juste au-dessus — « Prélèvement
+                      automatique » contre « Un lien par échéance » — est précisément
+                      celui qu'on vient de faire, et le seul irrattrapable après coup.
+                      Chris s'y est trompé une fois, et l'a relevé de lui-même le
+                      2026-09-09 : « peut-être c'est mieux générer le lien de
+                      prélèvement auto ? ».
+                      Le PLURIEL fait le reste du travail : « Générer les 2 liens de
+                      paiement » ne peut pas se confondre avec « le lien ». Un libellé
+                      qui compte est un libellé qu'on relit. */}
                   <button className="btn-primary-brand" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700, marginBottom: 10 }}
                     disabled={saving} onClick={() => (horsStripe ? setStep('offline') : createDeal(false))}>
-                    {saving ? 'Création…' : horsStripe ? 'Enregistrer la vente' : 'Générer le lien de paiement'}
+                    {saving ? 'Création…'
+                      : horsStripe ? 'Enregistrer la vente'
+                      : autoDebit ? 'Générer le lien de prélèvement automatique'
+                      : plan > 1 ? `Générer les ${plan} liens de paiement`
+                      : 'Générer le lien de paiement'}
                   </button>
                   {/* ⚠️ Deux modes, deux promesses — et l'une des deux était fausse.
                       En prélèvement automatique, Momentum ne crée AUCUNE échéance

@@ -723,7 +723,16 @@ function BlocVente({ deal, detail, isMobile, onAction, onRendreTropPercu, onPort
                 {/* Les DEUX parts, nommees chacune. Dire seulement « dont 200 EUR
                     en geste commercial » laissait deviner le reste par
                     soustraction, sur l'ecran meme ou une question porte dessus. */}
-                {deal.refundInexplique > 0.005 ? (
+                {/* ⚠️ `venteAnnulee` doit être lu ICI AUSSI, et c'est tout le sujet.
+                    Le bandeau du dessus a cessé de réclamer une explication sur une
+                    vente annulée (2026-09-09) — cette ligne-là, non. Les deux fiches
+                    annulées affichaient donc « le remboursement l'explique » et
+                    « 0,50 € encore à expliquer » à six lignes d'écart, sur le même
+                    écran. Exactement le défaut que le commentaire ci-dessus décrit
+                    déjà pour un autre motif : une règle posée d'un côté de la
+                    partition, absente de l'autre. Le correctif du bandeau avait
+                    créé la contradiction qu'il croyait fermer. */}
+                {deal.refundInexplique > 0.005 && !venteAnnulee ? (
                   <>
                     {raisonsRemboursement.length > 0 && (
                       <> {fmtEurExact(deal.refunded - deal.refundInexplique)} en {raisonsRemboursement.join(', ')},</>

@@ -254,6 +254,21 @@ function buildGroups(deals: DealRow[], details: Record<string, DealDetail>): Gro
   const dueNow: Group['items'] = [];
   const enRetard: Group['items'] = [];
   const waiting: Group['items'] = [];
+  // ⚠️ Groupe séparé de `waiting`, et c'est tout le correctif du 2026-09-09.
+  //
+  // « En attente de paiement » recevait TOUTE échéance non échue, envoyée ou non,
+  // et son bandeau affirmait « Le lien est parti » dans les deux cas. Relevé par
+  // Chris sur la vente de test C : le bandeau disait « Le lien est parti »
+  // pendant que la ligne juste en dessous disait « à envoyer le 9 octobre », case
+  // « Envoyé » décochée. Deux phrases du même écran qui se contredisent — le même
+  // défaut que la fiche client portait le matin même, et la même forme que celui
+  // que le groupe `due` avait déjà corrigé trois lignes plus bas.
+  //
+  // La règle générale qui en sort, et qui vaut pour tout groupe de cet écran :
+  // un bandeau ne peut affirmer que ce qui est vrai de CHAQUE ligne qu'il coiffe.
+  // Dès qu'un groupe mélange deux états, soit on le scinde, soit son texte se
+  // déduit de son contenu. Jamais une phrase écrite d'avance.
+  const avenir: Group['items'] = [];
   const sansLien: Group['items'] = [];
 
   const today = jourCourantParis();
@@ -349,9 +364,19 @@ function buildGroups(deals: DealRow[], details: Record<string, DealDetail>): Gro
       // Les deux premières se confondaient dans « en attente de paiement », qui
       // décrivait une attente sereine sur une échéance en retard — pendant que
       // la fiche de la même vente affichait « Impayée » en rouge.
+      // ── Quatre situations, quatre gestes ─────────────────────────────────
+      // Date passée, lien pas parti (ou hors Stripe)  → l'envoyer / l'encaisser.
+      // Date passée, lien parti                       → relancer le paiement.
+      // Date à venir, lien parti                      → attendre le paiement.
+      // Date à venir, lien pas parti                  → rien, pas encore l'heure.
+      //
+      // La quatrième manquait : elle tombait dans la troisième, dont le bandeau
+      // annonce un lien parti. Un lien OUVERT vaut envoyé (`ouvert`), sinon on
+      // réclamerait un envoi que la fiche dit déjà fait.
       if (late && (offline || !envoye)) dueNow.push(item);
       else if (late) enRetard.push(item);
-      else waiting.push(item);
+      else if (envoye || ouvert) waiting.push(item);
+      else avenir.push(item);
       continue;
     }
 
@@ -389,7 +414,18 @@ function buildGroups(deals: DealRow[], details: Record<string, DealDetail>): Gro
   return [
     {
       key: 'failed', title: 'Carte refusée', tone: 'red',
-      help: 'Échec d\'une échéance automatique. Stripe réessaie tout seul les jours suivants — envoie le lien seulement si tu veux aller plus vite.',
+      // ⚠️ « Stripe réessaie tout seul » n'est vrai QUE sur un prélèvement
+      // automatique : c'est l'abonnement qui reprogramme la tentative. Or ce
+      // groupe se remplit sur `hasFailure`, c'est-à-dire `cash.aEchoue`, qui ne
+      // regarde pas le mode de paiement. Un échec sur une vente par lien
+      // atterrissait donc ici sous la promesse d'une reprise automatique qui
+      // n'arriverait jamais — la pire forme de mensonge d'écran, celle qui fait
+      // ne RIEN faire. Trouvé en auditant les cinq bandeaux le 2026-09-09.
+      help: failed.every(i => i.deal.paymentPlan === 'installments_auto')
+        ? 'Échec d\'une échéance automatique. Stripe réessaie tout seul les jours suivants — envoie le lien seulement si tu veux aller plus vite.'
+        : failed.some(i => i.deal.paymentPlan === 'installments_auto')
+          ? 'Un paiement a échoué. Stripe ne réessaie que les prélèvements automatiques — sur les autres ventes, c\'est le lien qu\'il faut renvoyer.'
+          : 'Le paiement a échoué. Rien ne sera réessayé tout seul : renvoie le lien.',
       items: failed,
     },
     {
@@ -407,7 +443,12 @@ function buildGroups(deals: DealRow[], details: Record<string, DealDetail>): Gro
         // « le virement » présume un moyen que Momentum ignore : hors Stripe,
         // ce peut être des espèces, PayPal, un chèque.
         ? 'La date est passée. Vérifie que le paiement est bien arrivé, puis marque-le comme reçu.'
-        : 'La date est passée et le lien n\'a pas encore été envoyé.',
+        // Groupe MIXTE : le titre le dit déjà (« Échéance à traiter »), le
+        // bandeau ne le disait pas. Certaines lignes n'ont aucun lien à
+        // envoyer — leur promettre un envoi désigne une action qui n'existe pas.
+        : dueNow.some(i => !i.url)
+          ? 'La date est passée. Selon la ligne, il reste à envoyer le lien ou à confirmer un versement déjà reçu.'
+          : 'La date est passée et le lien n\'a pas encore été envoyé.',
       items: dueNow,
     },
     {
@@ -417,8 +458,29 @@ function buildGroups(deals: DealRow[], details: Record<string, DealDetail>): Gro
     },
     {
       key: 'waiting', title: 'En attente de paiement', tone: 'amber',
-      help: 'Le lien est parti, la date n\'est pas encore là. Rien à faire pour l\'instant.',
+      // Ce groupe garde aussi les COMPTANTS impayés qui portent un lien : ils
+      // n'ont aucune échéance, donc aucune date. Leur annoncer « la date n'est
+      // pas encore là » invente un délai qui n'existe pas, et laisse croire
+      // qu'il y a une raison d'attendre.
+      help: waiting.every(i => !i.installmentId)
+        ? 'Le lien existe et le paiement n\'est pas arrivé. Aucune date n\'a été fixée sur ces ventes : c\'est à toi de juger quand relancer.'
+        : waiting.some(i => !i.installmentId)
+          ? 'Le lien est parti et le paiement n\'est pas arrivé. Certaines de ces ventes n\'ont aucune date d\'échéance.'
+          : 'Le lien est parti, la date n\'est pas encore là. Rien à faire pour l\'instant.',
       items: waiting,
+    },
+    {
+      // ── Le lien n'est PAS parti, et la date n'est pas là ──────────────────
+      // Rien à faire aujourd'hui, mais le lien existe déjà : on peut le copier
+      // d'avance. Ton neutre (`taupe`) et non ambre — un groupe sans geste ne
+      // doit pas porter la couleur de ceux qui en demandent un.
+      key: 'avenir', title: 'Échéance à venir', tone: 'taupe',
+      help: avenir.every(i => i.url)
+        ? 'La date n\'est pas encore là et le lien n\'est pas encore parti. Il est déjà prêt : tu l\'enverras le moment venu.'
+        : avenir.every(i => !i.url)
+          ? 'La date n\'est pas encore là. Tu encaisseras toi-même, et tu déclareras le versement quand il arrivera.'
+          : 'La date n\'est pas encore là. Rien à faire pour l\'instant.',
+      items: avenir,
     },
     {
       key: 'sans-lien', title: 'Aucun moyen de paiement', tone: 'taupe',
@@ -440,6 +502,28 @@ function buildGroups(deals: DealRow[], details: Record<string, DealDetail>): Gro
  * Un compteur qui ne compte pas ce qu'il annonce est pire qu'absent : il envoie
  * chercher un travail qui n'existe pas.
  */
+/**
+ * Les groupes qui appellent un GESTE. Le compteur de l'onglet ne compte qu'eux.
+ *
+ * ⚠️ Liste FERMÉE, et volontairement : un groupe ajouté demain n'entre pas dans
+ * la pastille tant que quelqu'un n'a pas répondu « oui, il y a quelque chose à
+ * faire ». Le défaut par défaut est de ne pas crier.
+ *
+ * `waiting` et `avenir` en sont exclus parce que leur propre bandeau dit « rien
+ * à faire pour l'instant ». Relevé par Chris le 2026-09-09 : « pourquoi il est
+ * déjà dans relances alors que c'est dans 1 mois ? » — la pastille annonçait 1
+ * action sur une échéance due le 9 octobre, dont l'écran disait lui-même qu'il
+ * n'y avait rien à faire. Une pastille qui compte l'inaction est une pastille
+ * qu'on apprend à ignorer, et c'est ce dépôt qui l'a écrit le premier.
+ *
+ * Les lignes, elles, restent AFFICHÉES : le lien est déjà copiable, et une
+ * échéance à venir se prépare. Ce qui change est ce qu'on RÉCLAME, pas ce qu'on
+ * montre.
+ */
+const GROUPES_ACTIONNABLES = ['failed', 'due', 'retard', 'sans-lien'] as const;
+
 export function compterRelances(deals: DealRow[], details: Record<string, DealDetail>): number {
-  return buildGroups(deals, details).reduce((s, g) => s + g.items.length, 0);
+  return buildGroups(deals, details)
+    .filter(g => (GROUPES_ACTIONNABLES as readonly string[]).includes(g.key))
+    .reduce((s, g) => s + g.items.length, 0);
 }
