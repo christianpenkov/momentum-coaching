@@ -8,6 +8,7 @@ import ModaleAction, {
 } from './ModaleAction';
 import { modeDe, tousLesRythme } from './etats';
 import { useEcheancesAVenir } from './useEcheances';
+import { produitDefini, produitArreteSansArticle } from '@/lib/libelleProduit';
 import { fmtEurExact, fmtDateLong, type DealRow, type DealDetail } from './types';
 
 /**
@@ -32,12 +33,16 @@ const URL_STRIPE_ABONNEMENTS = 'https://dashboard.stripe.com/subscriptions';
    CLÔTURER
    ══════════════════════════════════════════════════════════════════════════ */
 
-export function Cloturer({ deal, onClose, onDone, onArreter }: {
+export function Cloturer({ deal, libelleProduit, onClose, onDone, onArreter, onAnnuler }: {
   deal: DealRow;
+  /** Ce que ce coach vend — « l'accompagnement » était écrit en dur ici. */
+  libelleProduit: string;
   onClose: () => void;
   onDone: () => void;
   /** Le bouton du refus : les deux actions se rejoignent sur ce mode. */
   onArreter: () => void;
+  /** Quand il ne reste rien, clôturer n'a pas de sens : on renvoie vers annuler. */
+  onAnnuler: () => void;
 }) {
   const [raison, setRaison] = useState('');
   const [envoi, setEnvoi] = useState(false);
@@ -122,6 +127,55 @@ export function Cloturer({ deal, onClose, onDone, onArreter }: {
     );
   }
 
+  // ── Rien n'est resté : clôturer ne veut rien dire ─────────────────────────
+  //
+  // Clôturer, c'est « je garde ce qui est rentré et je n'attends plus le reste ».
+  // Quand le net est à zéro — jamais rien encaissé, ou tout remboursé — il n'y a
+  // rien à garder : la vente resterait comptée pour son montant avec 0 encaissé,
+  // et son appel compterait encore comme un closing. Le geste juste est ANNULER.
+  //
+  // Relevé par Chris le 2026-09-11 : « est-ce qu'on peut clôturer une vente qui a
+  // 0 encaissé ou c'est par défaut annuler la vente ? ». Non — et l'écran le dit
+  // au lieu de laisser produire un état qui ne raconte rien.
+  //
+  // ⚠️ APRÈS le refus des prélèvements en cours, délibérément : si Stripe prélève
+  // encore, c'est ça qu'il faut traiter d'abord, quel que soit le net du jour.
+  //
+  // Même critère que le modal du remboursement (`RaisonRemboursement`) et que la
+  // route d'annulation elle-même : `deal.collected`, qui EST `cash.net`. Les trois
+  // écrans lisent la même grandeur — sans quoi l'un proposerait ce que l'autre
+  // refuse.
+  if (deal.collected <= 0.005) {
+    return (
+      <ModaleAction titre="Il ne reste rien à garder sur cette vente" onClose={onClose}
+        pied={
+          <>
+            <button className="btn-primary-brand" style={{ fontSize: 12.5 }} onClick={onAnnuler}>
+              Annuler la vente
+            </button>
+            <button className="btn-ghost" style={{ fontSize: 12.5 }} onClick={onClose}>Revenir</button>
+          </>
+        }>
+        <Encart ton="attention" titre="Clôturer garderait une vente vide dans tes chiffres">
+          Clôturer veut dire « je garde ce qui est rentré et je n’attends plus le
+          reste ». Ici {prenom} n’a rien versé — ou tout lui a été rendu — donc il
+          n’y a rien à garder.
+          <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(181,128,37,.28)' }}>
+            La vente resterait comptée <strong>{fmtEurExact(deal.amountTotal)}</strong> dans
+            ton cash contracté pour <strong>0,00 €</strong> encaissé, et son appel
+            continuerait de compter comme un closing.
+          </div>
+        </Encart>
+        <div style={{ marginTop: 12 }}>
+          <Encart ton="bien" titre="Annuler dit exactement ce qui s’est passé">
+            La vente sort du cash contracté, l’appel repasse en perdu, et tout
+            reste lisible dans son journal. Rien n’est effacé.
+          </Encart>
+        </div>
+      </ModaleAction>
+    );
+  }
+
   return (
     <ModaleAction
       titre={`Clôturer la vente du ${fmtDateLong(deal.signedAt)}`}
@@ -139,7 +193,7 @@ export function Cloturer({ deal, onClose, onDone, onArreter }: {
       }>
 
       <Encart>
-        C’est le cas quand l’accompagnement s’arrête en cours de route et que
+        C’est le cas quand {produitDefini(libelleProduit)} s’arrête en cours de route et que
         {' '}{prenom} ne paiera pas la suite. Ce qu’il a versé lui reste dû à toi ;
         le reste ne lui sera jamais réclamé.
       </Encart>
@@ -165,7 +219,7 @@ export function Cloturer({ deal, onClose, onDone, onArreter }: {
 
       <Section>Pourquoi ? <span style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--faint)' }}>(facultatif)</span></Section>
       <input value={raison} onChange={e => setRaison(e.target.value)} maxLength={200}
-        placeholder="Accompagnement arrêté d’un commun accord…" style={champStyle} />
+        placeholder={`${produitArreteSansArticle(libelleProduit)} d’un commun accord…`} style={champStyle} />
       <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
         Enregistré au journal de la vente — utile dans six mois, quand personne ne
         se souviendra du contexte.

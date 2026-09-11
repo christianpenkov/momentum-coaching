@@ -347,6 +347,7 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
           onClose={fermerFiche}
           onChange={refetch}
           isCoach={isCoach}
+          libelleProduit={data.libelleProduit}
           actionInitiale={actionInitiale && openDeal
             ? { quoi: actionInitiale, dealId: openDeal }
             : null}

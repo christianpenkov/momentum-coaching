@@ -1,5 +1,3 @@
-import { createClient } from '@supabase/supabase-js';
-
 /**
  * Ce que le client voit écrit sur sa page de paiement Stripe.
  *
@@ -23,11 +21,6 @@ import { createClient } from '@supabase/supabase-js';
  * configurable sans rassembler la composition aurait garanti qu'un des cinq
  * garde l'ancien format — le défaut le plus fréquent de ce projet.
  */
-
-const serviceSupabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 /** Le repli, et la valeur par défaut en base. */
 export const LIBELLE_PRODUIT_DEFAUT = 'Accompagnement / Coaching';
@@ -66,9 +59,93 @@ export function estLibelleValide(v: unknown): v is LibelleProduit {
  * Stripe : ce texte n'est plus modifiable une fois le paiement encaissé.
  */
 export async function libelleProduitDe(profileId: string): Promise<LibelleProduit> {
-  const { data } = await serviceSupabase
+  // ⚠️ Import DYNAMIQUE, et deux raisons qui vont dans le même sens.
+  //
+  // 1. Ce module est importé par des composants `'use client'` pour ses
+  //    constantes et ses phrases. Un `import` statique de supabase-js les ferait
+  //    tous embarquer la librairie, et un `createClient()` au niveau du module
+  //    s'exécuterait dans le navigateur — où `SUPABASE_SERVICE_ROLE_KEY` n'existe
+  //    pas, donc « supabaseKey is required » au premier rendu.
+  //
+  // 2. `npm test` tourne SANS dépendances installées (AGENTS.md). Un import
+  //    statique aurait fait échouer lib/libelleProduit.test.ts au chargement,
+  //    alors qu'il ne teste que des fonctions pures. Le seul appelant de cette
+  //    fonction-ci est du code serveur, où node_modules existe toujours.
+  const { createClient } = await import('@supabase/supabase-js');
+  const supa = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  );
+  const { data } = await supa
     .from('profiles').select('libelle_produit').eq('id', profileId).maybeSingle();
   return estLibelleValide(data?.libelle_produit) ? data.libelle_produit : LIBELLE_PRODUIT_DEFAUT;
+}
+
+/* ─── Le même produit, mais DANS UNE PHRASE ────────────────────────────────────
+ *
+ * `nomProduit` sert Stripe : « Accompagnement / Coaching — Marie ». C'est une
+ * étiquette, elle se lit seule.
+ *
+ * Les écrans, eux, écrivent des phrases : « l'accompagnement s'est arrêté »,
+ * « l'accompagnement suit son cours ». Y coller l'étiquette telle quelle donnerait
+ * « l'Accompagnement / Coaching s'est arrêté » — illisible, et faux en genre dès
+ * qu'on choisit « Formation ».
+ *
+ * ⚠️ D'où une table, et non une transformation : le français ne se déduit pas
+ * d'une chaîne. « Formation » prend « la » et accorde le participe, « Consulting »
+ * prend « le », « Accompagnement » veut une élision. Un `toLowerCase()` suivi d'un
+ * article fixe aurait écrit « la formation s'est arrêté ».
+ *
+ * ⚠️ Et des PHRASES ENTIÈRES exportées, pas des morceaux à recomposer chez
+ * l'appelant. Cinq écrans écrivaient « accompagnement » en dur ; leur donner des
+ * briques aurait produit cinq assemblages, donc cinq occasions d'oublier l'accord.
+ * C'est exactement le motif qui a fait naître `nomProduit` ici même.
+ */
+
+const EN_PHRASE: Record<LibelleProduit, { nom: string; article: string; feminin: boolean }> = {
+  'Accompagnement / Coaching': { nom: 'accompagnement', article: 'l’', feminin: false },
+  'Formation':                 { nom: 'formation',      article: 'la ', feminin: true  },
+  'Consulting':                { nom: 'consulting',     article: 'le ', feminin: false },
+  'Prestation de service':     { nom: 'prestation',     article: 'la ', feminin: true  },
+};
+
+function enPhrase(libelle: string | null | undefined) {
+  return EN_PHRASE[estLibelleValide(libelle) ? libelle : LIBELLE_PRODUIT_DEFAUT];
+}
+
+/** Majuscule sur la première lettre, élision comprise (« L’accompagnement »). */
+function capitaliser(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** « l’accompagnement », « la formation » — au milieu d'une phrase. */
+export function produitDefini(libelle: string | null | undefined): string {
+  const p = enPhrase(libelle);
+  return `${p.article}${p.nom}`;
+}
+
+/** « L’accompagnement s’est arrêté », « La formation s’est arrêtée ». */
+export function produitSestArrete(libelle: string | null | undefined): string {
+  const p = enPhrase(libelle);
+  return `${capitaliser(produitDefini(libelle))} s’est arrêté${p.feminin ? 'e' : ''}`;
+}
+
+/** « l’accompagnement suit son cours », « la formation suit son cours ». */
+export function produitSuitSonCours(libelle: string | null | undefined): string {
+  return `${produitDefini(libelle)} suit son cours`;
+}
+
+/**
+ * « Accompagnement arrêté », « Formation arrêtée » — sans article.
+ *
+ * Pour un texte d'exemple dans un champ de saisie, où l'article ferait lourd.
+ * Le `nom` est une COLONNE de la table et non le résultat d'un article retiré à
+ * l'expression régulière : « l’accompagnement » et « la formation » ne se
+ * découpent pas pareil, et une regex y aurait produit « ’accompagnement ».
+ */
+export function produitArreteSansArticle(libelle: string | null | undefined): string {
+  const p = enPhrase(libelle);
+  return `${capitaliser(p.nom)} arrêté${p.feminin ? 'e' : ''}`;
 }
 
 /**

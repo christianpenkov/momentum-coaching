@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { resolveTargetProfile } from '@/lib/stripe-account';
 import { calculerCash, encaisseRetenu, aRembourser } from '@/lib/dealCash';
+import { estLibelleValide, LIBELLE_PRODUIT_DEFAUT } from '@/lib/libelleProduit';
 
 /**
  * Données de la page Paiements — les trois onglets en une requête.
@@ -149,6 +150,20 @@ export async function GET(request: NextRequest) {
     .eq('provider', 'stripe')
     .maybeSingle();
   const stripeConnected = !!(stripeIntegration?.access_token || stripeIntegration?.api_key);
+
+  // ── Ce que ce coach vend, pour que les ÉCRANS le disent aussi ──────────────
+  // Le libellé choisi dans Réglages ne servait qu'à Stripe. Les écrans, eux,
+  // écrivaient « accompagnement » en dur — jusque dans les phrases qu'on fait
+  // valider à l'élève (« l'accompagnement s'est arrêté »). Un consultant y lisait
+  // un mot qui n'est pas le sien, sur l'écran où il engage de l'argent.
+  //
+  // Une lecture par CHARGEMENT de la page, pas par vente : c'est une propriété du
+  // profil. `libelleProduitDe` la ferait par deal.
+  const { data: profilProduit } = await supa
+    .from('profiles').select('libelle_produit').eq('id', profileId).maybeSingle();
+  const libelleProduit = estLibelleValide(profilProduit?.libelle_produit)
+    ? profilProduit.libelle_produit
+    : LIBELLE_PRODUIT_DEFAUT;
 
   // ── Deals + leurs paiements ────────────────────────────────────────────────
   const { data: deals, error: dealsErr } = await supa
@@ -597,6 +612,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     profileId,
     stripeConnected,
+    libelleProduit,
     kpis,
     deals: rows,
     people,

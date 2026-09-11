@@ -43,7 +43,7 @@ type Action =
   | { quoi: 'rembourser'; dealId: string; motif: MotifRemboursement; montant: number; arret: boolean };
 
 export default function FicheClient({
-  person, deals, details, onClose, onChange, isCoach, actionInitiale,
+  person, deals, details, onClose, onChange, isCoach, actionInitiale, libelleProduit,
 }: {
   person: PersonRow;
   /** Les ventes de cette personne, la plus récente en premier. */
@@ -52,6 +52,14 @@ export default function FicheClient({
   onClose: () => void;
   onChange: () => Promise<unknown> | void;
   isCoach?: boolean;
+  /**
+   * Ce que ce coach vend — « Accompagnement / Coaching », « Formation »…
+   *
+   * Descendu jusqu'ici parce que les écrans écrivaient « accompagnement » en dur,
+   * y compris dans les phrases qu'on fait valider à l'élève. Voir
+   * `produitSestArrete` dans lib/libelleProduit.
+   */
+  libelleProduit: string;
   /**
    * L'écran à ouvrir en même temps que la fiche.
    *
@@ -242,8 +250,10 @@ export default function FicheClient({
               })} />
           )}
           {action.quoi === 'cloturer' && (
-            <Cloturer deal={dealDeLaction} onClose={() => setAction(null)} onDone={apresAction}
-              onArreter={() => setAction({ quoi: 'arreter', dealId: action.dealId })} />
+            <Cloturer deal={dealDeLaction} libelleProduit={libelleProduit}
+              onClose={() => setAction(null)} onDone={apresAction}
+              onArreter={() => setAction({ quoi: 'arreter', dealId: action.dealId })}
+              onAnnuler={() => setAction({ quoi: 'annuler', dealId: action.dealId })} />
           )}
           {action.quoi === 'annuler' && (
             <Annuler deal={dealDeLaction} onClose={() => setAction(null)} onDone={apresAction}
@@ -253,6 +263,7 @@ export default function FicheClient({
           )}
           {action.quoi === 'raisonRemboursement' && (
             <RaisonRemboursement deal={dealDeLaction} detail={details[action.dealId]}
+              libelleProduit={libelleProduit}
               onClose={() => setAction(null)} onDone={apresAction} />
           )}
           {action.quoi === 'arreter' && (

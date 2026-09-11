@@ -210,6 +210,14 @@ export interface PaymentsData {
   profileId: string;
   /** Sans Stripe, aucun lien de paiement ne peut être créé. */
   stripeConnected: boolean;
+  /**
+   * Ce que ce coach vend — le libellé choisi dans Réglages, sur la ligne Stripe.
+   *
+   * Les écrans en ont besoin autant que Stripe : ils écrivaient « accompagnement »
+   * en dur, y compris dans les phrases qu'on fait valider (« l'accompagnement s'est
+   * arrêté »). Voir `produitDefini` / `produitSestArrete` dans lib/libelleProduit.
+   */
+  libelleProduit: string;
   kpis: {
     contracted: number;
     collected: number;

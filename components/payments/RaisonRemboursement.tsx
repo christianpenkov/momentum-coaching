@@ -6,6 +6,7 @@ import ModaleAction, {
   CaseResponsabilite, Encart, Section, Ligne, LienACopier, Chip,
 } from './ModaleAction';
 import { moyenDe } from './etats';
+import { produitDefini, produitSestArrete, produitSuitSonCours } from '@/lib/libelleProduit';
 import {
   fmtEurExact, fmtDateLong,
   type DealRow, type DealDetail, type RaisonRemboursement,
@@ -43,34 +44,74 @@ import {
 type Etape = 'raison' | 'consequence';
 
 /**
- * ⚠️ Chaque raison PORTE sa conséquence, au lieu d'une seconde question.
+ * ⚠️ Chaque option PORTE sa conséquence, au lieu d'une seconde question.
  *
- * Une version précédente demandait ensuite « l'accompagnement s'est-il arrêté ? »
- * dans tous les cas. Après « un geste commercial », la question tombait à plat :
- * en choisissant ce mot on vient justement de dire que l'accompagnement n'est pas
- * le sujet. Une question dont la réponse est déjà donnée fait douter d'avoir
- * répondu à la précédente.
+ * Une version précédente demandait ensuite « le produit s'est-il arrêté ? » dans
+ * tous les cas. Après « un geste commercial », la question tombait à plat : en
+ * choisissant ce mot on vient justement de dire que le produit n'est pas le
+ * sujet. Une question dont la réponse est déjà donnée fait douter d'avoir
+ * répondu à la précédente. « Autre » reste la seule à en poser, parce qu'elle
+ * est la seule à ne rien affirmer.
  *
- * Les deux premières se distinguent donc par ce qu'elles font, pas par la nuance
- * juridique entre remise et rétractation : l'une baisse le prix, l'autre arrête
- * l'accompagnement. Le sous-titre le dit avant qu'on clique.
+ * ⚠️ Les options DÉPENDENT de ce qui reste chez l'élève, et ce n'est pas cosmétique.
  *
- * « Autre » reste la seule à poser des questions, parce qu'elle est la seule à
- * ne rien affirmer.
+ * Deux d'entre elles ne veulent rien dire dans certaines situations, et la liste
+ * fixe les proposait quand même :
+ *
+ * · **« … s'est arrêté » (clôturer)** veut dire « je garde ce qui est rentré et
+ *   je n'attends plus rien ». Quand TOUT est reparti, il n'y a rien à garder :
+ *   la vente resterait comptée pour son montant avec 0 encaissé, et son appel
+ *   compterait toujours comme un closing. C'est précisément l'incohérence
+ *   relevée par Chris — « est-ce qu'on met la possibilité, lorsque le
+ *   remboursement remet l'encaissé à 0, d'annuler la vente ? ».
+ *
+ * · **« Annuler la vente »** ne peut ABOUTIR que s'il ne reste rien à rembourser.
+ *   La route le dit elle-même : avec de l'argent encore là, elle répond 409 et
+ *   demande de rembourser d'abord (`payments/deals/[id]/cancel`). La proposer
+ *   ici quand il reste du cash offrirait un geste qui échoue.
+ *
+ * Les deux s'excluent donc exactement, sur le même critère et sans zone grise :
+ * `deal.collected`, qui EST `cash.net` (ce qu'on tient encore), le seuil que la
+ * route applique déjà. Une seule des deux est affichée, jamais les deux.
+ *
+ * ⚠️ Et « annuler » n'est PAS une raison de remboursement : c'est un autre geste,
+ * sur une autre route. Elle vit dans la même liste parce que c'est là que
+ * l'utilisateur se pose la question — mais `valider()` la traite à part.
+ *
+ * ⚠️ « Un geste commercial » disparaît si la baisse ramènerait la vente à zéro :
+ * une vente à 0,00 € s'afficherait « Soldée », ce qui ne veut rien dire. Là
+ * encore, annuler est le vrai geste.
  */
-const RAISONS: { cle: RaisonRemboursement; titre: string; sous: string }[] = [
-  { cle: 'geste_commercial', titre: 'Un geste commercial',
-    sous: 'Remise ou dédommagement — tu as choisi de rendre cet argent, et l’accompagnement suit son cours.' },
-  { cle: 'retractation', titre: 'L’accompagnement s’est arrêté',
-    sous: 'Il s’est rétracté, tu l’as remboursé, et ça s’arrête là. La vente sera clôturée.' },
-  { cle: 'erreur', titre: 'C’était une erreur',
-    sous: 'Ce remboursement n’aurait pas dû partir. Il te doit toujours cette somme.' },
-  { cle: 'autre', titre: 'Autre raison', sous: 'Tu précises, et tu dis ce que ça change.' },
-];
+type CleOption = RaisonRemboursement | 'annulation';
 
-export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
+function optionsDisponibles(
+  libelle: string,
+  peutAnnuler: boolean,
+  peutBaisser: boolean,
+): { cle: CleOption; titre: string; sous: string }[] {
+  return [
+    ...(peutBaisser ? [{
+      cle: 'geste_commercial' as const, titre: 'Un geste commercial',
+      sous: `Remise ou dédommagement — tu as choisi de rendre cet argent, et ${produitSuitSonCours(libelle)}.`,
+    }] : []),
+    ...(peutAnnuler ? [{
+      cle: 'annulation' as const, titre: 'Annuler la vente',
+      sous: 'Tout ce qu’il avait versé est reparti : il ne reste rien de cette vente. Elle sort de tes chiffres, et l’appel cesse de compter comme un closing.',
+    }] : [{
+      cle: 'retractation' as const, titre: produitSestArrete(libelle),
+      sous: `Il s’est rétracté, tu l’as remboursé, et ça s’arrête là. La vente sera clôturée en cours de route : tu gardes ce qui est déjà rentré.`,
+    }]),
+    { cle: 'erreur', titre: 'C’était une erreur',
+      sous: 'Ce remboursement n’aurait pas dû partir. Il te doit toujours cette somme.' },
+    { cle: 'autre', titre: 'Autre raison', sous: 'Tu précises, et tu dis ce que ça change.' },
+  ];
+}
+
+export default function RaisonRemboursement({ deal, detail, libelleProduit, onClose, onDone }: {
   deal: DealRow;
   detail?: DealDetail;
+  /** Ce que ce coach vend. Toutes les phrases de cet écran en dépendent. */
+  libelleProduit: string;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -103,7 +144,7 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
   const quandRembourse = dernierRefund?.created_at ?? dernier?.paid_at ?? null;
 
   const [etape, setEtape] = useState<Etape>('raison');
-  const [raison, setRaison] = useState<RaisonRemboursement | null>(null);
+  const [raison, setRaison] = useState<CleOption | null>(null);
   const [note, setNote] = useState('');
   const [encoreDu, setEncoreDu] = useState<boolean | null>(null);
   const [encaissement, setEncaissement] = useState<'lien' | 'offline'>(
@@ -116,11 +157,26 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
   const [envoi, setEnvoi] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const [resultat, setResultat] = useState<
-    { encoreDu: boolean; avant?: number; apres?: number; cloture?: boolean; lien: { url: string } | null } | null>(null);
+    { encoreDu: boolean; avant?: number; apres?: number; cloture?: boolean; annulee?: boolean; lien: { url: string } | null } | null>(null);
 
   // « Autre » est la seule qui ne porte pas son sort : on le demande.
   const duFinal = raison === 'autre' ? encoreDu : raison === 'erreur';
   const nouveauMontant = Math.max(0, Math.round((deal.amountTotal - montant) * 100) / 100);
+
+  // ── Les deux critères qui décident des options, et du geste final ──────────
+  //
+  // `deal.collected` EST `cash.net` : ce qu'on tient encore, remboursements,
+  // litiges et pertes déduits (app/api/payments/route.ts). C'est exactement le
+  // seuil que la route d'annulation applique pour accepter ou refuser.
+  const resteChezToi = deal.collected;
+  const peutAnnuler = resteChezToi <= 0.005;
+  const peutBaisser = nouveauMontant > 0.005;
+  const options = optionsDisponibles(libelleProduit, peutAnnuler, peutBaisser);
+
+  // L'arrêt demandé se traduit par une ANNULATION quand il ne reste rien, par une
+  // CLÔTURE sinon. Un seul endroit le décide : `valider()` et les textes de
+  // l'étape 2 lisent ce booléen, ils ne refont pas le raisonnement chacun.
+  const onAnnule = !duFinal && !continue_ && peutAnnuler;
   // ⚠️ Baisser le montant ne solde PAS toujours la vente. Sur une vente encore
   // en cours (1 000 € vendus, 300 € encaissés, 100 € rendus), elle vaut 900 € et
   // il reste 700 € à encaisser. Promettre « soldée à 100 % » y serait faux — et
@@ -133,6 +189,29 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
     setEnvoi(true);
     setErreur(null);
     try {
+      // ── Annuler n'est pas « expliquer un remboursement » ──────────────────
+      //
+      // C'est un autre geste, sur une autre route, avec d'autres effets : la
+      // vente sort du cash contracté, ses liens sont désactivés, et l'appel est
+      // déclassé (`deal_closed = false`). `refund-reason` ne sait rien faire de
+      // tout ça — l'y router aurait baissé un montant au lieu d'annuler.
+      //
+      // La raison du remboursement n'est pas enregistrée dans ce cas, et c'est
+      // volontaire : l'annulation EST l'explication. La fiche cesse d'ailleurs
+      // de poser la question sur une vente annulée, et la pastille
+      // « À EXPLIQUER » l'exclut déjà (ListeClients).
+      if (onAnnule) {
+        const r = await fetch(`/api/payments/deals/${deal.id}/cancel`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ confirmed: true }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || 'L’annulation a échoué.');
+        setResultat({ encoreDu: false, annulee: true, lien: null });
+        return;
+      }
+
       const r = await fetch(`/api/payments/deals/${deal.id}/refund-reason`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -169,6 +248,7 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
       <ModaleAction
         titre={resultat.encoreDu
           ? `${fmtEurExact(montant)} de nouveau à encaisser`
+          : resultat.annulee ? 'Vente annulée'
           : resultat.cloture ? 'Vente clôturée'
           : `Vente ramenée à ${fmtEurExact(resultat.apres ?? nouveauMontant)}`}
         onClose={onDone}
@@ -194,10 +274,17 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
               </Encart>
             )}
           </>
+        ) : resultat.annulee ? (
+          <Encart ton="bien" titre="C’est fait">
+            La vente est <strong>annulée</strong>. Elle sort du cash contracté et
+            du cash encaissé, son appel repasse en <strong>perdu</strong> et ne
+            compte plus comme un closing. Tout reste lisible dans son journal —
+            rien n’est effacé, la vente est seulement sortie des chiffres.
+          </Encart>
         ) : (
           resultat.cloture ? (
             <Encart ton="bien" titre="C’est fait">
-              La vente est <strong>clôturée</strong> : l’accompagnement s’est
+              La vente est <strong>clôturée</strong> : {produitDefini(libelleProduit)} s’est
               arrêté avant la fin. Elle reste comptée{' '}
               <strong>{fmtEurExact(resultat.apres ?? deal.amountTotal)}</strong> —
               c’est ce que tu avais vendu — et les {fmtEurExact(montant)} rendus
@@ -246,12 +333,13 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
         </Encart>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
-          {RAISONS.map(r => (
+          {options.map(r => (
             <button key={r.cle} onClick={() => {
               setRaison(r.cle);
-              // Une rétractation EST un arrêt ; un geste commercial ne l'est pas.
-              // Le défaut suit donc la raison — la question reste posée et visible.
-              setContinue(r.cle !== 'retractation');
+              // Une rétractation et une annulation sont des ARRÊTS ; un geste
+              // commercial ne l'est pas. Le défaut suit donc la raison — et la
+              // question reste posée et visible pour « Autre ».
+              setContinue(r.cle !== 'retractation' && r.cle !== 'annulation');
             }} style={{
               textAlign: 'left', width: '100%', cursor: 'pointer', fontFamily: 'inherit',
               background: raison === r.cle ? 'var(--surface-2)' : 'var(--surface)',
@@ -303,6 +391,7 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
       // contredisait le corps de l'écran, sur la seule ligne qu'on lit en premier.
       titre={duFinal ? `Réclamer ${fmtEurExact(montant)} à ${prenom}`
         : continue_ ? `Ramener la vente à ${fmtEurExact(nouveauMontant)}`
+        : onAnnule ? 'Annuler cette vente'
         : 'Clôturer cette vente'}
       sousTitre={`Vente du ${fmtDateLong(deal.signedAt)}`}
       onClose={onClose}
@@ -366,13 +455,18 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
               répondu en étant choisies. */}
           {raison === 'autre' && (
             <div style={{ marginBottom: 14 }}>
-              <Section marge={0}>L’accompagnement s’est-il arrêté ?</Section>
+              {/* Tourné en « As-tu arrêté X ? » plutôt qu'en « X s'est-il
+                  arrêté ? » : la seconde forme demande d'accorder le pronom au
+                  genre du produit (« la formation s'est-ELLE arrêtée »), donc un
+                  accord de plus à tenir juste pour poser une question. La forme
+                  active n'en demande aucun. */}
+              <Section marge={0}>As-tu arrêté {produitDefini(libelleProduit)} ?</Section>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <Chip on={continue_} onClick={() => setContinue(true)}>
-                  Non — il continue, ou il est allé au bout
+                  Non — ça continue, ou c’est allé au bout
                 </Chip>
                 <Chip on={!continue_} onClick={() => setContinue(false)}>
-                  Oui — il s’est arrêté avant la fin
+                  {peutAnnuler ? 'Oui — et la vente est annulée' : 'Oui — arrêté avant la fin'}
                 </Chip>
               </div>
             </div>
@@ -411,28 +505,55 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
           ) : (
             <>
               <Encart ton="bien" titre="Ce que ça veut dire">
-                Tu avais bien vendu <strong>{fmtEurExact(deal.amountTotal)}</strong>,
-                et ce montant ne bouge pas. La vente passe en{' '}
-                <strong>Clôturée</strong> : tu n’attends plus rien dessus, elle
-                sort des relances, et les {fmtEurExact(montant)} rendus restent
-                visibles comme de l’argent rendu.
+                {onAnnule ? <>
+                  Tout ce que {prenom} avait versé est reparti :{' '}
+                  <strong>il ne reste rien</strong> de cette vente. Elle est donc
+                  retirée de tes chiffres plutôt que clôturée — clôturer voudrait
+                  dire « je garde ce qui est rentré », et il n’y a rien à garder.
+                </> : <>
+                  Tu avais bien vendu <strong>{fmtEurExact(deal.amountTotal)}</strong>,
+                  et ce montant ne bouge pas. La vente passe en{' '}
+                  <strong>Clôturée</strong> : tu n’attends plus rien dessus, elle
+                  sort des relances, et les {fmtEurExact(montant)} rendus restent
+                  visibles comme de l’argent rendu.
+                </>}
               </Encart>
               <div style={{ marginTop: 12 }}>
-                <Ligne label="Cash contracté" valeur={`${fmtEurExact(deal.amountTotal)} — inchangé`} />
-                <Ligne label="Cash encaissé" valeur={`${fmtEurExact(deal.collected)} — inchangé`} />
-                {/* La question qui restait sans réponse à l'écran : le
-                    pourcentage. Ne pas la traiter laissait croire à un chiffre
-                    en suspens, alors que 80 % est ici la bonne valeur. */}
-                <Ligne label="Encaissé sur contracté"
-                  valeur={`${Math.round((deal.collected / (deal.amountTotal || 1)) * 100)} % — inchangé`} />
-                <Ligne label="La vente passe en" valeur="Clôturée" ton="fort" />
-                <Ligne label={`${prenom} sera relancé`} valeur="Non" />
+                {onAnnule ? <>
+                  {/* Les deux lignes que l'annulation fait vraiment bouger, et la
+                      troisième que personne n'associe spontanément à un
+                      remboursement — c'est pourtant elle qui change un taux de
+                      closing. La taire ici ferait découvrir l'effet dans les
+                      stats, une semaine plus tard. */}
+                  <Ligne label="Cash contracté" barre={fmtEurExact(deal.amountTotal)}
+                    valeur="0,00 €" ton="fort" />
+                  <Ligne label="Cash encaissé" valeur="0,00 € — déjà le cas" />
+                  <Ligne label="L’appel de vente" valeur="repasse en perdu" ton="fort" />
+                  <Ligne label="Compté comme un closing" barre="Oui" valeur="Non" ton="fort" />
+                  <Ligne label={`${prenom} sera relancé`} valeur="Non" />
+                </> : <>
+                  <Ligne label="Cash contracté" valeur={`${fmtEurExact(deal.amountTotal)} — inchangé`} />
+                  <Ligne label="Cash encaissé" valeur={`${fmtEurExact(deal.collected)} — inchangé`} />
+                  {/* La question qui restait sans réponse à l'écran : le
+                      pourcentage. Ne pas la traiter laissait croire à un chiffre
+                      en suspens, alors que 80 % est ici la bonne valeur. */}
+                  <Ligne label="Encaissé sur contracté"
+                    valeur={`${Math.round((deal.collected / (deal.amountTotal || 1)) * 100)} % — inchangé`} />
+                  <Ligne label="La vente passe en" valeur="Clôturée" ton="fort" />
+                  <Ligne label={`${prenom} sera relancé`} valeur="Non" />
+                </>}
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10, lineHeight: 1.6 }}>
-                Cette vente ne sera donc <strong>jamais à 100 %</strong>, et c’est
-                voulu : les {fmtEurExact(montant)} manquants sont l’argent que tu
-                as rendu parce que l’accompagnement s’est arrêté. C’est ce que
-                l’écart raconte.
+                {onAnnule ? <>
+                  Rien n’est effacé : le montant, les paiements et le remboursement
+                  restent lisibles dans le journal de la vente. C’est son comptage
+                  qui s’arrête, pas son histoire.
+                </> : <>
+                  Cette vente ne sera donc <strong>jamais à 100 %</strong>, et c’est
+                  voulu : les {fmtEurExact(montant)} manquants sont l’argent que tu
+                  as rendu parce que {produitDefini(libelleProduit)} s’est arrêté.
+                  C’est ce que l’écart raconte.
+                </>}
               </div>
             </>
           )}
@@ -445,7 +566,9 @@ export default function RaisonRemboursement({ deal, detail, onClose, onDone }: {
             ? `Ce remboursement était une erreur : ${prenom} me doit toujours cette somme, et j’assume les rappels qui vont lui être envoyés.`
             : continue_
               ? `Cet argent n’est plus dû. J’accepte que cette vente soit désormais comptée pour ${fmtEurExact(nouveauMontant)} dans mes statistiques.`
-              : `Cet argent n’est plus dû et l’accompagnement s’est arrêté. J’accepte que cette vente soit clôturée, et qu’elle reste comptée pour ${fmtEurExact(deal.amountTotal)}.`} />
+              : onAnnule
+                ? `Tout ce que ${prenom} avait versé lui est revenu. J’accepte que cette vente sorte de mes chiffres, et que l’appel cesse de compter comme un closing.`
+                : `Cet argent n’est plus dû et ${produitDefini(libelleProduit)} s’est arrêté. J’accepte que cette vente soit clôturée, et qu’elle reste comptée pour ${fmtEurExact(deal.amountTotal)}.`} />
       </div>
 
       {erreur && (
