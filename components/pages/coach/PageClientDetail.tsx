@@ -1,6 +1,9 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+// Pas de `useMemo` dans la liste : ce composant a deux `return` anticipés au milieu,
+// et tout ce qui les suit ne peut pas porter de hook. L'importer, c'est le rendre
+// atteignable d'une frappe de complétion là où il casse la page.
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { parisDateStr } from '@/lib/period';
 import {
@@ -646,10 +649,14 @@ export default function PageClientDetail({ id }: Props) {
   //
   // Les annulés restent hors liste, comme aujourd'hui : un coaching annulé n'apprend
   // rien sur l'accompagnement, et sa carte barrée allongerait la liste sans raison.
-  const rapportParCall = useMemo(
-    () => new Map(sessionReports.map(r => [r.call_id, r])),
-    [sessionReports],
-  );
+  // ⚠️ PAS DE `useMemo` ICI — même raison qu'au bloc « dernière publication » plus haut,
+  // et même incident : ce code est situé après les deux `return` anticipés (chargement,
+  // client introuvable). Un hook posé ici n'est pas appelé au premier rendu et l'est au
+  // suivant, React voit le compte changer et refuse de rendre la page entière. Ni `tsc`
+  // ni `next build` ne l'attrapent, seul un rendu réel le montre — c'est arrivé le
+  // 2026-09-04, la garde était écrite, et c'est arrivé de nouveau le 2026-09-12.
+  // Construire une Map de treize entrées à chaque rendu ne coûte rien.
+  const rapportParCall = new Map(sessionReports.map(r => [r.call_id, r]));
   const coachingsTriables = coachingCalls.filter(c => c.scheduled_at);
   const coachingsAVenir = coachingsTriables
     .filter(c => !isCallReallyOver(c, nowTick))
