@@ -60,6 +60,42 @@ c'est ce même réglage qui construit les liens de connexion à l'intérieur des
 *Vérifié le 2026-09-12 : `public/logo-momentum.png` existe dans le dépôt et répond en
 HTTP 200 (52 ko, `image/png`).*
 
+## ⚠️ Trois de ces six e-mails ne partent JAMAIS
+
+Mesuré dans le code le 2026-09-12. À savoir avant de passer du temps à en peaufiner un
+que personne ne recevra.
+
+| Gabarit | Part ? | Déclenché par |
+|---|---|---|
+| **00 Invite user** | ✅ | `inviteUserByEmail` — le coach invite un élève |
+| **01 Confirm sign up** | ✅ | `signUp` sur `/signup` |
+| **04 Reset password** | ✅ | `resetPasswordForEmail` sur `/login` |
+| 02 Magic link | ❌ | `signInWithOtp` n'est appelé nulle part |
+| 03 Change email | ❌ | `updateUser` n'est jamais appelé avec un e-mail, seulement un mot de passe |
+| 05 Reauthentication | ❌ | jamais déclenchée |
+
+Les trois dormants restent en place **exprès** : Supabase exige qu'un gabarit existe, et
+le jour où l'un de ces parcours est ouvert, l'e-mail sera déjà à la marque plutôt qu'au
+gabarit par défaut. Mais **ne pas les traiter comme du travail prioritaire**.
+
+### Le code à 6 chiffres a été RETIRÉ du lien magique
+
+`{{ .Token }}` est un code à usage unique, alternative au clic sur le lien. Il ne
+fonctionne que si l'application expose un champ pour le saisir, via `verifyOtp`.
+
+**Mesuré : aucun appel à `verifyOtp`, aucun champ de saisie de code dans toute
+l'application.** Le code était donc inutilisable — et l'afficher était pire que de
+l'omettre : le destinataire cherche un champ qui n'existe pas, et conclut que la
+plateforme est cassée.
+
+⚠️ **Il reste dans `05-reauthentication.html`**, parce que ce parcours-là n'a **que** le
+code comme mécanisme (Supabase n'y envoie aucun lien). Comme il n'est jamais déclenché,
+c'est sans conséquence — mais si la réauthentification est activée un jour, **il faudra
+d'abord construire l'écran de saisie**, sinon l'e-mail promettra une action impossible.
+
+**La règle générale :** ne jamais afficher dans un e-mail une action que l'application ne
+sait pas honorer. Une instruction sans destination se lit comme une panne.
+
 ## La charte n'est pas inventée
 
 Toutes les couleurs viennent de `DESIGN.md`, à la racine du dépôt :

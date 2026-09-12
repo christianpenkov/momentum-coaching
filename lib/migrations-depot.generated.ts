@@ -208,4 +208,7 @@ export const MIGRATIONS_DEPOT: { version: string; nom: string }[] = [
   { version: '20260909095234', nom: 'utm_anomalies_vide_quand_tout_va_bien' },
   { version: '20260909095458', nom: 'utm_sante_attribution_surveillable_sans_donnee_personnelle' },
   { version: '20260909103000', nom: 'ventes_sante_montants_vente_annulee_pas_absente' },
+  { version: '20260909120000', nom: 'annulation_demandee' },
+  { version: '20260909140000', nom: 'prelevements_a_venir_ne_terminent_pas' },
+  { version: '20260912140000', nom: 'get_ig_posts_history_accepte_service_role' },
 ];

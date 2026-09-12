@@ -143,23 +143,30 @@ export async function GET(request: Request) {
     .gte('date', sinceDateStr)
     .lte('date', untilDateStr)
     .order('date', { ascending: true });
-  // Durees des posts video — table a part parce qu'une duree ne change jamais :
-  // la recopier sur chaque instantane quotidien serait la meme valeur ecrite des
-  // centaines de fois. Jointe ici, pas stockee. Voir mesurerDureePost.
-  const dbDureesPromise = serviceSupabase
-    .from('ig_post_durees')
-    .select('post_id, duree_sec')
-    .eq('profile_id', targetProfileId);
-  const dbPostsPromise = serviceSupabase
-    .from('analytics_ig_posts_history')
-    .select('*')
-    .eq('profile_id', targetProfileId)
-    .is('archived_at', null)
-    .gte('snapshot_date', sinceDateStr)
-    .lte('snapshot_date', untilDateStr)
-    .order('snapshot_date', { ascending: false });
+  // ⚠️ La deduplication se fait EN BASE, pas ici.
+  //
+  // `analytics_ig_posts_history` porte une ligne par post ET PAR JOUR. Jusqu'au
+  // 2026-09-12, cette route faisait `select('*')` sur la fenetre puis ne gardait qu'une
+  // ligne par post cote application : elle telechargeait donc trente copies de chaque
+  // post pour n'en garder qu'une. Mesure sur un profil de test : 924 lignes brutes pour
+  // 14 posts reels, et ~4 Mo par chargement a 300 posts.
+  //
+  // `get_ig_posts_history` fait exactement le meme choix (`distinct on (post_id)`
+  // ordonne par `snapshot_date desc`, donc l'instantane le plus recent), applique le
+  // meme filtre `archived_at is null`, et joint en prime `ig_post_durees` — ce qui
+  // supprime la seconde requete qui existait pour ca. Une duree ne change jamais : la
+  // recopier sur chaque instantane serait la meme valeur ecrite des centaines de fois.
+  //
+  // ⚠️ C'est la MEME fonction que celle appelee par le navigateur dans
+  // components/analytics/PageClientStats.tsx. Une seule regle de deduplication pour les
+  // deux chemins : ils ne peuvent plus diverger.
+  const dbPostsPromise = serviceSupabase.rpc('get_ig_posts_history', {
+    p_profile_id: targetProfileId,
+    p_start_date: sinceDateStr,
+    p_end_date: untilDateStr,
+  });
 
-  const [accountRes, demoRes, onlineFollowersRes, viewsBreakdownRes, reachDedupRes, dbSnapshotsRes, dbPostsRes, dbDureesRes] = await Promise.all([
+  const [accountRes, demoRes, onlineFollowersRes, viewsBreakdownRes, reachDedupRes, dbSnapshotsRes, dbPostsRes] = await Promise.all([
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}?fields=username,name,profile_picture_url,followers_count,follows_count,media_count,biography&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=follower_demographics&period=lifetime&breakdown=age,gender,country,city&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=online_followers&period=lifetime&since=${ofSince}&until=${ofUntil}&access_token=${token}`),
@@ -196,7 +203,6 @@ export async function GET(request: Request) {
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach&period=day&metric_type=total_value&breakdown=follow_type&since=${since}&until=${until}&access_token=${token}`),
     dbSnapshotsPromise,
     dbPostsPromise,
-    dbDureesPromise,
   ]);
 
   const [accountData, demoData, onlineFollowersData, viewsBreakdownData, reachDedupData] = await Promise.all([
@@ -381,16 +387,12 @@ export async function GET(request: Request) {
   // bucket Storage permanent depuis le fix du 2026-07-07). Dédupliqué par post_id, on
   // garde le snapshot le plus récent (query triée snapshot_date descendant) — même
   // pattern que latestIgPost/igPosts dans components/analytics/PageClientStats.tsx.
-  const dureeParPost = new Map<string, number>();
-  for (const d of (dbDureesRes.data ?? [])) {
-    if (d.duree_sec != null) dureeParPost.set(d.post_id, Number(d.duree_sec));
-  }
-  const dbPostRows = dbPostsRes.data ?? [];
-  const latestPostByid = new Map<string, any>();
-  for (const row of dbPostRows) {
-    if (!latestPostByid.has(row.post_id)) latestPostByid.set(row.post_id, row);
-  }
-  const posts = [...latestPostByid.values()]
+  // Deja dedupliquees et jointes aux durees par get_ig_posts_history : une ligne par
+  // post, l'instantane le plus recent de la fenetre.
+  // `.rpc()` n'est pas type : on nomme le tableau pour que l'inference reparte, sinon
+  // le `.sort()` plus bas perd ses parametres.
+  const lignesPosts: any[] = dbPostsRes.data ?? [];
+  const posts = lignesPosts
     .map((row: any) => ({
       id: row.post_id,
       caption: row.caption ?? '',
@@ -411,7 +413,7 @@ export async function GET(request: Request) {
       avgWatchTimeMs: row.avg_watch_time_ms ?? null,
       totalWatchTimeMs: row.total_watch_time_ms ?? null,
       skipRate: row.skip_rate ?? null,
-      dureeSec: dureeParPost.get(row.post_id) ?? null,
+      dureeSec: row.duree_sec ?? null,
     }))
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
