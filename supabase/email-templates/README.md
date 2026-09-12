@@ -22,7 +22,43 @@ Tableau de bord → **Authentication → Emails → Templates**
 | `03-change-email.html` | Change email address |
 | `04-reset-password.html` | Reset password |
 | `05-reauthentication.html` | Reauthentication |
-| *(absent)* | **Invite user** — déjà au design Momentum, **ne pas y toucher** |
+| `00-invite-user.html` | Invite user — **une seule ligne change**, voir ci-dessous |
+
+Les cinq nouveaux sont calqués **au pixel** sur le gabarit d'invitation qui existait
+déjà : carte 480 px, rayon 20 px, bandeau ardoise 36/40, pastille blanche 72×72 rayon
+18, titre 22 px `-0.2px`, corps 14 px, bouton **ardoise** (et non encre) rayon 12,
+mentions 12 px `#a3a39e`, pied « MOMENTUM COACHING » 11 px.
+
+### ⚠️ La seule modification apportée à « Invite user » : l'URL du logo
+
+Le gabarit d'origine pointait le logo en **dur** :
+
+```html
+<img src="https://momentum-plateforme.vercel.app/logo-momentum.png" …>
+```
+
+C'est une **adresse de plus où vit l'origine de la plateforme**, et la pire de toutes :
+elle est dans le tableau de bord, donc **aucun `grep` du dépôt ne peut la voir**. Le jour
+où le projet Vercel est renommé ou passe sur son domaine définitif, le logo disparaît de
+**tous** les e-mails d'invitation — et seul le destinataire s'en aperçoit.
+
+Remplacée par la variable universelle :
+
+```html
+<img src="{{ .SiteURL }}/logo-momentum.png" …>
+```
+
+`{{ .SiteURL }}` est disponible dans **tous** les gabarits (vérifié dans la documentation
+Supabase le 2026-09-12) et suit la configuration du projet. Une adresse à tenir au lieu
+de six.
+
+⚠️ **Corollaire : le logo dépend désormais de « URL Configuration → Site URL ».** S'il est
+faux — une adresse de développement oubliée, par exemple — le logo casse dans les six
+e-mails d'un coup. **À vérifier avant de coller**, et c'est de toute façon à vérifier :
+c'est ce même réglage qui construit les liens de connexion à l'intérieur des messages.
+
+*Vérifié le 2026-09-12 : `public/logo-momentum.png` existe dans le dépôt et répond en
+HTTP 200 (52 ko, `image/png`).*
 
 ## La charte n'est pas inventée
 
@@ -39,17 +75,21 @@ Toutes les couleurs viennent de `DESIGN.md`, à la racine du dépôt :
 
 Et l'intention, citée du même fichier : *« Momentum ressemble à un cabinet de conseil
 premium et discret, jamais à une app grand public ludique. La couleur est un outil de
-hiérarchie, pas une décoration. »* D'où l'ardoise réservée au seul bandeau, et le bouton
-en encre plutôt qu'en couleur.
+hiérarchie, pas une décoration. »*
+
+⚠️ **Le bouton est en ardoise `#3a6a86`, pas en encre.** C'est le choix du gabarit
+d'invitation d'origine, et les cinq autres s'y alignent — la cohérence entre les six
+e-mails prime sur une lecture personnelle de la charte.
 
 ## Contraintes techniques respectées
 
 - **Styles en ligne uniquement.** Gmail supprime les blocs `<style>`, Outlook ignore la
   moitié du CSS moderne. Aucune classe, aucune feuille externe.
 - **Tables, pas de `flex` ni de `grid`.** Outlook rend le HTML avec le moteur de Word.
-- **Aucune image distante.** Le logo est un glyphe sur fond blanc arrondi : pas de
-  chargement à autoriser, pas de lien mort le jour où un fichier bouge, et le rendu est
-  identique images bloquées — ce qui est le cas par défaut chez beaucoup de clients.
+- **Une seule image distante : le logo**, avec `width`, `height` et `alt` renseignés.
+  ⚠️ Beaucoup de clients bloquent les images par défaut : le destinataire voit alors un
+  cadre blanc de 72 px portant le mot « Momentum ». C'est acceptable parce que la carte
+  reste lisible sans lui — **aucune information ne dépend de l'image**.
 - **Entités HTML pour les accents** (`&eacute;`, `&agrave;`…) : certains clients
   affichent encore mal l'UTF-8 dans un corps collé à la main.
 
@@ -57,7 +97,8 @@ en encre plutôt qu'en couleur.
 
 | Variable | Où |
 |---|---|
-| `{{ .ConfirmationURL }}` | 01, 02, 03, 04 |
+| `{{ .SiteURL }}` | **les six** — l'URL du logo |
+| `{{ .ConfirmationURL }}` | 00, 01, 02, 03, 04 |
 | `{{ .Token }}` (code à 6 chiffres) | 02, 05 |
 | `{{ .NewEmail }}` | 03 |
 

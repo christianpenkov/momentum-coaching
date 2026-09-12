@@ -1,33 +1,72 @@
-<!-- Momentum - gabarit commun. Voir supabase/email-templates/README.md -->
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fbfbf7;margin:0;padding:32px 12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
-  <tr><td align="center">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;background:#ffffff;border:1px solid #eeeae0;border-radius:14px;overflow:hidden">
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Confirme ton adresse</title>
+</head>
+<body style="margin:0; padding:0; background-color:#fbfbf7; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#fbfbf7; padding:48px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px; width:100%; background-color:#ffffff; border-radius:20px; overflow:hidden; border:1px solid #eeeae0;">
 
-      <tr><td align="center" style="background:#3a6a86;padding:30px 24px">
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td
-          align="center" valign="middle"
-          style="width:60px;height:60px;background:#ffffff;border-radius:15px;font-size:30px;line-height:1;color:#3a6a86;font-weight:700">&#8222;&#8221;</td>
-        </tr></table>
-      </td></tr>
+          <!-- Bandeau accent -->
+          <tr>
+            <td style="background-color:#3a6a86; padding:36px 40px; text-align:center;">
+              <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
+                <tr>
+                  <td width="72" height="72" align="center" valign="middle" style="width:72px; height:72px; border-radius:18px; background-color:#ffffff;">
+                    <img src="{{ .SiteURL }}/logo-momentum.png" width="48" height="48" alt="Momentum" style="display:block; width:48px; height:48px;">
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
 
-      <tr><td style="padding:34px 34px 0">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-          <tr><td align="center" style="font-size:21px;font-weight:700;color:#1a1815;line-height:1.3;padding-bottom:10px">Confirme ton adresse</td></tr>
-          <tr><td align="center" style="font-size:15px;line-height:1.6;color:#797569;padding-bottom:26px">Une derni&egrave;re &eacute;tape avant d'acc&eacute;der &agrave; ton espace Momentum.</td></tr>
-          <tr><td align="center" style="padding:4px 0 28px">
-            <a href="{{ .ConfirmationURL }}" style="background:#1a1815;color:#ffffff;text-decoration:none;padding:13px 30px;border-radius:8px;font-weight:600;font-size:15px;display:inline-block">Confirmer mon adresse</a>
-          </td></tr>
-          <tr><td style="background:#f7f4ec;border:1px solid #eeeae0;border-radius:9px;padding:14px 16px;font-size:13px;line-height:1.6;color:#3d3a33">Ce lien n'est valable qu'une fois, et expire au bout de 24&nbsp;heures.</td></tr>
-          <tr><td style="height:24px"></td></tr>
+          <!-- Titre -->
+          <tr>
+            <td style="padding:32px 40px 8px; text-align:center;">
+              <h1 style="margin:0; font-size:22px; font-weight:700; color:#1a1815; letter-spacing:-0.2px;">Confirme ton adresse</h1>
+            </td>
+          </tr>
+
+          <!-- Corps -->
+          <tr>
+            <td style="padding:8px 40px 32px; text-align:center;">
+              <p style="margin:0; font-size:14px; line-height:1.6; color:#797569;">
+                Une derni&egrave;re &eacute;tape avant d'acc&eacute;der<br>&agrave; ton espace Momentum.
+              </p>
+            </td>
+          </tr>
+          <!-- CTA -->
+          <tr>
+            <td style="padding:0 40px 40px; text-align:center;">
+              <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
+                <tr>
+                  <td style="border-radius:12px; background-color:#3a6a86;">
+                    <a href="{{ .ConfirmationURL }}" target="_blank" style="display:inline-block; padding:14px 34px; font-size:14px; font-weight:700; color:#ffffff; text-decoration:none; border-radius:12px; letter-spacing:0.1px;">
+                      Confirmer mon adresse &rarr;
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:20px 0 0; font-size:12px; line-height:1.5; color:#a3a39e;">
+                Ce lien est valable 24 heures.<br>Si tu n'es pas &agrave; l'origine de cette demande, ignore cet email.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:20px 40px; border-top:1px solid #eeeae0; text-align:center;">
+              <span style="font-size:11px; color:#a3a39e; letter-spacing:0.2px;">MOMENTUM COACHING</span>
+            </td>
+          </tr>
+
         </table>
-      </td></tr>
-
-      <tr><td style="padding:0 34px 30px">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-          <tr><td style="border-top:1px solid #eeeae0;padding-top:16px;font-size:12px;line-height:1.6;color:#797569">Tu n'es pas &agrave; l'origine de cette demande&nbsp;? Ignore cet e-mail, rien ne sera modifi&eacute;.</td></tr>
-        </table>
-      </td></tr>
-
-    </table>
-  </td></tr>
-</table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
