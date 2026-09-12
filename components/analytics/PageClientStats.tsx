@@ -2173,6 +2173,14 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
   });
   const allStories: any[] = allStoriesData?.stories ?? [];
 
+  // ⚠️ Ce hook est ICI, et non pres du KPI de portee qu'il alimente 70 lignes plus
+  // bas, parce que le `return` juste en dessous le rendrait conditionnel : non appele
+  // au rendu ou `ig` est encore nul, appele au suivant. React voit alors le nombre de
+  // hooks changer et refuse de rendre l'onglet entier. Defaut trouve le 2026-09-12 par
+  // scripts/verifier-hooks-apres-retour.mjs, qui existe pour ca.
+  const typePorteeKpi = typePeriodePour(period, sinceConnection);
+  const { data: periodesKpiData } = usePeriodesIg(typePorteeKpi, profileId);
+
   // « Connecte ton compte » etait faux quand le compte EST connecte mais que son
   // jeton est mort : on renvoyait l'eleve faire une action deja faite, sans jamais
   // lui dire que la connexion etait rompue (constate sur un compte revoque le
@@ -2246,8 +2254,9 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection, con
   // lib/porteeIg.ts, ecrite pour ce cas exact : « un repli sur la somme des jours
   // reintroduirait exactement l'erreur qu'on corrige, en silence ». Periode non
   // mesuree = trou affiche.
-  const typePorteeKpi = typePeriodePour(period, sinceConnection);
-  const { data: periodesKpiData } = usePeriodesIg(typePorteeKpi, profileId);
+  // `typePorteeKpi` et le hook qui le consomme vivent AVANT le `if (!ig) return` plus
+  // haut : ils y sont obliges. Seule cette derivation reste ici, parce qu'elle depend
+  // d'`igPeriodStart`, calcule apres le retour.
   const porteeKpi = porteeDeLaPeriode(periodesKpiData?.periodes, typePorteeKpi, parisDateStr(igPeriodStart));
   const igReachP: number | null = porteeKpi?.reachTotal ?? null;
   // La somme des journees reste calculee — elle a UN usage legitime, le taux
