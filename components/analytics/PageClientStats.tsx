@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { CALL_TYPES_VENTE } from '@/lib/callTypes';
-import { compterLeads, compterLeadsActifs } from '@/lib/salesCallStats';
+import { callsAVenteEntierementAnnulee, compterLeads, compterLeadsActifs } from '@/lib/salesCallStats';
 import { CALL_COLUMNS } from '@/lib/supabase/types';
 import { parcoursDesLeads, parcoursDesLiensPartages, type RefsParcours, type CallParcours, type PriseParcours, type CallPartage } from '@/lib/parcoursLeads';
 import InlineLoader from '@/components/ui/InlineLoader';
@@ -1380,8 +1380,16 @@ function TabOverviewV2({ profileId, ig, yt, msgs, calls, callsAllTime, shortio, 
   // denominateur portent sur la meme population.
   const representantOv = representantDOpportunite(callsAllTime ?? calls);
   const idsDansLaPeriode = new Set(callsInPeriod.map(c => c.id));
+  // ⚠️ Une vente ANNULEE n'est plus un closing (decision produit de Chris,
+  // 2026-09-12). La regle vient de lib/salesCallStats.ts et n'est pas recopiee ici :
+  // le tableau de bord coach lit le meme ensemble, et deux copies afficheraient deux
+  // taux differents pour le meme eleve des la premiere annulation.
+  //
+  // `deal_closed` reste vrai en base, c'est voulu — il dit qu'une vente a ete
+  // declaree pendant l'appel, `deals` dit ce qu'elle est devenue.
+  const venteAnnulee = callsAVenteEntierementAnnulee(deals);
   const dealsCloses = (callsAllTime ?? calls).filter(c =>
-    c.deal_closed && idsDansLaPeriode.has(representantOv.get(c.id) ?? c.id)
+    c.deal_closed && !venteAnnulee.has(c.id) && idsDansLaPeriode.has(representantOv.get(c.id) ?? c.id)
   ).length;
   // Le cash contracte vient des VENTES, pas des rendez-vous. Vue generale etait le
   // dernier ecran a le sommer depuis les calls, donc a le decouper sur `booked_at` —

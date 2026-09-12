@@ -97,6 +97,39 @@ function estVenteAnnulee(d: DealForStats): boolean {
 }
 
 /**
+ * Les appels dont TOUTES les ventes ont été annulées — ceux qui ne comptent plus
+ * comme des closings.
+ *
+ * ⚠️ Exportée, et c'est le point : « Mes stats » (PageClientStats) calcule son
+ * propre taux de closing à partir des mêmes deals, avec son propre découpage par
+ * opportunité. Deux copies de cette règle afficheraient deux taux différents pour
+ * le même élève dès la première vente annulée — le défaut exact que
+ * `npm run verifier-regles-uniques` existe pour empêcher.
+ *
+ * Trois précautions, chacune contre un faux négatif :
+ *   • un appel sans AUCUN deal n'est PAS dans l'ensemble : un rapport interrompu
+ *     avant la création de la vente n'a que `deal_closed` comme trace, et le
+ *     retirer effacerait un closing réel (même repli que le garde de
+ *     `client/pipeline`) ;
+ *   • un appel qui porte une vente annulée ET une vente vivante n'y est pas non plus ;
+ *   • un deal sans `call_id` (upsell) ne peut disqualifier aucun appel.
+ */
+export function callsAVenteEntierementAnnulee(deals?: DealForStats[]): Set<string> {
+  const parCall = new Map<string, { vivantes: number; annulees: number }>();
+  for (const d of deals ?? []) {
+    if (!d.call_id) continue;
+    const e = parCall.get(d.call_id) ?? { vivantes: 0, annulees: 0 };
+    if (estVenteAnnulee(d)) e.annulees++; else e.vivantes++;
+    parCall.set(d.call_id, e);
+  }
+  const annules = new Set<string>();
+  for (const [callId, e] of parCall) {
+    if (e.annulees > 0 && e.vivantes === 0) annules.add(callId);
+  }
+  return annules;
+}
+
+/**
  * Cash contracté et collecté à partir des deals.
  *
  * Les deals annulés sont exclus du contracté : une vente annulée n'a pas été
@@ -189,20 +222,10 @@ export function computeSalesCallStats(
   //     le garde de `client/pipeline`) ;
   //   • un appel qui porte une vente annulée ET une vente vivante compte encore ;
   //   • un deal sans `call_id` (upsell) ne peut disqualifier aucun appel.
-  const ventesParCall = new Map<string, { vivantes: number; annulees: number }>();
-  for (const d of deals ?? []) {
-    if (!d.call_id) continue;
-    const e = ventesParCall.get(d.call_id) ?? { vivantes: 0, annulees: 0 };
-    if (estVenteAnnulee(d)) e.annulees++; else e.vivantes++;
-    ventesParCall.set(d.call_id, e);
-  }
-  const venteEntierementAnnulee = (callId: string) => {
-    const e = ventesParCall.get(callId);
-    return !!e && e.annulees > 0 && e.vivantes === 0;
-  };
+  const venteAnnulee = callsAVenteEntierementAnnulee(deals);
 
   const dealsClosedCount = salesCalls.filter(
-    c => c.deal_closed && !venteEntierementAnnulee(c.id),
+    c => c.deal_closed && !venteAnnulee.has(c.id),
   ).length;
   const closingRate = callsHonoredCount > 0 ? Math.round((dealsClosedCount / callsHonoredCount) * 100) : 0;
 
