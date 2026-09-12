@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getIgCreds } from '@/lib/ig-fetch';
+import { envoyerAlerte } from '@/lib/alertesEmail';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -40,24 +41,19 @@ function expliquerRaison(brut: string): { cause: string; action: string } {
 }
 
 async function sendAdminAlert(nomEleve: string, compteIg: string | null, brut: string) {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) {
-    console.error('[cron-refresh-tokens] RESEND_API_KEY manquant — email non envoyé');
-    return false;
-  }
   const { cause, action } = expliquerRaison(brut);
   const lien = `${process.env.NEXT_PUBLIC_PLATFORM_URL || 'https://momentum-plateforme.vercel.app'}/client/settings`;
 
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      from: 'Momentum <noreply@ubizenai.com>',
-      to: 'christianpenkov06@gmail.com',
-      // Le nom de l'eleve dans l'objet : c'est la seule chose a savoir avant
-      // d'ouvrir. L'identifiant technique n'y a jamais sa place.
-      subject: `Instagram déconnecté — ${nomEleve}`,
-      html: `
+  // ⚠️ Destination « exploitation » et non « technique » : c'est le COACH qui doit
+  // relancer son eleve pour qu'il reconnecte. Apres la livraison, envoyer ca au
+  // developpeur ferait que personne ne relancerait jamais l'eleve — le jeton resterait
+  // mort, et les stats Instagram figees, sans que rien n'echoue.
+  //
+  // Le nom de l'eleve dans l'objet : c'est la seule chose a savoir avant d'ouvrir.
+  // L'identifiant technique n'y a jamais sa place.
+  const envoi = await envoyerAlerte(
+    `Instagram déconnecté — ${nomEleve}`,
+    `
 <div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:15px;line-height:1.55;color:#1a1815;max-width:560px">
   <p style="font-size:17px;font-weight:600;margin:0 0 4px">Instagram ne collecte plus pour ${nomEleve}</p>
   ${compteIg ? `<p style="margin:0 0 18px;color:#797569;font-size:13px">Compte concerné : ${compteIg}</p>` : '<p style="margin:0 0 18px"></p>'}
@@ -82,12 +78,10 @@ async function sendAdminAlert(nomEleve: string, compteIg: string | null, brut: s
     Message renvoyé par Meta : ${brut}
   </p>
 </div>`,
-    }),
-  }).catch(err => {
-    console.error('[cron-refresh-tokens] Resend error:', err);
-    return null;
-  });
-  return !!res && res.ok;
+    'exploitation',
+  );
+  if (!envoi.envoye) console.error(`[cron-refresh-tokens] ${envoi.raison}`);
+  return envoi.envoye;
 }
 
 export async function POST(request: Request) {

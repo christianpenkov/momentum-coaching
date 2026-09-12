@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { EMPREINTES_EDGE } from '@/lib/empreintes-edge.generated';
 import { MIGRATIONS_DEPOT } from '@/lib/migrations-depot.generated';
+import { envoyerAlerte } from '@/lib/alertesEmail';
 
 // GET /api/sante/alerte-vues
 //
@@ -657,27 +658,14 @@ export async function GET(request: Request) {
       .map((l) => JSON.stringify(l, null, 1).replace(/[{}"]/g, '').trim())
       .join('\n\n') + (anomalies.length > 5 ? `\n\n… et ${anomalies.length - 5} autre(s).` : '');
 
-    const apiKey = process.env.RESEND_API_KEY;
-    if (!apiKey) {
-      resultats[s.cle] = 'RESEND_API_KEY manquant';
-      continue;
-    }
-
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
-      body: JSON.stringify({
-        from: 'Momentum <noreply@ubizenai.com>',
-        to: 'christianpenkov06@gmail.com',
-        subject: `Momentum — ${s.titre}`,
-        html: corpsEmail(s, anomalies.length, apercu),
-      }),
-    });
+    // Expéditeur et destinataire viennent de l'environnement (lib/alertesEmail.ts).
+    // Écrits en dur ici, ils auraient laissé le repreneur sans aucune alerte.
+    const envoi = await envoyerAlerte(`Momentum — ${s.titre}`, corpsEmail(s, anomalies.length, apercu), 'technique');
 
     // On n'inscrit la clé comme « envoyée » que si Resend a accepté. Sinon un échec
     // réseau condamnerait l'alerte au silence définitif.
-    if (!res.ok) {
-      resultats[s.cle] = `resend_${res.status}`;
+    if (!envoi.envoye) {
+      resultats[s.cle] = envoi.raison ?? 'envoi impossible';
       continue;
     }
 

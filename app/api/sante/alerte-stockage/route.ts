@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { envoyerAlerte } from '@/lib/alertesEmail';
 
 // GET /api/sante/alerte-stockage
 //
@@ -137,30 +138,19 @@ export async function GET(request: Request) {
     .find((s) => jours <= s.jours && !envoyees.has(s.cle));
   if (!aDeclencher) return NextResponse.json({ ok: true, action: 'rien_a_signaler', jours });
 
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) {
-    console.error('[alerte-stockage] RESEND_API_KEY manquant — email non envoyé');
-    return NextResponse.json({ error: 'RESEND_API_KEY manquant' }, { status: 500 });
-  }
-
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      from: 'Momentum <noreply@ubizenai.com>',
-      to: 'christianpenkov06@gmail.com',
-      subject: `Base de données — ${jours} jours avant le plafond du plan gratuit`,
-      html: corpsEmail(sante, aDeclencher),
-    }),
-  });
+  // Expéditeur et destinataire : environnement, jamais en dur (lib/alertesEmail.ts).
+  const envoi = await envoyerAlerte(
+    `Base de données — ${jours} jours avant le plafond du plan gratuit`,
+    corpsEmail(sante, aDeclencher),
+    'technique',
+  );
 
   // ⚠️ On n'inscrit le seuil comme « envoyé » que si Resend a bien accepté. Sinon un
   // échec réseau condamnerait l'alerte au silence définitif — exactement le contraire
   // du but.
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    console.error(`[alerte-stockage] Resend HTTP ${res.status}: ${detail.slice(0, 300)}`);
-    return NextResponse.json({ error: `resend_${res.status}` }, { status: 502 });
+  if (!envoi.envoye) {
+    console.error(`[alerte-stockage] ${envoi.raison}`);
+    return NextResponse.json({ error: envoi.raison }, { status: 502 });
   }
 
   await supabase.from('alertes_plateforme').upsert({
