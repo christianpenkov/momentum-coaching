@@ -1531,7 +1531,11 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
   // Préchargement des tables de référence pour le calcul de link_category
   const [{ data: contentLinksRows }, { data: prospectLinksRows }] = await Promise.all([
     supa.from('content_links').select('platform, desc_calendly_short_url, desc_lm_short_url, lm_short_url').eq('profile_id', profileId),
-    supa.from('prospect_links').select('short_url').eq('profile_id', profileId),
+    // ⚠️ `archived_at is null` : les liens d'un ANCIEN compte Instagram ne categorisent
+    // plus rien (decision produit de Chris, 2026-09-12 — « on arrete de les compter »).
+    // Meme filtre dans lib/shortio-fetch.ts et backfill-shortio : une categorie qui
+    // dependrait de QUI a collecte le clic serait pire que pas de categorie du tout.
+    supa.from('prospect_links').select('short_url').eq('profile_id', profileId).is('archived_at', null),
   ]);
 
   const resolveLinkCategory = createLinkCategoryResolver({

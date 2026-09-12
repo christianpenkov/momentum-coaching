@@ -100,7 +100,11 @@ Deno.serve(async (req) => {
     // étaient rétro-remplis sans catégorie, donc absents de « Clics totaux ».
     const [{ data: contentLinksRows }, { data: prospectLinksRows }] = await Promise.all([
       supa.from('content_links').select('platform, desc_calendly_short_url, desc_lm_short_url, lm_short_url').eq('profile_id', profileId),
-      supa.from('prospect_links').select('short_url').eq('profile_id', profileId),
+      // ⚠️ `archived_at is null` : les liens d'un ANCIEN compte Instagram ne
+      // categorisent plus rien (decision produit de Chris, 2026-09-12). Meme filtre
+      // dans poll-leads et lib/shortio-fetch.ts — le rattrapage doit poser exactement
+      // la meme categorie que la collecte, sinon il la reecrit a chaque passage.
+      supa.from('prospect_links').select('short_url').eq('profile_id', profileId).is('archived_at', null),
     ]);
     const resolveLinkCategory = createLinkCategoryResolver({
       contentLinks: contentLinksRows ?? [],

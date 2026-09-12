@@ -263,9 +263,15 @@ export async function snapshotShortioLinks(
   if (!links.length) return { synced: 0, errors: [] };
 
   // Même règle de catégorie que le cron (source unique).
+  //
+  // ⚠️ `archived_at is null` : les liens d'un ANCIEN compte Instagram ne catégorisent
+  // plus rien (décision produit de Chris, 2026-09-12 — « on arrête de les compter »).
+  // Ce filtre existe aux TROIS endroits qui résolvent une catégorie — ici,
+  // `poll-leads` et `backfill-shortio` — et il n'a de sens qu'aux trois : n'en corriger
+  // qu'un ferait dépendre la catégorie d'un clic de QUI l'a collecté.
   const [contentLinksRes, prospectLinksRes] = await Promise.all([
     serviceSupabase.from('content_links').select('platform, desc_calendly_short_url, desc_lm_short_url, lm_short_url').eq('profile_id', profileId),
-    serviceSupabase.from('prospect_links').select('short_url').eq('profile_id', profileId),
+    serviceSupabase.from('prospect_links').select('short_url').eq('profile_id', profileId).is('archived_at', null),
   ]);
   const resolveLinkCategory = createLinkCategoryResolver({
     contentLinks: contentLinksRes.data ?? [],
