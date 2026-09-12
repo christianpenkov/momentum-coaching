@@ -145,7 +145,7 @@ const SURVEILLANCES: Surveillance[] = [
     ],
     docs: [
       'scripts/empreintes-edge.mjs (le motif complet en en-tête)',
-      'AGENTS.md, section « Vérifier qu’une Edge Function tourne bien le code du dépôt »',
+      'docs/deploiement-et-verifications.md, section « Vérifier qu’une Edge Function tourne bien le code du dépôt »',
       'docs/checklist-scalabilite.md',
     ],
   },
@@ -179,7 +179,7 @@ const SURVEILLANCES: Surveillance[] = [
       'Comparer `deals.first_touch_content_id` au `utm_content` du call, et à `prospect_links.content_id` en repli.',
       '« vente sans rendez-vous » n’est PAS une anomalie : un upsell n’a aucun contenu à créditer.',
     ],
-    docs: ['AGENTS.md, section Santé de la plateforme', 'lib/attribution-roles.ts'],
+    docs: ['docs/sante-plateforme.md', 'lib/attribution-roles.ts'],
   },
   {
     cle: 'sante_ventes_montants',
@@ -321,11 +321,11 @@ const SURVEILLANCES: Surveillance[] = [
       '`select nom, etat, passages_du_jour, cadence_attendue from crons_sante;` — `passages_du_jour` contre `cadence_attendue` dit l’ampleur de l’écart.',
       'SILENCIEUX : ouvrir le job correspondant sur cron-job.org et regarder ses derniers passages et son URL.',
       'CADENCE TROP RAPIDE : ouvrir le job sur cron-job.org et corriger son INTERVALLE. ⚠️ La correction est là-bas, pas dans le dépôt — ni l’URL ni la cadence d’un job cron-job.org ne se lisent dans le code.',
-      '⚠️ Les crons vivent à DEUX endroits : pg_cron dans la base (`select jobname, schedule, active from cron.job;`) et cron-job.org. Le tableau de correspondance est dans AGENTS.md.',
+      '⚠️ Les crons vivent à DEUX endroits : pg_cron dans la base (`select jobname, schedule, active from cron.job;`) et cron-job.org. Le tableau de correspondance est dans docs/crons.md.',
       '⚠️ `cadence_attendue` est la cadence NOMINALE, saisie à la main depuis cron-job.org — jamais déduite de l’observation. Si un job a légitimement changé de fréquence, c’est cette colonne qu’il faut mettre à jour, sinon l’alerte criera en permanence.',
     ],
     docs: [
-      'AGENTS.md, section « Les crons vivent à DEUX endroits »',
+      'docs/crons.md',
       'supabase/migrations/20260904120000_crons_sante_cadence_trop_rapide.sql',
     ],
   },
@@ -394,7 +394,7 @@ const SURVEILLANCES: Surveillance[] = [
       '`cron_runs` garde tout l’historique 30 jours, résolu ou non, et se purge d’elle-même.',
     ],
     docs: [
-      'AGENTS.md, section Santé de la plateforme',
+      'docs/sante-plateforme.md',
       'supabase/migrations/20260905120000_cron_runs_incidents_resolus.sql',
     ],
   },
@@ -463,7 +463,7 @@ function promptClaudeCode(s: Surveillance, nb: number): string {
     `Ce qu'elle surveille : ${s.surveille}`,
     `Ce que l'alerte veut dire : ${s.signifie}`,
     ``,
-    `Commence par lire orbit/AGENTS.md en entier, puis ${s.docs.join(' et ')}.`,
+    `Commence par lire orbit/AGENTS.md en entier (il tient en ~550 lignes depuis le 2026-09-12 ; les références longues vivent désormais dans orbit/docs/), puis ${s.docs.join(' et ')}.`,
     `Projet Supabase : ${PROJET_SUPABASE}.`,
     ``,
     `Établis la cause AVANT de proposer quoi que ce soit :`,
@@ -510,7 +510,7 @@ function corpsEmail(s: Surveillance, nb: number, apercu: string): string {
   <p style="margin:0 0 18px">${s.docs.map((d) => `<code>orbit/${d}</code>`).join('<br>')}</p>
 
   <p style="margin:0;padding-top:14px;border-top:1px solid #eeeae0;color:#797569;font-size:11px">
-    Pour tout revoir toi-même : la liste complète des vues de santé est en tête d'<code>orbit/AGENTS.md</code>.<br>
+    Pour tout revoir toi-même : la liste complète des vues de santé est dans <code>orbit/docs/sante-plateforme.md</code>.<br>
     ⚠️ Sur ces vues, <code>etat &lt;&gt; 'ok'</code> n'est jamais un filtre d'anomalie — plusieurs états
     sont légitimes. Toujours <code>etat like 'ALERTE%'</code>.<br>
     Base Supabase : <code>${PROJET_SUPABASE}</code>.
