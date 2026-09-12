@@ -11746,15 +11746,55 @@ async function fetchIntegrationStatus(profileId?: string) {
   };
 }
 
-export default function PageClientStats({ profileId, clientName, title }: { profileId?: string; clientName?: string; title?: string } = {}) {
-  const [tab, setTab] = useState(0);
-  const [period, setPeriod] = useState<Period>(30);
-  const [periodIndex, setPeriodIndex] = useState(0);
+/**
+ * Onglets, en slugs. C'est le slug qui va dans l'URL et non l'index : un jour ou
+ * l'ordre des onglets change, un lien partage ne doit pas atterrir ailleurs.
+ * L'ordre du tableau, lui, DOIT rester celui de `TABS` — c'est l'index qui pilote
+ * le rendu.
+ */
+const SLUGS_ONGLETS = ['apercu', 'instagram', 'youtube', 'funnel', 'business', 'revenus'] as const;
+
+/** Ce que l'URL dit de l'écran à afficher. Valeurs par défaut = l'ancien comportement. */
+function lireEtatDeLUrl(): { tab: number; period: Period; index: number; allTime: boolean } {
+  const defaut = { tab: 0, period: 30 as Period, index: 0, allTime: false };
+  // Rendu serveur : pas de `window`. L'initialiseur est paresseux exprès, il ne
+  // s'exécute donc que côté client, au premier rendu.
+  if (typeof window === 'undefined') return defaut;
+  const p = new URLSearchParams(window.location.search);
+  const iOnglet = SLUGS_ONGLETS.indexOf((p.get('o') ?? '') as typeof SLUGS_ONGLETS[number]);
+  const periode = p.get('p');
+  // `Number.parseInt` puis borne basse : un `?i=-3` bricolé à la main ne doit pas
+  // faire remonter le sélecteur de période dans le futur.
+  const index = Math.max(0, Number.parseInt(p.get('i') ?? '0', 10) || 0);
+  return {
+    tab: iOnglet >= 0 ? iOnglet : defaut.tab,
+    period: periode === '7' ? 7 : 30,
+    index,
+    allTime: periode === 'all',
+  };
+}
+
+export default function PageClientStats({ profileId, clientName, title, enTete }: { profileId?: string; clientName?: string; title?: string; enTete?: React.ReactNode } = {}) {
+  // Onglet et periode vivent dans l'URL, pas seulement en memoire. Deux raisons :
+  //
+  //   - basculer d'un eleve a l'autre depuis le titre doit garder l'ecran ou on
+  //     etait. Comparer l'Instagram de A puis de B est le geste meme du selecteur ;
+  //     repartir sur Vue generale a chaque bascule le viderait de son interet ;
+  //   - une vue precise devient partageable et mettable en favori.
+  //
+  // `window.history.replaceState` et non `router.replace` : la synchronisation ne
+  // doit RIEN re-rendre. Cet ecran pese plusieurs milliers de lignes et refait ses
+  // calculs a chaque rendu — le faire remonter a chaque clic d'onglet coute cher
+  // pour un effet nul, la seule chose qui change etant la barre d'adresse.
+  const [etatUrl] = useState(lireEtatDeLUrl);
+  const [tab, setTab] = useState(etatUrl.tab);
+  const [period, setPeriod] = useState<Period>(etatUrl.period);
+  const [periodIndex, setPeriodIndex] = useState(etatUrl.index);
   // Mode "Depuis connexion" — coexiste avec period/periodIndex, ne les remplace
   // jamais. Volontairement séparé du système 7j/30j existant (voir commentaire
   // ligne ~295 sur Period : étendre ce type a déjà été exploré et reporté, 15+
   // sites font de l'arithmétique littérale sur 7/30).
-  const [sinceConnection, setSinceConnection] = useState(false);
+  const [sinceConnection, setSinceConnection] = useState(etatUrl.allTime);
   // Valeur jamais relue : le setter est passé à TabFunnel (onModalChange) pour bloquer
   // le scroll du parent, mais l'état lui-même n'est lu nulle part.
   const [, setModalOpen] = useState(false);
@@ -11770,6 +11810,21 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   const [shortioBChartFilter, setShortioBChartFilter] = useState<'all' | 'dm' | 'content' | 'bio' | 'story'>('all');
 
   const { inCooldown, startCooldown } = useRefreshCooldown();
+
+  // L'URL suit l'écran. Voir le commentaire des états plus haut pour le choix de
+  // `replaceState` : aucun rendu, aucune entrée d'historique — cliquer six onglets
+  // ne doit pas demander six retours arrière pour quitter la page.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const p = new URLSearchParams(window.location.search);
+    p.set('o', SLUGS_ONGLETS[tab] ?? SLUGS_ONGLETS[0]);
+    p.set('p', sinceConnection ? 'all' : String(period));
+    if (periodIndex > 0) p.set('i', String(periodIndex)); else p.delete('i');
+    const cible = `${window.location.pathname}?${p.toString()}`;
+    if (cible !== window.location.pathname + window.location.search) {
+      window.history.replaceState(null, '', cible);
+    }
+  }, [tab, period, periodIndex, sinceConnection]);
 
   const q = profileId ? `?profileId=${profileId}` : '';
 
@@ -12230,7 +12285,11 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
       <div className="page-header" style={{ marginBottom: 20, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
         {/* Titre à gauche */}
         <div>
-          <h1 className="page-title">{title ?? (clientName ? `Stats de ${clientName}` : 'Stats Clients')}</h1>
+          {/* `enTete` remplace le titre quand l'appelant en fournit un — le
+              sélecteur d'élève du coach, aujourd'hui. Il porte son propre <h1>,
+              d'où l'alternative plutôt qu'un ajout : deux <h1> sur une page
+              cassent la hiérarchie des titres pour un lecteur d'écran. */}
+          {enTete ?? <h1 className="page-title">{title ?? (clientName ? `Stats de ${clientName}` : 'Stats Clients')}</h1>}
           <p className="page-sub">
             Tableau de bord complet — toutes les plateformes
             {latestSnapshotDate && !backfillInProgress && (

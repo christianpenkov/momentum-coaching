@@ -4483,3 +4483,13 @@ html[data-splash='1'] .dot-wave {
 .aide-corps p:last-child { margin-bottom: 0; }
 .aide-corps b { color: var(--ink); font-weight: 600; }
 .aide-corps i { font-style: italic; }
+
+/* Le titre de « Mes Stats » est un sélecteur d'élève quand le coach regarde la
+   fiche de quelqu'un (components/ui/SelecteurEleve.tsx). Le survol est ici et non
+   en style inline, qui ne peut pas exprimer :hover — sans lui, un titre cliquable
+   ne se distingue pas d'un titre. */
+.selecteur-eleve-declencheur { transition: background var(--dur-instant) var(--ease-out), border-color var(--dur-instant) var(--ease-out); }
+.selecteur-eleve-declencheur:hover {
+  background: var(--surface);
+  border-color: var(--border);
+}
