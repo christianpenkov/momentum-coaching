@@ -79,7 +79,7 @@ supprimé d'un autre. La RPC l'expose désormais, et continue de ne pas le filtr
 `create or replace` ne suffit pas pour ajouter une colonne à un `returns table` (il faut
 drop + create) — et à la recréation, Supabase re-accorde `execute` à `anon` par ses
 privilèges par défaut. `revoke ... from public` ne l'enlève PAS : `anon` est un rôle,
-`PUBLIC` en est un autre. Voir `AGENTS.md` (`264d5fe`) pour le critère de tri des
+`PUBLIC` en est un autre. Voir `docs/sante-plateforme.md` (`264d5fe`) pour le critère de tri des
 fonctions réellement exposées.
 
 **Aucun chiffre n'a bougé** : 0 post porte `deleted_at` sur 972 lignes. Comme la
@@ -145,7 +145,7 @@ Leur écriture a été supprimée le 2026-08-28. Leur dernier lecteur — `stats
 trois RPC Short.io (`get_shortio_clicks_by_day`, `_by_url`, `get_shortio_links_agreges`)
 lisent toutes `shortio_link_daily_snapshots`, aucune ne touche ces colonnes.
 
-**Le geste recommandé par `AGENTS.md`** (section « Personne ne lit cette colonne a une date
+**Le geste recommandé par `docs/sante-plateforme.md`** (section « Personne ne lit cette colonne a une date
 de péremption ») est de les supprimer : une colonne absente produit une erreur au premier
 `select`, et c'est le seul signal qui ne se périme pas. C'est précisément ce qui a manqué
 ici — la carte « Clics » du coach a affiché 550 clics pour un élève qui en avait 27,

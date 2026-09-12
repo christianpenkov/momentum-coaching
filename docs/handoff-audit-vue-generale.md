@@ -100,7 +100,7 @@ chantier.
   (bio, description, story). Récent, et il touche directement les deux onglets de la
   mission 2.
 - **`docs/calls-coach-id-piege.md`** — `calls.coach_id` n'est pas le coach humain.
-- **`AGENTS.md`**, section « Les crons vivent à DEUX endroits » et la garantie de
+- **`docs/crons.md`**, section « Les crons vivent à DEUX endroits » et la garantie de
   `degrossir_historiques_analytics()` — voir §6, c'est le point le plus sensible.
 
 ### Les deux filtres obligatoires sur `calls`

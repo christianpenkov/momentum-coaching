@@ -540,7 +540,7 @@ select etat from base_sante_taille;                                -- 'ok'
 
 ⚠️ **Trois lignes `integration deconnectee` sont attendues** et ne sont PAS des
 anomalies (une dans `yt_sante_donnees`, deux dans `integrations_sante` pour `instagram`
-et `youtube`) — voir la dernière ligne d'`AGENTS.md`. Les compter comme des pannes fait
+et `youtube`) — voir la dernière ligne de `docs/sante-plateforme.md`. Les compter comme des pannes fait
 remonter des faux positifs.
 
 **0.4 — Prendre une photo des comptes tiers** (§5, phase 3) : qui détient quoi, avec
@@ -625,7 +625,7 @@ Rien de tout ça ne bouge avec Supabase ou Vercel. Chaque ligne est un compte s�
 | **Calendly** | l'application OAuth développeur | transférer ou partager le compte développeur | 🟠 moyen |
 | **Stripe** | la plateforme **Connect** (`STRIPE_CLIENT_ID`) | ⚠️ changer de plateforme Connect oblige **chaque élève à reconnecter Stripe**, et les encaissements passés restent sur l'ancienne plateforme | 🔴 **élevé** |
 | **Fathom** | l'application OAuth | transférer ou partager | 🟠 moyen |
-| **cron-job.org** | les **9 jobs** hors de la base | soit passer le compte, soit **recréer les 9 jobs** — leurs URL ne changent pas sous le plan A, la recréation est mécanique (tableau dans `AGENTS.md`) | 🟢 faible |
+| **cron-job.org** | les **9 jobs** hors de la base | soit passer le compte, soit **recréer les 9 jobs** — leurs URL ne changent pas sous le plan A, la recréation est mécanique (tableau dans `docs/crons.md`) | 🟢 faible |
 | **Resend** | `RESEND_API_KEY`, l'envoi des e-mails d'alerte | poser la clé du repreneur dans Vercel | 🟢 faible |
 | **Short.io** | rien de central | ⚠️ **chaque élève a sa propre clé d'API, stockée en base. Rien à faire.** | 🟢 aucun |
 
@@ -839,11 +839,11 @@ compte cron-job.org.** Deux réponses acceptables :
 - **le passer au repreneur** (changer l'e-mail du compte) — les 9 jobs restent tels
   quels, rien à recréer ;
 - **recréer les 9 jobs** dans un nouveau compte — leurs URL et leur bearer ne changent
-  pas, c'est de la recopie mécanique. Le tableau complet est dans `AGENTS.md`, section
+  pas, c'est de la recopie mécanique. Le tableau complet est dans `docs/crons.md`, section
   « cron-job.org — hors de la base ».
 
 ⚠️ **Ne jamais faire tourner les deux comptes en parallèle « le temps de vérifier ».**
-`AGENTS.md` le dit déjà pour une autre raison : deux passages simultanés lisent le même
+`docs/crons.md` le dit déjà pour une autre raison : deux passages simultanés lisent le même
 drapeau d'idempotence avant que l'un ne l'écrive, et **la notification part en double**.
 
 ⚠️ Après bascule du compte cron-job.org, la preuve n'est pas « les 9 jobs sont listés »
@@ -1170,7 +1170,7 @@ where <colonne> like '%<ANCIEN_REF>%';
 | `cron.job` — `process-webhook-queue-1min` | ⚠️ URL **Vercel** + `CRON_SECRET` en clair | file de webhooks jamais traitée |
 
 > ⚠️ **`process-webhook-queue-1min` vise une route Vercel, pas une Edge Function.**
-> `AGENTS.md` le range parmi les jobs « chemin critique à la minute » sans dire de quel
+> `docs/crons.md` le range parmi les jobs « chemin critique à la minute » sans dire de quel
 > côté il tape. Vérifié le 2026-09-03 : c'est
 > `momentum-plateforme.vercel.app/api/cron/process-webhook-queue`.
 
