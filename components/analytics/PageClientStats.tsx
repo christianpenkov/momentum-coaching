@@ -11741,7 +11741,11 @@ async function fetchIntegrationStatus(profileId?: string) {
       connectedAt: yt.first_connected_at ?? yt.connected_at,
     } : null,
     stripeConnected,
-    latestSnapshotDate: latestSnap.data?.date ?? null,
+    // Seul `updated_at` est retenu : il date la COLLECTE, ce qui permet de dire
+    // « la derniere collecte a plus de 26 h ». Le `date` de la ligne, lui, datait
+    // la DONNEE la plus lente (YouTube, jusqu'a trois jours de retard) et servait a
+    // afficher une fraicheur globale que la page n'a pas — voir le commentaire de
+    // l'en-tete.
     latestSnapshotUpdatedAt: latestSnap.data?.updated_at ?? null,
   };
 }
@@ -12102,7 +12106,6 @@ export default function PageClientStats({ profileId, clientName, title, enTete }
     (integStatus?.yt && !integStatus.yt.backfillDone && integStatus.yt.backfillStarted)
   );
   const snapshotError = integStatus?.ig?.snapshotError || integStatus?.yt?.snapshotError || null;
-  const latestSnapshotDate = integStatus?.latestSnapshotDate ?? null;
   const latestSnapshotUpdatedAt = integStatus?.latestSnapshotUpdatedAt ?? null;
   const snapshotAgeHours = latestSnapshotUpdatedAt
     ? (Date.now() - new Date(latestSnapshotUpdatedAt).getTime()) / 3600000
@@ -12290,13 +12293,17 @@ export default function PageClientStats({ profileId, clientName, title, enTete }
               d'où l'alternative plutôt qu'un ajout : deux <h1> sur une page
               cassent la hiérarchie des titres pour un lecteur d'écran. */}
           {enTete ?? <h1 className="page-title">{title ?? (clientName ? `Stats de ${clientName}` : 'Stats Clients')}</h1>}
+          {/* ⚠️ Le « · màj JJ/MM » qui suivait cette phrase a été RETIRÉ, pas déplacé.
+              Il datait la page entière avec la dernière ligne de snapshot, dont la
+              plus lente est YouTube — l'API renvoie certaines métriques avec jusqu'à
+              trois jours de retard. La page affichait donc « màj le 9 » pendant
+              qu'Instagram, Short.io, Calendly et Stripe étaient du jour même : une
+              date unique ne peut pas dire la fraîcheur de cinq sources qui ne
+              respirent pas au même rythme, et celle-là faisait douter du reste.
+              La péremption réelle est signalée là où elle se mesure — le bandeau
+              `snapshotAgeHours` au-dessus, qui parle d'un retard de collecte. */}
           <p className="page-sub">
             Tableau de bord complet — toutes les plateformes
-            {latestSnapshotDate && !backfillInProgress && (
-              <span style={{ color: 'var(--faint)', fontSize: 11, marginLeft: 8 }}>
-                · màj {latestSnapshotDate}
-              </span>
-            )}
           </p>
         </div>
 

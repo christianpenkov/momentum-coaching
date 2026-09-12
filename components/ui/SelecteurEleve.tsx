@@ -41,6 +41,26 @@ export interface EleveSelectionnable {
  */
 const SEUIL_RECHERCHE = 8;
 
+/**
+ * Hauteur d'une ligne du menu : 7 px de marge intérieure de chaque côté, plus deux
+ * lignes de texte (nom 12,5 px et niche 10,5 px, interlignage 1,3).
+ *
+ * Écrite ici parce qu'elle sert à CALCULER la hauteur du menu, pas seulement à le
+ * décrire. Changer la typographie d'une ligne sans changer ce nombre couperait la
+ * liste à un endroit arbitraire.
+ */
+const HAUTEUR_LIGNE = 44;
+
+/**
+ * Cinq élèves visibles, puis on fait défiler.
+ *
+ * La demi-ligne ajoutée n'est pas de la marge : c'est l'indice de défilement. Une
+ * ligne coupée en deux dit « il y en a d'autres » mieux qu'une barre de défilement,
+ * qui reste invisible sur macOS tant qu'on n'a pas commencé à faire défiler.
+ */
+const LIGNES_VISIBLES = 5;
+const HAUTEUR_LISTE = HAUTEUR_LIGNE * (LIGNES_VISIBLES + 0.5);
+
 /** Insensible aux accents et à la casse : « penkov » doit trouver « Penkov ». */
 const normaliser = (s: string) =>
   s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
@@ -64,6 +84,7 @@ export default function SelecteurEleve({
   const declencheur = useRef<HTMLButtonElement>(null);
   const panneau = useRef<HTMLDivElement>(null);
   const champ = useRef<HTMLInputElement>(null);
+  const liste = useRef<HTMLDivElement>(null);
 
   const avecRecherche = eleves.length > SEUIL_RECHERCHE;
 
@@ -104,6 +125,15 @@ export default function SelecteurEleve({
     if (avecRecherche) champ.current?.focus();
     else panneau.current?.focus();
   }, [ouvert, avecRecherche]);
+
+  // Des que la liste defile, deplacer la selection au clavier ne suffit plus : la
+  // ligne surlignee peut etre hors du cadre, et l'utilisateur voit une liste figee
+  // pendant que la selection avance dans le vide. `block: 'nearest'` ne bouge rien
+  // tant que la ligne est deja visible — pas de saut a chaque fleche.
+  useEffect(() => {
+    if (actif < 0) return;
+    liste.current?.querySelector<HTMLElement>(`[data-i="${actif}"]`)?.scrollIntoView({ block: 'nearest' });
+  }, [actif]);
 
   const basculer = (e: EleveSelectionnable) => {
     fermer(false);
@@ -210,7 +240,7 @@ export default function SelecteurEleve({
             </div>
           )}
 
-          <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+          <div ref={liste} style={{ maxHeight: HAUTEUR_LISTE, overflowY: 'auto' }}>
             {listeFiltree.map((e, i) => {
               const courant = e.id === eleveCourant.id;
               return (
@@ -218,6 +248,7 @@ export default function SelecteurEleve({
                   key={e.id}
                   type="button"
                   role="menuitem"
+                  data-i={i}
                   aria-current={courant || undefined}
                   onClick={() => basculer(e)}
                   onMouseEnter={() => setActif(i)}
@@ -243,23 +274,6 @@ export default function SelecteurEleve({
                 </button>
               );
             })}
-          </div>
-
-          <div style={{ borderTop: '1px solid var(--border-soft)', marginTop: 4, paddingTop: 4 }}>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => { fermer(false); router.push('/analytics'); }}
-              style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '7px 10px', border: 0, borderRadius: 8, cursor: 'pointer', font: 'inherit', textAlign: 'left', background: 'transparent', color: 'var(--ink-2)' }}
-            >
-              <span style={{ width: 26, display: 'grid', placeItems: 'center', color: 'var(--muted)' }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                  <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" />
-                  <rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" />
-                </svg>
-              </span>
-              <span style={{ fontSize: 12.5, fontWeight: 500 }}>Voir tout le portefeuille</span>
-            </button>
           </div>
         </div>
       )}
