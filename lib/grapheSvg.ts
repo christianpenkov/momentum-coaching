@@ -115,7 +115,64 @@ export function valeursA(series: SerieGraphe[], i: number): number[] {
   return out;
 }
 
-export function bornes(series: SerieGraphe[], depuisZero: boolean): { min: number; max: number } {
+/**
+ * Les graduations de l'axe vertical : des ENTIERS, toujours, et jamais deux fois la
+ * même.
+ *
+ * ── Pourquoi des entiers ─────────────────────────────────────────────────────
+ * `formaterAxe` arrondit tout ce qu'il affiche, quelle que soit l'unité. Une échelle
+ * qui produit des valeurs fractionnaires écrit donc plusieurs fois le même libellé —
+ * l'équivalent exact de l'`allowDecimals={false}` de Recharts, qui manquait ici.
+ *
+ * ── Les trois pannes que cette fonction remplace ─────────────────────────────
+ * L'ancien calcul posait cinq traits à intervalles réguliers entre un min et un max
+ * bruts. Sur les données réelles il produisait :
+ *
+ *   • toutes les valeurs à 0 (cas fréquent : calls bookés, ventes, leads et cash
+ *     rendent 0 et non null) → marge de `Math.abs(0) * 0.1 || 1`, donc 1 → domaine
+ *     [-1, 1] → axe « 1 / 1 / 0 / 0 / -1 ». Trois libellés dupliqués ET un −1 sur
+ *     un compteur qui ne peut pas être négatif ;
+ *   • toutes les valeurs égales à k (5 publications chaque jour) → [4,5 ; 5,5] →
+ *     « 5 / 5 / 5 / 5 / 6 » ;
+ *   • aucune valeur → [0, 1] → « 0 / 0 / 1 / 1 / 1 ».
+ *
+ * ── Comment ──────────────────────────────────────────────────────────────────
+ * Un pas « joli » (1, 2 ou 5 fois une puissance de dix, jamais moins de 1), puis on
+ * élargit le domaine jusqu'au multiple de ce pas de part et d'autre. Le domaine
+ * affiché est donc celui des graduations : la courbe ne peut plus flotter entre deux
+ * traits, et le haut de l'axe est un nombre rond plutôt que « le maximum plus 12 % ».
+ */
+export function graduations(min: number, max: number): number[] {
+  const etendue = max - min;
+  // Quatre intervalles visés. Au-delà de cinq traits ils se touchent sur 280 px.
+  const brut = etendue > 0 ? etendue / 4 : 1;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(brut)));
+  const normalise = brut / magnitude;
+  const facteur = normalise <= 1 ? 1 : normalise <= 2 ? 2 : normalise <= 5 ? 5 : 10;
+  // Plancher à 1 : un pas fractionnaire rendrait deux graduations identiques une fois
+  // arrondies à l'affichage. C'est toute la raison d'être de cette fonction.
+  const pas = Math.max(1, facteur * magnitude);
+  const bas = Math.floor(min / pas) * pas;
+  // `bas + pas` garantit au moins deux traits : un domaine plat donnerait sinon un
+  // axe d'un seul trait, sur lequel aucune hauteur ne se lit.
+  const haut = Math.max(Math.ceil(max / pas) * pas, bas + pas);
+  const ticks: number[] = [];
+  // `pas / 2` absorbe l'erreur d'accumulation des flottants sur la dernière itération.
+  for (let v = bas; v <= haut + pas / 2; v += pas) ticks.push(v);
+  return ticks;
+}
+
+/**
+ * Le domaine vertical ET ses graduations, rendus ENSEMBLE.
+ *
+ * ⚠️ Les deux ne se recalculent pas séparément : `graduations` n'est pas idempotente.
+ * Repassée sur son propre résultat, elle voit une étendue différente et peut choisir
+ * un pas plus large — [-8, 12] donne [-10 … 15] au premier passage, puis [-10 … 20]
+ * au second, soit un trait posé au-dessus du cadre. Le cas n'est pas théorique :
+ * c'est celui des métriques « en % depuis S1 », les seules qui descendent sous zéro.
+ * Un seul calcul, un seul tableau, transporté jusqu'au tracé.
+ */
+export function bornes(series: SerieGraphe[], depuisZero: boolean): { min: number; max: number; ticks: number[] } {
   let min = Infinity;
   let max = -Infinity;
   for (const s of series) {
@@ -125,20 +182,16 @@ export function bornes(series: SerieGraphe[], depuisZero: boolean): { min: numbe
       if (v > max) max = v;
     }
   }
-  if (min === Infinity) return { min: 0, max: 1 };
-  if (depuisZero && min > 0) min = 0;
-  const amplitude = max - min;
-  if (amplitude === 0) {
-    // Une série parfaitement plate : on ouvre une fenêtre autour, sinon la courbe est
-    // collée sur un bord et l'axe affiche cinq fois la même valeur.
-    const marge = Math.abs(max) * 0.1 || 1;
-    return { min: min - marge, max: max + marge };
-  }
-  // ⚠️ Pas de marge SOUS un minimum positif, contrairement à `AreaChart.tsx`. Recharts
-  // rogne ce qui dépasse sa zone de tracé, donc il lui faut cette marge pour que le halo
-  // du point terminal ne soit pas coupé ; ici rien ne rogne, et les 30 px de marge basse
-  // accueillent le halo sans avoir à mentir sur l'échelle.
-  return { min: min - (min < 0 ? amplitude * 0.12 : 0), max: max + amplitude * 0.12 };
+  if (min === Infinity) { min = 0; max = 0; }
+  // `>= 0` et non `> 0` : à zéro exactement, l'ancienne garde ne s'appliquait pas et
+  // laissait le domaine descendre sous la ligne. C'est précisément le cas d'un élève
+  // dont aucun call n'est encore booké — le plus fréquent, et le seul où un axe
+  // négatif se voit.
+  if (depuisZero && min >= 0) min = 0;
+  // Le domaine EST celui des graduations : pas de marge inventée par-dessus, le pas
+  // arrondi vers le haut fournit déjà le dégagement nécessaire au tracé.
+  const ticks = graduations(min, max);
+  return { min: ticks[0], max: ticks[ticks.length - 1], ticks };
 }
 
 export function formaterAxe(v: number, unite: '' | '€' | '%'): string {
@@ -263,7 +316,7 @@ export function construireGraphe(o: OptionsGraphe): GeometrieGraphe {
   // autres passent en gris de toute façon, et la bande n'apporte plus rien.
   const dense = !vedette && o.series.length > seuil;
 
-  const { min, max } = bornes(o.series, !!o.depuisZero);
+  const { min, max, ticks } = bornes(o.series, !!o.depuisZero);
   const yDe = (v: number) => M.haut + hi - ((v - min) / (max - min || 1)) * hi;
   const solPlan = H - M.bas;
 
@@ -290,10 +343,12 @@ export function construireGraphe(o: OptionsGraphe): GeometrieGraphe {
    * Il est en trait PLEIN sur le token de bordure : plein pour se distinguer des
    * pointillés de la grille et se lire comme un axe, sur le même token pour rester
    * calme. C'est un repère, pas une donnée. */
-  // Quatre intervalles, donc cinq traits. Au-dela ils se touchent sur 280 px de haut.
-  for (let i = 0; i <= 4; i++) {
-    const v = min + (max - min) * (i / 4);
-    const y = M.haut + hi - (i / 4) * hi;
+  // Les traits sont posés sur les VALEURS des graduations, plus à intervalles réguliers
+  // entre min et max : c'est ce qui garantit des libellés entiers et tous différents.
+  // `bornes()` a calé le domaine sur ces mêmes valeurs, donc le premier trait est en bas
+  // du cadre et le dernier en haut, exactement comme avant.
+  for (const v of ticks) {
+    const y = M.haut + hi - ((v - min) / (max - min || 1)) * hi;
     s += `<line x1="${M.gauche}" y1="${y.toFixed(1)}" x2="${L - M.droite}" y2="${y.toFixed(1)}" stroke="${GRILLE}" stroke-dasharray="3 3"/>`;
     s += `<text x="${M.gauche - 8}" y="${(y + 3.5).toFixed(1)}" text-anchor="end" font-size="10.5" fill="${ENCRE_ESTOMPEE}" font-family="Inter, sans-serif">${echapper(formaterAxe(v, o.unite))}</text>`;
   }

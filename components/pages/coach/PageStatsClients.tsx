@@ -850,6 +850,77 @@ export default function PageStatsClients() {
       : metriqueAccompagnement === 'publications' ? 'publications'
       : 'ig_followers';
 
+    /* ── Les quatre métriques qui ne viennent pas des snapshots ───────────────
+     *
+     * Leads, calls bookés, ventes et cash collecté n'existent pas dans la fonction
+     * SQL d'accompagnement : elle ne stocke que ce que les plateformes remontent.
+     * Ces quatre-là se découpent ici, depuis les tables déjà chargées — exactement
+     * comme le fait le graphe du haut, avec les mêmes règles.
+     *
+     * Elles manquaient à ce sélecteur alors que leurs libellés cumulés étaient déjà
+     * écrits dans `METRIQUES` (« Leads cumulés », « Ventes cumulées »…) : du code
+     * mort depuis l'origine, jamais atteignable derrière le filtre en dur.
+     *
+     * ⚠️ Les leads se comptent en PERSONNES DISTINCTES, par la règle all-time
+     * (`compterLeads`) et non par celle des actifs. Une courbe cumulée additionne
+     * ses semaines : compter les « actifs » ferait recompter, semaine après semaine,
+     * la même personne qui reste active. `compterLeads` range chaque personne dans
+     * la semaine de sa PREMIÈRE apparition, une seule fois — c'est ce qui rend la
+     * somme juste. */
+    const horsSnapshot = ['leads', 'callsBookes', 'ventes', 'cashCollecte'].includes(metriqueAccompagnement);
+
+    /** Les valeurs hebdomadaires d'un élève, du lundi de son arrivée à aujourd'hui. */
+    const serieHebdo = (pid: string, lundiArrivee: string): number[] => {
+      const semaines = sequenceFenetres(new Date(lundiArrivee + 'T00:00:00Z'), maintenant, 'semaine');
+      if (semaines.length === 0) return [];
+
+      if (metriqueAccompagnement === 'callsBookes') {
+        const callsEleve = data.calls.filter(k => k.coach_id === pid);
+        // Apparié sur TOUS les calls de l'élève, jamais sur une fenêtre : une chaîne
+        // peut commencer avant, et un jeu tronqué ferait passer une continuation pour
+        // une ouverture. Même règle qu'au graphe du haut.
+        const continuations = idsDeContinuation(callsEleve);
+        return repartirParFenetre(
+          callsEleve.filter(k => isNotCanceled(k) && !continuations.has(k.id)),
+          k => k.booked_at || k.scheduled_at, semaines, 'semaine',
+        ).map(p => p.length);
+      }
+
+      if (metriqueAccompagnement === 'ventes' || metriqueAccompagnement === 'cashCollecte') {
+        const dealsVivants = data.deals.filter(d => d.profile_id === pid && d.status !== 'canceled');
+        const paquets = repartirParFenetre(dealsVivants, d => d.signed_at, semaines, 'semaine');
+        if (metriqueAccompagnement === 'ventes') return paquets.map(p => p.length);
+        // `calculerCash` et `encaisseRetenu`, jamais une somme de montants : un
+        // remboursement doit se déduire, et un versement en trop sur une vente ne doit
+        // pas venir effacer l'impayé d'une autre. Règle unique de lib/dealCash.ts.
+        const parDeal = new Map<string, LignePaiement[]>();
+        for (const p of data.paiements) {
+          if (!p.deal_id || p.deals?.profile_id !== pid) continue;
+          const liste = parDeal.get(p.deal_id);
+          const ligne = { amount: p.amount, status: p.status };
+          if (liste) liste.push(ligne); else parDeal.set(p.deal_id, [ligne]);
+        }
+        return paquets.map(p => p.reduce(
+          (s, d) => s + encaisseRetenu(calculerCash(parDeal.get(d.id) ?? []), d.amount_total), 0));
+      }
+
+      // Leads.
+      const brut = data.lignesLeads.get(pid) ?? { leads: [], liens: [], callsIgDirects: [], callsYoutube: [] };
+      return semaines.map((f, i) => {
+        const debF = new Date(f + 'T00:00:00Z');
+        const finF = i + 1 < semaines.length
+          ? new Date(new Date(semaines[i + 1] + 'T00:00:00Z').getTime() - 1)
+          : maintenant;
+        const dedans = (c: LigneCallLead) =>
+          dansFenetre(c.booked_at ?? null, c.scheduled_at ?? null, debF, finF);
+        return compterLeads({
+          ...brut,
+          callsIgDirects: brut.callsIgDirects.filter(dedans),
+          callsYoutube: brut.callsYoutube.filter(dedans),
+        }, debF.toISOString(), finF.toISOString());
+      });
+    };
+
     let maxSemaines = 1;
     const series: SerieGraphe[] = [];
 
@@ -868,15 +939,24 @@ export default function PageStatsClients() {
       if (!lundiArrivee) { nonTraces.set(c.id, 'sans-arrivee'); continue; }
       const t0 = new Date(lundiArrivee + 'T00:00:00Z').getTime();
 
-      const brutes: (number | null)[] = [];
-      for (const r of parProfil.get(c.profile_id) ?? []) {
-        const idx = Math.round((new Date(r.fenetre + 'T00:00:00Z').getTime() - t0) / (7 * 86_400_000));
-        if (idx < 0) continue;
-        const v = r[champ] as number | null;
-        brutes[idx] = v === null || v === undefined ? null : Number(v);
+      // Les quatre métriques hors snapshot se découpent depuis les tables sources ;
+      // les cinq autres se lisent dans les lignes hebdomadaires de la fonction SQL.
+      const brutes: (number | null)[] = horsSnapshot ? serieHebdo(c.profile_id, lundiArrivee) : [];
+      if (!horsSnapshot) {
+        for (const r of parProfil.get(c.profile_id) ?? []) {
+          const idx = Math.round((new Date(r.fenetre + 'T00:00:00Z').getTime() - t0) / (7 * 86_400_000));
+          if (idx < 0) continue;
+          const v = r[champ] as number | null;
+          brutes[idx] = v === null || v === undefined ? null : Number(v);
+        }
+        for (let i = 0; i < brutes.length; i++) if (brutes[i] === undefined) brutes[i] = null;
       }
-      for (let i = 0; i < brutes.length; i++) if (brutes[i] === undefined) brutes[i] = null;
-      if (brutes.filter(v => v !== null).length < 2) { nonTraces.set(c.id, 'sans-donnees'); continue; }
+      // ⚠️ La garde ne s'applique qu'aux snapshots. Une métrique hors snapshot rend
+      // toujours un nombre — zéro quand il ne s'est rien passé, ce qui est une mesure
+      // et non un trou. L'exiger ici retirerait du graphe tout élève encore à zéro,
+      // c'est-à-dire précisément ceux qu'on veut voir démarrer.
+      if (!horsSnapshot && brutes.filter(v => v !== null).length < 2) { nonTraces.set(c.id, 'sans-donnees'); continue; }
+      if (horsSnapshot && brutes.length < 2) { nonTraces.set(c.id, 'sans-donnees'); continue; }
 
       let valeurs: (number | null)[];
       if (nature === 'niveau') {
@@ -1114,8 +1194,11 @@ export default function PageStatsClients() {
                 </div>
                 <select className="stats-select" value={metriqueAccompagnement}
                   onChange={e => setMetriqueAccompagnement(e.target.value as Metrique)}>
+                  {/* Plus de filtre : les neuf métriques du graphe du haut sont
+                      offertes ici aussi. Les quatre dernières portaient déjà leur
+                      libellé cumulé dans METRIQUES, inatteignable derrière la liste
+                      en dur qui vivait ici. */}
                   {(Object.keys(METRIQUES) as Metrique[])
-                    .filter(m => ['abonnesIg', 'abonnesYt', 'vues', 'publications', 'clics'].includes(m))
                     .map(m => <option key={m} value={m}>{METRIQUES[m].titreCumule}</option>)}
                 </select>
               </div>

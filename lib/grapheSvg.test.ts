@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  quantile, moyenne, valeursA, bornes, formaterAxe, construireGraphe,
+  quantile, moyenne, valeursA, bornes, graduations, formaterAxe, construireGraphe,
   lisser, tronconner, SEUIL_COULEUR_PAR_DEFAUT, type SerieGraphe, type Point,
 } from './grapheSvg.ts';
 
@@ -57,13 +57,13 @@ test('une abscisse hors de toute série rend une liste vide', () => {
 
 test('les bornes couvrent toutes les séries, avec une marge en haut', () => {
   const { min, max } = bornes([serie('a', [10, 90])], false);
-  assert.equal(min, 10);
-  assert.ok(max > 90, 'le maximum doit respirer');
+  assert.ok(min <= 10, 'le minimum doit contenir la plus petite valeur');
+  assert.ok(max >= 90, 'le maximum doit contenir la plus grande');
 });
 
 test('depuisZero abaisse le plancher à 0, mais ne remonte pas un minimum négatif', () => {
   assert.equal(bornes([serie('a', [50, 90])], true).min, 0);
-  assert.ok(bornes([serie('a', [-30, 90])], true).min < -30, 'un négatif garde sa marge');
+  assert.ok(bornes([serie('a', [-30, 90])], true).min <= -30, 'un négatif reste sous la donnée');
 });
 
 test('une série parfaitement plate ouvre quand même une fenêtre', () => {
@@ -73,8 +73,67 @@ test('une série parfaitement plate ouvre quand même une fenêtre', () => {
 });
 
 test('aucune valeur connue : une échelle par défaut, jamais NaN', () => {
-  assert.deepEqual(bornes([serie('a', [null, null])], false), { min: 0, max: 1 });
-  assert.deepEqual(bornes([], false), { min: 0, max: 1 });
+  assert.deepEqual(bornes([serie('a', [null, null])], false), { min: 0, max: 1, ticks: [0, 1] });
+  assert.deepEqual(bornes([], false), { min: 0, max: 1, ticks: [0, 1] });
+});
+
+/* ── Les trois pannes d'axe corrigées le 2026-09-12 ─────────────────────────
+ *
+ * Constatées à l'écran sur « Calls bookés » : un axe allant de −1 à 1 avec le zéro
+ * au milieu, gradué « 1 / 1 / 0 / 0 / −1 ». Trois libellés dupliqués, et un −1 sur
+ * un compteur qui ne peut pas être négatif. Les trois cas partagent une cause : des
+ * graduations posées à intervalles réguliers, donc fractionnaires, que `formaterAxe`
+ * arrondissait ensuite au même nombre.
+ *
+ * Le test porte sur ce que l'utilisateur LIT — les libellés formatés — et non sur
+ * les valeurs internes : c'est la duplication à l'écran qui était le défaut. */
+
+const libelles = (min: number, max: number, unite: '' | '€' | '%' = '') =>
+  graduations(min, max).map(v => formaterAxe(v, unite));
+
+test('un axe ne montre jamais deux fois la même graduation', () => {
+  for (const [min, max] of [[0, 0], [5, 5], [0, 1], [0, 3], [-30, 90], [0, 12345], [0, 0.4]] as const) {
+    const lus = libelles(min, max);
+    assert.equal(new Set(lus).size, lus.length, `doublon sur [${min}, ${max}] : ${lus.join(' / ')}`);
+  }
+});
+
+test("tout à zéro : l'axe part de zéro et ne descend jamais en dessous", () => {
+  // Le cas vu à l'écran. `depuisZero` est vrai sur les deux graphes de Stats Clients,
+  // dont aucune métrique ne peut être négative.
+  const { min, max } = bornes([serie('a', [0, 0, 0]), serie('b', [0, 0, 0])], true);
+  assert.equal(min, 0, 'un compteur à zéro ne descend pas sous la ligne');
+  assert.ok(max > 0, 'il faut une hauteur pour que la courbe se voie');
+  assert.deepEqual(libelles(min, max), ['0', '1']);
+});
+
+test("aucune graduation fractionnaire, quelle que soit l'étendue", () => {
+  for (const [min, max] of [[0, 1], [0, 2], [0, 3], [0, 7], [0, 0.5]] as const) {
+    for (const v of graduations(min, max)) {
+      assert.equal(v, Math.round(v), `graduation fractionnaire ${v} sur [${min}, ${max}]`);
+    }
+  }
+});
+
+test("le domaine et ses graduations sont calculés ENSEMBLE, jamais deux fois", () => {
+  // `graduations` n'est pas idempotente : repassée sur son propre resultat elle voit
+  // une etendue differente et peut elargir le pas. [-8, 12] donnait [-10 … 15] puis
+  // [-10 … 20], soit un trait pose au-dessus du cadre. C'est le cas des metriques
+  // « en % depuis S1 », les seules qui descendent sous zero.
+  const { min, max, ticks } = bornes([serie('a', [-8, 12])], true);
+  assert.equal(ticks[0], min, 'le premier trait est le bas du cadre');
+  assert.equal(ticks[ticks.length - 1], max, 'le dernier trait est le haut du cadre');
+  for (const v of ticks) {
+    assert.ok(v >= min && v <= max, `graduation ${v} hors du cadre [${min}, ${max}]`);
+  }
+});
+
+test('les graduations encadrent la donnée sans jamais la couper', () => {
+  for (const [min, max] of [[3, 97], [-30, 90], [0, 12345], [1200, 1207]] as const) {
+    const t = graduations(min, max);
+    assert.ok(t[0] <= min, `le bas ${t[0]} coupe le minimum ${min}`);
+    assert.ok(t[t.length - 1] >= max, `le haut coupe le maximum ${max}`);
+  }
 });
 
 /* ═══ Format de l'axe ═════════════════════════════════════════════════════ */
