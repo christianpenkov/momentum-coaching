@@ -19,6 +19,10 @@ import TaskModal from '@/components/ui/TaskModal';
 import SessionRapportModal from '@/components/ui/SessionRapportModalLoader';
 import CallInfosModal from '@/components/ui/CallInfosModal';
 import ModalShell from '@/components/ui/ModalShell';
+import AideColonne from '@/components/ui/AideColonne';
+// Mêmes textes que « Mes stats » : les deux écrans affichent les mêmes nombres, ils
+// doivent porter les mêmes explications. Voir lib/aidesStats.ts.
+import { AIDE_SHOW_UP, AIDE_CLOSING, AIDE_REV_PAR_CALL, aideCallsBookes } from '@/lib/aidesStats';
 import { useUser } from '@/lib/UserContext';
 import { createClient as createSupabase } from '@/lib/supabase/client';
 import { getPendingSessionRapports, SESSION_TOPICS } from '@/lib/sessionRapport';
@@ -551,9 +555,20 @@ export default function PageClientDetail({ id }: Props) {
   // fetchSalesCalls (route API, filtrée par coach_id = profile_id de l'élève,
   // cf. docs/calls-coach-id-piege.md). Calcul partagé avec la liste clients via
   // lib/salesCallStats.ts pour éviter toute divergence entre les deux vues.
+  //
+  // ⚠️ « Calls bookés » compte des OPPORTUNITÉS, pas des rendez-vous : un 2e rendez-vous
+  // déclaré comme suite ne recompte pas. Jusqu'au 2026-09-12 cet écran comptait des
+  // rendez-vous, alors que « Mes stats » du même élève comptait des opportunités —
+  // le même libellé affichait deux nombres. Le show-up, lui, garde le grain rendez-vous
+  // (un créneau manqué reste perdu) : son dénominateur est donc ÉCRIT sur la carte.
+  // Pas de 4e argument : la route sales-calls renvoie déjà tous les calls de l'élève,
+  // l'appariement des continuations a le jeu complet sous la main.
   const now = new Date();
-  const { callsBookedCount, callsHonoredCount, dealsClosedCount, closingRate, cashContracted, cashCollected } = computeSalesCallStats(salesCallsData, now, dealsForStats);
-  const showUpRate = callsBookedCount > 0 ? Math.round((callsHonoredCount / callsBookedCount) * 100) : 0;
+  const {
+    callsBookedCount, callsHonoredCount, rendezVousCount, rendezVousHonoredCount,
+    dealsClosedCount, closingRate, cashContracted, cashCollected,
+  } = computeSalesCallStats(salesCallsData, now, dealsForStats);
+  const showUpRate = rendezVousCount > 0 ? Math.round((rendezVousHonoredCount / rendezVousCount) * 100) : 0;
   const revenuePerCall = callsBookedCount > 0 ? Math.round(cashContracted / callsBookedCount) : 0;
 
   // Leads totaux = fetchAllLeadsCount (Instagram + YouTube), calculé plus haut — même
@@ -915,7 +930,7 @@ export default function PageClientDetail({ id }: Props) {
               )}
             </div>
             <div className="card kpi-card" style={{ padding: '16px 20px' }}>
-              <div className="kpi-label">Calls bookés</div>
+              <div className="kpi-label" style={{ display: 'flex', alignItems: 'center' }}>Calls bookés<AideColonne texte={aideCallsBookes(callsBookedCount, rendezVousCount)} /></div>
               {kpiLoading ? <KpiSkeleton /> : (
                 <>
                   <div className="kpi-value">{callsBookedCount}</div>
@@ -924,16 +939,18 @@ export default function PageClientDetail({ id }: Props) {
               )}
             </div>
             <div className="card kpi-card" style={{ padding: '16px 20px' }}>
-              <div className="kpi-label">Taux de show-up</div>
+              <div className="kpi-label" style={{ display: 'flex', alignItems: 'center' }}>Taux de show-up<AideColonne texte={AIDE_SHOW_UP} /></div>
               {kpiLoading ? <KpiSkeleton /> : (
                 <>
                   <div className="kpi-value">{showUpRate}%</div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{callsHonoredCount}/{callsBookedCount} calls</div>
+                  {/* Le dénominateur est écrit ici parce qu'il n'est PAS « Calls bookés » :
+                      le show-up compte des rendez-vous, pas des opportunités. */}
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{rendezVousHonoredCount}/{rendezVousCount} rendez-vous</div>
                 </>
               )}
             </div>
             <div className="card kpi-card" style={{ padding: '16px 20px' }}>
-              <div className="kpi-label">Taux de closing</div>
+              <div className="kpi-label" style={{ display: 'flex', alignItems: 'center' }}>Taux de closing<AideColonne texte={AIDE_CLOSING} /></div>
               {kpiLoading ? <KpiSkeleton /> : (
                 <>
                   <div className="kpi-value">{closingRate}%</div>
@@ -957,7 +974,7 @@ export default function PageClientDetail({ id }: Props) {
               )}
             </div>
             <div className="card kpi-card" style={{ padding: '16px 20px' }}>
-              <div className="kpi-label">Revenu par call</div>
+              <div className="kpi-label" style={{ display: 'flex', alignItems: 'center' }}>Revenu par call<AideColonne texte={AIDE_REV_PAR_CALL} /></div>
               {kpiLoading ? <KpiSkeleton /> : (
                 <>
                   <div className="kpi-value">{revenuePerCall.toLocaleString('fr-FR')} €</div>

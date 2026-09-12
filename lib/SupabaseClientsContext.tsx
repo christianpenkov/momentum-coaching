@@ -373,6 +373,11 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         const clientDeals = integrationsReadyAt
           ? allDeals.filter((d: any) => !d.call_id || keptCallIds.has(d.call_id))
           : allDeals;
+        // Appariement des continuations sur `salesCalls` lui-même, PAS sur
+        // `allSalesCalls` : la fiche client ne charge que les calls postérieurs à
+        // integrations_ready_at et n'a donc pas non plus le call d'avant la mise en
+        // route. Apparier ici sur un jeu plus large ferait diverger les deux écrans du
+        // même élève — l'écart exact que ce chantier ferme.
         const stats = c.profile_id ? computeSalesCallStats(salesCalls, now2, clientDeals) : null;
         const currentStats = c.profile_id ? {
           followersIg: snap?.ig_followers ?? 0,
@@ -457,7 +462,10 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       const coachDealsThisMonth = coachDeals.filter((d: any) => (d.signed_at ?? '') >= startOfMonth);
       const coachAllTimeStats = computeSalesCallStats(coachSalesCalls, now2, coachDeals);
       const coachCallsThisMonth = coachSalesCalls.filter((c: any) => (c.scheduled_at ?? '') >= startOfMonth);
-      const coachThisMonthStats = computeSalesCallStats(coachCallsThisMonth, now2, coachDealsThisMonth);
+      // 4e argument = jeu COMPLET pour l'appariement des continuations. `coachCallsThisMonth`
+      // est déjà découpé : sans lui, un 2e rendez-vous dont le premier est tombé le mois
+      // précédent recompterait comme une opportunité neuve.
+      const coachThisMonthStats = computeSalesCallStats(coachCallsThisMonth, now2, coachDealsThisMonth, coachSalesCalls);
       // ── Volet YouTube du compteur « Leads générés » ────────────────────────
       //
       // Trois écarts avec la règle documentée, corrigés le 2026-09-07. Ce compteur

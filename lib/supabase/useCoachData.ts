@@ -280,16 +280,19 @@ export function useClientSelfData() {
       // du mois précédent pouvait faire dépasser 100 %.
       const thisMonthCallIds = new Set(callsThisMonth.map(c => c.id));
       const dealsOfMonthCohort = allDeals.filter((d: any) => d.call_id && thisMonthCallIds.has(d.call_id));
-      const closingRateThisMonth = computeSalesCallStats(callsThisMonth, now, dealsOfMonthCohort).closingRate;
+      // 4e argument = jeu COMPLET pour l'appariement des continuations. `callsThisMonth`
+      // est déjà découpé : sans lui, un 2e rendez-vous dont le premier est tombé le mois
+      // précédent recompterait comme une opportunité neuve et gonflerait le dénominateur.
+      const closingRateThisMonth = computeSalesCallStats(callsThisMonth, now, dealsOfMonthCohort, allSalesCalls).closingRate;
 
       // Cash contracté : sur `signed_at`, et c'est volontairement une AUTRE date.
       // Un deal signé ce mois sur un call du mois dernier appartient bien au cash de
       // ce mois — c'est le mois où l'argent a été engagé. Les deals sans call (upsell,
       // vente directe) comptent ici, alors qu'ils n'ont pas de cohorte de calls.
       const dealsSignedThisMonth = allDeals.filter((d: any) => (d.signed_at ?? '') >= startOfMonth);
-      const cashContractedThisMonth = computeSalesCallStats(callsThisMonth, now, dealsSignedThisMonth).cashContracted;
+      const cashContractedThisMonth = computeSalesCallStats(callsThisMonth, now, dealsSignedThisMonth, allSalesCalls).cashContracted;
 
-      const callsBookedThisMonthCount = computeSalesCallStats(callsThisMonth, now).callsBookedCount;
+      const callsBookedThisMonthCount = computeSalesCallStats(callsThisMonth, now, undefined, allSalesCalls).callsBookedCount;
 
       // Leads totaux = fetchAllLeadsCount (Instagram + YouTube), calculé plus haut —
       // même fonction que la fiche coach et Mes Stats, pour un chiffre garanti

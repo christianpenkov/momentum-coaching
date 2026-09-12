@@ -6,6 +6,13 @@ import { compterLeads, compterLeadsActifs } from '@/lib/salesCallStats';
 import { CALL_COLUMNS } from '@/lib/supabase/types';
 import { parcoursDesLeads, parcoursDesLiensPartages, type RefsParcours, type CallParcours, type PriseParcours, type CallPartage } from '@/lib/parcoursLeads';
 import InlineLoader from '@/components/ui/InlineLoader';
+import AideColonne from '@/components/ui/AideColonne';
+// Les regles de comptage du funnel, ecrites UNE fois : la fiche client coach affiche
+// les memes nombres et doit donc porter les memes explications. Voir lib/aidesStats.ts.
+import {
+  AIDE_CALLS_BOOKES, AIDE_CALLS_HONORES, AIDE_NO_SHOW, AIDE_CLOSING, AIDE_REV_PAR_CALL,
+  aideCallsBookes,
+} from '@/lib/aidesStats';
 import BandeauIntegrations from '@/components/analytics/BandeauIntegrations';
 import { useQuery } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
@@ -545,67 +552,9 @@ const calendlySentAt = (
   ?? (pl.ig_lead_id ? linkClickedByLeadId?.get(pl.ig_lead_id) : null)
   ?? pl.created_at;
 
-/**
- * Rond « ? » en tete de colonne : explique une regle de comptage qui ne se devine pas
- * en lisant le chiffre.
- *
- * Survol ET clic, les deux : `title` ne s'affiche jamais sur un ecran tactile, et la
- * plateforme est d'abord consultee en PWA sur telephone. `stopPropagation` parce que
- * certains de ces en-tetes declenchent un tri au clic.
- */
-function AideColonne({ texte }: { texte: string }) {
-  const [ouvert, setOuvert] = useState(false);
-  return (
-    <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
-      <button
-        type="button"
-        title={texte}
-        aria-label={texte}
-        aria-expanded={ouvert}
-        onClick={(e) => { e.stopPropagation(); setOuvert(o => !o); }}
-        onBlur={() => setOuvert(false)}
-        style={{
-          width: 13, height: 13, borderRadius: '50%', marginLeft: 4, padding: 0,
-          border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)',
-          fontSize: 9, fontWeight: 700, lineHeight: '11px', cursor: 'pointer',
-          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-        }}
-      >?</button>
-      {ouvert && (
-        <span
-          role="tooltip"
-          style={{
-            position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 30,
-            width: 250, padding: '8px 10px', borderRadius: 8,
-            border: '1px solid var(--border)', background: 'var(--surface)',
-            boxShadow: '0 6px 20px rgba(0,0,0,.18)',
-            fontSize: 11, fontWeight: 400, lineHeight: 1.45, color: 'var(--ink)',
-            textAlign: 'left', whiteSpace: 'normal',
-            maxHeight: '60vh', overflowY: 'auto',
-          }}
-        >
-          {/* Un texte d'aide s'ecrit en paragraphes separes par une ligne vide. Sans ce
-              decoupage, `whiteSpace: 'normal'` les collerait en un seul pave illisible —
-              or c'est justement ce pave qui rendait l'aide du closing incomprehensible. */}
-          {texte.split('\n\n').map((para, i) => (
-            <span key={i} style={{ display: 'block', marginTop: i === 0 ? 0 : 8 }}>{para}</span>
-          ))}
-        </span>
-      )}
-    </span>
-  );
-}
-
-// Les cinq regles de comptage de « Mes stats », definies UNE fois. Elles decrivent des
-// grains, pas des emplacements : le meme texte doit apparaitre partout ou le meme
-// nombre est compte de la meme facon, sinon les libelles se remettent a diverger.
-const AIDE_CALLS_BOOKES =
-  "Un deuxième rendez-vous qui prolonge la même vente ne compte pas deux fois. "
-  + "« Mes stats » mesure ce que votre contenu produit, pas le nombre de créneaux tenus — "
-  + "la page Calls, elle, les affiche tous. Si la même personne reprend rendez-vous plus "
-  + "tard pour une nouvelle demande, elle compte à nouveau. C'est votre rapport de call "
-  + "qui fait la différence : le second rendez-vous n'est écarté que si vous avez déclaré "
-  + "qu'il suivrait.";
+// Le rond « ? » et les cinq regles de comptage vivaient ici. Ils sont maintenant dans
+// components/ui/AideColonne.tsx et lib/aidesStats.ts : la fiche client coach affiche les
+// memes nombres, elle doit porter les memes explications sans les recopier.
 
 const AIDE_TOP_CONTENUS =
   "Comment un rendez-vous est rattaché à un contenu.\n\n"
@@ -647,34 +596,6 @@ const AIDE_CLICS_LIENS =
   + "l'enchaînement clics → calls → closés n'est pas un tunnel : un lien envoyé avant la "
   + "période mais dont le call tombe dedans compte dans les calls sans compter dans les "
   + "clics.";
-
-const AIDE_CALLS_HONORES =
-  "Parmi les calls bookés, ceux qui ont eu lieu. Même règle : un deuxième rendez-vous qui "
-  + "prolonge la même vente n'est pas recompté. Ce nombre ne peut donc jamais dépasser les "
-  + "calls bookés.";
-
-const AIDE_NO_SHOW =
-  "Le seul compteur de Mes stats qui parle en RENDEZ-VOUS et non en opportunités. Son "
-  + "dénominateur n'est donc pas le même que celui de « Calls bookés » — c'est pourquoi "
-  + "il est écrit sur la carte elle-même, « 6 sur 11 rendez-vous », et pas seulement ici : "
-  + "vous n'avez jamais à le deviner.\n\n"
-  + "Un créneau posé puis non honoré est un créneau perdu, même s'il prolongeait une "
-  + "vente déjà en cours. On mesure ici la fiabilité d'un créneau, pas ce que le contenu "
-  + "a produit — d'où ce grain différent, assumé.";
-
-const AIDE_CLOSING =
-  "Vos ventes rapportées à vos calls honorés.\n\n"
-  + "Le dénominateur compte des PERSONNES, pas des rendez-vous. Quelqu'un que vous voyez "
-  + "deux fois pour la même vente compte pour UN seul call honoré, pas deux.\n\n"
-  + "Exemple : vous voyez Paul le 12, il veut réfléchir, vous le revoyez le 19 et il "
-  + "signe. Cela fait 1 call honoré et 1 vente, donc 100 %. Si les deux rendez-vous "
-  + "comptaient, vous liriez 50 % — et bien mener une vente en deux temps ferait BAISSER "
-  + "votre taux.\n\n"
-  + "Deux rendez-vous ne sont regroupés que si vous l'avez déclaré : c'est votre réponse "
-  + "« 2ème call » dans le rapport qui les relie. Un prospect qui revient de lui-même des "
-  + "mois plus tard compte bien pour une nouvelle opportunité.\n\n"
-  + "La vente est comptée dans la période du PREMIER rendez-vous, celui qui a créé "
-  + "l'opportunité — pas dans celle où vous avez signé.";
 
 const AIDE_CASH_COLLECTE =
   "Ce qui est réellement rentré en caisse sur les ventes signées pendant cette "
@@ -734,12 +655,6 @@ const AIDE_REACH_STORY =
   + "regarde deux fois fait 1 de reach et 2 de vues. C'est le reach qui sert ici, "
   + "parce que la question posée est « combien de personnes sont restées jusqu'au "
   + "bout », et qu'une personne qui revient ne prolonge pas une audience.";
-
-const AIDE_REV_PAR_CALL =
-  "Le revenu de la période divisé par les calls bookés. Un deuxième rendez-vous qui "
-  + "prolonge la même vente n'entre pas au dénominateur, comme dans la colonne « Calls "
-  + "bookés ». Un deal signé lors d'un second rendez-vous reste au numérateur : il compte "
-  + "là où il a été signé.";
 
 // Format axe X : "13 févr." — pas d'année, espacé uniformément
 const fmtAxisDate = (iso: string) => {
@@ -1507,9 +1422,7 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   // Meme phrase qu'au hero de Funnel & Calls, et pour la meme raison : sans elle,
   // « Calls bookés » et « No-show » se lisent comme deux vues du meme total alors
   // qu'ils comptent deux choses. Affichee seulement quand les deux different.
-  const aideBookesAvecNombres = callsBookes !== rendezVous
-    ? `${callsBookes} calls bookés, mais ${rendezVous} rendez-vous. ${AIDE_CALLS_BOOKES}`
-    : AIDE_CALLS_BOOKES;
+  const aideBookesAvecNombres = aideCallsBookes(callsBookes, rendezVous);
   const closingRate  = callsHonores > 0 ? pct(dealsCloses, callsHonores) : 0;
   const revPerCall   = callsBookes > 0 ? Math.round(totalRev / callsBookes) : 0;
 
@@ -5741,13 +5654,7 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
       {(() => {
         const revPerCall = totalBookes > 0 ? Math.round(totalRev / totalBookes) : 0;
 
-        // La phrase dynamique n'apparait QUE si les deux nombres different — sinon
-        // « 17 calls bookés, mais 17 rendez-vous » n'apprend rien. Elle prefixe le
-        // texte partage sans le reecrire : AIDE_CALLS_BOOKES reste la regle, une
-        // seule fois, pour tous ses emplacements.
-        const aideBookesAvecNombres = totalBookes !== totalRendezVous
-          ? `${totalBookes} calls bookés, mais ${totalRendezVous} rendez-vous. ${AIDE_CALLS_BOOKES}`
-          : AIDE_CALLS_BOOKES;
+        const aideBookesAvecNombres = aideCallsBookes(totalBookes, totalRendezVous);
 
         const heroItems: { label: string; value: string; sub: string; aide?: string }[] = [
           { label: 'Calls bookés',  value: fmt(totalBookes),   sub: 'toutes sources', aide: aideBookesAvecNombres },

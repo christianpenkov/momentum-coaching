@@ -11,6 +11,7 @@
 import { isCallHonored } from './callHonored.ts';
 import { calculerCash } from './dealCash.ts';
 import { CALL_TYPES_VENTE } from './callTypes.ts';
+import { idsDeContinuation } from './callSeries.ts';
 import type { Call } from '@/lib/supabase/types';
 import type { SupabaseClient } from '@supabase/supabase-js';
 // Relatif avec extension, comme les autres imports de ce fichier : `node --test`
@@ -29,8 +30,26 @@ export function isNotCanceled(c: Pick<Call, 'status'> | { status?: string | null
 }
 
 export interface SalesCallStats {
+  /**
+   * OPPORTUNITÉS bookées — pas rendez-vous posés.
+   *
+   * Un deuxième rendez-vous qui prolonge la même vente ne recompte pas. C'est le grain
+   * du référentiel (docs/perimetre-stats-referentiel.md) et celui de « Mes stats ».
+   */
   callsBookedCount: number;
+  /** OPPORTUNITÉS honorées. Même dédup que `callsBookedCount`. */
   callsHonoredCount: number;
+  /**
+   * RENDEZ-VOUS posés — le grain AUTRE, celui du show-up et du no-show.
+   *
+   * Un créneau posé puis manqué est un créneau perdu, même s'il prolongeait une vente
+   * déjà ouverte : le taux de présence mesure la fiabilité d'un créneau, pas ce que le
+   * contenu a produit. Tout écran qui affiche un show-up doit ÉCRIRE ce dénominateur
+   * (« 8 sur 10 rendez-vous »), sinon il se lit comme dérivé de `callsBookedCount`.
+   */
+  rendezVousCount: number;
+  /** RENDEZ-VOUS honorés. Numérateur du show-up, à lire avec `rendezVousCount`. */
+  rendezVousHonoredCount: number;
   dealsClosedCount: number;
   closingRate: number;
   cashContracted: number;
@@ -72,13 +91,53 @@ function computeDealTotals(deals: DealForStats[]): { contracted: number; collect
   };
 }
 
-// Reproduit exactement le calcul de PageClientDetail.tsx:495-505 — closingRate =
-// deals closés / calls honorés (pas / calls bookés), cf. docs/calls-coach-id-piege.md
-// pour le filtre coach_id à appliquer en amont sur les calls passés ici.
-export function computeSalesCallStats(calls: Call[], now: Date, deals?: DealForStats[]): SalesCallStats {
+/**
+ * closingRate = deals closés / calls HONORÉS (pas / calls bookés). Voir
+ * docs/calls-coach-id-piege.md pour le filtre coach_id à appliquer en amont.
+ *
+ * ⚠️ **Deux grains cohabitent ici, et c'est voulu.** Bookés / honorés / closing comptent
+ * des OPPORTUNITÉS : un deuxième rendez-vous qui prolonge la même vente ne recompte pas.
+ * Le show-up, lui, compte des RENDEZ-VOUS (`rendezVousCount`) — voir l'interface. Ne pas
+ * « harmoniser » les deux : c'est la même décision qu'en Vue générale de « Mes stats »
+ * (PageClientStats.tsx, calcul des métriques business).
+ *
+ * Jusqu'au 2026-09-12 cette fonction ne connaissait que le grain rendez-vous, alors que
+ * « Mes stats » comptait des opportunités : le MÊME libellé « Calls bookés » affichait
+ * deux nombres différents pour le même élève.
+ *
+ * @param callsPourAppariement Le jeu COMPLET des calls du même propriétaire, quand
+ *   `calls` est déjà découpé par période. Sans lui, une paire à cheval sur deux fenêtres
+ *   est invisible depuis la fenêtre et le 2e rendez-vous recompte comme une opportunité
+ *   neuve. Même raison qu'en Vue générale, qui apparie sur `callsAllTime`. À omettre
+ *   quand `calls` est déjà le jeu complet (fiche client, all-time).
+ */
+export function computeSalesCallStats(
+  calls: Call[],
+  now: Date,
+  deals?: DealForStats[],
+  callsPourAppariement?: Call[],
+): SalesCallStats {
   const salesCalls = calls.filter(isNotCanceled);
-  const callsBookedCount = salesCalls.filter(c => c.status === 'active').length;
-  const callsHonoredCount = salesCalls.filter(c => c.status && c.scheduled_at && isCallHonored({ ...c, status: c.status, scheduled_at: c.scheduled_at }, now)).length;
+
+  // L'appariement se fait sur le jeu complet, mais l'ANNULÉ n'ouvre pas d'opportunité :
+  // le même filtre des deux côtés, sinon un rendez-vous annulé pourrait servir de tête
+  // de chaîne et écarter à tort le suivant.
+  const continuations = idsDeContinuation((callsPourAppariement ?? calls).filter(isNotCanceled));
+  const estOpportunite = (c: Call) => !continuations.has(c.id);
+
+  const estHonore = (c: Call) =>
+    !!c.status && !!c.scheduled_at
+    && isCallHonored({ ...c, status: c.status, scheduled_at: c.scheduled_at }, now);
+
+  const callsBookedCount = salesCalls.filter(c => c.status === 'active' && estOpportunite(c)).length;
+  const callsHonoredCount = salesCalls.filter(c => estHonore(c) && estOpportunite(c)).length;
+  const rendezVousCount = salesCalls.filter(c => c.status === 'active').length;
+  const rendezVousHonoredCount = salesCalls.filter(estHonore).length;
+
+  // Le numérateur compte des VENTES, pas des rendez-vous : un deal signé au 2e
+  // rendez-vous reste compté, même si ce rendez-vous est écarté du dénominateur. C'est
+  // exactement ce que fait la Vue générale, et c'est ce qui rend le taux lisible — 1
+  // opportunité honorée, 1 vente, 100 %.
   const dealsClosedCount = salesCalls.filter(c => c.deal_closed).length;
   const closingRate = callsHonoredCount > 0 ? Math.round((dealsClosedCount / callsHonoredCount) * 100) : 0;
 
@@ -93,7 +152,8 @@ export function computeSalesCallStats(calls: Call[], now: Date, deals?: DealForS
   if (deals) {
     const totals = computeDealTotals(deals);
     return {
-      callsBookedCount, callsHonoredCount, dealsClosedCount, closingRate,
+      callsBookedCount, callsHonoredCount, rendezVousCount, rendezVousHonoredCount,
+      dealsClosedCount, closingRate,
       cashContracted: totals.contracted,
       cashCollected: totals.collected,
     };
@@ -101,7 +161,8 @@ export function computeSalesCallStats(calls: Call[], now: Date, deals?: DealForS
 
   const cashContracted = salesCalls.reduce((s, c) => s + (c.revenue || 0), 0);
   return {
-    callsBookedCount, callsHonoredCount, dealsClosedCount, closingRate,
+    callsBookedCount, callsHonoredCount, rendezVousCount, rendezVousHonoredCount,
+    dealsClosedCount, closingRate,
     cashContracted,
     cashCollected: null,   // inconnu sans les deals — surtout pas 0, qui se lirait « rien encaissé »
   };
