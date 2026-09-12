@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { createClient as createSupabase } from '@/lib/supabase/client';
 import { resolveUser } from '@/lib/waitForSession';
@@ -1761,11 +1762,21 @@ function CarteTableau({ lignes, total, intituleCourbe, critere, setCritere, sens
 }
 
 function LigneTableau({ l, metrique, onSurvol }: { l: LigneEleve; metrique: Metrique; onSurvol: (id: string | null) => void }) {
+  const router = useRouter();
   const couleur = colorFromSeed(seedForPerson(l.nom));
   const taux = tauxCollecte(l.cashCollecte, l.cashContracte);
+  // Toute la ligne mene a la fiche. Le `title` l'annoncait depuis le debut, seule la
+  // premiere cellule le faisait — cliquer sur le cash ou les abonnes ne faisait rien.
+  //
+  // Meme motif que le tableau frere de PageClients : `router.push` sur le `<tr>`, et le
+  // lien interne conserve avec `stopPropagation`. Le lien n'est pas redondant, c'est lui
+  // qui porte l'accessibilite : un `<tr onClick>` n'est ni focusable au clavier ni
+  // ouvrable dans un nouvel onglet, un `<a>` l'est. Sans lui, la ligne deviendrait
+  // inatteignable autrement qu'a la souris.
+  const ouvrirFiche = { onClick: () => router.push(`/clients/${l.id}`), style: { cursor: 'pointer' }, title: `Ouvre la fiche de ${l.nom}` };
   const identite = (
     <td>
-      <Link href={`/clients/${l.id}`} style={{ display: 'flex', alignItems: 'center', gap: 9, textDecoration: 'none' }}>
+      <Link href={`/clients/${l.id}`} transitionTypes={['nav-forward']} onClick={e => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 9, textDecoration: 'none' }}>
         <Avatar avatarUrl={l.photo ?? undefined} initials={getInitials(l.nom)} size={30} seed={l.id} />
         <div>
           <div style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{l.nom}</div>
@@ -1777,9 +1788,12 @@ function LigneTableau({ l, metrique, onSurvol }: { l: LigneEleve; metrique: Metr
 
   // Un élève sans données ne montre pas des zéros : il montre son état. Un 0 affirmerait
   // qu'il ne s'est rien passé, alors qu'on ne sait pas encore.
+  //
+  // Sa ligne est cliquable comme les autres : c'est meme celle qu'on a le plus de raisons
+  // d'ouvrir — « installation en cours » se regle sur la fiche, pas ici.
   if (l.etat) {
     return (
-      <tr onMouseEnter={() => onSurvol(null)}>
+      <tr onMouseEnter={() => onSurvol(null)} {...ouvrirFiche}>
         {identite}
         <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>{l.semaine ? `S${l.semaine}` : '—'}</td>
         <td colSpan={8} style={{ paddingLeft: 12 }}>
@@ -1798,7 +1812,7 @@ function LigneTableau({ l, metrique, onSurvol }: { l: LigneEleve; metrique: Metr
     <tr
       onMouseEnter={() => onSurvol(l.id)}
       onMouseLeave={() => onSurvol(null)}
-      title={`Ouvre la fiche de ${l.nom}`}
+      {...ouvrirFiche}
     >
       {identite}
       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>{l.semaine ? `S${l.semaine}` : '—'}</td>
