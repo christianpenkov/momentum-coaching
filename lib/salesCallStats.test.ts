@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compterLeads, compterLeadsActifs, fetchAllLeadsCount, fetchIgLeadsCount, type LignesActifs, type LignesLeads } from './salesCallStats.ts';
+import { compterLeads, compterLeadsActifs, computeSalesCallStats, fetchAllLeadsCount, fetchIgLeadsCount, type DealForStats, type LignesActifs, type LignesLeads } from './salesCallStats.ts';
 
 // Lancé par `npm test`. `compterLeads` est la règle PURE du comptage de leads, extraite
 // le 2026-09-01 pour que la version « un élève » (fetchAllLeadsCount) et la version
@@ -482,4 +482,67 @@ test('caractérisation — sans `since`, aucune borne de date n\'est posée', as
   for (const lecture of journal) {
     assert.ok(!lecture.filtres.some(f => f.startsWith('or:')), `${lecture.table} ne doit pas être borné`);
   }
+});
+
+// ─── closingRate : une vente annulée n'est plus un closing ───────────────────
+//
+// Décision produit de Chris, 2026-09-12. AGENTS.md portait la question ouverte
+// (« une vente annulée est-elle un closing ? ») et le code répondait « oui » par
+// défaut. Ces tests fixent la réponse et, surtout, les trois cas où il faut
+// continuer de compter — ce sont eux qui feraient des faux négatifs silencieux.
+
+const APPEL_HONORE = {
+  id: 'c1', status: 'active', scheduled_at: '2026-09-01T10:00:00Z',
+  call_type: 'calendly', deal_closed: true, revenue: 1000,
+};
+const MAINTENANT = new Date('2026-09-10T00:00:00Z');
+const stats = (deals?: DealForStats[], calls: unknown[] = [APPEL_HONORE]) =>
+  computeSalesCallStats(calls as never, MAINTENANT, deals);
+
+test('closing — un appel dont la seule vente est annulée sort du numérateur', () => {
+  const s = stats([{ amount_total: 1000, status: 'canceled', call_id: 'c1' }]);
+  assert.equal(s.callsHonoredCount, 1, 'le dénominateur ne bouge pas : le rendez-vous a bien eu lieu');
+  assert.equal(s.dealsClosedCount, 0);
+  assert.equal(s.closingRate, 0);
+});
+
+test('closing — une vente vivante compte, évidemment', () => {
+  const s = stats([{ amount_total: 1000, status: 'paid', call_id: 'c1' }]);
+  assert.equal(s.dealsClosedCount, 1);
+  assert.equal(s.closingRate, 100);
+});
+
+test('closing — un appel SANS aucun deal compte encore (rapport interrompu)', () => {
+  // Le montant a été saisi, la vente n'a jamais été créée : `deal_closed` est la
+  // seule trace. L'exclure ici effacerait un closing réel — même repli que le
+  // garde de `client/pipeline`.
+  const s = stats([{ amount_total: 500, status: 'paid', call_id: 'un-autre-appel' }]);
+  assert.equal(s.dealsClosedCount, 1);
+});
+
+test('closing — une vente annulée ET une vivante sur le même appel : ça compte', () => {
+  const s = stats([
+    { amount_total: 1000, status: 'canceled', call_id: 'c1' },
+    { amount_total: 800, status: 'paid', call_id: 'c1' },
+  ]);
+  assert.equal(s.dealsClosedCount, 1);
+});
+
+test('closing — un deal annulé SANS call_id (upsell) ne disqualifie aucun appel', () => {
+  const s = stats([{ amount_total: 1000, status: 'canceled', call_id: null }]);
+  assert.equal(s.dealsClosedCount, 1);
+});
+
+test('⚠️ rétro-compatible — sans deals, le comptage est celui d\'avant', () => {
+  const s = stats(undefined);
+  assert.equal(s.dealsClosedCount, 1);
+  assert.equal(s.cashCollected, null, 'inconnu sans les deals, surtout pas 0');
+});
+
+test('closing — le cash contracté exclut déjà les annulées, et ne change pas', () => {
+  const s = stats([
+    { amount_total: 1000, status: 'canceled', call_id: 'c1' },
+    { amount_total: 800, status: 'paid', call_id: 'c1' },
+  ]);
+  assert.equal(s.cashContracted, 800);
 });

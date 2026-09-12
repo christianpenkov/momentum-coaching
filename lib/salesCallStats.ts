@@ -74,6 +74,26 @@ export interface DealForStats {
   amount_total: number | string;
   status?: string | null;
   collected?: number;
+  /**
+   * Le rendez-vous qui a produit cette vente. OPTIONNEL, et son absence a un sens
+   * précis : sans lui, `closingRate` ne peut pas savoir quelle vente appartient à
+   * quel appel, donc il compte comme avant le 2026-09-12. Un appelant qui affiche
+   * un taux de closing doit le fournir ; un deal d'upsell n'en a légitimement pas.
+   */
+  call_id?: string | null;
+}
+
+/**
+ * Une vente annulée, au sens de la colonne `deals.status`.
+ *
+ * ⚠️ Écrite UNE fois et partagée, parce que la même question se pose à deux endroits
+ * (le cash contracté et le taux de closing) et que deux copies divergeraient au
+ * premier statut ajouté par Stripe — le défaut que ce dépôt corrige partout ailleurs.
+ * Les trois écrivains de cette valeur sont `declare-refund`, `calls/[id]/rapport` et
+ * `lib/dealStatus.ts` : tous posent `'canceled'`.
+ */
+function estVenteAnnulee(d: DealForStats): boolean {
+  return d.status === 'canceled';
 }
 
 /**
@@ -90,7 +110,7 @@ export interface DealForStats {
  * `calculerCash`, jamais une somme de montants — voir fetchDealsForStats.
  */
 function computeDealTotals(deals: DealForStats[]): { contracted: number; collected: number } {
-  const active = deals.filter(d => d.status !== 'canceled');
+  const active = deals.filter(d => !estVenteAnnulee(d));
   return {
     contracted: active.reduce((s, d) => s + Number(d.amount_total || 0), 0),
     collected: deals.reduce((s, d) => s + Number(d.collected || 0), 0),
@@ -152,7 +172,38 @@ export function computeSalesCallStats(
   // rendez-vous reste compté, même si ce rendez-vous est écarté du dénominateur. C'est
   // exactement ce que fait la Vue générale, et c'est ce qui rend le taux lisible — 1
   // opportunité honorée, 1 vente, 100 %.
-  const dealsClosedCount = salesCalls.filter(c => c.deal_closed).length;
+  //
+  // ⚠️ Une vente ANNULÉE n'est plus un closing — décision produit de Chris du
+  // 2026-09-12. AGENTS.md portait la question ouverte depuis le 2026-09-09 (« une
+  // vente annulée est-elle un closing ? ») et le comportement d'alors répondait
+  // « oui » par défaut, faute d'arbitrage.
+  //
+  // ⚠️ `calls.deal_closed` reste VRAI, et c'est délibéré : le drapeau dit qu'une
+  // vente a été déclarée pendant l'appel, `deals` dit ce qu'elle est devenue. C'est
+  // la règle de `payments/deals/[id]/cancel` — on ne la défait pas ici, on cesse
+  // seulement de compter cet appel au numérateur du taux.
+  //
+  // Trois précautions, chacune contre un faux négatif :
+  //   • un appel sans AUCUN deal continue de compter (rapport interrompu avant la
+  //     création de la vente : le drapeau est alors la seule trace, même repli que
+  //     le garde de `client/pipeline`) ;
+  //   • un appel qui porte une vente annulée ET une vente vivante compte encore ;
+  //   • un deal sans `call_id` (upsell) ne peut disqualifier aucun appel.
+  const ventesParCall = new Map<string, { vivantes: number; annulees: number }>();
+  for (const d of deals ?? []) {
+    if (!d.call_id) continue;
+    const e = ventesParCall.get(d.call_id) ?? { vivantes: 0, annulees: 0 };
+    if (estVenteAnnulee(d)) e.annulees++; else e.vivantes++;
+    ventesParCall.set(d.call_id, e);
+  }
+  const venteEntierementAnnulee = (callId: string) => {
+    const e = ventesParCall.get(callId);
+    return !!e && e.annulees > 0 && e.vivantes === 0;
+  };
+
+  const dealsClosedCount = salesCalls.filter(
+    c => c.deal_closed && !venteEntierementAnnulee(c.id),
+  ).length;
   const closingRate = callsHonoredCount > 0 ? Math.round((dealsClosedCount / callsHonoredCount) * 100) : 0;
 
   // Source du cash : la table `deals` quand elle est fournie, sinon `calls.revenue`.
@@ -193,12 +244,15 @@ export async function fetchDealsForStats(
 ): Promise<DealForStats[]> {
   const { data } = await supabase
     .from('deals')
-    .select('amount_total, status, deal_payments(amount, status)')
+    .select('amount_total, status, call_id, deal_payments(amount, status)')
     .eq('profile_id', profileId);
 
   return (data ?? []).map((d: any) => ({
     amount_total: d.amount_total,
     status: d.status,
+    // Sans lui, `closingRate` ne peut pas retirer un appel dont la vente a été
+    // annulée : il compterait comme avant. Voir `DealForStats.call_id`.
+    call_id: d.call_id ?? null,
     // `calculerCash().net` et non une somme des `succeeded` : encaissé − remboursé
     // − contesté, la règle partagée de lib/dealCash.ts. Ce filtre affichait
     // 2 800 € sur la fiche d'un élève qui en avait 2 600 en caisse — 200 € rendus

@@ -628,6 +628,20 @@ const AIDE_ECART_DEDUP = (abo: number, non: number, total: number) =>
   + "Les pourcentages se rapportent aux parts, pour qu'ils fassent exactement 100 %. "
   + "Le reach total, lui, reste le nombre réel de personnes touchées.";
 
+// Voisin de AIDE_ECART_DEDUP, et pour la meme raison de fond : la portee compte des
+// PERSONNES, donc rien de ce qui la concerne ne s'additionne.
+const AIDE_ECART_REACH_JOURS = (sommeJours: number, total: number) =>
+  `En additionnant les barres du graphique on obtient ${sommeJours}, pas ${total}. Ce n'est pas une erreur.\n\n`
+  + "Le grand chiffre compte des PERSONNES sur toute la période : quelqu'un touché trois "
+  + "jours de suite y compte une seule fois. Le graphique, lui, montre chaque jour "
+  + `séparément — cette même personne y apparaît trois fois. D'où ${sommeJours} contre ${total}.\n\n`
+  + "L'écart grandit donc avec la durée de la période : il est faible sur une semaine et "
+  + "peut doubler le nombre sur un historique complet. C'est le signe que les mêmes "
+  + "personnes reviennent.\n\n"
+  + "Les deux servent à des choses différentes : le total répond à « combien de personnes "
+  + "ai-je touchées », la courbe à « quels jours ai-je été vu ». Il n'existe pas de "
+  + "portée dédupliquée jour par jour : Meta ne la mesure que par période.";
+
 const AIDE_CASH_ARRIVE =
   "L'argent réellement arrivé sur votre compte pendant cette période, quelle que soit "
   + "la date de la vente. C'est le chiffre qui correspond à votre relevé bancaire.\n\n"
@@ -1075,7 +1089,7 @@ type ContentSortKey = 'views' | 'watchTime' | 'calls' | 'revenue';
 
 // ─── TAB "Vue générale (B)" — version épurée ─────────────────────────────────
 
-function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, calendlyStaticClicsFromDb, igLive, ytLive, sinceConnection, leads, leadsBruts, reprisesBrutes, lmHistory, integrationsReadyAt, allTimeStart, deals, cashParVente, stories }: { ig: IGStats | null; yt: YTStats | null; msgs: IGMessages | null; calls: CallRecord[]; callsAllTime?: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; calendlyStaticClicsFromDb?: number; igLive?: IGStats | null; ytLive?: YTStats | null; sinceConnection?: boolean; leads?: MockLead[]; leadsBruts?: { ig_username: string | null; detected_at: string | null; source: string | null; hook_replied_at: string | null; id: string | null }[]; reprisesBrutes?: { ig_username: string | null; detected_at: string | null }[]; lmHistory?: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[]; integrationsReadyAt?: string | null; allTimeStart?: string | null; deals?: DealRecord[]; cashParVente?: VenteCash[]; stories?: any[] }) {
+function TabOverviewV2({ profileId, ig, yt, msgs, calls, callsAllTime, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, calendlyStaticClicsFromDb, igLive, ytLive, sinceConnection, leads, leadsBruts, reprisesBrutes, lmHistory, integrationsReadyAt, allTimeStart, deals, cashParVente, stories }: { profileId?: string; ig: IGStats | null; yt: YTStats | null; msgs: IGMessages | null; calls: CallRecord[]; callsAllTime?: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; calendlyStaticClicsFromDb?: number; igLive?: IGStats | null; ytLive?: YTStats | null; sinceConnection?: boolean; leads?: MockLead[]; leadsBruts?: { ig_username: string | null; detected_at: string | null; source: string | null; hook_replied_at: string | null; id: string | null }[]; reprisesBrutes?: { ig_username: string | null; detected_at: string | null }[]; lmHistory?: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[]; integrationsReadyAt?: string | null; allTimeStart?: string | null; deals?: DealRecord[]; cashParVente?: VenteCash[]; stories?: any[] }) {
   // Etiquette de fenetre. En All-Time les cartes affichaient « 30j » alors que le
   // bandeau annonce « All-Time » — meme defaut que celui corrige dans les onglets
   // Instagram et YouTube (2026-08-22).
@@ -1489,9 +1503,24 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   // « Non mesuré » en 7 jours et « 0 » en 30 jours, sur la MEME donnee absente. Un
   // comportement qui change avec le selecteur est indechiffrable, la ou une invention
   // uniforme est au moins constante.
-  const igReach: number | null = (!sinceConnection && period === 7)
-    ? sommeFlux(igChartSlice, 'reach')
-    : (ig?.reach30d ?? null);
+  // ⚠️ Ce commentaire decrit ce que faisait l'ANCIEN calcul, garde parce que la regle
+  // du `?? null` reste valable. Mais les deux branches sommaient des JOURNEES sous un
+  // libelle « personnes » : juin affichait 200 la ou la mesure de periode dit 120, et
+  // l'historique complet 503 contre 212. Le troisieme et dernier lecteur de la portee a
+  // etre reste sur la somme des jours — l'onglet Instagram et l'entonnoir avaient deja
+  // bascule sur lib/porteeIg.ts.
+  //
+  // Le TOTAL passe donc sur la mesure de periode. La COURBE, elle, reste journaliere :
+  // il n'existe pas de portee dedupliquee par jour, et une courbe est justement ce qui
+  // montre les pics. Les deux ne se recomposent donc pas — c'est l'aide qui le dit,
+  // affichee seulement quand l'ecart est visible.
+  const typePorteeOv = typePeriodePour(period, sinceConnection);
+  const { data: periodesOvData } = usePeriodesIg(typePorteeOv, profileId);
+  const porteeOv = porteeDeLaPeriode(periodesOvData?.periodes, typePorteeOv, parisDateStr(ovPeriodStart));
+  const igReach: number | null = porteeOv?.reachTotal ?? null;
+  // Somme des journees affichees : sert UNIQUEMENT a savoir s'il faut expliquer l'ecart.
+  // Ne jamais s'en servir comme repli — ce serait reintroduire l'erreur en silence.
+  const igReachSommeJours = sommeFlux(igChartSlice, 'reach');
   const ytViews: number | null = (!sinceConnection && period === 7)
     ? sommeFlux(ytChartSlice, 'views')
     : (yt?.views30d ?? null);
@@ -1865,8 +1894,14 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
       {/* ── BLOC 2 : Santé contenu — 2 sparklines côte à côte ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         {[
-          { label: 'Reach Instagram', total: igReach, repondu: !!ig, unit: 'personnes', color: IG_COLOR, ...regrouperSerieAffichee(igChartSlice.map(d => ({ date: d.date, v: d.pending ? null : d.reach })), 'comptage') },
-          { label: 'Vues YouTube', total: ytViews, repondu: !!yt, unit: 'vues', color: YT_COLOR, ...regrouperSerieAffichee(ytChartSlice.map(d => ({ date: d.date, v: d.pending ? null : d.views })), 'comptage') },
+          // L'aide n'apparait QUE si l'ecart se voit : sinon « la somme des jours ne fait
+          // pas le total » inquieterait la ou les deux nombres coincident.
+          { label: 'Reach Instagram', total: igReach, repondu: !!ig, unit: 'personnes', color: IG_COLOR,
+            aide: igReach != null && igReachSommeJours != null && igReachSommeJours !== igReach
+              ? AIDE_ECART_REACH_JOURS(igReachSommeJours, igReach)
+              : undefined,
+            ...regrouperSerieAffichee(igChartSlice.map(d => ({ date: d.date, v: d.pending ? null : d.reach })), 'comptage') },
+          { label: 'Vues YouTube', total: ytViews, repondu: !!yt, unit: 'vues', color: YT_COLOR, aide: undefined, ...regrouperSerieAffichee(ytChartSlice.map(d => ({ date: d.date, v: d.pending ? null : d.views })), 'comptage') },
         ].map((item, i) => {
           // Quand AUCUN jour n'est mesure, le grand chiffre valait « 0 » — il affirmait
           // « zero personne touchee » la ou la courbe disait deja « pas encore de donnees ».
@@ -1892,7 +1927,7 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
           <div key={i} className="stats-hover-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 20px 12px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
               <div>
-                <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 4 }}>{item.label}</div>
+                <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 4, display: 'flex', alignItems: 'center' }}>{item.label}{item.aide ? <AideColonne texte={item.aide} /> : null}</div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
                   {/* « Non mesuré » descend a 15 px : a 26 px il deborde de la demi-carte
                       et bouscule la pastille de couleur a droite. */}
@@ -5075,7 +5110,10 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
   // une barre absente se lit naturellement « rien ce jour-la ».
   // Le reach, les vues et le revenu cumule, eux, ont un point par jour : ils restent
   // en courbe.
-  const [expandedEff, setExpandedEff] = useState<{ label: string; value: string; color: string; estPct: boolean; enBarres: boolean; data: { date: string; v: number }[] } | null>(null);
+  // `fmtX` : present quand la serie est au grain PERIODE et non au grain jour — l'axe
+  // porte alors « sem. 22 juin » / « juil. 26 », et toutes les graduations s'affichent
+  // (une dizaine de barres, la place ne manque pas).
+  const [expandedEff, setExpandedEff] = useState<{ label: string; value: string; color: string; estPct: boolean; enBarres: boolean; data: { date: string; v: number }[]; fmtX?: (iso: string) => string; note?: string } | null>(null);
   const now = new Date();
 
   // ── Fenêtre temporelle de la période sélectionnée (bornes calendaires réelles) ──
@@ -5584,6 +5622,68 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
   type EffMetric = { label: string; value: string; sub?: string; prevValue: string | null; delta: { value: number; label: string; color: string } | null; lowerIsBetter: boolean; aide?: string };
   type EffRow = { platform: string; color: string; metrics: EffMetric[]; platformCalls: CallRecord[]; reachByDate: Map<string, number> };
   const igReachByDate = new Map<string, number>((ig?.chartData ?? []).filter(dd => inFunnelDateWindow(dd.date)).map(dd => [dd.date, dd.reach ?? 0]));
+
+  // ── La portee ne se decoupe pas en jours ─────────────────────────────────────
+  //
+  // « Reach pour 1 call » et « Cash / reach » divisent par la portee DEDUPLIQUEE de la
+  // periode (`igReachD`). Leur courbe, elle, divisait par une somme de valeurs
+  // journalieres : le grand chiffre sur 212 personnes, la courbe sur 503 apparitions.
+  // Le clic sur la carte ouvrait donc une lecture qui ne la reconstituait jamais.
+  //
+  // On ne peut pas repartir 212 personnes uniques sur 90 dates — la deduplication est
+  // une propriete de la PERIODE, Meta ne la mesure pas autrement. La courbe passe donc
+  // au grain periode : une barre par semaine (mode 7j) ou par mois, lue dans la meme
+  // table que la carte. Chaque barre est alors un vrai nombre de personnes.
+  //
+  // Type demande volontairement independant de `typePortee` : en All-Time celui-ci vaut
+  // 'all_time' et ne renvoie qu'UNE ligne — de quoi remplir la carte, pas une courbe.
+  // On lit donc toujours les semaines ou les mois, y compris en All-Time.
+  const typeSerieReach: TypePeriodeIg = period === 7 ? 'semaine' : 'mois';
+  const { data: periodesSerieData } = usePeriodesIg(typeSerieReach, profileId);
+  // Chevauchement, pas inclusion : la periode qui contient `winStart` commence avant lui
+  // et doit apparaitre, sinon All-Time perd sa premiere barre.
+  const periodesDansFenetre = (periodesSerieData?.periodes ?? [])
+    .filter(p => p.fin >= parisDateStr(winStart) && p.debut <= parisDateStr(winEnd))
+    .slice()
+    .sort((a, b) => a.debut.localeCompare(b.debut));
+
+  const libelleBarrePortee = (iso: string) => {
+    const d = new Date(iso + 'T12:00:00Z');
+    return typeSerieReach === 'semaine'
+      ? `sem. ${d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }).replace('.', '')}`
+      : d.toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' }).replace('.', '');
+  };
+
+  /**
+   * Serie par periode pour les deux metriques adossees a la portee dedupliquee.
+   *
+   * `metricIdx` 0 = reach / calls bookes, 5 = revenu / reach. Les deux sont des RATIOS :
+   * personne n'attend d'une somme de barres qu'elle redonne la carte, et c'est ce qui
+   * rend ce grain lisible la ou une somme de portees serait fausse (juin 120 + juillet
+   * 143 + aout 122 = 385, contre 212 reellement mesures sur la fenetre complete).
+   */
+  const buildEffPeriodData = (platformCalls: CallRecord[], metricIdx: number): { date: string; v: number }[] => {
+    const parJour = callsByBookedDay(platformCalls);
+    return periodesDansFenetre.flatMap(p => {
+      const reach = p.reachTotal;
+      if (reach == null || reach <= 0) return [];
+      let bookes = 0;
+      for (const [jour, cs] of parJour) {
+        if (jour < p.debut || jour > p.fin) continue;
+        bookes += cs.filter(c => c.status === 'active' && !continuations.has(c.id)).length;
+      }
+      if (metricIdx === 0) return bookes > 0 ? [{ date: p.debut, v: Math.round(reach / bookes) }] : [];
+      // Le revenu se date comme partout ailleurs sur cet onglet : au rendez-vous qui a
+      // produit l'opportunite, via `dateVenteDuCall`.
+      const rev = platformCalls.reduce((s, c) => {
+        const d = dateVenteDuCall(c);
+        if (!d) return s;
+        const jour = parisDateStr(new Date(d));
+        return jour >= p.debut && jour <= p.fin ? s + (montantParCall.get(c.id) ?? 0) : s;
+      }, 0);
+      return [{ date: p.debut, v: rev / reach }];
+    });
+  };
   const ytReachByDate = new Map<string, number>((yt?.chartData ?? []).filter(dd => inFunnelDateWindow(dd.date)).map(dd => [dd.date, dd.views ?? 0]));
   // ── Efficacité par plateforme (données réelles, pas de comparaison historique) ──
   const effRows: EffRow[] = [
@@ -5895,10 +5995,15 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
                     ? `hsl(142, ${Math.round(50 + greenIntensity * 50)}%, ${Math.round(38 - greenIntensity * 8)}%)`
                     : undefined;
                   const deltaColor = d ? (isGood ? greenColor! : isBad ? RED : 'var(--muted)') : 'var(--muted)';
-                  const effData = buildEffDayData(row.platformCalls, mi, row.reachByDate);
+                  // Seul Instagram a une portee dedupliquee ; les vues YouTube
+                  // s'additionnent, leur courbe journaliere reste juste.
+                  const auGrainPeriode = row.platform === 'Instagram' && (mi === 0 || mi === 5);
+                  const effData = auGrainPeriode
+                    ? buildEffPeriodData(row.platformCalls, mi)
+                    : buildEffDayData(row.platformCalls, mi, row.reachByDate);
                   return (
                     <div key={mi}
-                      onClick={() => { setExpandedEff({ label: `${row.platform} — ${m.label}`, value: m.value, color: row.color, estPct: mi === 2 || mi === 3, enBarres: mi === 2 || mi === 3 || mi === 4, data: effData }); onModalChange?.(true); }}
+                      onClick={() => { setExpandedEff({ label: `${row.platform} — ${m.label}`, value: m.value, color: row.color, estPct: mi === 2 || mi === 3, enBarres: mi === 2 || mi === 3 || mi === 4 || auGrainPeriode, data: effData, fmtX: auGrainPeriode ? libelleBarrePortee : undefined, note: auGrainPeriode ? (typeSerieReach === 'semaine' ? 'Une barre par semaine : la portée compte des personnes, elle ne se découpe pas en jours.' : 'Une barre par mois : la portée compte des personnes, elle ne se découpe pas en jours.') : undefined }); onModalChange?.(true); }}
                       style={{ padding: '14px 10px', borderLeft: mi > 0 ? '1px solid var(--border-soft)' : 'none', cursor: 'pointer', transition: 'background .15s' }}
                       onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
                       onMouseLeave={e => e.currentTarget.style.background = ''}
@@ -5940,7 +6045,10 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
               </div>
               <button onClick={() => { setExpandedEff(null); onModalChange?.(false); }} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--muted)', lineHeight: 1 }}>×</button>
             </div>
-            <div style={{ fontSize: 36, fontWeight: 800, color: 'var(--ink)', marginBottom: 20 }}>{expandedEff.value}</div>
+            <div style={{ fontSize: 36, fontWeight: 800, color: 'var(--ink)', marginBottom: expandedEff.note ? 6 : 20 }}>{expandedEff.value}</div>
+            {/* Le grain de la courbe est ecrit : sans ca, une barre par mois se lit comme
+                une barre par jour et le lecteur croit a un trou de collecte. */}
+            {expandedEff.note && <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.4 }}>{expandedEff.note}</div>}
             <ResponsiveContainer width="100%" height={220} initialDimension={{ width: 660, height: 220 }}>
               <ComposedChart data={expandedEff.data} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                 <defs>
@@ -5949,11 +6057,14 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
                     <stop offset="95%" stopColor={expandedEff.color} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(expandedEff.data.length, period)} />
+                {/* Une dizaine de barres au grain periode : toutes les graduations tiennent,
+                    la ou `graduationsDates` en masque sur 90 jours. */}
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={expandedEff.fmtX ?? (period === 7 ? fmtAxisDateWithDay : fmtAxisDate)} interval={expandedEff.fmtX ? 0 : graduationsDates(expandedEff.data.length, period)} />
                 <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={40} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = Math.max(1, Math.ceil(range * 0.12)); const lo = dataMin - margin; const hi = dataMax + margin; return [dataMin >= 0 ? Math.max(0, lo) : lo, expandedEff.estPct ? Math.min(100, hi) : hi]; }} />
                 <Tooltip cursor={expandedEff.enBarres ? { fill: 'var(--surface-2)' } : undefined} content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null;
-                  return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{Math.round(payload[0].value as number)}{expandedEff.estPct ? ' %' : ''}</strong></div></div>;
+                  const titre = expandedEff.fmtX ? expandedEff.fmtX(String(label)) : String(label);
+                  return <div className="chart-tooltip"><div className="chart-tooltip-label">{titre}</div><div className="chart-tooltip-row"><strong>{Math.round(payload[0].value as number)}{expandedEff.estPct ? ' %' : ''}</strong></div></div>;
                 }} />
                 {/* Le closing est la SEULE serie assez creuse pour qu'une courbe mente.
                     Sur aout : 3 journees mesurees sur 31 — les 28 autres n'ont aucun
@@ -12181,7 +12292,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
 
       {loading ? <InlineLoader /> : (
         <>
-          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} msgs={msgsEff} calls={callsEff} callsAllTime={callsAllTimeEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} leadsBruts={leadsBruts} reprisesBrutes={reprisesBrutes} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} deals={dealsEff} cashParVente={cashParVente} stories={storiesKpi} />}
+          {tab === 0 && <TabOverviewV2 profileId={profileId} ig={igEff} yt={ytEff} msgs={msgsEff} calls={callsEff} callsAllTime={callsAllTimeEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} leadsBruts={leadsBruts} reprisesBrutes={reprisesBrutes} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} allTimeStart={allTimeStart} deals={dealsEff} cashParVente={cashParVente} stories={storiesKpi} />}
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} connexionCassee={!!integStatus?.ig?.snapshotError} abonnesAujourdHui={ig?.followers ?? null} allTimeStart={allTimeStart} stories={storiesKpi} />}
           {/* La retention est une PROPRIETE DE LA VIDEO, pas une metrique de periode :
               « 45 % de ma video est regardee » ne depend pas de la fenetre consultee.
