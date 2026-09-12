@@ -446,26 +446,42 @@ async function syncCalendlyEleve(
       resolvedIgLeadId = leadRow?.id ?? null;
     }
 
-    // Rattachement du call a une personne. Cette fonction ne le posait pas du
-    // tout : sur 13 calls sans ig_lead_id, 11 n'avaient aucun prospect_id, et le
-    // pipeline affichait donc une fiche par call au lieu d'une par personne.
-    let resolvedProspectId: string | null = null;
 
-    if (shortLinkPath) {
+    // ⚠️ Resoudre le lien prospect par le LEAD, jamais par `short_link_path`.
+    //
+    // Cette branche cherchait `short_url LIKE '%/<shortLinkPath>'`. Elle n'a JAMAIS pu
+    // aboutir, pour deux raisons cumulees, et c'est mesure : 0 call sur 19 porte un
+    // `prospect_link_id` (2026-09-12, deja constate le 2026-08-29 — la question « ce
+    // 0/19 revele-t-il que la resolution ne marche jamais ? » etait posee en toutes
+    // lettres dans docs/handoff-audit-funnel-calls.md).
+    //
+    //   1. `shortLinkPath` vaut `utm_content`, qui porte un ID DE CONTENU depuis le
+    //      chantier du 2026-07-27 — `18056185901693457`, `EMvwzHVjNJg`, un uuid de
+    //      sequence. Jamais un chemin d'URL. La regle avait change d'un cote de la
+    //      partition et pas de l'autre.
+    //   2. Meme avant, le `%/` exigeait que le chemin suive un `/` :
+    //      `.../prendre-rdv-christian-penkov` ne peut pas matcher `%/christian-penkov`.
+    //
+    // ⚠️ Le `prospect_id` qu'elle posait n'a donc jamais ete pose NON PLUS. Il est
+    // pourtant renseigne sur 15 calls sur 19 : c'est la resolution par e-mail, plus
+    // bas, qui fait tout le travail. On ne la double pas ici — un rattachement qui
+    // marche ne se remplace pas sans mesure. Seul `prospect_link_id`, qui vaut null
+    // partout, est repare.
+    //
+    // Le lead est le bon pivot : `utm_campaign = lead-<ig_user_id>` n'est pose QUE sur
+    // un lien prospect personnel (un lien de bio porte `bio-instagram`). Le plus
+    // RECENT, parce qu'un lien est recree a chaque envoi — un `limit` sans `order`
+    // serait un bug qui attend son volume.
+    if (resolvedIgLeadId) {
       const { data: pl } = await supabase
         .from('prospect_links')
-        .select('id, ig_lead_id, prospect_id')
+        .select('id')
         .eq('profile_id', profileId)
-        .filter('short_url', 'like', `%/${shortLinkPath}`)
+        .eq('ig_lead_id', resolvedIgLeadId)
+        .order('created_at', { ascending: false })
+        .limit(1)
         .maybeSingle();
-      if (pl) {
-        resolvedProspectLinkId = pl.id;
-        resolvedIgLeadId = resolvedIgLeadId ?? pl.ig_lead_id ?? null;
-        // Un lien de suivi genere pour quelqu'un de deja connu porte son
-        // identite : elle fait autorite sur la resolution par e-mail, qui
-        // echouerait si la personne reserve avec une autre adresse.
-        resolvedProspectId = pl.prospect_id ?? null;
-      }
+      if (pl) resolvedProspectLinkId = pl.id;
     }
 
     if (!resolvedIgLeadId && !resolvedProspectLinkId && prospectSlugFromUtm) {
@@ -506,7 +522,11 @@ async function syncCalendlyEleve(
     //
     // Rien pour un call rattache a un lead Instagram : il se groupe par
     // ig_lead_id, mecanisme deja en place et prioritaire.
-    let finalProspectId = resolvedProspectId;
+    // Rattachement du call a une personne, par e-mail ou par nom. C'est le SEUL
+    // chemin qui le pose, et il fonctionne : 15 calls sur 19 portent un
+    // `prospect_id` (mesure du 2026-09-12). La branche qui pretendait le resoudre
+    // depuis le lien prospect n'a jamais pu s'executer — voir plus haut.
+    let finalProspectId: string | null = null;
     if (!finalProspectId && !finalIgLeadId && (inviteeEmail || inviteeName)) {
       const { data: resolved, error: resolveErr } = await supabase.rpc('resolve_prospect', {
         p_profile_id: profileId,

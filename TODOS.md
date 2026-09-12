@@ -61,7 +61,36 @@ par compte connecté" (2026-07-29) — une fois ce chantier stabilisé en prod, 
 devient un refactor purement mécanique, facile à vérifier sans risque de comportement.
 
 
-## Documenter/vérifier l'origine exacte de `calls.ignored=true` sur les lignes historiques
+## ~~Documenter/vérifier l'origine exacte de `calls.ignored=true`~~ — FERMÉ (2026-09-12)
+
+**Réponse de Chris** : des calls de test, plus — croyait-il — les rendez-vous pris avant
+la connexion de la plateforme.
+
+**Cette seconde moitié est FAUSSE, et la mesure le montre.** Sur les 32 lignes ignorées,
+**4 seulement** précèdent `integrations_ready_at` (les quatre `call_type='google'` du
+30/06). Les 28 autres sont POSTÉRIEURES à la connexion — dont trois des 3, 4 et
+5 septembre 2026, c'est-à-dire la campagne de tests de paiement en production. Il n'existe
+donc aucun mécanisme qui exclurait les rendez-vous « d'avant la plateforme », et l'absence
+de ce mécanisme était déjà le constat du grep exhaustif du 2026-07-27.
+
+**Ce sont bien des suppressions manuelles depuis l'interface.** Trois chemins posent
+`ignored: true` SANS `lead_deleted` — et c'est correct, pas une incohérence à réparer :
+
+| Chemin | Pourquoi `lead_deleted` n'a rien à faire là |
+|---|---|
+| `pipeline/route.ts` (suppression d'un lead IG) | pose aussi `ig_lead_id: null` — le rattachement est défait, pas le lead |
+| `pipeline/reset/route.ts` | un **reset** remet le pipeline à zéro ; le lead existe toujours |
+| `client/calls/[id]/route.ts` | supprime UN rendez-vous ; le lead n'est pas touché |
+
+`lead_deleted` répond à « la fiche a-t-elle été supprimée ? », `ignored` à « ce rendez-vous
+compte-t-il ? ». Deux questions, deux colonnes — les aligner effacerait l'information qui
+distingue un reset d'une suppression.
+
+⚠️ **La leçon vaut au-delà** : ce TODO demandait de confirmer une hypothèse auprès de
+Chris. Sa mémoire a fourni une explication plausible et fausse pour 28 lignes sur 32. Une
+hypothèse testable se teste — la requête tenait en huit lignes.
+
+<details><summary>Constat d'origine (2026-07-27), conservé</summary>
 
 **Quoi** : `calls.ignored=true` fait qu'un call ne compte nulle part (exclu explicitement des requêtes Analytics/Pipeline via `.neq('ignored', true)`, ex. `app/api/client/pipeline/route.ts:31`). Les chemins de code trouvés qui posent ce flag (grep exhaustif du 2026-07-27) sont **tous** des suppressions manuelles déclenchées depuis l'UI (route `app/api/client/pipeline/route.ts`, actions `delete-call`/`delete-prospect`/suppression de leads, ainsi que `app/api/client/calls/[id]/route.ts` et `app/api/calendly/sync/route.ts` pour le cas "prospect supprimé → call fantôme au resync"). Tous ces chemins posent `lead_deleted: true` en même temps que `ignored: true`, **sauf** la suppression de leads en masse (`pipeline/route.ts:238`, ne pose que `ignored: true`).
 
@@ -74,6 +103,8 @@ devient un refactor purement mécanique, facile à vérifier sans risque de comp
 **Contexte pour la reprise** : requête de vérification utilisée — `select * from calls where ignored = true` (32 lignes, dont 28 avec `lead_deleted=false`, principalement des calls `source='ig_description'` datés du 19 mai au 30 juin 2026, plus quelques `call_type='google'`).
 
 **Dépend de / bloqué par** : rien — vérification ponctuelle à faire avec Chris (lui seul sait s'il a fait un nettoyage SQL manuel à cette période), pas un vrai chantier de code.
+
+</details>
 
 ## Unifier les interfaces `Call` locales dupliquées vers le type officiel `lib/supabase/types.ts`
 
@@ -237,19 +268,25 @@ alerte quand le token est révoqué (bandeau + notification push).
 
 **Dépend de / bloqué par** : rien.
 
-## Clics Short.io des liens archivés — choix produit à trancher
+## ~~Clics Short.io des liens archivés~~ — TRANCHÉ (2026-09-12)
 
-**Quoi** : un lien d'un ancien compte Instagram reste cliquable. Faut-il compter ses clics
-dans les statistiques du compte courant ? Trois points en dépendent : le comptage
-« Business micro », le `link_category` calculé en incluant les liens archivés
-(`poll-leads`, `backfill-shortio`), et l'absence d'`archived_at` sur
-`shortio_link_daily_snapshots`.
+Décision de Chris : **on arrête de les compter.** Les clics des liens d'un ancien compte
+Instagram n'alimentent plus les statistiques du compte courant.
 
-**Pourquoi** : mesuré en base le 2026-08-20 — 25 lignes concernées, **0 clic** au total.
-Aucun impact constatable aujourd'hui, mais la contamination serait permanente si elle
-survenait.
+Le filtre `archived_at is null` est posé aux **trois** endroits qui résolvent une
+catégorie de lien — `poll-leads` (collecte), `backfill-shortio` (rattrapage) et
+`lib/shortio-fetch.ts` (bouton « Rafraîchir »). N'en corriger qu'un ferait dépendre la
+catégorie d'un clic de QUI l'a collecté, et le rattrapage réécrirait à chaque passage ce
+que la collecte venait de poser.
 
-**Dépend de / bloqué par** : une décision de Chris, pas un développement.
+Impact rétroactif nul, mesuré le 2026-09-12 : **0 lien archivé en base, 0 clic concerné.**
+Le filtre a été posé pendant qu'il ne déplaçait aucun chiffre — c'est ce qui rend sa
+vérification triviale.
+
+⚠️ **Reste ouvert, et ça ne peut se trancher qu'avec un vrai cas** :
+`shortio_link_daily_snapshots` ne porte pas d'`archived_at`. Un lien archivé APRÈS coup
+garde donc les clics déjà photographiés — le filtre n'agit que sur les clics à venir.
+Signal de déclenchement : le premier élève qui change réellement de compte Instagram.
 
 ## Deux requêtes fragiles sur instagram_leads, sans impact mesuré
 

@@ -221,18 +221,38 @@ export async function syncCalendlyEleve(
         resolvedIgLeadId = leadRow?.id ?? null;
       }
 
-      // Résoudre prospect_link_id via utm_content = short_link_path
-      if (shortLinkPath) {
+      // ⚠️ Résoudre le lien prospect par le LEAD, jamais par `short_link_path`.
+      //
+      // Cette branche cherchait `short_url LIKE '%/<shortLinkPath>'`. Elle n'a JAMAIS
+      // pu aboutir, pour deux raisons cumulées, et c'est mesuré : 0 call sur 19 porte
+      // un `prospect_link_id` (2026-09-12, déjà constaté au 2026-08-29).
+      //
+      //   1. `shortLinkPath` vaut `utm_content`, qui porte un ID DE CONTENU depuis le
+      //      chantier du 2026-07-27 — `18056185901693457`, `EMvwzHVjNJg`, un uuid de
+      //      séquence. Jamais un chemin d'URL. La règle avait changé d'un côté de la
+      //      partition et pas de l'autre.
+      //   2. Même avant ce chantier, le `%/` exigeait que le chemin suive un `/` :
+      //      `.../prendre-rdv-christian-penkov` ne peut pas matcher `%/christian-penkov`.
+      //      Le préfixe `prendre-rdv-` rendait la comparaison impossible.
+      //
+      // Le lead est le bon pivot : `utm_campaign = lead-<ig_user_id>` n'est posé QUE
+      // sur un lien prospect personnel (un lien de bio porte `bio-instagram`), donc
+      // trouver ce lead revient à désigner le lien qu'on lui a envoyé. Vérifié en base :
+      // les 3 calls `ig_dm` portent un `lead-…`, les 5 calls bio n'en portent aucun.
+      //
+      // Le plus RÉCENT, parce qu'un lien est recréé à chaque envoi et que c'est le
+      // dernier envoyé qui a produit la réservation. `limit(1)` sans `order` serait un
+      // bug qui attend son volume.
+      if (resolvedIgLeadId) {
         const { data: pl } = await serviceSupabase
           .from('prospect_links')
-          .select('id, ig_lead_id')
+          .select('id')
           .eq('profile_id', profileId)
-          .filter('short_url', 'like', `%/${shortLinkPath}`)
+          .eq('ig_lead_id', resolvedIgLeadId)
+          .order('created_at', { ascending: false })
+          .limit(1)
           .maybeSingle();
-        if (pl) {
-          resolvedProspectLinkId = pl.id;
-          resolvedIgLeadId = resolvedIgLeadId ?? pl.ig_lead_id ?? null;
-        }
+        if (pl) resolvedProspectLinkId = pl.id;
       }
 
       // Fallback : utm_campaign = "prospect-{slug}" (cold DM sans ig_user_id au moment de la génération)

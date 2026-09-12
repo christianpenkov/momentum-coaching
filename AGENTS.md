@@ -1604,10 +1604,30 @@ les trois autres écrivains de `deals.status = 'canceled'` (`declare-refund`,
 `calls/[id]/rapport`, et `lib/dealStatus.ts` pour le chemin automatique) en croyant
 réparer un oubli de partition.
 
-⚠️ **La conséquence sur le taux de closing n'est PAS traitée** : `computeSalesCallStats`
-compte `calls.deal_closed`, donc une vente annulée puis intégralement remboursée compte
-encore comme un closing. C'est une question de produit — « une vente annulée est-elle un
-closing ? » — pas un défaut technique, et elle n'a pas été tranchée.
+✅ **La conséquence sur le taux de closing est TRANCHÉE (Chris, 2026-09-12) : une vente
+annulée n'est plus un closing.** La règle vit dans `callsAVenteEntierementAnnulee`
+(`lib/salesCallStats.ts`), écrite une seule fois et lue par les DEUX écrans qui affichent
+un taux — le tableau de bord coach via `computeSalesCallStats`, et la Vue générale de
+« Mes stats » qui fait son propre découpage par opportunité.
+
+⚠️ **Elle a besoin de `deals.call_id`.** Un appelant qui ne fournit pas cette colonne
+obtient le comptage d'avant, en silence : c'est un repli délibéré (certains appelants
+n'ont qu'une liste de calls), mais tout écran qui affiche un taux de closing doit la
+passer. `fetchDealsForStats` la sélectionne.
+
+⚠️ **Trois faux négatifs sont écartés par construction, et chacun a son test** : un appel
+sans AUCUN deal compte encore (rapport interrompu avant la création de la vente — le
+drapeau est alors la seule trace, même repli que le garde de `client/pipeline`) ; un appel
+portant une vente annulée ET une vente vivante compte encore ; un deal sans `call_id`
+(upsell) ne disqualifie aucun appel.
+
+⚠️ **Ce qui n'est PAS traité, faute de cas réel** : les compteurs « Closés » par contenu,
+par source et par jour de « Mes stats » (une vingtaine de `filter(c => c.deal_closed)`)
+comptent toujours les ventes annulées, alors que le REVENU de ces mêmes tableaux les
+exclut déjà (`if (!d.call_id || d.status === 'canceled') continue`). L'écart est
+antérieur à ce chantier et vaut 0 aujourd'hui — 0 deal `canceled` en base. **Le signal de
+déclenchement est la première vente réellement annulée** : ce jour-là, un tableau affichera
+une ligne « 1 closé, 0 € ».
 
 ⚠️ **Une surveillance dont le cas visé n'est JAMAIS survenu n'a jamais rien détecté.**
 Avant de croire une alerte, compter sur toute la base les occurrences de chaque cas
