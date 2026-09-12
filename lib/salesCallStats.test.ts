@@ -491,9 +491,13 @@ test('caractérisation — sans `since`, aucune borne de date n\'est posée', as
 // défaut. Ces tests fixent la réponse et, surtout, les trois cas où il faut
 // continuer de compter — ce sont eux qui feraient des faux négatifs silencieux.
 
+// `outcome` non nul est obligatoire : sans rapport rempli, `isCallHonored` répond
+// non — un appel sans rapport « n'a pas encore eu lieu » (décision du 2026-07-27).
+// Sans lui le dénominateur vaut 0 et le taux aussi, quel que soit le numérateur.
 const APPEL_HONORE = {
   id: 'c1', status: 'active', scheduled_at: '2026-09-01T10:00:00Z',
   call_type: 'calendly', deal_closed: true, revenue: 1000,
+  outcome: 'closed', no_show: false,
 };
 const MAINTENANT = new Date('2026-09-10T00:00:00Z');
 const stats = (deals?: DealForStats[], calls: unknown[] = [APPEL_HONORE]) =>
