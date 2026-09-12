@@ -18,16 +18,37 @@ export type SessionTopic = (typeof SESSION_TOPICS)[number]['value'];
 // Déclenché dès l'heure de DÉBUT (pas la fin) pour permettre de noter un no-show immédiatement.
 // status === 'active' exclut nativement les calls canceled : un call reporté (toujours recréé
 // en canceled + nouveau call actif) ne redéclenche jamais de rapport sur l'ancien call.
-export function getPendingSessionRapports(calls: Call[]): Call[] {
-  const now = Date.now();
-  return calls.filter(c =>
-    c.call_type === 'google' &&
-    c.status === 'active' &&
-    c.scheduled_at !== null &&
-    new Date(c.scheduled_at).getTime() <= now &&
-    !c.session_completed &&
-    !c.session_no_show
-  );
+export function getPendingSessionRapports(calls: Call[], now: number = Date.now()): Call[] {
+  return calls.filter(c => estRapportDeSeanceAFaire(c, now));
+}
+
+/**
+ * La même règle, pour UN call.
+ *
+ * Extraite de `getPendingSessionRapports` le 2026-09-12 pour que la pastille de
+ * résultat puisse dire « Rapport à remplir ». Sans elle, la pastille tombait dans son
+ * cas par défaut et affichait « Terminé » sur exactement les séances que la fiche
+ * élève signalait, dans la même seconde, comme un rapport à faire. Deux écrans, un
+ * call, deux verdicts contraires — la règle est donc écrite une fois et lue par les
+ * deux.
+ *
+ * Signature volontairement large : la règle ne lit que six champs. L'exiger sur un
+ * `Call` complet forcerait la pastille, qui travaille sur un type minimal, à passer
+ * par un `as any`.
+ */
+export function estRapportDeSeanceAFaire(
+  c: {
+    call_type?: string | null; status?: string | null; scheduled_at?: string | null;
+    session_completed?: boolean | null; session_no_show?: boolean | null;
+  },
+  now: number = Date.now(),
+): boolean {
+  return c.call_type === 'google'
+    && c.status === 'active'
+    && !!c.scheduled_at
+    && new Date(c.scheduled_at).getTime() <= now
+    && !c.session_completed
+    && !c.session_no_show;
 }
 
 // duration est toujours stocké au format "{N} min" — jamais "1h30" ou autre format.

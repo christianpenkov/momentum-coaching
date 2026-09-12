@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { parisDateStr } from '@/lib/period';
 import {
@@ -18,6 +18,7 @@ import Icon, { type IconName } from '@/components/ui/Icon';
 import TaskModal from '@/components/ui/TaskModal';
 import SessionRapportModal from '@/components/ui/SessionRapportModalLoader';
 import CallInfosModal from '@/components/ui/CallInfosModal';
+import CallCard from '@/components/ui/CallCard';
 import ModalShell from '@/components/ui/ModalShell';
 import AideColonne from '@/components/ui/AideColonne';
 // Mêmes textes que « Mes stats » : les deux écrans affichent les mêmes nombres, ils
@@ -25,15 +26,13 @@ import AideColonne from '@/components/ui/AideColonne';
 import { AIDE_SHOW_UP, AIDE_CLOSING, AIDE_REV_PAR_CALL, aideCallsBookes } from '@/lib/aidesStats';
 import { useUser } from '@/lib/UserContext';
 import { createClient as createSupabase } from '@/lib/supabase/client';
-import { getPendingSessionRapports, SESSION_TOPICS } from '@/lib/sessionRapport';
+import { getPendingSessionRapports, SESSION_TOPICS, estRapportDeSeanceAFaire, isCallReallyOver } from '@/lib/sessionRapport';
 import { isTaskOverdue } from '@/lib/clientSignals';
 import { computeSalesCallStats, isNotCanceled, fetchAllLeadsCount, fetchDealsForStats } from '@/lib/salesCallStats';
 import { getClientWeek } from '@/lib/clientWeek';
 import DeadlineBadge from '@/components/ui/DeadlineBadge';
 import { CALL_COLUMNS } from '@/lib/supabase/types';
 import type { Task, SessionReport, Call, Client } from '@/lib/supabase/types';
-import { formatCallLongDate, formatCallTime } from '@/lib/callFormat';
-import { useViewerTimeZone } from '@/lib/UserContext';
 
 import CarteConversationsIg from '@/components/ig/CarteConversationsIg';
 interface ClientDetailData extends Client {
@@ -251,7 +250,6 @@ const PRIORITY_CONFIG = {
 interface Props { id: string }
 
 export default function PageClientDetail({ id }: Props) {
-  const viewerTz = useViewerTimeZone();
   const queryClient = useQueryClient();
 
   const { data: client, isLoading: clientLoading } = useQuery({
@@ -391,6 +389,15 @@ export default function PageClientDetail({ id }: Props) {
   const searchParams = useSearchParams();
   const [sessionRapportCallId, setSessionRapportCallId] = useState<string | null>(null);
   const [editingReport, setEditingReport] = useState<SessionReport | null>(null);
+  // Force un recalcul du split à venir / historique chaque minute, pour que la bascule
+  // se fasse en temps réel — sinon une séance qui vient de se terminer reste dans
+  // « À venir » avec un bouton Rejoindre jusqu'à ce qu'autre chose déclenche un rendu.
+  // Même tick, même durée, même raison que la page Calls.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setNowTick(Date.now()), 60_000);
+    return () => clearInterval(interval);
+  }, []);
   const [sessionReports, setSessionReports] = useState<SessionReport[]>([]);
   const deepLinkHandled = useRef(false);
 
@@ -628,6 +635,126 @@ export default function PageClientDetail({ id }: Props) {
   const nextCoachingCall = coachingCalls
     .filter(c => c.status === 'active' && c.scheduled_at && new Date(c.scheduled_at) > now)
     .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime())[0] ?? null;
+
+  // ── Historique des coachings, au gabarit des cartes de la page Calls ────────
+  //
+  // La coupure « à venir / passé » suit `isCallReallyOver`, la même règle que la page
+  // Calls : une séance dont l'heure de fin est dépassée bascule dans l'historique,
+  // MAIS une séance déjà rapportée y bascule aussi, même en avance. Sans quoi un
+  // rapport rempli pendant le créneau laisserait la carte dans « À venir » avec un
+  // bouton Rejoindre.
+  //
+  // Les annulés restent hors liste, comme aujourd'hui : un coaching annulé n'apprend
+  // rien sur l'accompagnement, et sa carte barrée allongerait la liste sans raison.
+  const rapportParCall = useMemo(
+    () => new Map(sessionReports.map(r => [r.call_id, r])),
+    [sessionReports],
+  );
+  const coachingsTriables = coachingCalls.filter(c => c.scheduled_at);
+  const coachingsAVenir = coachingsTriables
+    .filter(c => !isCallReallyOver(c, nowTick))
+    .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
+  const coachingsPasses = coachingsTriables
+    .filter(c => isCallReallyOver(c, nowTick))
+    .sort((a, b) => new Date(b.scheduled_at!).getTime() - new Date(a.scheduled_at!).getTime());
+  const coachingsTotal = coachingsTriables.length;
+  const rapportsAFaire = coachingsPasses.filter(c => estRapportDeSeanceAFaire(c, nowTick)).length;
+
+  /**
+   * Une séance, en carte de call.
+   *
+   * Le TITRE est le sujet du rapport et non l'intitulé de l'événement Google : sur les
+   * données réelles ce dernier vaut « Call coaching 2 » ou « dsfsdfd », alors que le
+   * sujet dit ce qui s'est joué. Il reste visible dans la ligne grise, avec la durée.
+   */
+  function carteCoaching(call: Call, variant: 'upcoming' | 'history') {
+    const report = rapportParCall.get(call.id) ?? null;
+    const sujet = report
+      ? (report.topic === 'autre' ? report.topic_custom : SESSION_TOPICS.find(t => t.value === report.topic)?.label)
+      : null;
+    const aRemplir = estRapportDeSeanceAFaire(call, nowTick);
+    const absent = report?.attended === false;
+    const accuse = !!report?.acknowledged_at;
+    // Une séance sans sujet n'invente rien : elle DIT qu'elle n'a pas de rapport, en
+    // gris, plutôt que d'emprunter l'intitulé Google qui vit déjà dans la ligne grise.
+    const titre = sujet
+      ? <>{sujet}</>
+      : <span style={{ color: 'var(--muted)' }}>{aRemplir ? 'Séance non rapportée' : 'Séance'}</span>;
+
+    // Ordre fixe : l'action propre à la ligne (Remplir ou Éditer) puis Infos toujours
+    // en dernier, contre le bord droit. Infos est la seule action commune aux deux
+    // cas — une position stable évite que l'œil la cherche d'une ligne à l'autre.
+    const infosPourCall = call.fathom_status === 'matched' || call.fathom_share_url || call.fathom_summary;
+    const infosPourRapport = report && (call.fathom_status === 'matched' || report.attended !== null || report.topic || report.notes || report.student_notes);
+    const actions = variant === 'history' ? (
+      <>
+        {report ? (
+          // Éditer aussi sur les « Pas présent » : la modale permet de rebasculer la
+          // présence, donc une absence saisie par erreur n'est pas définitive.
+          <button
+            type="button"
+            onClick={() => { setEditingReport(report); setSessionRapportCallId(report.call_id); }}
+            className="btn-ghost call-action-editer"
+          >
+            Éditer
+          </button>
+        ) : (
+          <button type="button" className="btn-ghost call-action-rapport" onClick={() => setSessionRapportCallId(call.id)}>
+            <Icon name="alert-triangle" size={13} />Remplir
+          </button>
+        )}
+        {/* Infos s'affiche dès qu'il y a QUELQUE CHOSE à lire, pas seulement un replay
+            Fathom : sur 24 coachings de cet élève, seuls 2 avaient un replay — donc 22
+            lignes sans bouton, alors que 13 avaient un rapport et 7 des notes. */}
+        {(report ? infosPourRapport : infosPourCall) && (
+          <button
+            type="button"
+            onClick={() => (report ? setInfosModalReport(report) : setInfosModalCall(call))}
+            className="btn-ghost call-action-infos"
+          >
+            Infos
+          </button>
+        )}
+      </>
+    ) : null;
+
+    // Notes et suivi d'absence sous la carte, dans le bloc libre prévu par CallCard.
+    const extra = report && (report.notes || absent) ? (
+      <>
+        {report.notes && <div style={{ fontSize: 12, color: 'var(--ink-2)', whiteSpace: 'pre-wrap', opacity: absent && accuse ? 0.55 : 1 }}>{report.notes}</div>}
+        {absent && (accuse ? (
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: report.notes ? 6 : 0 }}>
+            Pris en compte le {new Date(report.acknowledged_at!).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+          </div>
+        ) : (
+          <button type="button" onClick={() => acknowledgeNoShow(report.id)} className="btn-ghost" style={{ fontSize: 11, marginTop: report.notes ? 6 : 0, padding: '4px 10px' }}>
+            Compris
+          </button>
+        ))}
+      </>
+    ) : null;
+
+    return (
+      <CallCard
+        key={call.id}
+        call={call}
+        variant={variant}
+        mode="fiche-eleve"
+        titre={titre}
+        // Toujours renseignés même si le mode les masque : ils restent la réponse à
+        // « de qui parle cette carte » si le mode change un jour. Optionnels ici parce
+        // que la fonction est DÉCLARÉE avant la garde `if (!client)` du rendu, alors
+        // qu'elle n'est APPELÉE qu'après — TypeScript ne peut pas le voir.
+        displayName={client?.name ?? ''}
+        initials={client?.initials || getInitials(client?.name ?? '')}
+        avatarUrl={client?.avatar_url}
+        now={nowTick}
+        actions={actions}
+      >
+        {extra}
+      </CallCard>
+    );
+  }
 
   const completedTasksAll = allTasks.filter(t => t.done);
   const tasksOnTimeCount = completedTasksAll.filter(t => t.completed_at && t.deadline && new Date(t.completed_at) <= new Date(t.deadline)).length;
@@ -1318,138 +1445,61 @@ export default function PageClientDetail({ id }: Props) {
         </div>
       </div>
 
-      {/* Rapports de fin d'appel de Coaching (calls Google Meet coach-élève) — rapports
-          remplis et calls en attente fusionnés dans une seule timeline triée par date
-          réelle (scheduled_at pour un call en attente, created_at pour un rapport rempli),
-          plutôt que deux blocs empilés qui reléguaient les calls récents sans rapport
-          tout en bas, hors de l'ordre chronologique attendu. Style visuel de chaque
-          entrée inchangé (ambre pour "en attente", neutre pour rempli). */}
+      {/* Historique des coachings — au gabarit des cartes de la page Calls.
+          Le rail date/heure, les badges, la pastille de résultat et le gabarit des
+          boutons sont ceux de `CallCard`, littéralement le même composant.
+
+          ⚠️ La liste itère sur les CALLS, plus sur les rapports. Avant, elle fusionnait
+          `session_reports` et les calls sans rapport, avec un repli sur
+          `report.created_at` « si le call a été supprimé entre-temps ». Ce repli était
+          du code mort : `session_reports.call_id` porte un ON DELETE CASCADE, un
+          rapport ne peut pas survivre à son call (vérifié en base le 2026-09-12,
+          0 rapport orphelin sur 13). Partir des calls donne en prime la durée, le
+          statut Fathom et les séances à venir, qu'une liste de rapports ne connaît pas.
+
+          Le mode `fiche-eleve` retire l'avatar, le nom et le badge « Coaching » : sur
+          la page de cette personne, ils répètent trois fois ce que le titre dit déjà.
+          La place revient au SUJET du rapport — l'intitulé Google est du bruit sur les
+          données réelles (« Call coaching 2 », « dsfsdfd ») et recule dans la ligne
+          grise avec la durée. */}
       {/* ⚠️ `id="calls"` : cible du lien « Rapports de calls » du panneau de la messagerie.
           Même remarque que pour `#ressources` — les deux côtés se renomment ensemble. */}
       <div id="calls" className="card" style={{ marginTop: 24, scrollMarginTop: 20 }}>
         <div className="card-head">
-          <div className="card-title">Rapports de fin d'appel de Coaching</div>
+          <div>
+            <div className="card-title">Historique des coachings</div>
+            {coachingsTotal > 0 && (
+              <div className="card-sub">
+                {coachingsTotal} séance{coachingsTotal > 1 ? 's' : ''}
+                {rapportsAFaire > 0 && ` · ${rapportsAFaire} rapport${rapportsAFaire > 1 ? 's' : ''} à remplir`}
+              </div>
+            )}
+          </div>
         </div>
-        <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {sessionReports.length === 0 && pendingSessionRapports.length === 0 && (
-            <div style={{ fontSize: 13, color: 'var(--muted)' }}>Aucune session rapportée pour l'instant.</div>
-          )}
-          {[
-            // Tri et affichage sur la date du CALL, pas celle de rédaction du rapport.
-            // Avant : report.created_at, qui affichait le jour où le coach avait tapé
-            // ses notes. Sur les données réelles, 4 rapports sur 12 tombaient un autre
-            // jour que leur séance (jusqu'à 4 jours d'écart), et le tri plaçait un
-            // rapport rempli en retard après des séances postérieures.
-            // Repli sur created_at si le call a été supprimé entre-temps.
-            ...sessionReports.map(report => ({
-              type: 'report' as const,
-              date: calls.find(c => c.id === report.call_id)?.scheduled_at || report.created_at,
-              report,
-            })),
-            ...pendingSessionRapports.map(call => ({ type: 'pending' as const, date: call.scheduled_at || call.created_at, call })),
-          ]
-            .sort((a, b) => new Date(b.date!).getTime() - new Date(a.date!).getTime())
-            .map(entry => entry.type === 'pending' ? (
-            <div key={entry.call.id} className="session-row session-row-pending">
-              <div className="session-row-date">
-                {entry.call.scheduled_at ? formatCallLongDate(entry.call.scheduled_at, viewerTz) : '—'}
-                {entry.call.scheduled_at && <span className="session-row-time">{formatCallTime(entry.call.scheduled_at, viewerTz)}</span>}
-              </div>
-              <span className="pill pill-amber session-row-pill"><span className="dot" />Rapport à remplir</span>
-              {/* Ordre fixe : l'action propre à la ligne (Remplir ou Éditer) puis
-                  Infos toujours en dernier, contre le bord droit. Infos est la
-                  seule action commune aux deux types d'entrée — la garder à une
-                  position stable évite que l'œil la cherche d'une ligne à l'autre. */}
-              <div className="session-row-actions">
-                <button type="button" className="btn-ghost call-action-rapport" onClick={() => setSessionRapportCallId(entry.call.id)}>
-                  <Icon name="alert-triangle" size={13} />Remplir
-                </button>
-                {/* Pas encore de rapport ici : la modale ne peut montrer que le
-                    contenu Fathom. On teste donc le replay ET le résumé, qui peut
-                    exister avant que le statut passe à "matched" — sinon le bouton
-                    ouvrirait une modale vide. */}
-                {(entry.call.fathom_status === 'matched' || entry.call.fathom_share_url || entry.call.fathom_summary) && (
-                  <button type="button" className="btn-ghost call-action-infos" onClick={() => setInfosModalCall(entry.call)}>
-                    Infos
-                  </button>
-                )}
-              </div>
+
+        {coachingsTotal === 0 && (
+          <div style={{ fontSize: 13, color: 'var(--muted)' }}>Aucune séance de coaching pour l&apos;instant.</div>
+        )}
+
+        {coachingsAVenir.length > 0 && (
+          <div style={{ marginTop: 4 }}>
+            <div className="eyebrow-sm" style={{ marginBottom: 10 }}>À venir</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {coachingsAVenir.map(call => carteCoaching(call, 'upcoming'))}
             </div>
-          ) : (() => {
-            const report = entry.report;
-            const topicLabel = report.topic === 'autre'
-              ? report.topic_custom
-              : SESSION_TOPICS.find(t => t.value === report.topic)?.label;
-            const isNoShow = report.attended === false;
-            const acknowledged = !!report.acknowledged_at;
-            const reportCall = calls.find(c => c.id === report.call_id);
-            const callDate = reportCall?.scheduled_at ?? null;
-            // L'atténuation d'une absence "prise en compte" passe par une classe et
-            // non par un opacity sur le conteneur : appliqué globalement, il grisait
-            // aussi le badge et les boutons, qui doivent garder leur couleur pour
-            // rester lisibles et visiblement cliquables.
-            return (
-              <div key={report.id} className={`session-row${isNoShow && acknowledged ? ' session-row-muted' : ''}`}>
-                <div className="session-row-date">
-                  {callDate ? formatCallLongDate(callDate, viewerTz) : new Date(report.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}
-                  {callDate && <span className="session-row-time">{formatCallTime(callDate, viewerTz)}</span>}
-                </div>
-                {/* Une absence porte une croix et un libellé rouges plutôt qu'un
-                    point : dans une liste majoritairement verte, le signe se repère
-                    avant même d'être lu. Le fond reste gris — le rouge plein est
-                    réservé aux calls annulés, qui apparaissent dans la même page. */}
-                <span className={`pill ${isNoShow ? 'pill-neutral session-row-pill-absent' : 'pill-green'} session-row-pill`}>
-                  {isNoShow
-                    ? <Icon name="x" size={11} />
-                    : <span className="dot" />}
-                  {isNoShow ? 'Pas présent' : 'Présent'}
-                </span>
-                {topicLabel && <span className="session-row-topic">{topicLabel}</span>}
-                <div className="session-row-actions">
-                  {/* Éditer aussi sur les "Pas présent" : la modale permet
-                      désormais de rebasculer la présence, donc une absence saisie
-                      par erreur n'est plus définitive. */}
-                  <button
-                    type="button"
-                    onClick={() => { setEditingReport(report); setSessionRapportCallId(report.call_id); }}
-                    className="btn-ghost session-row-edit"
-                  >
-                    Éditer
-                  </button>
-                  {/* Même règle que la page Calls : Infos s'affiche dès qu'il y a
-                      QUELQUE CHOSE à lire, pas seulement un replay Fathom. Avant,
-                      sur 24 coachings de cet élève, seuls 2 avaient un replay —
-                      donc 22 lignes sans bouton, alors que 13 avaient un rapport
-                      rempli et 7 des notes, inaccessibles depuis la modale.
-                      Toujours en dernier : voir l'ordre fixe commenté plus haut. */}
-                  {(reportCall?.fathom_status === 'matched' || report.attended !== null || report.topic || report.notes || report.student_notes) && (
-                    <button type="button" onClick={() => setInfosModalReport(report)} className="btn-ghost call-action-infos">
-                      Infos
-                    </button>
-                  )}
-                </div>
-                {(report.notes || isNoShow) && (
-                  <div className="session-row-extra">
-                    {report.notes && (
-                      <div style={{ fontSize: 12, color: 'var(--ink-2)', whiteSpace: 'pre-wrap' }}>{report.notes}</div>
-                    )}
-                    {isNoShow && (
-                      acknowledged ? (
-                        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: report.notes ? 6 : 0 }}>
-                          Pris en compte le {new Date(report.acknowledged_at!).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
-                        </div>
-                      ) : (
-                        <button type="button" onClick={() => acknowledgeNoShow(report.id)} className="btn-ghost" style={{ fontSize: 11, marginTop: report.notes ? 6 : 0, padding: '4px 10px' }}>
-                          Compris
-                        </button>
-                      )
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })())}
-        </div>
+          </div>
+        )}
+
+        {coachingsPasses.length > 0 && (
+          <div style={{ marginTop: coachingsAVenir.length > 0 ? 22 : 4 }}>
+            {/* L'intitulé « Historique » ne s'affiche que s'il a un vis-à-vis : seul,
+                il nommerait la seule chose présente. */}
+            {coachingsAVenir.length > 0 && <div className="eyebrow-sm" style={{ marginBottom: 10 }}>Historique</div>}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {coachingsPasses.map(call => carteCoaching(call, 'history'))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Boîte de dépôt */}

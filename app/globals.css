@@ -1633,101 +1633,16 @@ a { color: inherit; text-decoration: none; }
   .call-confirm-btn { min-height: 44px; min-width: 60px; }
 }
 
-/* ── Timeline des rapports de session (fiche élève) ──────────────────
-   Aligné sur le gabarit des cartes de call : mêmes pastilles, mêmes hauteurs de
-   bouton, même rayon. La structure reste une LIGNE et non une carte à rail : ces
-   entrées sont des rapports, pas des calls — elles portent des notes de longueur
-   libre et des actions propres (Éditer, Compris). */
-.session-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  padding: 12px 14px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-xl);
-}
-/* Une entrée en attente se signale par une barre latérale ambre, pas par un fond
-   plein : plusieurs à la suite formaient une bande orange qui écrasait la liste.
-   Même logique que les cartes de call, où seul le bouton porte l'ambre. */
-.session-row-pending {
-  background: var(--surface);
-  border-color: var(--border);
-  border-left: 3px solid var(--amber);
-}
-.session-row-date {
-  font-size: 13px;
-  font-weight: 620;
-  color: var(--ink);
-  display: flex;
-  align-items: baseline;
-  gap: 7px;
-}
-.session-row-time {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-}
-/* Le sujet en encre et non en gris : c'est une information de contenu ("Closing /
-   vente"), pas une métadonnée. En --muted il se lisait comme un détail secondaire
-   alors que c'est ce qui identifie la séance. */
-.session-row-topic { font-size: 12px; color: var(--ink); }
-/* Croix et libellé rouges sur fond gris : le signe porte l'alerte, le fond reste
-   neutre pour ne pas se confondre avec les calls annulés de la même page. */
-/* !important : .pill-neutral fixe déjà `color: var(--ink-2)` et gagne à
-   spécificité égale, la croix et le libellé restaient gris. */
-.session-row-pill-absent { color: var(--red) !important; }
+/* Bouton « Éditer » d'une séance de coaching, sur la fiche élève.
+   Bordure en --muted plutôt qu'en --border : la carte est claire, la bordure par
+   défaut y disparaissait et le bouton ne se lisait plus comme tel. Reste plus
+   discret que le noir de .call-action-infos, l'action principale de la rangée.
 
-/* La bascule Présent / Pas présent vivait ici en classes dédiées (.presence-*).
-   Supprimée le 2026-09-06 : le rapport de coaching utilise désormais le même
-   RapportChoiceStep que le rapport de vente, donc la même façon de montrer la
-   réponse retenue. Elle marquait la sélection par un fond plein dans la couleur
-   de marque — c'est-à-dire dans la couleur des boutons d'action. */
-
-/* Absence déjà prise en compte : on atténue la date et le sujet, jamais le badge
-   ni les boutons. Un bouton à demi transparent se lit comme désactivé alors qu'il
-   reste parfaitement cliquable. */
-.session-row-muted .session-row-date,
-.session-row-muted .session-row-topic,
-.session-row-muted .session-row-extra { opacity: 0.55; }
-/* Même gabarit que la rangée d'actions des cartes de call (32px, rayon --r-md). */
-.session-row-actions {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-.session-row .pill,
-.session-row-actions .btn-ghost {
-  min-height: 32px;
-  height: 32px;
-  padding: 0 12px;
-  border-radius: var(--r-md);
-  font-size: 12px;
-  display: inline-flex;
-  align-items: center;
-}
-/* Bordure en --muted plutôt qu'en --border : sur le fond crème de la ligne, la
-   bordure claire par défaut disparaissait et le bouton ne se lisait plus comme
-   tel. Reste plus discret que le noir de .call-action-infos, qui est l'action
-   principale de la rangée. */
-.session-row-edit { border: 1px solid var(--muted) !important; }
-.session-row-pending .session-row-extra { border-top-color: var(--border); }
-/* Notes et actions de suivi passent sous la ligne, pleine largeur. */
-.session-row-extra {
-  flex-basis: 100%;
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
-}
-
-@media (max-width: 767px) {
-  .session-row-actions { margin-left: 0; width: 100%; }
-  .session-row-actions .btn-ghost { min-height: 34px; height: 34px; }
-}
+   Tout ce qui l'entourait — .session-row et sa dizaine de règles — a disparu le
+   2026-09-12 : l'historique des coachings est passé au gabarit .call-card, qui
+   apporte déjà le rail, les hauteurs de bouton et le bloc de notes. Ce bouton est
+   le seul rescapé, renommé pour rejoindre ses voisins .call-action-*. */
+.call-action-editer { border: 1px solid var(--muted) !important; }
 
 /* Bouton "Infos" — encadré en encre plutôt qu'en --border : avec la bordure claire
    par défaut, il se confondait avec le fond de la carte et ne se lisait plus comme

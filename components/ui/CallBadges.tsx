@@ -1,6 +1,6 @@
 'use client';
 
-import { isCoachingCall, isCallMissingRecording, isCallCanceled } from '@/lib/sessionRapport';
+import { isCoachingCall, isCallMissingRecording, isCallCanceled, estRapportDeSeanceAFaire } from '@/lib/sessionRapport';
 
 // Badges et pastilles de résultat d'un call — source unique pour les pages Calls
 // coach et élève, le pipeline et les widgets d'accueil. CallTypeBadge existait en 4
@@ -115,6 +115,14 @@ export function CallResultPill({ call, now }: { call: CallLike; now?: number }) 
     }
     if (call.session_completed === true) {
       return <span className="pill pill-green" style={pillStyle}><span className="dot" />Présent</span>;
+    }
+    // ⚠️ Ce cas rendait « Terminé », et c'était faux : la séance a bien eu lieu, mais
+    // on ne sait PAS si l'élève est venu — personne n'a rempli le rapport. La fiche
+    // élève le signalait déjà par une pastille ambre pendant que la page Calls
+    // affichait « Terminé » pour le même call, à la même seconde. Une seule règle
+    // désormais, `estRapportDeSeanceAFaire`, lue par les deux écrans.
+    if (estRapportDeSeanceAFaire(call, now)) {
+      return <span className="pill pill-amber" style={pillStyle}><span className="dot" />Rapport à remplir</span>;
     }
     return <span className="pill pill-neutral" style={pillStyle}><span className="dot" />Terminé</span>;
   }

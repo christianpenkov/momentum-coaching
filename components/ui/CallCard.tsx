@@ -41,6 +41,31 @@ export interface CallCardProps {
   call: CallLike;
   /** upcoming = à venir ou en rattrapage · history = terminé · canceled = annulé/refusé · pending = invitation en attente de réponse */
   variant: 'upcoming' | 'history' | 'canceled' | 'pending';
+  /**
+   * Où la carte est rendue — pas comment elle est décorée.
+   *
+   * `liste-mixte` (défaut) : une liste qui mélange des gens et des natures d'appel,
+   * comme la page Calls. Il faut donc dire QUI et QUEL TYPE — avatar, nom, badge
+   * Coaching/Vente.
+   *
+   * `fiche-eleve` : une liste qui ne contient que les coachings d'UNE personne, sur
+   * la page de cette personne. L'avatar, le nom et le badge « Coaching » y répètent
+   * trois fois ce que la page dit déjà en haut ; ils disparaissent, et `titre` prend
+   * la tête de ligne. Tout le reste — rail, badge de replay, pastille de résultat,
+   * gabarit des actions — est strictement identique, c'est le but.
+   *
+   * Un mode plutôt que trois booléens : `masquerAvatar` + `masquerNom` +
+   * `masquerTypeBadge` laisseraient croire que les combinaisons ont un sens. Elles
+   * n'en ont pas — les trois disparaissent pour la MÊME raison.
+   */
+  mode?: 'liste-mixte' | 'fiche-eleve';
+  /**
+   * Ce qui occupe la tête de ligne à la place du nom, en mode `fiche-eleve`. Sur la
+   * fiche d'un élève c'est le sujet du rapport de séance : le titre de l'événement
+   * Google, lui, est souvent du bruit (« Call coaching 2 ») et recule dans la ligne
+   * grise avec la durée.
+   */
+  titre?: ReactNode;
   /** Nom affiché de l'interlocuteur — résolu par l'appelant, qui seul sait s'il faut lire le client, l'invité Calendly ou le coach. */
   displayName: string;
   initials: string;
@@ -57,6 +82,8 @@ export interface CallCardProps {
 export default function CallCard({
   call,
   variant,
+  mode = 'liste-mixte',
+  titre,
   displayName,
   initials,
   avatarUrl,
@@ -78,6 +105,7 @@ export default function CallCard({
   // null quand le lecteur est dans le fuseau de référence — rien à afficher, la
   // carte reste strictement identique à aujourd'hui pour un utilisateur en France.
   const tzLabel = timeZoneCityLabel(viewerTz, DEFAULT_TIME_ZONE, new Date(call.scheduled_at));
+  const surLaFiche = mode === 'fiche-eleve';
 
   return (
     <div className={`card call-card${canceled ? ' call-card-canceled' : ''}`}>
@@ -91,7 +119,7 @@ export default function CallCard({
         {tzLabel && <div className="call-card-tz-rail">{tzLabel}</div>}
         {/* Avatar du rail : visible en mobile seulement, où il complète la bande
             horizontale. En desktop c'est celui du corps qui sert (à côté du nom). */}
-        <Avatar initials={initials} avatarUrl={avatarUrl} size={30} seed={seed} className="call-card-avatar-rail" />
+        {!surLaFiche && <Avatar initials={initials} avatarUrl={avatarUrl} size={30} seed={seed} className="call-card-avatar-rail" />}
       </div>
 
       {/* Colonne à droite du rail : la ligne d'infos, puis les blocs libres en
@@ -101,11 +129,11 @@ export default function CallCard({
       <div className="call-card-body">
         {/* Avatar du corps : celui de la maquette D2, juste avant le nom. Masqué en
             mobile, où le rail porte déjà le sien. */}
-        <Avatar initials={initials} avatarUrl={avatarUrl} size={34} seed={seed} className="call-card-avatar-body" />
+        {!surLaFiche && <Avatar initials={initials} avatarUrl={avatarUrl} size={34} seed={seed} className="call-card-avatar-body" />}
         <div className="call-card-main">
           <div className="call-card-headline">
-            <span className="call-card-name">{displayName}</span>
-            <CallTypeBadge call={call} />
+            <span className="call-card-name">{surLaFiche ? titre : displayName}</span>
+            {!surLaFiche && <CallTypeBadge call={call} />}
             {variant === 'history' && <FathomBadge call={call} now={now} />}
             {variant === 'upcoming' && isCallInProgress(call as never, now) && <InProgressBadge />}
             {variant === 'canceled' && <CanceledBadge declined={declined} />}
