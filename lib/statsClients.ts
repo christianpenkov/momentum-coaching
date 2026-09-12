@@ -20,7 +20,7 @@ import type { Period } from '@/components/ui/PeriodPill';
 
 export type Metrique =
   | 'abonnesIg' | 'abonnesYt' | 'vues' | 'publications'
-  | 'clics' | 'leads' | 'callsBookes' | 'ventes' | 'cashCollecte';
+  | 'clics' | 'conversations' | 'leads' | 'callsBookes' | 'ventes' | 'cashCollecte';
 
 /** Ce qu'on peut faire d'une valeur quand on la regroupe sur une fenêtre.
  *
@@ -54,6 +54,18 @@ export const METRIQUES: Record<Metrique, DefinitionMetrique> = {
   vues:         { titre: 'Vues générées',     unite: '',  nature: 'flux',   titreCumule: 'Vues cumulées' },
   publications: { titre: 'Publications',      unite: '',  nature: 'flux',   titreCumule: 'Publications cumulées' },
   clics:        { titre: 'Clics sur les liens', unite: '', nature: 'flux',  titreCumule: 'Clics cumulés' },
+  /* ⚠️ « Nouvelles » et non « actives », et ce n'est pas un raccourci de libellé.
+   *
+   * Un compte de fils DISTINCTS ne s'additionne pas : « fils actifs cette semaine »
+   * n'est pas la somme des « fils actifs chaque jour », une personne qui écrit lundi
+   * ET mardi compterait deux fois. En comptant chaque fil UNE fois, au jour de son
+   * apparition, la somme redevient juste à toutes les granularités — et la courbe
+   * cumulée du graphe « depuis l'arrivée » a un sens.
+   *
+   * C'est donc un compte de PERSONNES, homogène avec leads, calls bookés et ventes,
+   * placé juste avant eux dans la liste : quelqu'un écrit, devient un lead, prend un
+   * rendez-vous, achète. */
+  conversations: { titre: 'Nouvelles conversations', unite: '', nature: 'flux', titreCumule: 'Conversations cumulées' },
   leads:        { titre: 'Leads',             unite: '',  nature: 'flux',   titreCumule: 'Leads cumulés' },
   callsBookes:  { titre: 'Calls bookés',      unite: '',  nature: 'flux',   titreCumule: 'Calls bookés cumulés' },
   ventes:       { titre: 'Ventes',            unite: '',  nature: 'flux',   titreCumule: 'Ventes cumulées' },

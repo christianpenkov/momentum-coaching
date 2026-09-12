@@ -2538,6 +2538,73 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
  *
  * Cout : 2 appels par jour et par profil, plus 2 les jours de cloture.
  */
+/**
+ * Compte les fils de DM APPARUS aujourd'hui et hier, et les stocke.
+ *
+ * ── Pourquoi stocker, alors que la donnee est en base ────────────────────────
+ * `purge_ig_messages()` efface chaque nuit les messages de plus de 30 jours (fil
+ * ordinaire) ou de 12 mois (fil de lead), puis supprime les fils devenus vides. Un
+ * comptage refait a la lecture donnerait donc un nombre qui BAISSE avec le temps
+ * sans que rien ne le signale : une semaine de juin afficherait 4 conversations en
+ * juillet et 0 en septembre. Meme raison que pour la portee dedupliquee — ce qui ne
+ * se reconstitue pas se mesure puis se stocke.
+ *
+ * ── Pourquoi HIER en plus d'aujourd'hui ──────────────────────────────────────
+ * Le dernier passage d'une journee tombe avant minuit. Un fil ouvert apres ce
+ * passage ne serait jamais compte : sa journee est close quand le cron revient.
+ * Recompter la veille a chaque passage ferme ce trou pour de bon, et coute une
+ * requete de plus.
+ *
+ * ── Aucun appel Meta ─────────────────────────────────────────────────────────
+ * C'est un `count` local. La fonction tourne donc meme quand le jeton Instagram est
+ * mort : les DM arrivent par le webhook, pas par la collecte.
+ */
+async function majConversationsNouvelles(profileId: string): Promise<string[]> {
+  const errors: string[] = [];
+  try {
+    // ⚠️ Sans accord de lecture des DM, il n'y a pas « zero conversation » : il n'y a
+    // pas de mesure. On n'ecrit RIEN, la colonne reste NULL. Ecrire zero affirmerait
+    // que personne n'a ecrit a cet eleve, alors qu'on n'en sait rien.
+    const { data: cli } = await supa.from('clients')
+      .select('ig_dm_lecture_accordee_le')
+      .eq('profile_id', profileId).is('archived_at', null).maybeSingle();
+    if (!cli?.ig_dm_lecture_accordee_le) return errors;
+
+    // ⚠️ La journee est celle de PARIS, comme toutes les dates de
+    // `analytics_daily_snapshots` — mais `cree_le` est un instant UTC. Borner sur
+    // « minuit UTC » rangerait un fil ouvert a 00h30 Paris dans la veille. On convertit
+    // donc minuit Paris en instant UTC, avec le meme decalage que le reste du fichier.
+    const minuitParisEnUtc = (jour: string): string => {
+      const naif = new Date(`${jour}T00:00:00.000Z`);
+      return new Date(naif.getTime() - parisOffsetHours(naif) * 3600_000).toISOString();
+    };
+
+    // `isoDate` compte les jours EN ARRIERE : 0 = aujourd'hui, 1 = hier.
+    for (const joursEnArriere of [0, 1]) {
+      const jour = isoDate(joursEnArriere);
+      const debut = minuitParisEnUtc(jour);
+      const finExclue = minuitParisEnUtc(isoDate(joursEnArriere - 1));
+      const { count, error } = await supa.from('ig_conversations')
+        .select('id', { count: 'exact', head: true })
+        .eq('profile_id', profileId)
+        .is('archived_at', null)
+        .gte('cree_le', debut)
+        .lt('cree_le', finExclue);
+      if (error) throw new Error(error.message);
+
+      const { error: errUpsert } = await supa.from('analytics_daily_snapshots').upsert({
+        profile_id: profileId, date: jour,
+        ig_conversations_nouvelles: count ?? 0,
+        backfill_source: 'cron',
+      }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
+      if (errUpsert) throw new Error(errUpsert.message);
+    }
+  } catch (e) {
+    errors.push(`conversations_nouvelles: ${(e as Error)?.message || 'unknown'}`);
+  }
+  return errors;
+}
+
 async function majPeriodesIg(profileId: string, token: string, igAccountId: string): Promise<string[]> {
   const errors: string[] = [];
   const aujourdhui = isoDate(0);
@@ -3260,6 +3327,15 @@ async function snapshotProfile(profileId: string, joursReparation = FENETRE_REPA
   // il n'y a rien a combler. Le gater une fois par jour ne protegeait plus rien et
   // faisait trainer un retard accumule pendant des semaines. Il reste borne par
   // `igDoitSync` (une fois par heure), qui conditionne tout le bloc Instagram.
+
+  // Le comptage des nouvelles conversations vit ICI, avant la porte des identifiants
+  // Meta, et c'est voulu : c'est un `count` local sur des lignes posees par le WEBHOOK,
+  // pas par la collecte. Un jeton mort arrete les statistiques Instagram, il n'arrete
+  // pas les DM qui arrivent — la mesure doit continuer.
+  //
+  // Cadence : celle du bloc Instagram (une fois par heure). Suffisant pour un compteur
+  // journalier, d'autant que chaque passage recompte aussi la veille.
+  if (igDoitSync) errors.push(...await majConversationsNouvelles(profileId));
 
   const igCreds = igDoitSync ? await getIgCreds(profileId) : null;
 

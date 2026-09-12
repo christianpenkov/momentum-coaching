@@ -69,6 +69,7 @@ interface LigneSerie {
   ig_profile_views: number | null;
   clics: number | null;
   publications: number | null;
+  ig_conversations_nouvelles: number | null;
 }
 
 interface ClientBrut {
@@ -657,6 +658,7 @@ export default function PageStatsClients() {
           case 'abonnesYt': return serieYt;
           case 'vues': return valeurs('ig_views');
           case 'clics': return valeurs('clics');
+          case 'conversations': return valeurs('ig_conversations_nouvelles');
           case 'publications': return valeurs('publications');
           case 'callsBookes':
             return repartirParFenetre(
@@ -847,6 +849,7 @@ export default function PageStatsClients() {
       metriqueAccompagnement === 'abonnesYt' ? 'yt_subscribers'
       : metriqueAccompagnement === 'vues' ? 'ig_views'
       : metriqueAccompagnement === 'clics' ? 'clics'
+      : metriqueAccompagnement === 'conversations' ? 'ig_conversations_nouvelles'
       : metriqueAccompagnement === 'publications' ? 'publications'
       : 'ig_followers';
 
