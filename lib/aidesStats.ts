@@ -27,25 +27,25 @@ export const AIDE_CALLS_HONORES =
   + "prolonge la même vente n'est pas recompté. Ce nombre ne peut donc jamais dépasser les "
   + "calls bookés.";
 
-export const AIDE_NO_SHOW =
-  "Le seul compteur qui parle en RENDEZ-VOUS et non en opportunités. Son "
-  + "dénominateur n'est donc pas le même que celui de « Calls bookés » — c'est pourquoi "
-  + "il est écrit sur la carte elle-même, « 6 sur 11 rendez-vous », et pas seulement ici : "
-  + "il n'y a jamais à le deviner.\n\n"
-  + "Un créneau posé puis non honoré est un créneau perdu, même s'il prolongeait une "
-  + "vente déjà en cours. On mesure ici la fiabilité d'un créneau, pas ce que le contenu "
-  + "a produit — d'où ce grain différent, assumé.";
+// La plateforme n'affiche plus que la PRESENCE, jamais l'absence : un seul sens de
+// lecture, plus c'est haut mieux c'est. Le texte du grain est isole parce qu'il serait
+// le meme pour un no-show — si un ecran devait le reafficher un jour, il compose ce
+// bloc plutot que d'en reecrire une variante.
+const GRAIN_RENDEZ_VOUS =
+  "Ce taux parle en RENDEZ-VOUS et non en opportunités : un créneau posé puis manqué "
+  + "est un créneau perdu, même s'il prolongeait une vente déjà en cours. On mesure ici "
+  + "la fiabilité d'un créneau, pas ce que le contenu a produit — d'où ce grain "
+  + "différent, assumé.\n\n"
+  + "Son dénominateur n'est donc pas celui de « Calls bookés ». C'est pourquoi il est "
+  + "écrit sous le taux, « 9 sur 11 rendez-vous », et pas seulement ici.\n\n"
+  + "Ce dénominateur ne compte que les rendez-vous dont l'issue est TRANCHÉE : la "
+  + "personne est venue, ou elle ne s'est pas présentée. Un créneau encore à venir, ou "
+  + "passé mais dont le rapport n'est pas rempli, n'entre ni au numérateur ni au "
+  + "dénominateur — sinon un rendez-vous simplement pas encore tenu se lirait comme une "
+  + "absence.";
 
-// Le show-up est le no-show vu par l'autre bout : meme grain, meme denominateur, meme
-// raison. Un seul texte pour les deux serait ambigu (« non honoré » vs « honoré ») ;
-// deux textes qui se contrediraient serait pire. Celui-ci renvoie explicitement a l'autre.
 export const AIDE_SHOW_UP =
-  "Ce taux parle en RENDEZ-VOUS et non en opportunités. Son dénominateur n'est donc "
-  + "pas le même que celui de « Calls bookés » — c'est pourquoi il est écrit sur la carte "
-  + "elle-même, « 6 sur 11 rendez-vous », et pas seulement ici.\n\n"
-  + "Un créneau posé puis non honoré est un créneau perdu, même s'il prolongeait une "
-  + "vente déjà en cours. On mesure ici la fiabilité d'un créneau, pas ce que le contenu "
-  + "a produit — d'où ce grain différent, assumé.";
+  "La part des rendez-vous où la personne s'est présentée.\n\n" + GRAIN_RENDEZ_VOUS;
 
 export const AIDE_CLOSING =
   "Les ventes rapportées aux calls honorés.\n\n"

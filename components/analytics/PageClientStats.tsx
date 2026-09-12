@@ -10,7 +10,7 @@ import AideColonne from '@/components/ui/AideColonne';
 // Les regles de comptage du funnel, ecrites UNE fois : la fiche client coach affiche
 // les memes nombres et doit donc porter les memes explications. Voir lib/aidesStats.ts.
 import {
-  AIDE_CALLS_BOOKES, AIDE_CALLS_HONORES, AIDE_NO_SHOW, AIDE_CLOSING, AIDE_REV_PAR_CALL,
+  AIDE_CALLS_BOOKES, AIDE_CALLS_HONORES, AIDE_SHOW_UP, AIDE_CLOSING, AIDE_REV_PAR_CALL,
   aideCallsBookes,
 } from '@/lib/aidesStats';
 import BandeauIntegrations from '@/components/analytics/BandeauIntegrations';
@@ -51,7 +51,7 @@ const CATS_CONTENT_YT = new Set<string>(CATEGORY_GROUPS.contentYt);
 const CATS_DM_CALENDLY = new Set<string>(CATEGORY_GROUPS.dmCalendly);
 const CATS_DM_LM = new Set<string>(CATEGORY_GROUPS.dmLm);
 const CATS_STORY = new Set<string>(CATEGORY_GROUPS.story);
-import { isCallHonored } from '@/lib/callHonored';
+import { isCallHonored, calculerShowUp } from '@/lib/callHonored';
 import { contenuConversion, acquisitionParContenu, personnesParContenu, personnesReunies, contenuActivation, SANS_CONTENU } from '@/lib/attribution-roles';
 import { isCallCanceled } from '@/lib/sessionRapport';
 import { usePeriodesIg, porteeDeLaPeriode, typePeriodePour, type TypePeriodeIg } from '@/lib/porteeIg';
@@ -1339,14 +1339,18 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   const callsBookes  = callsInPeriod.filter(c => c.status === 'active' && estOpportunite(c)).length;
   const callsHonores = callsInPeriod.filter(c => isCallHonored(c, now) && estOpportunite(c)).length;
 
-  // Le NO-SHOW garde l'autre grain, deliberement. Il mesure la fiabilite d'un CRENEAU,
-  // pas la capacite a closer une personne : un 2e rendez-vous pose et non honore est un
-  // creneau perdu, quelle que soit sa place dans le parcours. C'est aussi la pratique du
-  // secteur — le show rate se calcule sur les creneaux poses, jamais sur les
+  // Le TAUX DE PRESENCE garde l'autre grain, deliberement. Il mesure la fiabilite d'un
+  // CRENEAU, pas la capacite a closer une personne : un 2e rendez-vous pose et non honore
+  // est un creneau perdu, quelle que soit sa place dans le parcours. C'est aussi la
+  // pratique du secteur — le show rate se calcule sur les creneaux poses, jamais sur les
   // opportunites. Son denominateur est donc ECRIT a l'ecran (« N sur M rendez-vous »),
   // pour qu'aucun lecteur ne tente de le retrouver a partir de « Calls bookes ».
+  //
+  // `rendezVous` sert au prefixe de l'aide « Calls bookes » (les deux nombres cote a
+  // cote) ; le taux, lui, se calcule sur les rendez-vous TRANCHES — voir calculerShowUp.
   const rendezVous   = callsInPeriod.filter(c => c.status === 'active').length;
-  const noShows      = callsInPeriod.filter(c => c.status === 'active' && c.no_show).length;
+  const showUpOv     = calculerShowUp(callsInPeriod, now);
+  const noShows      = showUpOv.manques;
   // Un deal se compte dans la periode de SON OPPORTUNITE, pas dans celle du rendez-vous
   // ou il a ete signe. Sans ca, un deal signe au 2e rendez-vous atterrit dans une periode
   // dont le denominateur — les opportunites honorees — ne le contient pas, puisque
@@ -1418,9 +1422,9 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
     0,
   );
   const tauxCollecteOv = totalRev > 0 ? Math.round((cashCollecteOv / totalRev) * 100) : null;
-  const noShowRate   = rendezVous > 0 ? pct(noShows, rendezVous) : 0;
+  const showUpRate   = showUpOv.taux ?? 0;
   // Meme phrase qu'au hero de Funnel & Calls, et pour la meme raison : sans elle,
-  // « Calls bookés » et « No-show » se lisent comme deux vues du meme total alors
+  // « Calls bookés » et « Show-up » se lisent comme deux vues du meme total alors
   // qu'ils comptent deux choses. Affichee seulement quand les deux different.
   const aideBookesAvecNombres = aideCallsBookes(callsBookes, rendezVous);
   const closingRate  = callsHonores > 0 ? pct(dealsCloses, callsHonores) : 0;
@@ -1516,10 +1520,15 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   // « ventes signées » plutot que « deals closés » pour que le lecteur ne confonde pas ce
   // compte avec celui, different et voisin, du sous-titre de la carte Closing.
   if (ventesDeLaPeriode.length > 0) signalData.push({ type: 'green', text: `${ventesDeLaPeriode.length} vente${ventesDeLaPeriode.length > 1 ? 's' : ''} signée${ventesDeLaPeriode.length > 1 ? 's' : ''} sur ${libelleFenetre(period, periodIndex ?? 0, sinceConnection, allTimeStart)} — ${fmtEur(totalRev)} contractés` });
-  // « des calls bookés » etait faux : le no-show est le seul compteur de Mes stats qui
+  // « des calls bookés » etait faux : la presence est le seul compteur de Mes stats qui
   // parle en RENDEZ-VOUS, et son aide insiste precisement sur cette distinction. Le
   // signal disait donc l'inverse de la carte qu'il commente. On nomme le denominateur.
-  if (rendezVous > 0 && noShowRate > 20) signalData.push({ type: 'red', text: `Taux no-show élevé : ${fmt(noShowRate, 1)} % — ${noShows} sur ${rendezVous} rendez-vous` });
+  //
+  // Le SIGNAL reste formule en absences, la carte en presence : une alerte nomme ce qui
+  // ne va pas (« 3 personnes ne sont pas venues »), pas ce qui va. Le seuil est le meme
+  // nombre vu des deux cotes — 80 % de presence, 20 % d'absence — et le denominateur
+  // affiche est celui de la carte, pour qu'on puisse recouper les deux de tete.
+  if (showUpOv.taux != null && showUpOv.taux < 80) signalData.push({ type: 'red', text: `Trop d'absences : ${fmt(100 - showUpOv.taux, 1)} % — ${noShows} sur ${showUpOv.tranches} rendez-vous` });
   // `msgs.responseRate != null` : sans cette garde, le zero fabrique par le chemin
   // instantane declenchait « Taux de reponse DM bas : 0 % » sur TOUTE periode passee,
   // alors que la donnee n'a jamais ete collectee. Une alerte qui se declenche toujours
@@ -1621,12 +1630,11 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
   const cashContracteDesCalls = (liste: CallRecord[]) =>
     liste.reduce((s, c) => s + (montantParCallOv.get(c.id) ?? 0), 0);
 
-  type ContentItem = { id: string; title: string; thumbnail: string | null; platform: 'IG' | 'YT'; type: string; views: number; totalViews: number; watchTime: number; avgWatchTimeMin: number | null; rendezVous: number; noShowCount: number; noShowPct: number | null; closedCount: number; closedPct: number | null; callsBooked: number; callsHonores: number; revenueTotal: number; revenuePerCall: number; cashPerView: number | null };
+  type ContentItem = { id: string; title: string; thumbnail: string | null; platform: 'IG' | 'YT'; type: string; views: number; totalViews: number; watchTime: number; avgWatchTimeMin: number | null; rendezVous: number; showUpHonores: number; showUpTranches: number; showUpPct: number | null; closedCount: number; closedPct: number | null; callsBooked: number; callsHonores: number; revenueTotal: number; revenuePerCall: number; cashPerView: number | null };
   const allContent: ContentItem[] = [
     ...igPosts.map(p => {
       const postCalls = igCallsAll.filter(c => contenuDuCallOv(c) === p.id);
       const callsBooked = postCalls.filter(c => c.status === 'active' && estOpportunite(c)).length;
-      const noShowCount = postCalls.filter(c => c.no_show).length;
       const closedCount = postCalls.filter(c => c.deal_closed).length;
       const revTotal = cashContracteDesCalls(postCalls);
       // « Calls honores » etait DEDUIT : bookes moins no-show. Les deux termes ne
@@ -1638,19 +1646,20 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
       // directement, avec la definition unique de lib/callHonored.ts — la meme que les
       // cartes du haut de cet ecran.
       const honored = postCalls.filter(c => isCallHonored(c, now) && estOpportunite(c)).length;
-      // Le no-show garde le grain RENDEZ-VOUS, ici comme partout ailleurs dans Mes stats :
+      // La presence garde le grain RENDEZ-VOUS, ici comme partout ailleurs dans Mes stats :
       // un creneau pose et non honore est un creneau perdu, meme s'il prolongeait une
       // vente en cours. Le compter en opportunites ferait disparaitre du tableau des
-      // no-shows bien reels, et surtout creerait une SECONDE definition du mot sous le
+      // absences bien reelles, et surtout creerait une SECONDE definition du mot sous le
       // meme nom. Son denominateur est donc different de « Calls bookes » — il est ecrit
-      // dans la cellule (« 1/7 rdv »), comme il l'est sous la carte du haut.
+      // dans la cellule (« 6/7 rdv »), comme il l'est sous la carte du haut.
       const rendezVous = postCalls.filter(c => c.status === 'active').length;
-      const noShowPct = rendezVous > 0 ? Math.round((noShowCount / rendezVous) * 100) : null;
+      const showUpDuContenu = calculerShowUp(postCalls.filter(c => c.status === 'active'), now);
+      const showUpPct = showUpDuContenu.taux != null ? Math.round(showUpDuContenu.taux) : null;
       const closedPct = honored > 0 ? Math.round((closedCount / honored) * 100) : null;
       const avgWatchTimeMin = p.avgWatchTimeMs ? Math.round(p.avgWatchTimeMs / 1000 / 60 * 10) / 10 : null;
       const totalViewsIG = p.views || p.reach || 0;
       const viewsLifetimeIG = igLiveViewsByIdOv.get(p.id) ?? null;
-      return { id: p.id, title: p.caption?.slice(0, 60) || '(sans titre)', thumbnail: p.thumbnail || null, platform: 'IG' as const, type: p.type === 'VIDEO' || p.type === 'REEL' || p.type === 'REELS' ? 'Reel' : p.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image', views: totalViewsIG, totalViews: totalViewsIG, watchTime: p.totalWatchTimeMs ? Math.round(p.totalWatchTimeMs / 1000 / 60) : 0, avgWatchTimeMin, rendezVous, noShowCount, noShowPct, closedCount, closedPct, callsBooked, callsHonores: honored, revenueTotal: revTotal, revenuePerCall: callsBooked > 0 ? Math.round(revTotal / callsBooked) : 0, cashPerView: viewsLifetimeIG && viewsLifetimeIG > 0 ? revTotal / viewsLifetimeIG : null };
+      return { id: p.id, title: p.caption?.slice(0, 60) || '(sans titre)', thumbnail: p.thumbnail || null, platform: 'IG' as const, type: p.type === 'VIDEO' || p.type === 'REEL' || p.type === 'REELS' ? 'Reel' : p.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image', views: totalViewsIG, totalViews: totalViewsIG, watchTime: p.totalWatchTimeMs ? Math.round(p.totalWatchTimeMs / 1000 / 60) : 0, avgWatchTimeMin, rendezVous, showUpHonores: showUpDuContenu.honores, showUpTranches: showUpDuContenu.tranches, showUpPct, closedCount, closedPct, callsBooked, callsHonores: honored, revenueTotal: revTotal, revenuePerCall: callsBooked > 0 ? Math.round(revTotal / callsBooked) : 0, cashPerView: viewsLifetimeIG && viewsLifetimeIG > 0 ? revTotal / viewsLifetimeIG : null };
     }),
     ...ytVideos.map(v => {
       // Même fonction que pour Instagram. Le résultat est identique — un lien en
@@ -1658,7 +1667,6 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
       // seule fonction d'attribution est ce qui empêche les deux de diverger un jour.
       const postCalls = ytCallsAll.filter(c => contenuDuCallOv(c) === v.id);
       const callsBooked = postCalls.filter(c => c.status === 'active' && estOpportunite(c)).length;
-      const noShowCount = postCalls.filter(c => c.no_show).length;
       const closedCount = postCalls.filter(c => c.deal_closed).length;
       const revTotal = cashContracteDesCalls(postCalls);
       // « Calls honores » etait DEDUIT : bookes moins no-show. Les deux termes ne
@@ -1670,14 +1678,15 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
       // directement, avec la definition unique de lib/callHonored.ts — la meme que les
       // cartes du haut de cet ecran.
       const honored = postCalls.filter(c => isCallHonored(c, now) && estOpportunite(c)).length;
-      // Le no-show garde le grain RENDEZ-VOUS, ici comme partout ailleurs dans Mes stats :
+      // La presence garde le grain RENDEZ-VOUS, ici comme partout ailleurs dans Mes stats :
       // un creneau pose et non honore est un creneau perdu, meme s'il prolongeait une
       // vente en cours. Le compter en opportunites ferait disparaitre du tableau des
-      // no-shows bien reels, et surtout creerait une SECONDE definition du mot sous le
+      // absences bien reelles, et surtout creerait une SECONDE definition du mot sous le
       // meme nom. Son denominateur est donc different de « Calls bookes » — il est ecrit
-      // dans la cellule (« 1/7 rdv »), comme il l'est sous la carte du haut.
+      // dans la cellule (« 6/7 rdv »), comme il l'est sous la carte du haut.
       const rendezVous = postCalls.filter(c => c.status === 'active').length;
-      const noShowPct = rendezVous > 0 ? Math.round((noShowCount / rendezVous) * 100) : null;
+      const showUpDuContenu = calculerShowUp(postCalls.filter(c => c.status === 'active'), now);
+      const showUpPct = showUpDuContenu.taux != null ? Math.round(showUpDuContenu.taux) : null;
       const closedPct = honored > 0 ? Math.round((closedCount / honored) * 100) : null;
       // v.watchTime30d est déjà en minutes (row.watch_time_min) — pas de /60 ici, contrairement
       // à la branche IG ci-dessus (avgWatchTimeMs en ms) : diviser aussi par 60 donnait un résultat
@@ -1698,7 +1707,7 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
       const vViews = vientDuLive ? (v.viewsAllTime ?? v.views30d) : v.views30d;
       const avgWatchTimeMin = v.watchTime30d && vViews > 0 ? Math.round(v.watchTime30d / vViews * 10) / 10 : null;
       const viewsLifetimeYT = ytLiveViewsByIdOv.get(v.id) ?? null;
-      return { id: v.id, title: v.title, thumbnail: v.thumbnail || null, platform: 'YT' as const, type: v.isShort ? 'Short' : 'Vidéo', views: v.views30d, totalViews: v.views, watchTime: v.watchTime30d, avgWatchTimeMin, rendezVous, noShowCount, noShowPct, closedCount, closedPct, callsBooked, callsHonores: honored, revenueTotal: revTotal, revenuePerCall: callsBooked > 0 ? Math.round(revTotal / callsBooked) : 0, cashPerView: viewsLifetimeYT && viewsLifetimeYT > 0 ? revTotal / viewsLifetimeYT : null };
+      return { id: v.id, title: v.title, thumbnail: v.thumbnail || null, platform: 'YT' as const, type: v.isShort ? 'Short' : 'Vidéo', views: v.views30d, totalViews: v.views, watchTime: v.watchTime30d, avgWatchTimeMin, rendezVous, showUpHonores: showUpDuContenu.honores, showUpTranches: showUpDuContenu.tranches, showUpPct, closedCount, closedPct, callsBooked, callsHonores: honored, revenueTotal: revTotal, revenuePerCall: callsBooked > 0 ? Math.round(revTotal / callsBooked) : 0, cashPerView: viewsLifetimeYT && viewsLifetimeYT > 0 ? revTotal / viewsLifetimeYT : null };
     }),
   ];
 
@@ -1824,7 +1833,11 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
           // no-show (fiabilite parfaite) et ROUGE sur le closing (contre-performance).
           // Un mois ou il ne s'est rien passe n'est ni bon ni mauvais — il est vide, et
           // c'est un tiret qui le dit. Mesure : mai 2026 sur le profil de test.
-          { label: 'No-show', value: rendezVous > 0 ? `${fmt(noShowRate, 0)} %` : '—', sub: rendezVous > 0 ? `${noShows} sur ${rendezVous} rendez-vous` : 'aucun rendez-vous', color: (rendezVous === 0 ? 'var(--faint)' : noShowRate > 20 ? RED : noShowRate > 10 ? AMBER : GREEN) as string, aide: AIDE_NO_SHOW },
+          //
+          // Presence et non absence, sur toute la page : un seul sens de lecture, plus
+          // c'est haut mieux c'est. Les seuils de couleur sont les memes bornes vues de
+          // l'autre cote (20 % / 10 % d'absence deviennent 80 % / 90 % de presence).
+          { label: 'Show-up', value: showUpOv.taux != null ? `${fmt(showUpRate, 0)} %` : '—', sub: showUpOv.taux != null ? `${showUpOv.honores} sur ${showUpOv.tranches} rendez-vous` : 'aucun rendez-vous tenu', color: (showUpOv.taux == null ? 'var(--faint)' : showUpRate < 80 ? RED : showUpRate < 90 ? AMBER : GREEN) as string, aide: AIDE_SHOW_UP },
           // Plus de seuil de couleur sur le closing : le 25 % / 15 % n'etait calibre sur
           // rien de tracable, et un seuil invente colore en rouge une performance normale.
           // Le chiffre se lit maintenant comme « Calls bookes » et « Calls honores ».
@@ -1956,19 +1969,19 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
           <thead>
             <tr>
               {/* Les colonnes qui comptent des calls portent la MEME aide que les cartes du
-                  haut de l'ecran : « Calls bookes » et « No-show » y designent exactement la
+                  haut de l'ecran : « Calls bookes » et « Show-up » y designent exactement la
                   meme chose, et un lecteur qui descend de trente centimetres ne doit pas avoir
                   a le redecouvrir. Elles reutilisent donc les constantes AIDE_*, jamais un
                   texte recopie — c'est cette recopie qui fait diverger les libelles.
 
-                  Sur ce tableau, l'aide du no-show gagne meme en utilite : sa cellule affiche
-                  « 1/3 rdv », un denominateur different de la colonne « Calls bookes » juste a
-                  cote, et l'aide dit pourquoi. */}
+                  Sur ce tableau, l'aide de la presence gagne meme en utilite : sa cellule
+                  affiche « 2/3 rdv », un denominateur different de la colonne « Calls bookes »
+                  juste a cote, et l'aide dit pourquoi. */}
               {((): { label: string; aide?: string }[] => {
                 const c = (label: string, aide?: string) => ({ label, aide });
                 if (contentSort === 'views') return [c(''), c('Contenu'), c('Plateforme'), c('Vues totales')];
                 if (contentSort === 'watchTime') return [c(''), c('Contenu'), c('Plateforme'), c('Watch time total'), c('Watch time moyen')];
-                if (contentSort === 'calls') return [c(''), c('Contenu'), c('Plateforme'), c('Calls bookés', AIDE_CALLS_BOOKES), c('Calls honorés', AIDE_CALLS_HONORES), c('No-show', AIDE_NO_SHOW), c('Closé', AIDE_CLOSING)];
+                if (contentSort === 'calls') return [c(''), c('Contenu'), c('Plateforme'), c('Calls bookés', AIDE_CALLS_BOOKES), c('Calls honorés', AIDE_CALLS_HONORES), c('Show-up', AIDE_SHOW_UP), c('Closé', AIDE_CLOSING)];
                 return [c(''), c('Contenu'), c('Plateforme'), c('Calls bookés', AIDE_CALLS_BOOKES), c('Revenu / call', AIDE_REV_PAR_CALL), c('Cash / vue'), c('Cash contracté total', AIDE_CASH_CONTRACTE)];
               })().map((h, i) => (
                 <th key={i} className="eyebrow-sm" style={{ textAlign: i <= 1 ? 'left' : 'right', color: 'var(--muted)', padding: '0 8px 8px', borderBottom: '1px solid var(--border)' }}>
@@ -2026,8 +2039,10 @@ function TabOverviewV2({ ig, yt, msgs, calls, callsAllTime, shortio, period, per
                     <td style={{ padding: '8px 8px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>
                       {c.callsBooked > 0 ? fmt(c.callsHonores) : '—'}
                     </td>
-                    <td style={{ padding: '8px 8px', textAlign: 'right', fontSize: 12, fontWeight: 600, color: c.noShowPct === null ? 'var(--faint)' : c.noShowPct > 20 ? RED : c.noShowPct > 10 ? AMBER : GREEN }}>
-                      {c.noShowPct !== null ? `${c.noShowCount}/${c.rendezVous} rdv (${c.noShowPct} %)` : '—'}
+                    {/* Seuils inverses de ceux de l'ancienne colonne no-show, les memes
+                        bornes vues de l'autre cote : 80 % / 90 % de presence. */}
+                    <td style={{ padding: '8px 8px', textAlign: 'right', fontSize: 12, fontWeight: 600, color: c.showUpPct === null ? 'var(--faint)' : c.showUpPct < 80 ? RED : c.showUpPct < 90 ? AMBER : GREEN }}>
+                      {c.showUpPct !== null ? `${c.showUpHonores}/${c.showUpTranches} rdv (${c.showUpPct} %)` : '—'}
                     </td>
                     <td style={{ padding: '8px 8px', textAlign: 'right', fontSize: 12, fontWeight: 600, color: c.closedPct === null ? 'var(--faint)' : c.closedPct >= 25 ? GREEN : c.closedPct >= 15 ? AMBER : RED }}>
                       {/* `closedPct` vaut null quand aucune opportunite n'a ete honoree. Sans cette
@@ -5146,13 +5161,17 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
     const actifs = subset.filter(c => c.status === 'active');
     // DEUX grains, et un seul mot pour chacun dans toute la page.
     //
-    // « Rendez-vous » = tous les creneaux poses. Ne sert QUE de denominateur au
-    // no-show, qui mesure la fiabilite d'un creneau : un 2e rendez-vous pose et non
+    // « Rendez-vous » = tous les creneaux poses. Ne sert QUE de denominateur au taux
+    // de presence, qui mesure la fiabilite d'un creneau : un 2e rendez-vous pose et non
     // honore est un creneau perdu, quelle que soit sa place dans le parcours. C'est
     // la pratique du secteur, le show rate se calcule sur les creneaux poses. Ce
     // denominateur est ECRIT a cote du taux, il ne se deduit pas des bookes.
+    //
+    // Le taux, lui, ne porte que sur les rendez-vous TRANCHES (venu / pas venu) : un
+    // creneau encore a tenir n'est pas une absence. Voir lib/callHonored.ts.
     const rendezVous = actifs.length;
-    const noShows = actifs.filter(c => c.no_show).length;
+    const showUp = calculerShowUp(actifs, now);
+    const noShows = showUp.manques;
     // « Calls bookes » et « Calls honores » = des OPPORTUNITES. Mes stats mesure ce
     // que le contenu produit ; un 2e rendez-vous qui prolonge la meme vente n'est
     // produit par aucun nouveau clic, et le compter ferait passer le taux
@@ -5165,7 +5184,7 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
     // ete signe, meme au 2e rendez-vous. Meme regle partout dans la page.
     const closes = actifs.filter(c => c.deal_closed).length;
     const rev = actifs.reduce((acc, c) => acc + (c.revenue || 0), 0);
-    return { bookes, honores, closes, rev, noShows, rendezVous, opportunites, opportunitesHonorees };
+    return { bookes, honores, closes, rev, noShows, rendezVous, opportunites, opportunitesHonorees, showUp };
   };
 
   const igCallsLive = calcCalls(callsIG);
@@ -5256,7 +5275,7 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
     tousLesCallsFunnel.filter(filtre).filter(venteDansLaPeriodeFunnel)
       .reduce((s, c) => s + (montantParCall.get(c.id) ?? 0), 0);
   const igRev     = revDeLaPeriode(isIGCall);
-  const igNoShows = igCallsLive.noShows;
+  const igShowUp = igCallsLive.showUp;
   const igRendezVous = igCallsLive.rendezVous;
 
   const ytViewsD  = noData ? 0 : (yt ? yt.chartData.filter(d => inFunnelDateWindow(d.date)).reduce((s, d) => s + (d.views ?? 0), 0) : 0);
@@ -5266,7 +5285,7 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
   const ytOpportunitesBookees = ytCallsLive.opportunites;
   const ytCloses  = closesDeLaPeriode(isYTCall);
   const ytRev     = revDeLaPeriode(isYTCall);
-  const ytNoShows = ytCallsLive.noShows;
+  const ytShowUp = ytCallsLive.showUp;
   const ytRendezVous = ytCallsLive.rendezVous;
   const isCalendlyUrl = (l: any) => (l.originalUrl || '').toLowerCase().includes('calendly');
   // Clics Short.io filtrés par période : clicksByUrl (DB) prioritaire, repli sur le
@@ -5531,9 +5550,12 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
       const honored = opportunitesDuJour.filter(c => isCallHonored(c, now)).length;
       const closed = cs.filter(c => c.deal_closed).length;
       const rev = cs.reduce((s, c) => s + (c.revenue || 0), 0);
-      const noShows = cs.filter(c => c.status === 'active' && c.no_show).length;
+      // Même règle que la carte : présence sur les rendez-vous TRANCHÉS du jour, et non
+      // absences sur les bookés. L'ancienne série divisait un numérateur en rendez-vous
+      // par un dénominateur en opportunités — deux grains, un seul taux.
+      const showUpJour = calculerShowUp(cs.filter(c => c.status === 'active'), now);
       // metricIdx correspond à l'index dans row.metrics : 0=reach/vues pour 1 call, 1=bookés,
-      // 2=no-show, 3=close rate, 4=rev/call booké, 5=cash/vue, 6=revenue total.
+      // 2=show-up, 3=close rate, 4=rev/call booké, 5=cash/vue, 6=revenue total.
       const reachDay = reachByDate?.get(iso);
       const taux = (num: number, den: number) => {
         const t = tauxOuTrou(num, den);
@@ -5541,7 +5563,7 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
       };
       if (metricIdx === 0) return booked > 0 && reachDay != null ? { date: iso, v: Math.round(reachDay / booked) } : trou;
       if (metricIdx === 1) return { date: iso, v: booked };
-      if (metricIdx === 2) return taux(noShows, booked);
+      if (metricIdx === 2) return taux(showUpJour.honores, showUpJour.tranches);
       // Meme grain que la carte : des opportunites au denominateur.
       const opportunites = cs.filter(c => isCallHonored(c, now) && !continuations.has(c.id)).length;
       if (metricIdx === 3) return taux(closed, opportunites);
@@ -5555,7 +5577,11 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
   // deux endroits, et affichait 66,7 % dans l'entonnoir contre 67 % dans le tableau,
   // pour la même mesure sur le même écran.
   const fmtRate = (a: number, b: number) => `${fmt((a / b) * 100, 1)}%`;
-  type EffMetric = { label: string; value: string; prevValue: string | null; delta: { value: number; label: string; color: string } | null; lowerIsBetter: boolean; aide?: string };
+  // `sub` : la ligne grise sous le chiffre. Le denominateur d'un taux de presence n'est
+  // pas celui de « Calls bookes », il doit donc etre ecrit — mais collé au taux sur la
+  // meme ligne il faisait passer la carte sur deux lignes et cassait l'alignement de la
+  // rangee. Sous le chiffre, en petit, comme les sous-titres des cartes de Vue generale.
+  type EffMetric = { label: string; value: string; sub?: string; prevValue: string | null; delta: { value: number; label: string; color: string } | null; lowerIsBetter: boolean; aide?: string };
   type EffRow = { platform: string; color: string; metrics: EffMetric[]; platformCalls: CallRecord[]; reachByDate: Map<string, number> };
   const igReachByDate = new Map<string, number>((ig?.chartData ?? []).filter(dd => inFunnelDateWindow(dd.date)).map(dd => [dd.date, dd.reach ?? 0]));
   const ytReachByDate = new Map<string, number>((yt?.chartData ?? []).filter(dd => inFunnelDateWindow(dd.date)).map(dd => [dd.date, dd.views ?? 0]));
@@ -5566,7 +5592,7 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
       metrics: [
         { label: 'Reach pour 1 call', value: igReachD != null && igBookes > 0 ? fmt(Math.round(igReachD / igBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'Calls bookés', value: fmt(igBookes), prevValue: null, delta: null, lowerIsBetter: false, aide: AIDE_CALLS_BOOKES },
-        { label: 'No-show', value: igRendezVous > 0 ? `${fmtRate(igNoShows, igRendezVous)} · ${igNoShows}/${igRendezVous} rdv` : '—', prevValue: null, delta: null, lowerIsBetter: true, aide: AIDE_NO_SHOW },
+        { label: 'Show-up', value: igShowUp.taux != null ? `${fmt(igShowUp.taux, 1)}%` : '—', sub: igShowUp.taux != null ? `${igShowUp.honores} sur ${igShowUp.tranches} rendez-vous` : undefined, prevValue: null, delta: null, lowerIsBetter: false, aide: AIDE_SHOW_UP },
         { label: 'Close rate', value: igOpportunites > 0 ? fmtRate(igCloses, igOpportunites) : '—', prevValue: null, delta: null, lowerIsBetter: false, aide: AIDE_CLOSING },
         { label: 'Rev / call booké', value: igBookes > 0 ? fmtEur(Math.round(igRev / igBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: false, aide: AIDE_REV_PAR_CALL },
         // « Cash / vue » : Instagram mesure une portée, pas des vues — la colonne
@@ -5580,7 +5606,7 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
       metrics: [
         { label: 'Vues pour 1 call', value: ytBookes > 0 ? fmt(Math.round(ytViewsD / ytBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'Calls bookés', value: fmt(ytBookes), prevValue: null, delta: null, lowerIsBetter: false, aide: AIDE_CALLS_BOOKES },
-        { label: 'No-show', value: ytRendezVous > 0 ? `${fmtRate(ytNoShows, ytRendezVous)} · ${ytNoShows}/${ytRendezVous} rdv` : '—', prevValue: null, delta: null, lowerIsBetter: true, aide: AIDE_NO_SHOW },
+        { label: 'Show-up', value: ytShowUp.taux != null ? `${fmt(ytShowUp.taux, 1)}%` : '—', sub: ytShowUp.taux != null ? `${ytShowUp.honores} sur ${ytShowUp.tranches} rendez-vous` : undefined, prevValue: null, delta: null, lowerIsBetter: false, aide: AIDE_SHOW_UP },
         { label: 'Close rate', value: ytOpportunites > 0 ? fmtRate(ytCloses, ytOpportunites) : '—', prevValue: null, delta: null, lowerIsBetter: false, aide: AIDE_CLOSING },
         { label: 'Rev / call booké', value: ytBookes > 0 ? fmtEur(Math.round(ytRev / ytBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: false, aide: AIDE_REV_PAR_CALL },
         { label: 'Cash / vue', value: ytViewsD > 0 ? fmtEur(ytRev / ytViewsD) : '—', prevValue: null, delta: null, lowerIsBetter: false },
@@ -5596,6 +5622,7 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
   // produit, pour les compteurs « Bookes » et « Honores ».
   const filteredActifs = filteredCalls.filter(c => c.status === 'active');
   const filteredOpportunites = filteredActifs.filter(c => !continuations.has(c.id));
+  const showUpFiltre = calculerShowUp(filteredActifs, now);
 
   // Les totaux du hero portent sur TOUTES les sources — c'est ce que dit leur
   // sous-titre. Ils valaient `igBookes + ytBookes`, donc un call dont la source ne
@@ -5627,7 +5654,7 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
   // corrigee depuis la page Paiements apres coup, ou un deal annule, l'aurait fait
   // diverger sans que rien ne le signale.
   const totalRev     = revDeLaPeriode(() => true);
-  const noShowCount  = callsActifs.filter(c => c.no_show).length;
+  const showUpTotal  = calculerShowUp(callsActifs, now);
   // ── Verification faite le 2026-09-01 sur TOUS les taux de la page ──────────
   // Celui-ci etait le seul melange de grains non documente. Les autres divisions qui
   // melangent le font a dessein et le disent : `closingRate` et `revPerCall` gardent
@@ -5635,7 +5662,7 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
   // rendez-vous, pour un denominateur en opportunites — c'est la regle, pas un
   // oubli. Vue generale tenait deja la bonne regle sur les trois siens.
   //
-  // Le denominateur du no-show, c'est les RENDEZ-VOUS — tous les creneaux poses,
+  // Le denominateur de la presence, c'est les RENDEZ-VOUS — les creneaux poses,
   // prolongations comprises. Il divisait par `totalBookes`, qui EXCLUT les
   // prolongations : un numerateur en rendez-vous sur un denominateur en calls bookes.
   // Le hero affichait 17,6 % la ou la regle donne 16,7 %, et son sous-titre « % des
@@ -5645,7 +5672,9 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
   // generale tenaient deja la bonne regle ; le hero etait le seul a diverger.
   const totalRendezVous = callsActifs.length;
   const closingRate  = totalOpportunites > 0 ? pct(totalCloses, totalOpportunites) : 0;
-  const noShowRate   = totalRendezVous > 0 ? pct(noShowCount, totalRendezVous) : 0;
+  // ...et parmi eux ceux dont l'issue est TRANCHEE : un creneau encore a tenir n'est
+  // pas une absence. Voir estRendezVousTranche dans lib/callHonored.ts.
+  const showUpRate   = showUpTotal.taux != null ? Math.round(showUpTotal.taux) : null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 48 }}>
@@ -5660,13 +5689,13 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
           { label: 'Calls bookés',  value: fmt(totalBookes),   sub: 'toutes sources', aide: aideBookesAvecNombres },
           { label: 'Calls IG',      value: fmt(igBookes),      sub: `${igCloses} closés` },
           { label: 'Calls YT',      value: fmt(ytBookes),      sub: `${ytCloses} closés` },
-          { label: 'Calls honorés', value: fmt(totalHonores),  sub: `${noShowRate}% no-show`, aide: AIDE_CALLS_HONORES },
+          { label: 'Calls honorés', value: fmt(totalHonores),  sub: showUpRate != null ? `${showUpRate}% de présence` : 'aucun rendez-vous tenu', aide: AIDE_CALLS_HONORES },
           // Le denominateur est ECRIT a cote, parce qu'il n'est pas celui de la carte
-          // voisine : sans lui, on additionne honores et no-show, on ne retombe pas
-          // sur les bookes, et on conclut a un bug.
-          { label: 'No-show',       value: fmt(noShowCount),
-            sub: totalRendezVous > 0 ? `${noShowCount} sur ${totalRendezVous} rendez-vous` : 'aucun rendez-vous',
-            aide: AIDE_NO_SHOW },
+          // voisine : sans lui, on additionne presence et bookes, on ne retombe sur
+          // rien, et on conclut a un bug.
+          { label: 'Show-up',       value: showUpRate != null ? `${showUpRate} %` : '—',
+            sub: showUpTotal.taux != null ? `${showUpTotal.honores} sur ${showUpTotal.tranches} rendez-vous` : 'aucun rendez-vous tenu',
+            aide: AIDE_SHOW_UP },
           // Le sous-titre nomme le denominateur des qu'il s'ecarte du nombre d'honores
           // affiche juste a cote : « 57% closing » a cote de « 15 honores » se
           // recalcule en 8/15 = 53 %, et l'ecart reste inexplique.
@@ -5876,6 +5905,9 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
                     >
                       <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6, display: 'flex', alignItems: 'center' }}>{m.label}{m.aide ? <AideColonne texte={m.aide} /> : null}</div>
                       <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{m.value}</div>
+                      {/* Le denominateur, discret, sous le chiffre. Sur la meme ligne il
+                          faisait passer la carte sur deux lignes et desalignait la rangee. */}
+                      {m.sub && <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 5, lineHeight: 1.3 }}>{m.sub}</div>}
                       {d && d.label !== '—' && (
                         <div style={{ marginTop: 6, display: 'flex', alignItems: 'baseline', gap: 6 }}>
                           <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>{m.prevValue ?? '—'}</span>
@@ -5967,6 +5999,8 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
         </div>
 
         {/* Résumé stats — même population que les cartes du hero : les calls actifs. */}
+        {/* Presence sur les rendez-vous TRANCHES du sous-ensemble filtre : un creneau
+            encore a tenir n'est pas une absence. Meme regle que partout ailleurs. */}
         <div style={{ display: 'flex', gap: 20, marginBottom: 12 }}>
           {[
             { label: 'Bookés', value: fmt(filteredOpportunites.length), color: 'var(--ink)', aide: AIDE_CALLS_BOOKES },
@@ -5975,18 +6009,19 @@ function TabFunnel({ msgs, calls, callsAllTime, deals, ig, yt, shortio, period, 
             // denominateur est donc DIFFERENT de celui des deux cartes voisines, et il
             // est ecrit en toutes lettres sous le chiffre : « 6 / 11 » seul laissait le
             // lecteur deviner ce qu'etait ce 11.
-            { label: 'No-show', value: fmt(filteredActifs.filter(c => c.no_show).length), color: RED,
-              sub: filteredActifs.length > 0
-                ? `sur ${fmt(filteredActifs.length)} rendez-vous`
-                : 'aucun rendez-vous',
-              aide: AIDE_NO_SHOW },
+            { label: 'Show-up', value: showUpFiltre.taux != null ? `${Math.round(showUpFiltre.taux)} %` : '—',
+              color: (showUpFiltre.taux == null ? 'var(--faint)' : showUpFiltre.taux < 80 ? RED : showUpFiltre.taux < 90 ? AMBER : GREEN) as string,
+              sub: showUpFiltre.taux != null
+                ? `${fmt(showUpFiltre.honores)} sur ${fmt(showUpFiltre.tranches)} rendez-vous`
+                : 'aucun rendez-vous tenu',
+              aide: AIDE_SHOW_UP },
             { label: 'Closés', value: fmt(filteredActifs.filter(c => c.deal_closed).length), color: 'var(--accent)' },
             { label: 'Revenus', value: fmtEur(filteredActifs.reduce((acc, c) => acc + (c.revenue || 0), 0)), color: GREEN },
           ].map((s, i) => (
             <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <div className="eyebrow-sm" style={{ color: 'var(--muted)', display: 'flex', alignItems: 'center' }}>{s.label}{'aide' in s && s.aide ? <AideColonne texte={s.aide} /> : null}</div>
               <div style={{ fontSize: 16, fontWeight: 800, color: s.color }}>{s.value}</div>
-              {'sub' in s && s.sub ? <div style={{ fontSize: 10, color: 'var(--muted)', lineHeight: 1.2 }}>{s.sub}</div> : null}
+              {'sub' in s && s.sub ? <div style={{ fontSize: 10, color: 'var(--faint)', lineHeight: 1.2, whiteSpace: 'nowrap' }}>{s.sub}</div> : null}
             </div>
           ))}
         </div>

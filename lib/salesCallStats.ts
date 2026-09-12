@@ -8,7 +8,7 @@
 // Imports relatifs avec extension, et non l'alias `@/lib` : c'est ce qui rend ce
 // module chargeable par `node --test` (meme convention que lib/callSeries.ts). Les
 // imports de TYPE gardent l'alias, ils sont effaces a la compilation.
-import { isCallHonored } from './callHonored.ts';
+import { isCallHonored, calculerShowUp } from './callHonored.ts';
 import { calculerCash } from './dealCash.ts';
 import { CALL_TYPES_VENTE } from './callTypes.ts';
 import { idsDeContinuation } from './callSeries.ts';
@@ -48,8 +48,14 @@ export interface SalesCallStats {
    * (« 8 sur 10 rendez-vous »), sinon il se lit comme dérivé de `callsBookedCount`.
    */
   rendezVousCount: number;
-  /** RENDEZ-VOUS honorés. Numérateur du show-up, à lire avec `rendezVousCount`. */
+  /** RENDEZ-VOUS honorés — numérateur du taux de présence. */
   rendezVousHonoredCount: number;
+  /**
+   * RENDEZ-VOUS à l'issue tranchée (honorés + manqués) — DÉNOMINATEUR du taux de
+   * présence, et non `rendezVousCount` : voir `estRendezVousTranche`, un créneau encore
+   * à venir n'est pas une absence.
+   */
+  rendezVousTranchesCount: number;
   dealsClosedCount: number;
   closingRate: number;
   cashContracted: number;
@@ -129,10 +135,18 @@ export function computeSalesCallStats(
     !!c.status && !!c.scheduled_at
     && isCallHonored({ ...c, status: c.status, scheduled_at: c.scheduled_at }, now);
 
+  // Un call sans statut ni date n'a pas de créneau : il ne peut ni être honoré ni être
+  // manqué. Le retirer ici, et non dans `calculerShowUp`, garde la règle partagée
+  // exempte des trous propres au schéma de `calls`.
+  const creneaux = salesCalls
+    .filter((c): c is Call & { status: string; scheduled_at: string } => !!c.status && !!c.scheduled_at);
+
   const callsBookedCount = salesCalls.filter(c => c.status === 'active' && estOpportunite(c)).length;
   const callsHonoredCount = salesCalls.filter(c => estHonore(c) && estOpportunite(c)).length;
   const rendezVousCount = salesCalls.filter(c => c.status === 'active').length;
-  const rendezVousHonoredCount = salesCalls.filter(estHonore).length;
+  const showUp = calculerShowUp(creneaux, now);
+  const rendezVousHonoredCount = showUp.honores;
+  const rendezVousTranchesCount = showUp.tranches;
 
   // Le numérateur compte des VENTES, pas des rendez-vous : un deal signé au 2e
   // rendez-vous reste compté, même si ce rendez-vous est écarté du dénominateur. C'est
@@ -152,7 +166,7 @@ export function computeSalesCallStats(
   if (deals) {
     const totals = computeDealTotals(deals);
     return {
-      callsBookedCount, callsHonoredCount, rendezVousCount, rendezVousHonoredCount,
+      callsBookedCount, callsHonoredCount, rendezVousCount, rendezVousHonoredCount, rendezVousTranchesCount,
       dealsClosedCount, closingRate,
       cashContracted: totals.contracted,
       cashCollected: totals.collected,
@@ -161,7 +175,7 @@ export function computeSalesCallStats(
 
   const cashContracted = salesCalls.reduce((s, c) => s + (c.revenue || 0), 0);
   return {
-    callsBookedCount, callsHonoredCount, rendezVousCount, rendezVousHonoredCount,
+    callsBookedCount, callsHonoredCount, rendezVousCount, rendezVousHonoredCount, rendezVousTranchesCount,
     dealsClosedCount, closingRate,
     cashContracted,
     cashCollected: null,   // inconnu sans les deals — surtout pas 0, qui se lirait « rien encaissé »

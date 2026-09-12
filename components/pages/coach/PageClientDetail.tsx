@@ -566,9 +566,11 @@ export default function PageClientDetail({ id }: Props) {
   const now = new Date();
   const {
     callsBookedCount, callsHonoredCount, rendezVousCount, rendezVousHonoredCount,
-    dealsClosedCount, closingRate, cashContracted, cashCollected,
+    rendezVousTranchesCount, dealsClosedCount, closingRate, cashContracted, cashCollected,
   } = computeSalesCallStats(salesCallsData, now, dealsForStats);
-  const showUpRate = rendezVousCount > 0 ? Math.round((rendezVousHonoredCount / rendezVousCount) * 100) : 0;
+  // Dénominateur = les rendez-vous TRANCHÉS, pas tous les rendez-vous posés : un créneau
+  // encore à venir n'est pas une absence. Voir `estRendezVousTranche`.
+  const showUpRate = rendezVousTranchesCount > 0 ? Math.round((rendezVousHonoredCount / rendezVousTranchesCount) * 100) : 0;
   const revenuePerCall = callsBookedCount > 0 ? Math.round(cashContracted / callsBookedCount) : 0;
 
   // Leads totaux = fetchAllLeadsCount (Instagram + YouTube), calculé plus haut — même
@@ -942,10 +944,12 @@ export default function PageClientDetail({ id }: Props) {
               <div className="kpi-label" style={{ display: 'flex', alignItems: 'center' }}>Taux de show-up<AideColonne texte={AIDE_SHOW_UP} /></div>
               {kpiLoading ? <KpiSkeleton /> : (
                 <>
-                  <div className="kpi-value">{showUpRate}%</div>
+                  <div className="kpi-value">{rendezVousTranchesCount > 0 ? `${showUpRate}%` : '—'}</div>
                   {/* Le dénominateur est écrit ici parce qu'il n'est PAS « Calls bookés » :
                       le show-up compte des rendez-vous, pas des opportunités. */}
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{rendezVousHonoredCount}/{rendezVousCount} rendez-vous</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                    {rendezVousTranchesCount > 0 ? `${rendezVousHonoredCount} sur ${rendezVousTranchesCount} rendez-vous` : 'aucun rendez-vous tenu'}
+                  </div>
                 </>
               )}
             </div>
