@@ -74,6 +74,12 @@ This version has breaking changes — APIs, conventions, and file structure may 
   L'adresse du projet est écrite dans la **destination de tous les liens partagés** :
   la changer sans rejouer le script de réécriture casse d'un coup le lien de bio de
   chaque élève, celui qu'aucune édition de publication ne rattrape.
+- **Le rendez-vous de livraison avec le repreneur** → `docs/rendez-vous-livraison.md`.
+  Il dit **qui fait quoi et quand** : ce qui exige sa présence (son identifiant, son
+  domaine, sa carte, sa décision) et ce qui se fait seul ensuite. Le *comment* détaillé
+  reste dans `docs/transfert-de-compte.md` §12, auquel il renvoie sans le recopier.
+  ⚠️ Le transfert Vercel s'y fait **par code** (valable 24 h) : le transfert du tableau
+  de bord exige d'être membre des deux comptes, ce que le montage retenu n'offre pas.
 - **Transférer la plateforme vers d'autres comptes** (Supabase, Vercel, GitHub) →
   `docs/transfert-de-compte.md`, et **d'abord sa §0 ter**, qui liste les six décisions
   déjà prises avec ce qui les fonde. Le reste du document présente encore des options :

@@ -207,6 +207,41 @@ lui, aura l'air parfait.
 > rien en faire, et personne ne le remarquerait. **Décision prise le 2026-09-12, à ne
 > pas rouvrir sans motif.**
 
+## Ajouter le domaine d'envoi chez Resend — procédure exacte
+
+Vérifiée dans la documentation Resend le 2026-09-13.
+
+1. **Domains → Add Domain**
+2. Saisir **un sous-domaine** : `notifications.<domaine>` — *« We strongly recommend
+   sending emails from a subdomain »*, dit Resend
+3. Région : **`eu-west-1` (Irlande)** pour des destinataires en Europe
+4. Resend **génère** les enregistrements DNS (SPF, DKIM, MX) → les coller **tels quels**
+   chez l'hébergeur du nom de domaine. Ils ne se préparent pas à l'avance : la clé DKIM
+   est propre à chaque compte.
+5. Attendre **« Verified »** — souvent 15 min, **jusqu'à 72 h** de propagation
+6. Ajouter un enregistrement **DMARC**
+
+### 🪤 Pourquoi un sous-domaine et jamais la racine
+
+Si le domaine porte déjà une boîte mail (Google Workspace, Outlook…), configurer Resend
+sur la **racine** fait entrer les enregistrements MX en conflit : **toute la messagerie du
+domaine basculerait vers Resend**, et son propriétaire ne recevrait plus ses propres
+e-mails. Un MX ne vaut que pour le sous-domaine qui le porte : `notifications.<domaine>`
+isole complètement l'envoi de la plateforme.
+
+*Source : base de connaissances Resend, « How do I avoid conflicting with my MX records ».*
+
+### ⚠️ Ne pas supprimer l'ancien domaine pour « faire de la place »
+
+Réflexe naturel, et mauvais. Tant que la nouvelle clé n'est pas posée **aux deux
+endroits**, l'ancien domaine est **l'expéditeur en service** : le supprimer coupe
+immédiatement les alertes, et les invitations si le SMTP Supabase passe par lui — bien
+avant que le nouveau soit vérifié.
+
+Et le supprimer n'a de toute façon aucun rapport avec la plateforme : c'est un domaine du
+**compte Resend de son propriétaire**, qui peut servir d'autres projets. La plateforme cesse
+simplement de l'utiliser dès que la clé change.
+
 ## L'ordre des opérations
 
 Le seul élément qui **attend**, c'est la vérification DNS du domaine chez Resend. Tout le
