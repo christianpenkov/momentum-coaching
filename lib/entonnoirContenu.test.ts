@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  compterLeadsDuContenu, compterConversationsDuContenu, SOURCES_CONTENU_DIRECT,
-  type LeadEntonnoir, type CallEntonnoir,
+  compterLeadsDuContenu, compterConversationsDuContenu, compterCallsBookesDuContenu,
+  SOURCES_CONTENU_DIRECT,
+  type LeadEntonnoir, type CallEntonnoir, type CallBookeEntonnoir,
 } from './entonnoirContenu.ts';
+import { computeSalesCallStats } from './salesCallStats.ts';
 
 // Relevé sur le profil de test le 2026-09-07 : 4 leads `comment`, 3 `cold_dm`,
 // aucun `dm_entrant` encore — le cas existe dans le code, pas dans les données.
@@ -133,4 +135,58 @@ test('les deux apports sont rendus séparément, pour être affichés', () => {
   assert.equal(r.personnesManifestees, 4);
   assert.equal(r.callsDirectsPersonnes, 1);
   assert.equal(r.total, r.personnesManifestees + r.callsDirectsPersonnes);
+});
+
+// ── La marche « Calls bookés » : des opportunités ────────────────────────────
+
+const rdv = (o: Partial<CallBookeEntonnoir> & { id: string }): CallBookeEntonnoir =>
+  ({ status: 'active', source: 'ig_bio', outcome: null, ...o });
+
+test('un 2e call déclaré au rapport ne compte pas', () => {
+  // Le défaut d'origine : la marche comptait tous les rendez-vous actifs, l'accueil
+  // des opportunités — deux nombres sous le même libellé.
+  const calls = [
+    rdv({ id: 'C1', invitee_email: 'a@x.com', booked_at: '2026-09-01T10:00:00Z', outcome: 'second_call' }),
+    rdv({ id: 'C2', invitee_email: 'a@x.com', booked_at: '2026-09-05T10:00:00Z' }),
+  ];
+  assert.equal(compterCallsBookesDuContenu(calls).total, 1);
+});
+
+test('un prospect qui rebooke sans « 2e call » déclaré compte deux fois', () => {
+  // La déclaration relie deux rendez-vous, jamais un délai ni la seule identité.
+  const calls = [
+    rdv({ id: 'C1', invitee_email: 'a@x.com', booked_at: '2026-06-01T10:00:00Z', outcome: 'lost' }),
+    rdv({ id: 'C2', invitee_email: 'a@x.com', booked_at: '2026-09-05T10:00:00Z' }),
+  ];
+  assert.equal(compterCallsBookesDuContenu(calls).total, 2);
+});
+
+test('un rendez-vous annulé ne compte pas et ne sert pas de tête de chaîne', () => {
+  const calls = [
+    rdv({ id: 'C1', invitee_email: 'a@x.com', booked_at: '2026-09-01T10:00:00Z', status: 'canceled', outcome: 'second_call' }),
+    rdv({ id: 'C2', invitee_email: 'a@x.com', booked_at: '2026-09-05T10:00:00Z' }),
+  ];
+  assert.equal(compterCallsBookesDuContenu(calls).total, 1, 'C2 ouvre sa propre opportunité');
+});
+
+test('via DM + via description ou bio = total, sur des opportunités', () => {
+  const calls = [
+    rdv({ id: 'C1', source: 'ig_dm', invitee_email: 'a@x.com', booked_at: '2026-09-01T10:00:00Z', outcome: 'second_call' }),
+    rdv({ id: 'C2', source: 'manual', invitee_email: 'a@x.com', booked_at: '2026-09-05T10:00:00Z' }),
+    rdv({ id: 'C3', source: 'ig_bio', invitee_email: 'b@x.com', booked_at: '2026-09-02T10:00:00Z' }),
+  ];
+  const r = compterCallsBookesDuContenu(calls);
+  assert.deepEqual(r, { total: 2, viaDm: 1, directs: 1 });
+});
+
+test("même nombre que l'accueil (computeSalesCallStats)", () => {
+  // Deux écrans qui disent « calls bookés » doivent dire le même nombre.
+  const calls = [
+    rdv({ id: 'C1', invitee_email: 'a@x.com', booked_at: '2026-09-01T10:00:00Z', outcome: 'second_call' }),
+    rdv({ id: 'C2', invitee_email: 'a@x.com', booked_at: '2026-09-05T10:00:00Z' }),
+    rdv({ id: 'C3', invitee_email: 'b@x.com', booked_at: '2026-09-02T10:00:00Z', status: 'canceled' }),
+    rdv({ id: 'C4', invitee_name: 'Paul', booked_at: '2026-09-03T10:00:00Z' }),
+  ];
+  const accueil = computeSalesCallStats(calls as any, new Date('2026-09-13T12:00:00Z')).callsBookedCount;
+  assert.equal(compterCallsBookesDuContenu(calls).total, accueil);
 });

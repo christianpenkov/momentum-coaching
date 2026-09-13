@@ -134,13 +134,22 @@ en le rétrécissant la surestime. Entre les deux, on choisit celle qui ne flatt
 | Close rate | **opportunité** | mesure la capacité à closer une PERSONNE |
 | Taux clics → calls | **opportunité** | un 2ᵉ rendez-vous n'est produit par aucun nouveau clic |
 | No-show | rendez-vous | mesure la fiabilité d'un CRÉNEAU, pas d'une personne |
-| Calls bookés, Calls honorés | rendez-vous | ce sont des comptes de rendez-vous, et ils sont vrais |
+| Calls bookés, Calls honorés | **opportunité** | ce que le contenu produit — un 2ᵉ rendez-vous n'est produit par aucun nouveau clic |
 | Crédit d'un contenu | **opportunité** | sinon un contenu est crédité deux fois pour un prospect |
 
-**Le grand chiffre ne bouge jamais.** « Calls bookés » affiche le nombre vrai de
-rendez-vous ; seul le **taux** se calcule sur les opportunités. Renommer l'étage en
-« Opportunités » a été essayé le 2026-08-30 puis annulé : le libellé payait le prix
-d'un problème qui ne concernait que le taux.
+⚠️ **Ce paragraphe disait l'inverse jusqu'au 2026-09-13** (« le grand chiffre ne bouge
+jamais, Calls bookés affiche le nombre vrai de rendez-vous »). C'était la décision du
+2026-08-30 ; elle a été renversée le 2026-09-12, quand `computeSalesCallStats` est passé
+aux opportunités pour s'aligner sur « Mes stats » — sans que ce tableau suive. Le motif
+est dans `docs/pourquoi-ces-choix-stats.md`. Le libellé reste « Calls bookés » : seul le
+nombre du rendez-vous brut sert encore, au dénominateur du no-show, et il y est écrit à
+côté du taux.
+
+Écrans alignés : accueil élève (`useCoachData`), fiche client et accueil coach
+(`computeSalesCallStats`), « Mes stats », séquences de stories
+(`story-sequences-stats`), et l'entonnoir de « Gérer mes liens »
+(`compterCallsBookesDuContenu`, aligné le 2026-09-13 — il comptait encore les
+rendez-vous : 18 contre 17 sur le profil de test).
 
 ---
 

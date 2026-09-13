@@ -11,7 +11,7 @@ import { createClient } from '@/lib/supabase/client';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import ModalShell from '@/components/ui/ModalShell';
 import { useIsMobile, isMobileViewport } from '@/lib/useIsMobile';
-import { compterLeadsDuContenu, compterConversationsDuContenu } from '@/lib/entonnoirContenu';
+import { compterLeadsDuContenu, compterConversationsDuContenu, compterCallsBookesDuContenu } from '@/lib/entonnoirContenu';
 import { refusSequence } from '@/lib/sequenceDm';
 import { personnesParContenu } from '@/lib/attribution-roles';
 import { SOURCE_DM_ENTRANT, SOURCE_DM_SORTANT } from '@/lib/canalDm';
@@ -6296,12 +6296,12 @@ export default function PageLiens() {
     // encore « call_type = 'calendly' » : il a fait sous-compter d'un call une
     // vérification du 2026-09-07, exactement le piège que `lib/callTypes.ts`
     // documente depuis le 2026-08-29.
-    // `status === 'active'` : la definition de Mes Stats. Un rendez-vous annule
-    // n'y compte pas, et deux ecrans qui disent « calls bookes » doivent dire le
-    // meme nombre. Ecart connu et assume : un lead qui book puis annule
-    // disparait retroactivement du compte.
-    const callsActifs = calls.filter((c: any) => c.status === 'active');
-    const callsBookes = callsActifs.length;
+    // Des OPPORTUNITES, pas des rendez-vous : un 2e call declare au rapport ne
+    // compte pas — la definition de l'accueil et de Mes Stats. Jusqu'au 2026-09-13
+    // cette marche comptait tous les rendez-vous actifs, et affichait un nombre
+    // different de l'accueil sous le meme libelle. La regle vit dans
+    // `lib/entonnoirContenu`, avec ses tests.
+    //
     // « via DM » se lit sur `source`, PAS sur `ig_lead_id`. Les deux disaient la
     // meme chose jusqu'a la fusion de fiches (2026-08-29) : fusionner deux fiches
     // pose `ig_lead_id` sur les calls de la fiche e-mail, y compris un call venu
@@ -6309,8 +6309,8 @@ export default function PageLiens() {
     // realite mais basculerait ici en « via DM » — un chiffre faux, invisible.
     // `source` ne bouge jamais : elle dit d'ou la reservation vient, pas a quelle
     // fiche elle est rattachee.
-    const callsViaDm = callsActifs.filter((c: any) => c.source === 'ig_dm').length;
-    const callsDirects = callsBookes - callsViaDm;
+    const { total: callsBookes, viaDm: callsViaDm, directs: callsDirects } =
+      compterCallsBookesDuContenu(calls);
 
     const taux = (num: number, den: number) => (den > 0 ? Math.round((num / den) * 100) : null);
 

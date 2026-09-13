@@ -21,6 +21,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { canalDuDm } from './canalDm.ts';
+import { idsDeContinuation } from './callSeries.ts';
+import { isNotCanceled } from './salesCallStats.ts';
 
 /**
  * Les sources de `calls` qui désignent un rendez-vous pris depuis un contenu,
@@ -116,4 +118,36 @@ export function compterLeadsDuContenu(leads: LeadEntonnoir[], calls: CallEntonno
  */
 export function compterConversationsDuContenu(leads: LeadEntonnoir[]): number {
   return fichesDuContenu(leads).filter(l => l.hook_replied).length;
+}
+
+export interface CallBookeEntonnoir extends CallEntonnoir {
+  status?: string | null;
+  outcome?: string | null;
+  booked_at?: string | null;
+  scheduled_at?: string | null;
+}
+
+/**
+ * La marche « Calls bookés » : des OPPORTUNITÉS, pas des rendez-vous.
+ *
+ * Un 2e call déclaré au rapport (`outcome = 'second_call'` sur le précédent) prolonge
+ * la même vente : aucun contenu ne l'a produit, il ne compte pas. C'est la définition
+ * de l'accueil et de « Mes stats » (`computeSalesCallStats`) depuis le 2026-09-12 —
+ * jusque-là cette marche comptait tous les rendez-vous actifs, et le même libellé
+ * affichait un nombre différent de l'accueil pour le même élève.
+ *
+ * ⚠️ `calls` doit être le jeu COMPLET du coach, jamais un sous-ensemble : le 2e call
+ * n'est reconnu que si son précédent est visible. Et l'annulé est retiré AVANT
+ * l'appariement, comme dans `computeSalesCallStats` : sinon un rendez-vous annulé
+ * servirait de tête de chaîne et écarterait à tort le suivant.
+ */
+export function compterCallsBookesDuContenu(calls: CallBookeEntonnoir[]): {
+  total: number; viaDm: number; directs: number;
+} {
+  const continuations = idsDeContinuation(calls.filter(isNotCanceled));
+  const opportunites = calls.filter(c => c.status === 'active' && !continuations.has(c.id));
+  // « via DM » se lit sur `source`, jamais sur `ig_lead_id` : la fusion de fiches pose
+  // `ig_lead_id` sur des rendez-vous venus d'une bio (voir PageLiens).
+  const viaDm = opportunites.filter(c => c.source === 'ig_dm').length;
+  return { total: opportunites.length, viaDm, directs: opportunites.length - viaDm };
 }
