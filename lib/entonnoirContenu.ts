@@ -150,10 +150,10 @@ export function compterCallsBookesDuContenu(calls: CallBookeEntonnoir[]): {
   // Les origines se lisent sur `source`, jamais sur `ig_lead_id` : la fusion de fiches
   // pose `ig_lead_id` sur des rendez-vous venus d'une bio (voir PageLiens).
   const viaDm = opportunites.filter(c => c.source === 'ig_dm').length;
-  // Bio, description ET story — la même liste que la marche « Leads ». Ce sous-total
-  // valait « tout ce qui n'est pas du DM » jusqu'au 2026-09-13 : un rendez-vous pris
-  // depuis une story (1 sur 17 en base ce jour-là) s'affichait « via description ou
-  // bio », et un rendez-vous sans origine tracée l'aurait été aussi.
+  // « Via description ou bio » : la même liste que la marche « Leads ». Le lien
+  // Calendly d'une story y compte comme une description — une story passe soit par le
+  // DM (`ig_dm`), soit par ce lien. Ce sous-total valait « tout ce qui n'est pas du
+  // DM » jusqu'au 2026-09-13 : un rendez-vous sans origine tracée y serait tombé.
   const viaLien = opportunites.filter(c => SOURCES_CONTENU_DIRECT.has(c.source ?? '')).length;
   // Le reste n'est pas jeté : sans lui, les sous-totaux ne feraient plus le total.
   // C'est l'équivalent de « Autre / non catégorisé » du Breakdown par source.

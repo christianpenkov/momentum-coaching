@@ -180,9 +180,9 @@ test('les sous-totaux font le total, sur des opportunités', () => {
   assert.deepEqual(r, { total: 2, viaDm: 1, viaLien: 1, autres: 0 }, 'le 2e call hérité ne compte nulle part');
 });
 
-test("une story compte avec les liens, un call sans origine tracée n'y compte pas", () => {
+test("le lien d'une story compte comme une description, un call sans origine tracée non", () => {
   // Répartition réelle du profil de test le 2026-09-13 : 4 DM, 6 description IG,
-  // 3 description YT, 3 bio, 1 story. La story tombait dans « description ou bio ».
+  // 3 description YT, 3 bio, 1 lien de story — les 13 derniers en « description ou bio ».
   const calls = [
     rdv({ id: 'S', source: 'ig_story', invitee_email: 's@x.com' }),
     rdv({ id: 'D', source: 'yt_description', invitee_email: 'd@x.com' }),

@@ -5436,10 +5436,11 @@ function Entonnoir({ data, ouvert, onToggle, compact, mobile = false }: {
       // en description ou en bio, jamais d'une conversation. Les deux sont
       // nommés, parce que le compte les mélange — 5 bio et 9 description en base
       // au 2026-09-06 — et n'en citer qu'un ferait passer les autres à la trappe.
-      // La story est nommée pour la même raison : elle tombait sans le dire dans
-      // « description ou bio ». Le reste n'apparaît que s'il existe, pour que les
-      // sous-totaux fassent toujours le total.
-      precision: `${data.callsViaDm} via DM · ${data.callsViaLien} via bio, description ou story`
+      // Le lien Calendly posé sur une story compte ici, sans être nommé : c'est un
+      // lien de contenu au même titre qu'une description (décision de Chris du
+      // 2026-09-13 — une story passe soit par le DM, soit par ce lien). Le reste
+      // n'apparaît que s'il existe, pour que les sous-totaux fassent le total.
+      precision: `${data.callsViaDm} via DM · ${data.callsViaLien} via description ou bio`
         + (data.callsAutres > 0 ? ` · ${data.callsAutres} sans origine tracée` : '') },
   ];
 
