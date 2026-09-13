@@ -26,6 +26,17 @@ select jobname, schedule, active from cron.job order by jobid;   -- côté Supab
 | `purge-journaux-machine-daily` | 3h50 | **SQL pur** — 7 j de `cron.job_run_details`, **30 j de `cron_runs`** |
 | `vacuum-pg-net-daily` | 3h55 | **SQL pur** — empêche les tables pg_net de regonfler |
 | `degrossir-historiques-analytics-daily` | 4h05 | **SQL pur** — rétention sans perte des historiques par contenu |
+| `purge-verrous-ig-daily` | 3h53 | **SQL pur** — verrous de traitement des commentaires Instagram de plus de 7 j |
+| `photographier-taille-base-daily` | 3h58 | **SQL pur** — une ligne par jour dans `taille_base_historique` (lue par `base_sante_taille`) |
+| `purge-ig-messages-daily` | 4h15 | **SQL pur** — quarantaine des conversations Instagram (surveillée par `ig_dm_sante`) |
+| `purge-incidents-daily` | 4h20 | **SQL pur** — incidents sans occurrence depuis 90 j (ajouté le 2026-09-13) |
+| `sante-dispatch-5min` | `*/5 * * * *` | **Le répartiteur de la surveillance** (`/api/sante/dispatch`, Vercel). Ici et PAS sur cron-job.org : il doit dépendre d'un autre planificateur que ceux qu'il surveille. Voir `docs/surveillance-et-incidents.md` |
+
+⚠️ **Relevé mis à jour le 2026-09-13** : trois jobs existaient sans être listés ici
+(`purge-verrous-ig-daily`, `photographier-taille-base-daily`, `purge-ig-messages-daily`).
+Depuis ce jour, **aucun n'a besoin d'être listé pour être surveillé** : `pgcron_sante` lit
+`cron.job` directement (dernier passage en échec, job désactivé, quotidien muet depuis
+26 h), et l'alerte part toutes les heures. Ce tableau reste la documentation du *pourquoi*.
 
 ⚠️ **`degrossir_historiques_analytics()` n'est pas une purge ordinaire : elle ne perd
 RIEN.** `analytics_ig_posts_history` et `analytics_yt_videos_history` écrivaient une

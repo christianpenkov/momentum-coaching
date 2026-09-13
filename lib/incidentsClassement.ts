@@ -84,6 +84,19 @@ export interface ClassementSupabase {
   message: string;
   details: string | null;
   hint: string | null;
+  /**
+   * La passerelle de Supabase a répondu (502/503/504 sans code PostgREST), pas la base.
+   *
+   * ⚠️ Mesuré le 2026-09-13, premier jour du filet : des « Gateway Timeout » isolés sur
+   * `marquer_passage_cron` et une lecture de `calls`, AVANT tout passage du répartiteur,
+   * au même instant que des délais pg_net dont un bloqué en résolution DNS. Hoquets
+   * d'infrastructure, préexistants, sans rien à corriger dans le code. Classés critiques
+   * « par table », ils auraient envoyé un e-mail par table et par fonction touchées —
+   * le bruit qui apprend à ne plus lire. Ils sont donc NORMAUX et regroupés sous UNE
+   * empreinte par statut. Une panne qui DURE ne passe pas inaperçue pour autant : les
+   * crons se taisent (`crons_sante`) et le répartiteur cesse de battre (healthchecks.io).
+   */
+  passerelle: boolean;
 }
 
 /**
@@ -148,19 +161,27 @@ export function classerReponseSupabase(p: {
     }
   }
 
-  if (code && CODES_BENINS[code]) return null;
+  // ⚠️ PGRST116 couvre DEUX cas : « 0 ligne » (une réponse) et « plusieurs lignes » (un
+  // doublon réel là où le code attendait une ligne unique). Seul le premier est bénin.
+  if (code === 'PGRST116' && /contains [1-9]\d* rows/i.test(details ?? '')) {
+    // doublon : on laisse passer comme incident
+  } else if (code && CODES_BENINS[code]) return null;
 
   // Un appel RPC est une écriture tant qu'on ne sait pas le contraire : la plupart des
   // RPC de ce projet écrivent (upsert_*, enregistrer_*, marquer_*).
   const ecriture = !lecture || service === 'rpc';
+  // Un code PostgREST (PGRST…) ou Postgres (5 caractères) signe une réponse de la BASE.
+  // Sans code, un 502/503/504 vient de la passerelle d'infrastructure.
+  const passerelle = [502, 503, 504].includes(p.statut) && !(code && /^(PGRST\w+|[0-9A-Z]{5})$/.test(code));
   return {
-    gravite: ecriture ? 'critique' : 'normale',
+    gravite: ecriture && !passerelle ? 'critique' : 'normale',
     cible,
     service,
     code,
     message: tronquer(retirerLigneEnEchec(message), 500),
     details: details ? tronquer(retirerLigneEnEchec(details), 500) : null,
     hint: hint ? tronquer(hint, 300) : null,
+    passerelle,
   };
 }
 

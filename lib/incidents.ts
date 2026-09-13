@@ -252,7 +252,15 @@ export function creerFiletFetch(
 
     // La pile se capture AVANT l'attente : après, la chaîne d'appel qui mène à la route
     // est perdue. C'est elle qui dit QUELLE route a écrit.
-    const pile = supabase ? new Error().stack ?? null : null;
+    // La limite par défaut de V8 est de 10 cadres : sous Next, les couches internes
+    // (supabase-js, postgrest, patch fetch de Next) les consomment tous, et la route ne
+    // figurait plus dans la pile (relecture adversariale du 2026-09-13). On la relève le
+    // temps de la capture seulement.
+    let pile: string | null = null;
+    if (supabase) {
+      const limite = Error.stackTraceLimit;
+      try { Error.stackTraceLimit = 40; pile = new Error().stack ?? null; } finally { Error.stackTraceLimit = limite; }
+    }
 
     let reponse: Response;
     try {
@@ -264,9 +272,13 @@ export function creerFiletFetch(
           const route = routeDepuisPile(pile);
           await options.signaler({
             source: options.source,
-            gravite: options.toujoursCritique || !(methode === 'GET' || methode === 'HEAD') || routeEstCritique(route) ? 'critique' : 'normale',
-            titre: `Supabase injoignable — ${methode} ${nettoyerUrl(url).replace(options.supabaseUrl ?? '', '').split('?')[0]}`,
-            empreinte: ['supabase-reseau', route, methode, err.nom],
+            // Même raisonnement que les hoquets de passerelle (lib/incidentsClassement.ts,
+            // `passerelle`) : une coupure réseau isolée ne s'actionne pas, et une coupure
+            // qui dure est vue par le silence des crons et du battement externe. Normale,
+            // et UNE empreinte pour toutes les tables.
+            gravite: 'normale',
+            titre: `Supabase injoignable (${err.nom}) — hoquet réseau vers la base`,
+            empreinte: ['supabase-reseau', err.nom],
             detail: { type: 'supabase_injoignable', methode, url: nettoyerUrl(url), route, erreur: err, pile_appel: pile ? tronquer(pile, 4_000) : null },
           });
         }
@@ -280,13 +292,18 @@ export function creerFiletFetch(
         const c = classerReponseSupabase({ methode, url, statut: reponse.status, corps });
         if (c) {
           const route = routeDepuisPile(pile);
-          const gravite: Gravite = options.toujoursCritique || c.gravite === 'critique' || routeEstCritique(route) ? 'critique' : 'normale';
+          const gravite: Gravite = c.passerelle ? 'normale'
+            : options.toujoursCritique || c.gravite === 'critique' || routeEstCritique(route) ? 'critique' : 'normale';
           const action = c.service === 'rpc' ? `rpc ${c.cible}()` : `${methode} ${c.cible}`;
           await options.signaler({
             source: options.source,
             gravite,
-            titre: `${c.service === 'storage' ? 'Stockage' : 'Base'} refusée — ${action}${route ? ` depuis ${route}` : ''} : ${c.message.slice(0, 120)}`,
-            empreinte: ['supabase', c.service, c.cible, methode, c.code, route, normaliserMessage(c.message)],
+            titre: c.passerelle
+              ? `Passerelle Supabase en HTTP ${reponse.status} (${c.message.slice(0, 60)}) — hoquet d’infrastructure, dernier cas sur ${action}`
+              : `${c.service === 'storage' ? 'Stockage' : 'Base'} refusée — ${action}${route ? ` depuis ${route}` : ''} : ${c.message.slice(0, 120)}`,
+            empreinte: c.passerelle
+              ? ['supabase-passerelle', String(reponse.status)]
+              : ['supabase', c.service, c.cible, methode, c.code, route, normaliserMessage(c.message)],
             detail: {
               type: 'supabase_refus',
               methode,

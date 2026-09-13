@@ -1169,6 +1169,15 @@ where <colonne> like '%<ANCIEN_REF>%';
 | `cron.job` — `call-reminders-15min` | URL Edge + `CRON_SECRET` en clair | rappels d'appel morts |
 | `cron.job` — `send-pending-dm3-1min` | URL Edge + `CRON_SECRET` en clair | DM3 jamais envoyés |
 | `cron.job` — `process-webhook-queue-1min` | ⚠️ URL **Vercel** + `CRON_SECRET` en clair | file de webhooks jamais traitée |
+| `public.declencher_cron` — cas `sante-dispatch` (ajouté le 2026-09-13) | ⚠️ URL **Vercel** `…/api/sante/dispatch` en dur | **plus aucune alerte par e-mail** — seul le battement externe (healthchecks.io) le verra |
+
+> ⚠️ Depuis le 2026-09-04, les URL des jobs pg_cron vivent dans la liste fermée de
+> `public.declencher_cron`, et le secret dans le Vault (`push_webhook_secret`) : les lignes
+> « `CRON_SECRET` en clair » ci-dessus décrivent l'état d'avant. Un changement de domaine ou
+> de projet Vercel se corrige donc en recréant cette fonction (`create or replace`), pour
+> ses DEUX cas Vercel. Et le jour du transfert, **`HEALTHCHECK_PING_URL`** (Vercel) et le
+> compte healthchecks.io qui reçoit les alertes sont à repointer vers le mainteneur
+> (`docs/surveillance-et-incidents.md` §4).
 
 > ⚠️ **`process-webhook-queue-1min` vise une route Vercel, pas une Edge Function.**
 > `docs/crons.md` le range parmi les jobs « chemin critique à la minute » sans dire de quel

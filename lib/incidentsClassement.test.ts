@@ -51,6 +51,18 @@ test('un 5xx sans corps JSON reste un incident, avec le début du corps', () => 
   assert.match(c.message, /HTTP 502 — <html>Bad gateway/);
 });
 
+test('un hoquet de la passerelle (504 sans code) est normal, même sur une écriture — cas réel du 2026-09-13', () => {
+  const c = classerReponseSupabase({ methode: 'POST', url: `${BASE}/rest/v1/rpc/marquer_passage_cron`, statut: 504, corps: corps({ message: 'Gateway Timeout' }) });
+  assert.equal(c?.passerelle, true);
+  assert.equal(c?.gravite, 'normale');
+});
+
+test('un 503 qui porte un code de la base n’est PAS un hoquet de passerelle', () => {
+  const c = classerReponseSupabase({ methode: 'POST', url: `${BASE}/rest/v1/calls`, statut: 503, corps: corps({ code: 'PGRST001', message: 'Database client error' }) });
+  assert.equal(c?.passerelle, false);
+  assert.equal(c?.gravite, 'critique');
+});
+
 test('un envoi de fichier refusé au stockage est critique (le vocal Instagram de 2026-09-04)', () => {
   const c = classerReponseSupabase({ methode: 'POST', url: `${BASE}/storage/v1/object/ig-vocaux/a/b.m4a`, statut: 400, corps: corps({ statusCode: '415', error: 'invalid_mime_type', message: 'mime type video/mp4 is not supported' }) });
   assert.equal(c?.service, 'storage');
@@ -69,6 +81,12 @@ test('.single() sans ligne, doublon d’idempotence et session expirée ne réve
   assert.equal(classerReponseSupabase({ methode: 'GET', url: `${BASE}/rest/v1/profiles`, statut: 406, corps: corps({ code: 'PGRST116', message: 'no rows' }) }), null);
   assert.equal(classerReponseSupabase({ methode: 'POST', url: `${BASE}/rest/v1/stripe_payments`, statut: 409, corps: corps({ code: '23505', message: 'duplicate key' }) }), null);
   assert.equal(classerReponseSupabase({ methode: 'GET', url: `${BASE}/rest/v1/calls`, statut: 401, corps: corps({ code: 'PGRST303', message: 'JWT expired' }) }), null);
+});
+
+test('.single() qui trouve PLUSIEURS lignes est un doublon réel, pas une réponse bénigne', () => {
+  const c = classerReponseSupabase({ methode: 'GET', url: `${BASE}/rest/v1/profiles`, statut: 406, corps: corps({ code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned', details: 'The result contains 2 rows' }) });
+  assert.ok(c);
+  assert.equal(classerReponseSupabase({ methode: 'GET', url: `${BASE}/rest/v1/profiles`, statut: 406, corps: corps({ code: 'PGRST116', message: 'x', details: 'The result contains 0 rows' }) }), null);
 });
 
 test('l’authentification n’est pas surveillée — un mot de passe faux n’est pas une panne', () => {

@@ -18,8 +18,11 @@ et la référence Supabase. Toute nouvelle vue de santé doit être ajoutée au 
 `SURVEILLANCES` de cette route — sinon elle est muette, exactement comme les dix
 précédentes.
 
-Déclenchée par `poll-leads` dans la tranche 8 h Paris, comme `alerte-stockage` : aucun
-planificateur à créer, et la clé Resend ne quitte pas les variables Vercel.
+⚠️ **Depuis le 2026-09-13, ce n'est plus `poll-leads` qui la déclenche** mais le
+répartiteur `/api/sante/dispatch` (pg_cron, 5 min) : les vues marquées `critique` sont
+lues **toutes les heures**, les autres chaque matin à 8 h. `poll-leads` ne pouvait pas
+signaler sa propre mort. Le système complet (incidents, filet `fetch`, battement externe)
+est dans `docs/surveillance-et-incidents.md`.
 
 ```sql
 select * from cron_runs_actifs;                 -- vide = aucun incident à traiter
@@ -38,6 +41,12 @@ select * from crons_sante;                      -- aucun 'SILENCIEUX' = les cron
 select * from acces_sante_lecture;              -- vide = aucune donnée lisible du navigateur sans RLS
 select * from edge_sante_version;               -- aucune ligne 'ALERTE%' = les fonctions en ligne sont celles du dépôt
 select * from migrations_sante;                 -- vide = dépôt et base racontent la même histoire récente
+-- Ajoutées le 2026-09-13 :
+select * from pgcron_sante;                     -- aucune ligne 'ALERTE%' ni 'SILENCIEUX' = les jobs de la base réussissent
+select * from pgnet_sante;                      -- aucune ligne 'ALERTE%' = les appels sortants de la base aboutissent
+select * from webhook_queue_sante;              -- 'ok' = aucun événement Instagram bloqué ou abandonné
+select * from versions_api_sante;               -- aucune ligne 'ALERTE%' = aucune version d'API à moins de 90 j de son expiration
+select * from incidents where resolu_le is null order by derniere_le desc;  -- les pannes captées dans le code
 ```
 
 ## ⚠️ Une migration vit à DEUX endroits, et rien ne les rapprochait

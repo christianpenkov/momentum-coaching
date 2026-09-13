@@ -185,7 +185,12 @@ export async function POST(req: NextRequest) {
       const e = refusPlateforme[0];
       await signalerIncident({
         source: 'vercel-serveur',
-        gravite: 'critique',
+        // Normal et non critique (relecture adversariale du 2026-09-13) : un seul
+        // abonnement créé avec d'anciennes clés VAPID répond 403 à chaque message, sans
+        // que la plateforme soit en panne. Une empreinte par statut → une ligne dans le
+        // récapitulatif ; si les clés sont vraiment désaccordées, TOUS les envois
+        // refusent et le compteur d'occurrences le montre.
+        gravite: 'normale',
         titre: `Notifications push refusées par le service push (HTTP ${e.statusCode ?? 'inconnu'}) : ${String(e.message ?? '').slice(0, 120)}`,
         empreinte: ['push-refus', String(e.statusCode ?? 'sans-statut')],
         detail: {

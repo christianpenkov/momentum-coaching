@@ -20,15 +20,24 @@ export type SignalementNavigateur =
   | { type: 'fenetre' | 'promesse'; message: string; nom?: string; pile?: string | null; fichier?: string | null; ligne?: number | null; colonne?: number | null; chemin: string }
   | { type: 'supabase'; methode: string; url: string; statut: number; corps: string | null; chemin: string };
 
-/** Plafond par chargement de page : une boucle d'erreurs ne doit pas marteler la route. */
-const PLAFOND_PAR_PAGE = 10;
+/**
+ * Plafond par fenêtre de 10 minutes : une boucle d'erreurs ne doit pas marteler la route.
+ *
+ * ⚠️ Une fenêtre, et non un plafond « par chargement de page » : la PWA reste ouverte des
+ * jours sans recharger, et après dix signalements plus rien ne remontait jusqu'au
+ * prochain rechargement (relecture adversariale du 2026-09-13).
+ */
+const PLAFOND_PAR_FENETRE = 10;
+const FENETRE_MS = 10 * 60_000;
 let envoyes = 0;
+let debutFenetre = 0;
 const vus = new Map<string, number>();
 
 export function signalerDepuisNavigateur(s: SignalementNavigateur): void {
   try {
     if (typeof window === 'undefined') return;
-    if (envoyes >= PLAFOND_PAR_PAGE) return;
+    if (Date.now() - debutFenetre > FENETRE_MS) { debutFenetre = Date.now(); envoyes = 0; }
+    if (envoyes >= PLAFOND_PAR_FENETRE) return;
     if (s.type !== 'supabase' && s.type !== 'rendu' && estBruitNavigateur(s.message, 'fichier' in s ? s.fichier : null)) return;
 
     const cle = s.type === 'supabase' ? `${s.methode} ${s.url.split('?')[0]} ${s.statut}` : `${s.type} ${s.message}`;

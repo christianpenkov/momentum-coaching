@@ -64,8 +64,10 @@ Un incident notifié se tait. Il **renvoie un e-mail tout seul** si :
 
 1. il revient après **7 jours** sans occurrence ;
 2. il survit à un **déploiement** (incident critique seulement) — « ton correctif n'a pas
-   marché » ;
-3. il revient après avoir été **marqué résolu**.
+   marché » — **au plus une fois par 24 h** : le projet pousse ~24 fois par jour, sans cette
+   borne chaque push renvoyait le même e-mail (migration `20260913201000`) ;
+3. il revient après avoir été **marqué résolu** ;
+4. il **s'aggrave** : envoyé comme non urgent, il devient critique.
 
 C'est la leçon de `cron_runs` appliquée d'emblée (AGENTS.md) : aucune ligne ne peut
 condamner une alerte au silence.
@@ -92,8 +94,30 @@ La règle vit dans **un seul fichier**, `lib/incidentsClassement.ts`, importé t
 Vercel, les Edge Functions et le navigateur. **Ne pas en faire de copie.**
 
 Ce qui n'est **jamais** un incident (`CODES_BENINS`, chaque entrée justifiée) : `.single()`
-sans ligne, violation d'unicité (garde d'idempotence volontaire), session utilisateur
-expirée, erreurs d'authentification, fichier absent à la lecture.
+sans ligne (mais `.single()` qui trouve PLUSIEURS lignes en est un), violation d'unicité
+(garde d'idempotence volontaire), session utilisateur expirée, erreurs d'authentification,
+fichier absent à la lecture.
+
+### ⚠️ Les hoquets d'infrastructure ne sont JAMAIS critiques
+
+Mesuré le premier jour (2026-09-13) : ~90 réponses **504 « Gateway Timeout »** par jour
+venant de la passerelle Supabase, sur des tables sans rapport entre elles, antérieures au
+filet — et invisibles avant lui. Classées « écriture refusée → critique, par table », elles
+ont envoyé deux e-mails critiques au premier passage.
+
+Règle depuis : un **502/503/504 sans code PostgREST ou Postgres** (`passerelle` dans
+`lib/incidentsClassement.ts`), et toute **coupure réseau**, sont `normale` et regroupés
+sous **une seule empreinte par statut**, quelle que soit la table ou la fonction. Une panne
+d'infrastructure qui DURE n'est pas détectée par l'accumulation d'erreurs mais par le
+**silence** : crons muets (`crons_sante`) et battement externe qui cesse.
+
+### Signalements sans session
+
+`/api/sante/incident-client` accepte les navigateurs non connectés (un écran de connexion
+cassé n'a pas de session), mais tout ce qu'ils envoient tombe dans **une seule empreinte
+non urgente** (`navigateur-anonyme`) : un anonyme ne peut ni créer des lignes à volonté, ni
+déclencher un e-mail critique. Le contenu est marqué non fiable, y compris dans le prompt
+destiné à Claude Code.
 
 ⚠️ **N'ajouter un code à `CODES_BENINS` qu'avec sa raison écrite.** Un code ajouté « parce
 qu'il fait du bruit » transforme un défaut réel en silence.
@@ -124,6 +148,18 @@ enverrait sinon douze e-mails de test par heure). L'échec retient le battement.
 ⚠️ **Un seul déclencheur.** `poll-leads` appelait `alerte-vues` et `alerte-stockage`
 jusqu'au 2026-09-13 ; ces appels ont été retirés. Les remettre ferait partir la même
 alerte deux fois.
+
+**Un secours, qui n'est pas un second déclencheur** : `poll-leads` (cron-job.org, donc un
+autre planificateur que pg_cron) vérifie une fois par heure que `sante-dispatch` a battu
+dans les 20 dernières minutes. Seulement s'il est muet, il le relance et signale la panne
+(incident critique « le répartiteur ne bat plus via pg_cron »). Couvre : secret du Vault
+désaccordé, URL codée en dur périmée, pg_net arrêté — même sans battement externe configuré.
+
+Compte rendu du dernier passage, sans secret :
+
+```sql
+select dernier_passage, contexte from crons_passages where nom = 'sante-dispatch';
+```
 
 ### Réponse et diagnostic
 
@@ -180,6 +216,16 @@ Une surveillance qui n'a jamais rien détecté n'a rien prouvé (docs/sante-plat
 | `next build` | build de production complet | ✅ |
 
 ---
+
+### Ce que le filet a trouvé le jour même
+
+La relecture adversariale du système, appuyée sur ce qu'il rendait visible, a trouvé une
+panne réelle et ancienne : **aucun rendez-vous Calendly ne s'écrivait en base depuis le
+2026-09-07** (index unique PARTIEL que `ON CONFLICT` ne sait pas inférer, erreur 42P10
+jamais lue). Corrigé par `20260913200000_calls_index_calendly_complet.sql`, et la borne
+`integrations.last_synced_at` des comptes Calendly reculée au 2026-09-06 pour rattraper la
+fenêtre. **Règle à retenir : un `onConflict` Supabase ne peut viser qu'un index unique
+COMPLET.**
 
 ## 6. Ajouter une surveillance
 

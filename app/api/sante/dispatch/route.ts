@@ -326,6 +326,18 @@ export async function GET(request: Request) {
     resultats.battement = 'non configuré';
   }
 
+  // Le compte rendu du passage, lisible en SQL sans aucun secret :
+  //   select contexte from crons_passages where nom = 'sante-dispatch';
+  // pg_net cesse d'attendre la réponse au bout de 5 s — sans cette ligne, le résultat d'un
+  // passage n'était lisible qu'en appelant la route soi-même avec CRON_SECRET.
+  // `update` direct et non `marquer_passage_cron` : un second marquage fausserait le
+  // compteur de cadence de `crons_sante`.
+  try {
+    await supabase.from('crons_passages')
+      .update({ contexte: (problemes.length ? `PROBLÈMES : ${problemes.join(' ; ')}` : `ok — ${JSON.stringify(resultats)}`).slice(0, 1_000) })
+      .eq('nom', 'sante-dispatch');
+  } catch { /* le compte rendu ne doit jamais faire échouer le passage */ }
+
   return NextResponse.json({ ok: problemes.length === 0, resultats, problemes });
 }
 

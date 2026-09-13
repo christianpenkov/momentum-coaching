@@ -138,7 +138,9 @@ export function servirAvecFilet(
       return await gestionnaire(req);
     } catch (erreur) {
       await signalerExceptionEdge(nom, erreur, 'exception non attrapée du gestionnaire');
-      return new Response(JSON.stringify({ error: 'erreur interne', detail: decrireErreur(erreur).message }), {
+      // Le message de l'exception n'est PAS renvoyé : ces fonctions sont publiques
+      // (`--no-verify-jwt`), et il est déjà en base, dans l'incident.
+      return new Response(JSON.stringify({ error: 'erreur interne' }), {
         status: 500,
         headers: { 'content-type': 'application/json' },
       });

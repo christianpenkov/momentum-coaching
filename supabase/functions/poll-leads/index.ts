@@ -4115,6 +4115,44 @@ Deno.serve(servirAvecFilet('poll-leads', async (req: Request) => {
     }
   } catch { /* non bloquant — retentee au prochain passage de la tranche */ }
 
+  // ── Secours du répartiteur de la surveillance, une fois par heure ─────────────────
+  //
+  // Le répartiteur (`/api/sante/dispatch`) est déclenché par pg_cron → pg_net → Vercel.
+  // Si l'un des trois tombe (secret du Vault désaccordé, URL codée en dur périmée, pg_net
+  // arrêté), plus AUCUNE alerte ne part — relevé par la relecture adversariale du
+  // 2026-09-13. Le battement externe (healthchecks.io) le verrait, mais seulement s'il est
+  // configuré.
+  //
+  // Ce cron-ci vit sur un AUTRE planificateur (cron-job.org) : il vérifie que le
+  // répartiteur a battu dans les 20 dernières minutes, et sinon il le déclenche lui-même
+  // ET signale la panne — l'e-mail part par ce même appel.
+  //
+  // ⚠️ Il ne l'appelle QUE s'il est muet. Un appel systématique ferait deux déclencheurs
+  // concurrents, et la même alerte partirait deux fois à la même minute.
+  try {
+    if (new Date().getUTCMinutes() < 5) {
+      const { data: passage, error: erreurPassage } = await supa.from('crons_passages')
+        .select('dernier_passage').eq('nom', 'sante-dispatch').maybeSingle();
+      const muet = !erreurPassage && (!passage?.dernier_passage
+        || Date.now() - new Date(passage.dernier_passage).getTime() > 20 * 60_000);
+      if (muet) {
+        await signalerExceptionEdge(
+          'poll-leads',
+          new Error(`dernier passage : ${passage?.dernier_passage ?? 'jamais'}`),
+          'le répartiteur de la surveillance ne bat plus via pg_cron — relancé en secours par poll-leads',
+        );
+        const controleur = new AbortController();
+        const minuteur = setTimeout(() => controleur.abort(), 25_000);
+        try {
+          await fetch(`${PLATFORM_URL}/api/sante/dispatch`, {
+            headers: { authorization: `Bearer ${CRON_SECRET}` },
+            signal: controleur.signal,
+          });
+        } finally { clearTimeout(minuteur); }
+      }
+    }
+  } catch { /* non bloquant — vérifié à nouveau l'heure suivante */ }
+
   // ── Filet de rattrapage du backfill des conversations Instagram ────────────
   //
   // ⚠️ UNE lecture, jamais la boucle. Le backfill lui-meme vit dans sa propre

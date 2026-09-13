@@ -82,11 +82,17 @@ export async function envoyerAlerte(
   const destinataire = process.env[cle];
   if (!destinataire) return { envoye: false, raison: `${cle} manquant` };
 
+  // Délai maximal : sans lui, un Resend qui ne répond pas laissait la fonction se faire
+  // couper par Vercel — et le répartiteur, qui réserve l'incident AVANT d'envoyer, le
+  // laissait marqué « notifié » sans qu'aucun e-mail ne soit parti (relecture du 2026-09-13).
+  const controleur = new AbortController();
+  const minuterie = setTimeout(() => controleur.abort(), 15_000);
   try {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
       body: JSON.stringify({ from: expediteur, to: destinataire, subject: sujet, html }),
+      signal: controleur.signal,
     });
     if (!res.ok) {
       // Le corps de la réponse porte le motif réel (domaine non vérifié, quota…) :
@@ -97,6 +103,8 @@ export async function envoyerAlerte(
     return { envoye: true };
   } catch (e) {
     return { envoye: false, raison: `Resend injoignable — ${e instanceof Error ? e.message : String(e)}` };
+  } finally {
+    clearTimeout(minuterie);
   }
 }
 

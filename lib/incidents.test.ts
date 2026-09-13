@@ -111,6 +111,28 @@ test('une écriture refusée devient un incident critique avec tout le contexte,
   assert.ok(i.detail.pile_appel, 'la pile d’appel est capturée');
 });
 
+test('les hoquets de passerelle se regroupent sous UNE empreinte normale, quelle que soit la table (cas réel du 2026-09-13)', async () => {
+  const { f } = fauxFetch(() => new Response('{"message":"Gateway Timeout"}', { status: 504 }));
+  const signales: IncidentASignaler[] = [];
+  const fetchSurveille = creerFiletFetch(f, { supabaseUrl: SUPA, source: 'edge:x', signaler: async (i) => { signales.push(i); }, toujoursCritique: true });
+  await fetchSurveille(`${SUPA}/rest/v1/rpc/marquer_passage_cron`, { method: 'POST' });
+  await fetchSurveille(`${SUPA}/rest/v1/calls?select=id`);
+  assert.equal(signales.length, 2);
+  assert.ok(signales.every((i) => i.gravite === 'normale'), 'même dans une Edge Function « toujours critique »');
+  assert.deepEqual(signales[0].empreinte, signales[1].empreinte);
+});
+
+test('une coupure réseau est normale et regroupée', async () => {
+  const signales: IncidentASignaler[] = [];
+  const fetchSurveille = creerFiletFetch((async () => { throw new TypeError('fetch failed'); }) as typeof fetch, {
+    supabaseUrl: SUPA, source: 'test', signaler: async (i) => { signales.push(i); }, toujoursCritique: true,
+  });
+  await assert.rejects(() => fetchSurveille(`${SUPA}/rest/v1/calls`, { method: 'POST' }));
+  await assert.rejects(() => fetchSurveille(`${SUPA}/rest/v1/deals`, { method: 'PATCH' }));
+  assert.ok(signales.every((i) => i.gravite === 'normale'));
+  assert.deepEqual(signales[0].empreinte, signales[1].empreinte);
+});
+
 test('la même panne donne la même empreinte d’une ligne à l’autre', async () => {
   const { fetchSurveille, signales } = filet(() => new Response(JSON.stringify({ code: '42501', message: 'permission denied for table deals' }), { status: 403 }));
   await fetchSurveille(`${SUPA}/rest/v1/deals?id=eq.11111111-1111-4111-8111-111111111111`, { method: 'PATCH' });

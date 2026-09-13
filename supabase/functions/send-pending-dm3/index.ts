@@ -200,7 +200,12 @@ Deno.serve(servirAvecFilet('send-pending-dm3', async (req: Request) => {
     // était compté ENVOYÉ alors que rien n'était parti. Une panne côté Meta (5xx) est
     // passagère : on restaure la réservation comme pour une panne réseau. Tout autre
     // statut en échec est traité comme un refus.
-    if (statutMeta >= 500 && !data?.error) {
+    //
+    // ⚠️ Restauration sur 503 SEULEMENT (relecture adversariale du 2026-09-13). Un 503 dit
+    // « service indisponible, rien n'a été traité ». Un 500, 502 ou 504 peut arriver APRÈS
+    // que Meta a remis le message : restaurer ferait envoyer la même question deux fois au
+    // prospect une minute plus tard. Perdre un DM3 est moins grave que le doubler.
+    if (statutMeta === 503 && !data?.error) {
       const { error: restaureErr } = await supa.from('instagram_leads')
         .update({ pending_dm3: lead.pending_dm3, dm3_scheduled_at: lead.dm3_scheduled_at })
         .eq('id', lead.id);

@@ -78,6 +78,11 @@ type Surveillance = {
    * passage du matin — une alerte horaire sur une donnée métier serait du bruit.
    */
   critique?: boolean;
+  /**
+   * Ce qui fait qu'une anomalie est « la même » d'un passage à l'autre, quand les
+   * colonnes par défaut (`COLONNES_IDENTITE`) ne conviennent pas. Voir `cron_runs_actifs`.
+   */
+  identite?: (ligne: Record<string, unknown>) => string;
   /** Ce que la vue surveille, en une phrase compréhensible sans le code. */
   surveille: string;
   /** Ce que l'alerte veut dire concrètement, et ce que ça coûte. */
@@ -393,6 +398,13 @@ const SURVEILLANCES: Surveillance[] = [
     titre: 'Un cron a échoué de façon actionnable',
     detection: 'toute_ligne',
     critique: true,
+    // ⚠️ Par FONCTION, jamais par `id`. Une erreur persistante crée une nouvelle ligne à
+    // chaque passage du cron (toutes les 5 min pour poll-leads) : identifiée par `id`,
+    // chaque ligne passait pour une anomalie nouvelle et l'e-mail repartait à CHAQUE
+    // lecture horaire — jusqu'à 24 par jour, sur le quota Resend que partagent les
+    // e-mails de connexion des élèves (relecture adversariale du 2026-09-13). Une
+    // fonction de plus en échec, elle, est bien une nouveauté.
+    identite: (l) => `fonction=${l.fonction ?? ''}`,
     surveille:
       'Les échecs de cron qui demandent ENCORE une action — c’est-à-dire ceux dont la cause n’a pas été corrigée (`cron_runs.resolu_le` nulle). Les incidents passagers et auto-réparés en sont volontairement absents.',
     signifie:
@@ -823,7 +835,7 @@ export async function GET(request: Request) {
     // comme couvrant tout ce qu'on voit aujourd'hui : on inscrit l'état actuel sans
     // renvoyer, sinon le premier passage après déploiement renverrait toutes les
     // alertes déjà connues.
-    const identites = anomalies.map(identiteAnomalie);
+    const identites = anomalies.map(s.identite ?? identiteAnomalie);
     const dejaSignalees = envoyees.get(s.cle);
     if (envoyees.has(s.cle) && dejaSignalees == null) {
       const { error: e } = await supabase.from('alertes_plateforme').update({ identites }).eq('cle', s.cle);
