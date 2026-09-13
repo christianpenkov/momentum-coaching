@@ -29,6 +29,11 @@ Ce montage tient à **trois conditions**, et chacune fait échouer le reste si o
 > **le compte de Chris** qui doit être membre de l'organisation du repreneur. Son mot de
 > passe à lui ne permet pas, à lui seul, de déclencher le transfert.
 
+> 📧 **Et une règle qui vaut pour les quatre services : chaque création de compte envoie un
+> e-mail de confirmation dans SA boîte.** Il doit le cliquer pendant l'appel. Un compte non
+> confirmé ne se débloque qu'avec lui — et c'est exactement le genre d'oubli qui transforme
+> « je gère tout après » en « j'attends qu'il réponde ».
+
 ---
 
 ## 🤝 PENDANT — chaque étape, et ce qu'il faut AVOIR avant de passer à la suivante
@@ -81,16 +86,18 @@ pour tourner pendant le reste.
 
 ### Étape 4 — Supabase
 
-1. Il crée son compte, puis une **organisation** (plan **Free** suffit).
-2. **Organization Settings → Team → Invite** → **ton adresse**, rôle **`Administrator`**.
-3. **Tu acceptes l'invitation tout de suite**, depuis ta boîte mail.
+1. Il crée son compte et **confirme son e-mail**.
+2. **Tu te connectes toi-même** avec ses identifiants, sur ton poste.
 
 **✅ À AVOIR :**
 
-- [ ] **dans TON compte Supabase, deux organisations** : la tienne et la sienne
-- [ ] ton rôle chez lui est bien **`Administrator`** (pas `Developer` : il faut pouvoir gérer
-  les secrets)
-- [ ] *(en secours)* ses identifiants Supabase
+- [ ] identifiant + mot de passe **Supabase**
+- [ ] son **e-mail confirmé** (sinon le compte reste bloqué chez lui)
+- [ ] **connecté avec succès sur ton poste**
+
+> L'organisation et ton invitation se font **plus tard, seul**, connecté à son compte — voir
+> « APRÈS ». ⚠️ Ne pas s'en dispenser pour autant : le transfert exige que **ton propre**
+> compte soit membre de son organisation (condition 3).
 
 ### Étape 5 — Vercel
 
@@ -119,15 +126,26 @@ pour tourner pendant le reste.
 
 - [ ] **le verrou est levé** : il voit son tableau de bord coach, pas l'assistant
 
+> ⏱️ **Peut se faire sans toi, plus tard** : il se connecte à Momentum et le verrou le
+> guide. Mais **avant le transfert**, qui attend 24 h de collecte saine après les
+> intégrations. **Seul lui peut le faire** : ce sont ses propres comptes, avec ses propres
+> codes de vérification.
+>
+> ✅ **Stripe est en mode live** (`sk_live_` en production, vérifié le 2026-09-13) : il
+> connecte son vrai compte, rien ne sera à reconnecter.
+
 > ✅ Rien ne sera à reconnecter après le transfert : les jetons dépendent des applications
 > OAuth, qui restent chez Chris (§0 ter, décisions D2 à D4).
 
-### Étape 7 — Sa seule décision
+### Étape 7 — Sa décision, et sa carte
 
 **✅ À AVOIR :**
 
 - [ ] **Vercel Hobby ou Pro ?** — Hobby interdit l'usage commercial ; ce n'est pas une limite
   technique, donc aucune erreur jusqu'au jour d'une suspension. Pro ≈ 20 $/mois.
+- [ ] **Si Pro : il saisit lui-même sa carte** dans son compte Vercel (et Supabase si besoin).
+  ⚠️ **C'est la seule chose que ses identifiants ne te permettent pas de faire après** : on
+  ne se fait pas confier des coordonnées bancaires.
 
 ### ✔️ Le rendez-vous est terminé quand tout ceci est coché
 
@@ -136,16 +154,27 @@ pour tourner pendant le reste.
 | Resend | compte + connexion + domaine « Pending » + accès à l'hébergeur du domaine |
 | E-mail | son adresse réelle |
 | GitHub | identifiants + nom d'utilisateur + connexion passée |
-| Supabase | **deux organisations dans ton compte**, rôle `Administrator` |
+| Supabase | identifiants + **e-mail confirmé** + connexion passée |
 | Vercel | identifiants + connexion passée + aucun projet homonyme |
 | Intégrations | verrou levé |
-| Décision | Hobby ou Pro |
+| Décision | Hobby ou Pro — **et sa carte s'il faut payer** |
 
 ---
 
 ## 🔵 APRÈS — toi seul, quand tu as le temps
 
-Aucune de ces étapes n'a besoin de lui.
+Aucune de ces étapes n'a besoin de lui — **sauf ses 7 intégrations, s'il ne les a pas
+faites pendant l'appel**.
+
+### 0. Supabase : créer son organisation et t'y inviter
+
+1. Connecté à **son** compte Supabase (navigateur) → créer une **organisation** (Free suffit).
+2. **Organization Settings → Team → Invite** → **ton adresse**, rôle **`Administrator`**.
+3. Depuis **ta** boîte mail, accepter l'invitation.
+4. **Vérifier : ton propre compte Supabase affiche deux organisations.**
+
+⚠️ **Le rôle doit être `Administrator`**, pas `Developer` — il faut pouvoir gérer les secrets
+des Edge Functions.
 
 ### 1. Remplacer son adresse provisoire
 
