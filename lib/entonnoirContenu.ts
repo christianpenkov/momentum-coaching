@@ -143,14 +143,21 @@ export interface CallBookeEntonnoir extends CallEntonnoir {
  * servirait de tête de chaîne et écarterait à tort le suivant.
  */
 export function compterCallsBookesDuContenu(calls: CallBookeEntonnoir[]): {
-  total: number; viaDm: number; directs: number;
+  total: number; viaDm: number; viaLien: number; autres: number;
 } {
   const continuations = idsDeContinuation(calls.filter(isNotCanceled));
   const opportunites = calls.filter(c => c.status === 'active' && !continuations.has(c.id));
-  // « via DM » se lit sur `source`, jamais sur `ig_lead_id` : la fusion de fiches pose
-  // `ig_lead_id` sur des rendez-vous venus d'une bio (voir PageLiens).
+  // Les origines se lisent sur `source`, jamais sur `ig_lead_id` : la fusion de fiches
+  // pose `ig_lead_id` sur des rendez-vous venus d'une bio (voir PageLiens).
   const viaDm = opportunites.filter(c => c.source === 'ig_dm').length;
-  return { total: opportunites.length, viaDm, directs: opportunites.length - viaDm };
+  // Bio, description ET story — la même liste que la marche « Leads ». Ce sous-total
+  // valait « tout ce qui n'est pas du DM » jusqu'au 2026-09-13 : un rendez-vous pris
+  // depuis une story (1 sur 17 en base ce jour-là) s'affichait « via description ou
+  // bio », et un rendez-vous sans origine tracée l'aurait été aussi.
+  const viaLien = opportunites.filter(c => SOURCES_CONTENU_DIRECT.has(c.source ?? '')).length;
+  // Le reste n'est pas jeté : sans lui, les sous-totaux ne feraient plus le total.
+  // C'est l'équivalent de « Autre / non catégorisé » du Breakdown par source.
+  return { total: opportunites.length, viaDm, viaLien, autres: opportunites.length - viaDm - viaLien };
 }
 
 export interface CallBookeParContenu extends CallBookeEntonnoir {

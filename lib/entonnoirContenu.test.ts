@@ -170,14 +170,27 @@ test('un rendez-vous annulé ne compte pas et ne sert pas de tête de chaîne', 
   assert.equal(compterCallsBookesDuContenu(calls).total, 1, 'C2 ouvre sa propre opportunité');
 });
 
-test('via DM + via description ou bio = total, sur des opportunités', () => {
+test('les sous-totaux font le total, sur des opportunités', () => {
   const calls = [
     rdv({ id: 'C1', source: 'ig_dm', invitee_email: 'a@x.com', booked_at: '2026-09-01T10:00:00Z', outcome: 'second_call' }),
     rdv({ id: 'C2', source: 'manual', invitee_email: 'a@x.com', booked_at: '2026-09-05T10:00:00Z' }),
     rdv({ id: 'C3', source: 'ig_bio', invitee_email: 'b@x.com', booked_at: '2026-09-02T10:00:00Z' }),
   ];
   const r = compterCallsBookesDuContenu(calls);
-  assert.deepEqual(r, { total: 2, viaDm: 1, directs: 1 });
+  assert.deepEqual(r, { total: 2, viaDm: 1, viaLien: 1, autres: 0 }, 'le 2e call hérité ne compte nulle part');
+});
+
+test("une story compte avec les liens, un call sans origine tracée n'y compte pas", () => {
+  // Répartition réelle du profil de test le 2026-09-13 : 4 DM, 6 description IG,
+  // 3 description YT, 3 bio, 1 story. La story tombait dans « description ou bio ».
+  const calls = [
+    rdv({ id: 'S', source: 'ig_story', invitee_email: 's@x.com' }),
+    rdv({ id: 'D', source: 'yt_description', invitee_email: 'd@x.com' }),
+    rdv({ id: 'N', source: null, invitee_email: 'n@x.com' }),
+    rdv({ id: 'M', source: 'dm', invitee_email: 'm@x.com' }),
+  ];
+  const r = compterCallsBookesDuContenu(calls);
+  assert.deepEqual(r, { total: 4, viaDm: 0, viaLien: 2, autres: 2 });
 });
 
 test("même nombre que l'accueil (computeSalesCallStats)", () => {

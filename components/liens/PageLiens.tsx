@@ -5405,7 +5405,7 @@ function RailContenus({ posts, rightView, ouvert, epingle, onRetour, onEpingler,
  */
 function Entonnoir({ data, ouvert, onToggle, compact, mobile = false }: {
   data: { contenus: number; commentaires: number; conversations: number; callsBookes: number;
-          callsViaDm: number; callsDirects: number;
+          callsViaDm: number; callsViaLien: number; callsAutres: number;
           personnesManifestees: number; callsDirectsPersonnes: number;
           tauxConversations: number | null; tauxCalls: number | null; pret: boolean };
   ouvert: boolean;
@@ -5436,7 +5436,11 @@ function Entonnoir({ data, ouvert, onToggle, compact, mobile = false }: {
       // en description ou en bio, jamais d'une conversation. Les deux sont
       // nommés, parce que le compte les mélange — 5 bio et 9 description en base
       // au 2026-09-06 — et n'en citer qu'un ferait passer les autres à la trappe.
-      precision: `${data.callsViaDm} via DM · ${data.callsDirects} via description ou bio` },
+      // La story est nommée pour la même raison : elle tombait sans le dire dans
+      // « description ou bio ». Le reste n'apparaît que s'il existe, pour que les
+      // sous-totaux fassent toujours le total.
+      precision: `${data.callsViaDm} via DM · ${data.callsViaLien} via bio, description ou story`
+        + (data.callsAutres > 0 ? ` · ${data.callsAutres} sans origine tracée` : '') },
   ];
 
   // Sous 60 %, l'étape décroche — le rouge doit se voir sans lire le chiffre.
@@ -6326,7 +6330,7 @@ export default function PageLiens() {
     // realite mais basculerait ici en « via DM » — un chiffre faux, invisible.
     // `source` ne bouge jamais : elle dit d'ou la reservation vient, pas a quelle
     // fiche elle est rattachee.
-    const { total: callsBookes, viaDm: callsViaDm, directs: callsDirects } =
+    const { total: callsBookes, viaDm: callsViaDm, viaLien: callsViaLien, autres: callsAutres } =
       compterCallsBookesDuContenu(calls);
 
     const taux = (num: number, den: number) => (den > 0 ? Math.round((num / den) * 100) : null);
@@ -6354,7 +6358,8 @@ export default function PageLiens() {
       conversations,
       callsBookes,
       callsViaDm,
-      callsDirects,
+      callsViaLien,
+      callsAutres,
       personnesManifestees,
       callsDirectsPersonnes,
       tauxConversations: taux(conversations, commentaires),
