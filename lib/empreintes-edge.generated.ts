@@ -16,17 +16,17 @@
 // l'alerte crierait en permanence.
 
 export const EMPREINTES_EDGE: Record<string, string> = {
-  'backfill-shortio': '061f1920761d74bf', // 6 fichiers
-  'call-reminders': '65cbf3d373ebca88', // 5 fichiers
-  'fathom-cron-sync': '4c0aa99dbc44d43e', // 5 fichiers
-  'installment-reminders': '3e7d76b71e85ce74', // 4 fichiers
-  'notify-rapport': '907ca2bfb3a5fece', // 6 fichiers
-  'poll-leads': '89ec60dbd89dc608', // 14 fichiers
-  'poll-stories': '5768ab3bcc6d8a96', // 6 fichiers
-  'refresh-ig-posts': 'e1f27e139e903b54', // 6 fichiers
-  'send-pending-dm3': 'eab7c0ffeef828a7', // 5 fichiers
-  'sync-calendly': '834ebd6fafe60065', // 5 fichiers
-  'sync-stripe-payments': '7907fe68b584d8ab', // 6 fichiers
+  'backfill-shortio': '743e18acbe2fac1a', // 6 fichiers
+  'call-reminders': 'dc3af4d46473993a', // 5 fichiers
+  'fathom-cron-sync': '1cd05d8688d4311d', // 5 fichiers
+  'installment-reminders': '1a97e0c70a5269a3', // 4 fichiers
+  'notify-rapport': 'f00f8ccd335dabe5', // 6 fichiers
+  'poll-leads': '1ccfb1f997d287f1', // 14 fichiers
+  'poll-stories': 'c8a09d3300a61342', // 6 fichiers
+  'refresh-ig-posts': 'ff549bf709d42113', // 6 fichiers
+  'send-pending-dm3': '6118c21c43e3cb78', // 5 fichiers
+  'sync-calendly': '53f0348035f228fa', // 5 fichiers
+  'sync-stripe-payments': 'a86998e85859d5a0', // 6 fichiers
 };
 
 /** L'empreinte d'une fonction, ou `null` si elle n'est pas dans le depot. */
