@@ -92,6 +92,7 @@ personne qui la trouve gênante — mais ce tableau-ci fait foi.
 | D4 | Google/YouTube, Calendly, Fathom ? | **Ne bougent pas** | 2026-09-03 | même raisonnement que D2 : tant que l'application ne bouge pas, les jetons survivent |
 | D5 | Quand Quennel connecte-t-il ses comptes ? | **Avant le transfert** | 2026-09-04 | le transfert devient alors un non-événement pour lui, et on vérifie que tout collecte pendant qu'on a encore la main sur tout |
 | D6 | Comment Chris garde-t-il l'accès **Vercel** ? | **Identifiants du repreneur**, Chris continuant de tout piloter depuis ce dossier | 2026-09-04 | choix assumé — voir la mise en garde ci-dessous |
+| D7 | Plan **Vercel** ? | **Hobby, aucune carte bancaire** | 2026-09-13 | choix de Chris. ⚠️ Risque accepté : Hobby interdit l'usage commercial, sans aucune erreur jusqu'à une éventuelle suspension. Passer en Pro le lève immédiatement |
 
 ### Ce que D2 + D3 + D4 impliquent, et c'est le plus important
 

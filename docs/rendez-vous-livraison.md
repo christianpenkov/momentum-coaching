@@ -137,15 +137,16 @@ pour tourner pendant le reste.
 > ✅ Rien ne sera à reconnecter après le transfert : les jetons dépendent des applications
 > OAuth, qui restent chez Chris (§0 ter, décisions D2 à D4).
 
-### Étape 7 — Sa décision, et sa carte
+### ~~Étape 7 — Sa décision, et sa carte~~ → **décidé : Vercel Hobby, aucune carte**
 
-**✅ À AVOIR :**
+Décision de Chris du 2026-09-13. **Rien à faire pendant l'appel.**
 
-- [ ] **Vercel Hobby ou Pro ?** — Hobby interdit l'usage commercial ; ce n'est pas une limite
-  technique, donc aucune erreur jusqu'au jour d'une suspension. Pro ≈ 20 $/mois.
-- [ ] **Si Pro : il saisit lui-même sa carte** dans son compte Vercel (et Supabase si besoin).
-  ⚠️ **C'est la seule chose que ses identifiants ne te permettent pas de faire après** : on
-  ne se fait pas confier des coordonnées bancaires.
+> ⚠️ **Le risque accepté, écrit une fois pour ne pas être rediscuté.** Le plan Hobby
+> interdit l'usage commercial (« être payé pour créer, mettre à jour ou héberger le
+> site »). C'est une règle d'usage, pas une limite technique : elle ne produit **aucune
+> erreur** — le jour où elle s'applique, c'est une suspension du compte, donc de la
+> plateforme. **Si ça arrive :** passer en Pro débloque immédiatement ; ce sera alors le
+> seul moment où sa carte sera nécessaire.
 
 ### ✔️ Le rendez-vous est terminé quand tout ceci est coché
 
@@ -157,7 +158,7 @@ pour tourner pendant le reste.
 | Supabase | identifiants + **e-mail confirmé** + connexion passée |
 | Vercel | identifiants + connexion passée + aucun projet homonyme |
 | Intégrations | verrou levé |
-| Décision | Hobby ou Pro — **et sa carte s'il faut payer** |
+| Décision | ~~Hobby ou Pro~~ — **décidé : Hobby, aucune carte** |
 
 ---
 
