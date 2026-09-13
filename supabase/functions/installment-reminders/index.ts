@@ -17,6 +17,7 @@
 //   npx supabase functions deploy installment-reminders --no-verify-jwt
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { servirAvecFilet } from '../_shared/incidents.ts';
 import webpush from 'npm:web-push';
 // ⚠️ L'empreinte du code SOURCE de cette fonction, pour que `edge_sante_version` puisse
 // dire si la version en ligne est celle du depot. Une Edge Function ne part pas avec
@@ -100,7 +101,7 @@ function fmtJour(iso: string): string {
   });
 }
 
-Deno.serve(async (req) => {
+Deno.serve(servirAvecFilet('installment-reminders', async (req) => {
   // FAIL-CLOSED : un CRON_SECRET absent de l'environnement refuse tout, il
   // n'ouvre pas tout. L'ancien `if (secret && …)` laissait la fonction
   // publiquement invocable si le secret disparaissait des variables — les dix
@@ -309,4 +310,4 @@ Deno.serve(async (req) => {
     JSON.stringify({ ok: true, before, late, scanned: rows?.length ?? 0, errors }),
     { headers: { 'content-type': 'application/json' } },
   );
-});
+}));

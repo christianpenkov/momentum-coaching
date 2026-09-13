@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { servirAvecFilet } from '../_shared/incidents.ts';
 import { mapWithConcurrency } from '../_shared/rate-limit.ts';
 // ⚠️ L'empreinte du code SOURCE de cette fonction, pour que `edge_sante_version` puisse
 // dire si la version en ligne est celle du depot. Une Edge Function ne part pas avec
@@ -649,10 +650,17 @@ async function syncCalendlyEleve(
       }
     }
 
-    const { data: callRow } = await supabase.from('calls')
+    const { data: callRow, error: callErr } = await supabase.from('calls')
       .upsert(upsertData, { onConflict: 'coach_id,calendly_event_uuid', ignoreDuplicates: false })
       .select('id, ig_lead_id')
       .maybeSingle();
+    // ⚠️ PERTE DE DONNÉES CORRIGÉE le 2026-09-13 (audit de surveillance). L'erreur n'était
+    // pas lue : un rendez-vous refusé par la base était compté « synchronisé », le profil
+    // ne remontait aucune erreur, `last_synced_at` avançait, et l'incrémental ne le
+    // revoyait plus jamais. Ce chemin est le SEUL qui écrit les rendez-vous (les webhooks
+    // Calendly sont payants, docs/crons.md). En levant ici, l'événement passe en
+    // `event_error`, le profil garde sa borne, et le cycle suivant retraite la fenêtre.
+    if (callErr) throw new Error(`calls upsert ${eventUuid}: ${callErr.message}`);
 
     // ── FUSION AUTOMATIQUE PAR E-MAIL EXACT ───────────────────────────────────
     //
@@ -755,7 +763,7 @@ async function syncCalendlyEleve(
   return { synced, skipped, errors };
 }
 
-Deno.serve(async (req: Request) => {
+Deno.serve(servirAvecFilet('sync-calendly', async (req: Request) => {
   const auth = req.headers.get('authorization');
   if (!auth || auth !== `Bearer ${CRON_SECRET}`) {
     return new Response(JSON.stringify({ error: 'Non autorisé' }), { status: 401 });
@@ -873,4 +881,4 @@ Deno.serve(async (req: Request) => {
     profiles: integrations.length,
     errors: allErrors,
   }), { status: 200 });
-});
+}));

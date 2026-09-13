@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { servirAvecFilet } from '../_shared/incidents.ts';
 import { mapWithConcurrency } from '../_shared/rate-limit.ts';
 // ⚠️ L'empreinte du code SOURCE de cette fonction, pour que `edge_sante_version` puisse
 // dire si la version en ligne est celle du depot. Une Edge Function ne part pas avec
@@ -348,7 +349,7 @@ async function syncFathomProfile(profileId: string): Promise<{ checked: number; 
   return { checked: meetings.length, matched, unmatched, errors };
 }
 
-Deno.serve(async (req: Request) => {
+Deno.serve(servirAvecFilet('fathom-cron-sync', async (req: Request) => {
   const auth = req.headers.get('authorization');
   if (!auth || auth !== `Bearer ${CRON_SECRET}`) {
     return new Response(JSON.stringify({ error: 'Non autorisé' }), { status: 401 });
@@ -421,4 +422,4 @@ Deno.serve(async (req: Request) => {
     ...totals,
     errors: allErrors,
   }), { status: 200 });
-});
+}));

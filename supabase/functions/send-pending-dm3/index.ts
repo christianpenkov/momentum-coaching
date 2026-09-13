@@ -14,6 +14,7 @@
 // Déploiement : supabase functions deploy send-pending-dm3 --no-verify-jwt
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { servirAvecFilet } from '../_shared/incidents.ts';
 import { mapWithConcurrency } from '../_shared/rate-limit.ts';
 import { EMPREINTES_EDGE } from '../../../lib/empreintes-edge.generated.ts';
 
@@ -31,7 +32,7 @@ const supa = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
  */
 const MAX_LATE_MS = 2 * 60 * 60 * 1000;
 
-Deno.serve(async (req: Request) => {
+Deno.serve(servirAvecFilet('send-pending-dm3', async (req: Request) => {
   const auth = req.headers.get('authorization');
   if (!auth || auth !== `Bearer ${CRON_SECRET}`) {
     return new Response(JSON.stringify({ error: 'Non autorisé' }), { status: 401 });
@@ -86,11 +87,22 @@ Deno.serve(async (req: Request) => {
 
   // Tokens Instagram groupés : une requête au lieu d'une par lead (N+1).
   const profileIds = [...new Set(due.map(l => l.profile_id))];
-  const { data: integs } = await supa
+  const { data: integs, error: integsErr } = await supa
     .from('integrations')
     .select('profile_id, access_token, metadata')
     .eq('provider', 'instagram')
     .in('profile_id', profileIds);
+
+  // ⚠️ PERTE DE DONNÉES CORRIGÉE le 2026-09-13 (audit de surveillance). L'erreur de
+  // cette lecture n'était pas lue : sur un hoquet de la base, `integs` valait null, la
+  // table des jetons restait vide, et CHAQUE lead en attente tombait plus bas dans la
+  // branche « pas de quoi envoyer » — qui EFFACE `pending_dm3`. Un incident de quelques
+  // secondes supprimait définitivement toutes les questions d'ouverture de la minute.
+  // On s'arrête sans rien toucher : le passage suivant (60 s) retente, et la fenêtre de
+  // 2 h borne le retard. Le refus lui-même est signalé par le filet (incident critique).
+  if (integsErr) {
+    return new Response(JSON.stringify({ error: `lecture des jetons : ${integsErr.message}` }), { status: 500 });
+  }
 
   const tokenByProfile = new Map<string, { token: string; igAccountId: string | null }>();
   for (const i of integs || []) {
@@ -152,6 +164,7 @@ Deno.serve(async (req: Request) => {
     if (!reservee) { skipped++; return; } // déjà prise par un passage concurrent
 
     let data: any;
+    let statutMeta = 0;
     try {
       const res = await fetch(
         `https://graph.instagram.com/v21.0/${igAccountId}/messages`,
@@ -166,6 +179,7 @@ Deno.serve(async (req: Request) => {
           }),
         }
       );
+      statutMeta = res.status;
       data = await res.json().catch(() => ({}));
     } catch (e: any) {
       // Panne réseau : rien n'est parti chez Meta. On restaure la réservation
@@ -179,6 +193,24 @@ Deno.serve(async (req: Request) => {
         ? `reseau ${lead.ig_username || lead.id}: ${e?.message || 'unknown'} — ET restauration echouee (${restaureErr.message}) : DM3 perdu`
         : `reseau ${lead.ig_username || lead.id}: ${e?.message || 'unknown'} (restaure, retente au prochain passage)`);
       return;
+    }
+
+    // ⚠️ Corrigé le 2026-09-13 : une réponse HTTP en échec dont le corps n'était pas du
+    // JSON (page d'erreur d'une passerelle Meta) n'avait pas de `data.error`, et le DM3
+    // était compté ENVOYÉ alors que rien n'était parti. Une panne côté Meta (5xx) est
+    // passagère : on restaure la réservation comme pour une panne réseau. Tout autre
+    // statut en échec est traité comme un refus.
+    if (statutMeta >= 500 && !data?.error) {
+      const { error: restaureErr } = await supa.from('instagram_leads')
+        .update({ pending_dm3: lead.pending_dm3, dm3_scheduled_at: lead.dm3_scheduled_at })
+        .eq('id', lead.id);
+      errors.push(restaureErr
+        ? `meta HTTP ${statutMeta} ${lead.ig_username || lead.id} — ET restauration echouee (${restaureErr.message}) : DM3 perdu`
+        : `meta HTTP ${statutMeta} ${lead.ig_username || lead.id} (restaure, retente au prochain passage)`);
+      return;
+    }
+    if (statutMeta >= 400 && !data?.error) {
+      data = { error: { message: `HTTP ${statutMeta} sans corps d'erreur lisible` } };
     }
 
     if (data.error) {
@@ -217,4 +249,4 @@ Deno.serve(async (req: Request) => {
     due: due.length,
     errors: errors.slice(0, 10),
   }), { status: 200 });
-});
+}));

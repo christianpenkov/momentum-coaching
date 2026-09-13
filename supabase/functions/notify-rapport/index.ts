@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { servirAvecFilet } from '../_shared/incidents.ts';
 // Meme source que le front (lib/callTypes.ts), importable depuis Deno.
 import { CALL_TYPES_VENTE } from '../../../lib/callTypes.ts';
 // ⚠️ L'empreinte du code SOURCE de cette fonction, pour que `edge_sante_version` puisse
@@ -28,7 +29,7 @@ function parseDurationMinutes(duration: string | null): number | null {
   return parseInt(match[1], 10);
 }
 
-Deno.serve(async (req: Request) => {
+Deno.serve(servirAvecFilet('notify-rapport', async (req: Request) => {
   const auth = req.headers.get('authorization');
   if (!auth || auth !== `Bearer ${CRON_SECRET}`) {
     return new Response(JSON.stringify({ error: 'Non autorisé' }), { status: 401 });
@@ -173,4 +174,4 @@ Deno.serve(async (req: Request) => {
   }
 
   return new Response(JSON.stringify({ ok: true, notified, errors }), { status: 200 });
-});
+}));

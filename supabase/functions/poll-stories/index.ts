@@ -6,6 +6,7 @@
 // Pattern calqué sur supabase/functions/poll-leads/index.ts.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { servirAvecFilet, signalerExceptionEdge } from '../_shared/incidents.ts';
 import { mapWithConcurrency } from '../_shared/rate-limit.ts';
 // ⚠️ L'empreinte du code SOURCE de cette fonction, pour que `edge_sante_version` puisse
 // dire si la version en ligne est celle du depot. Une Edge Function ne part pas avec
@@ -358,7 +359,7 @@ async function pollProfileStories(profileId: string, token: string, igAccountId:
   return { found, errors };
 }
 
-Deno.serve(async (req: Request) => {
+Deno.serve(servirAvecFilet('poll-stories', async (req: Request) => {
   const authHeader = req.headers.get('authorization');
   if (authHeader !== `Bearer ${CRON_SECRET}`) {
     return new Response(JSON.stringify({ error: 'Non autorisé' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
@@ -428,8 +429,11 @@ Deno.serve(async (req: Request) => {
   // dans les logs. La fonction pouvait échouer silencieusement à chaque cycle sans
   // qu'aucun signal ne l'indique. poll-leads a ce catch, pas poll-stories.
   (globalThis as any).EdgeRuntime?.waitUntil(
-    runMain().catch((e: any) => console.error('[poll-stories] runMain_fatal:', e?.message || e))
+    runMain().catch(async (e: any) => {
+      console.error('[poll-stories] runMain_fatal:', e?.message || e);
+      await signalerExceptionEdge('poll-stories', e, 'runMain a planté, le passage est perdu');
+    })
   );
 
   return new Response(JSON.stringify({ status: 'accepted' }), { status: 202, headers: { 'Content-Type': 'application/json' } });
-});
+}));

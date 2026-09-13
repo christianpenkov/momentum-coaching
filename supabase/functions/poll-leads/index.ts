@@ -4,6 +4,7 @@
 // Appelée par cron-job.org avec Authorization: Bearer CRON_SECRET
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { servirAvecFilet, signalerExceptionEdge } from '../_shared/incidents.ts';
 import { snapshotIgPosts } from '../_shared/ig-posts.ts';
 import { formatTimeIn, safeZone } from '../_shared/timezone.ts';
 import { limiteurShortio, mapWithConcurrency, sleep } from '../_shared/rate-limit.ts';
@@ -1220,8 +1221,15 @@ async function syncYtCtr(profileId: string, accessToken: string): Promise<{ sync
   const reachJob = (jobsData.jobs || []).find((j: any) => j.reportTypeId === 'channel_reach_basic_a1');
   if (!reachJob) return { synced: 0, errors: [] };
 
-  const { data: syncState } = await supa.from('youtube_ctr_sync_state')
-    .select('last_report_id, reports_processed, job_created_at, rapports_traites').eq('profile_id', profileId).single();
+  const { data: syncState, error: erreurRegistre } = await supa.from('youtube_ctr_sync_state')
+    .select('last_report_id, reports_processed, job_created_at, rapports_traites').eq('profile_id', profileId).maybeSingle();
+  // ⚠️ DOUBLE COMPTAGE FERMÉ le 2026-09-13 (audit de surveillance). L'erreur n'était pas
+  // lue : sur une lecture refusée, `syncState` valait null, le registre paraissait VIDE,
+  // et tous les rapports passaient pour nouveaux — jusqu'à 6 rapports déjà comptés
+  // ADDITIONNÉS une seconde fois par `upsert_yt_ctr`, de façon silencieuse et définitive.
+  // `.maybeSingle()` et non `.single()` : une ligne absente (premier passage) est un état
+  // normal et ne doit pas ressembler à une panne.
+  if (erreurRegistre) return { synced: 0, errors: [`ctr_registre_illisible: ${erreurRegistre.message}`] };
 
   if (!syncState?.job_created_at && reachJob.createTime) {
     await supa.from('youtube_ctr_sync_state').upsert({ profile_id: profileId, job_created_at: reachJob.createTime }, { onConflict: 'profile_id', ignoreDuplicates: false });
@@ -1395,12 +1403,25 @@ async function syncYtCtr(profileId: string, accessToken: string): Promise<{ sync
   const registre = [...dejaTraites];
   for (const r of newReports.slice(0, traites)) registre.push(r.id);
 
-  await supa.from('youtube_ctr_sync_state').upsert({
+  // ⚠️ L'erreur de cette écriture n'était pas lue (audit du 2026-09-13). Les rapports
+  // viennent d'être ADDITIONNÉS : si le registre n'est pas mis à jour, le passage suivant
+  // les recompte. On retente une fois (le cas courant est un hoquet réseau), et si ça
+  // échoue encore on le dit en toutes lettres — l'incident part par le filet, et la
+  // ligne dans `cron_runs` nomme les rapports à retirer à la main du cumul.
+  const etatRegistre = {
     profile_id: profileId, last_report_id: latestReport.id,
     rapports_traites: [...new Set(registre)],
     last_synced_at: new Date().toISOString(),
     reports_processed: (syncState?.reports_processed ?? 0) + traites,
-  }, { onConflict: 'profile_id' });
+  };
+  let { error: erreurEcritureRegistre } = await supa.from('youtube_ctr_sync_state').upsert(etatRegistre, { onConflict: 'profile_id' });
+  if (erreurEcritureRegistre) {
+    await sleep(1_000);
+    ({ error: erreurEcritureRegistre } = await supa.from('youtube_ctr_sync_state').upsert(etatRegistre, { onConflict: 'profile_id' }));
+  }
+  if (erreurEcritureRegistre) {
+    errors.push(`ctr_registre_non_ecrit: DOUBLE COMPTAGE PROBABLE au prochain passage pour les rapports ${newReports.slice(0, traites).map((r: any) => r.id).join(',')} — ${erreurEcritureRegistre.message}`);
+  }
 
   return { synced: Object.keys(perVideoMap).length, errors };
 }
@@ -3793,7 +3814,7 @@ const estIncidentPassager = (e: string) =>
 // Handler principal
 // ─────────────────────────────────────────────────────────────────────────────
 
-Deno.serve(async (req: Request) => {
+Deno.serve(servirAvecFilet('poll-leads', async (req: Request) => {
   // Depart du chronometre du rattrapage — voir BUDGET_RATTRAPAGE_MS en tete.
   debutInvocation = Date.now();
   // Les caches Short.io mutualisent UN passage, jamais deux : un isolat Deno peut etre
@@ -4063,95 +4084,36 @@ Deno.serve(async (req: Request) => {
   // Les incidents passagers restent dans les logs Supabase (console.error ci-dessous)
   // pour l'enquete a chaud, mais n'entrent pas dans `cron_runs` : cette table doit
   // rester vide tant que rien ne demande d'action, sinon elle cesse d'etre lue.
-  // ── Plafond de stockage : la seule panne qui ne previent pas ────────────────
+  // ── Purge quotidienne des vocaux Instagram (tranche 8 h, heure de Paris) ────────
   //
-  // Rien ne casse a l'avance, rien n'entre dans cron_runs, et le jour ou la base est
-  // pleine les ecritures echouent d'un coup : les stats de tous les eleves se figent
-  // en silence. La vue `base_sante_taille` le voit venir, encore faut-il la regarder —
-  // d'ou cet e-mail, qui rappelle tout le contexte parce qu'il arrivera des mois plus
-  // tard, quand personne ne s'en souviendra.
+  // ⚠️ Les ALERTES ne partent plus d'ici depuis le 2026-09-13. Ce bloc appelait aussi
+  // `/api/sante/alerte-stockage`, `/api/sante/alerte-vues` (8 h) et le manifeste du depot
+  // (chaque heure), sans lire aucune reponse. Consequence mesuree par l'audit : si ce
+  // cron mourait, la vue qui detecte sa mort (`crons_sante`) n'etait plus lue par
+  // personne. Tout cela vit desormais dans `/api/sante/dispatch`, declenche par pg_cron,
+  // independant de cron-job.org ET de cette fonction. Ne pas les remettre ici : deux
+  // declencheurs feraient partir la meme alerte deux fois a la meme minute.
   //
-  // Une fois par jour, dans la tranche 8 h (heure de Paris). Ce cron passe toutes les
-  // 5 minutes : la tranche est donc traversee une douzaine de fois, mais la route
-  // n'envoie qu'une fois par seuil (table alertes_plateforme) et sort immediatement
-  // sinon. Pas de nouveau planificateur a creer, aucun secret deplace : la cle Resend
-  // reste dans les variables Vercel, ou elle vit deja.
+  // ⚠️ Pourquoi la purge des vocaux reste ici et pas en SQL comme les autres purges :
+  // supprimer une ligne de `storage.objects` ne supprime PAS le fichier sous-jacent.
+  // Seule l'API de stockage le fait. Un job SQL viderait l'index en laissant les
+  // octets, et le quota monterait pendant que la table dirait le contraire.
   //
-  // Volontairement hors de la boucle par profil : c'est une propriete de la base, pas
-  // d'un eleve. Et strictement non bloquant — une alerte muette vaut mieux qu'un cron
-  // qui tombe.
+  // Strictement non bloquant — retentee au passage suivant de la tranche.
   try {
     const heureParis = new Date(Date.now() + parisOffsetHours(new Date()) * 3600_000).getUTCHours();
     if (heureParis === 8) {
       const controleur = new AbortController();
       const minuteur = setTimeout(() => controleur.abort(), 20_000);
       try {
-        // Les DEUX alertes, sur la meme tranche et le meme secret.
-        //
-        // `alerte-stockage` couvre le plafond du plan Supabase. `alerte-vues` couvre
-        // les onze vues de sante, qui n'avaient jusqu'ici AUCUN canal : elles
-        // attendaient qu'on pense a les regarder, ce qui n'est pas une surveillance
-        // mais une documentation. Chaque e-mail porte son contexte complet et un
-        // prompt pret a coller, parce qu'il arrivera des mois plus tard.
-        //
-        // En parallele : l'une ne doit pas retarder l'autre, et surtout l'echec de
-        // l'une ne doit pas empecher l'envoi de l'autre. `allSettled`, jamais `all`.
-        await Promise.allSettled([
-          fetch(`${PLATFORM_URL}/api/sante/alerte-stockage`, {
-            headers: { authorization: `Bearer ${CRON_SECRET}` },
-            signal: controleur.signal,
-          }),
-          fetch(`${PLATFORM_URL}/api/sante/alerte-vues`, {
-            headers: { authorization: `Bearer ${CRON_SECRET}` },
-            signal: controleur.signal,
-          }),
-          // Purge des vocaux Instagram de plus de 30 jours.
-          //
-          // ⚠️ Pourquoi ici et pas en SQL comme les sept autres purges :
-          // supprimer une ligne de `storage.objects` ne supprime PAS le fichier
-          // sous-jacent. Seule l'API de stockage le fait. Un job SQL viderait
-          // l'index en laissant les octets, et le quota monterait pendant que la
-          // table dirait le contraire.
-          fetch(`${PLATFORM_URL}/api/instagram/purger-vocaux`, {
-            method: 'POST',
-            headers: { authorization: `Bearer ${CRON_SECRET}` },
-            signal: controleur.signal,
-          }),
-        ]);
-      } finally { clearTimeout(minuteur); }
-    }
-  } catch { /* non bloquant — retentee au prochain passage de la tranche */ }
-
-  // ── Rafraichir l'inventaire du depot, une fois par heure ────────────────────────
-  //
-  // ⚠️ AJOUT CHIRURGICAL du 2026-09-04, dans un fichier qu'un autre chantier optimise
-  // pour l'egress : un `fetch` d'une reponse JSON de quelques centaines d'octets,
-  // 24 fois par jour, sans lecture de vue ni e-mail cote route.
-  //
-  // POURQUOI. `edge_sante_version` et `migrations_sante` comparent un etat VIVANT (la
-  // fonction qui tourne, la migration appliquee) a un INSTANTANE du depot, que seule la
-  // route sait ecrire — la base ne peut pas lire le depot. Tant que cet instantane
-  // n'etait rafraichi qu'a 8h, tout ce qui bougeait ensuite faisait crier les vues
-  // jusqu'au lendemain. Mesure ce jour : cinq lignes en alerte, TOUTES fausses.
-  //
-  // Une vue qui ment en journee finit par ne plus etre ouverte. C'est exactement le mode
-  // de panne que ces deux surveillances existent pour fermer.
-  //
-  // ⚠️ `minutes < 5` et non `=== 0` : ce cron passe toutes les 5 minutes, et un
-  // planificateur externe derive de quelques secondes. Une egalite stricte raterait des
-  // heures entieres sans que rien ne le dise.
-  try {
-    if (new Date().getUTCMinutes() < 5) {
-      const controleur = new AbortController();
-      const minuteur = setTimeout(() => controleur.abort(), 10_000);
-      try {
-        await fetch(`${PLATFORM_URL}/api/sante/alerte-vues?manifeste=1`, {
+        await fetch(`${PLATFORM_URL}/api/instagram/purger-vocaux`, {
+          method: 'POST',
           headers: { authorization: `Bearer ${CRON_SECRET}` },
           signal: controleur.signal,
         });
       } finally { clearTimeout(minuteur); }
     }
-  } catch { /* non bloquant — l'instantane sera rafraichi a l'heure suivante */ }
+  } catch { /* non bloquant — retentee au prochain passage de la tranche */ }
 
   // ── Filet de rattrapage du backfill des conversations Instagram ────────────
   //
@@ -4263,7 +4225,12 @@ Deno.serve(async (req: Request) => {
   // au démarrage rendrait tous les logs D1-D3 inopérants sans que personne ne le sache.
   (globalThis as any).EdgeRuntime?.waitUntil(
     runMain()
-      .catch((e: any) => console.error('[poll-leads] runMain_fatal:', e?.message || e))
+      // ⚠️ Le console.error seul était perdu au bout d'un jour (logs Supabase, plan
+      // gratuit) : le plantage devient aussi un incident, notifié par e-mail.
+      .catch(async (e: any) => {
+        console.error('[poll-leads] runMain_fatal:', e?.message || e);
+        await signalerExceptionEdge('poll-leads', e, 'runMain a planté, le passage est perdu');
+      })
       // Relâche du verrou anti-double-passage, succès OU échec — un verrou qui
       // resterait posé après un crash est de toute façon périmé à 4 min.
       .finally(() => supa.from('crons_passages')
@@ -4277,4 +4244,4 @@ Deno.serve(async (req: Request) => {
   );
 
   return new Response(JSON.stringify({ status: 'accepted' }), { status: 202, headers: { 'Content-Type': 'application/json' } });
-});
+}));

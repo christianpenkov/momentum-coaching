@@ -20,6 +20,8 @@ import type { IntegrationSante } from '@/app/api/integrations/health/route';
 const COULEURS: Record<IntegrationSante['etat'], { fond: string; bord: string; texte: string }> = {
   non_connectee:     { fond: '#cd5b3f10', bord: '#cd5b3f40', texte: '#cd5b3f' },
   en_echec:          { fond: '#cd5b3f10', bord: '#cd5b3f40', texte: '#cd5b3f' },
+  erreur_api:        { fond: '#cd5b3f10', bord: '#cd5b3f40', texte: '#cd5b3f' },
+  collecte_arretee:  { fond: '#cd5b3f10', bord: '#cd5b3f40', texte: '#cd5b3f' },
   collecte_degradee: { fond: '#b5802510', bord: '#b5802540', texte: '#b58025' },
   ok:                { fond: '', bord: '', texte: '' },
 };
@@ -43,6 +45,18 @@ function phrase(i: IntegrationSante): string {
     return depuis
       ? `${i.libelle} refuse la connexion — les données s’arrêtent au ${depuis}.`
       : `${i.libelle} refuse la connexion — plus rien n’est collecté.`;
+  }
+  if (i.etat === 'erreur_api') {
+    const depuis = dateLisible(i.derniere_donnee);
+    return depuis
+      ? `${i.libelle} renvoie une erreur — les données affichées s’arrêtent au ${depuis}.`
+      : `${i.libelle} renvoie une erreur — la collecte est interrompue.`;
+  }
+  if (i.etat === 'collecte_arretee') {
+    const depuis = dateLisible(i.derniere_donnee);
+    return depuis
+      ? `${i.libelle} ne répond plus depuis le ${depuis} — les chiffres affichés s’arrêtent là.`
+      : `${i.libelle} ne répond plus — les chiffres affichés ne sont plus à jour.`;
   }
   // Cas a part : ce n'est PAS l'integration qui est en peine, c'est sa SURVEILLANCE.
   // Stripe ne collecte rien quotidiennement — son etat ne se connait qu'en
@@ -79,15 +93,17 @@ export default function BandeauIntegrations({ profileId }: { profileId?: string 
 
   // Les pannes franches d'abord : une intégration débranchée prime sur un jour de
   // retard, et c'est elle qu'on veut lire en premier.
-  const rang: Record<IntegrationSante['etat'], number> = { non_connectee: 0, en_echec: 1, collecte_degradee: 2, ok: 3 };
+  const rang: Record<IntegrationSante['etat'], number> = { non_connectee: 0, en_echec: 1, erreur_api: 2, collecte_arretee: 3, collecte_degradee: 4, ok: 5 };
   const enPeine = data.integrations
     .filter(i => i.etat !== 'ok')
-    .sort((a, b) => rang[a.etat] - rang[b.etat] || a.libelle.localeCompare(b.libelle));
+    .sort((a, b) => (rang[a.etat] ?? 1) - (rang[b.etat] ?? 1) || a.libelle.localeCompare(b.libelle));
 
   if (enPeine.length === 0) return null;
 
+  // Repli sur la couleur de panne pour un état que ce fichier ne connaîtrait pas encore :
+  // un bandeau d'une couleur approximative vaut infiniment mieux qu'un écran planté.
   const pire = enPeine[0].etat;
-  const c = COULEURS[pire];
+  const c = COULEURS[pire] ?? COULEURS.en_echec;
 
   return (
     <div

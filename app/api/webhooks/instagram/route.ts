@@ -2,6 +2,8 @@ import { NextResponse, after } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 import { processWebhookEntry } from '@/lib/instagram-webhook-processor';
+import { decrireErreur, signalerIncident } from '@/lib/incidents';
+import { normaliserMessage } from '@/lib/incidentsClassement';
 
 /**
  * Le worker de file tourne dans sa propre invocation, avec son propre budget de
@@ -113,6 +115,23 @@ export async function POST(request: Request) {
   }
   if (!verifySignature(rawBody, signature)) {
     console.error('[IG Webhook] Signature invalide');
+    // Une signature PRÉSENTE mais fausse n'est pas un robot (un robot n'envoie pas cet
+    // en-tête) : c'est presque toujours `INSTAGRAM_CLIENT_SECRET` désaccordé après une
+    // rotation ou un changement d'app. Meta DÉSABONNE l'application après 1 h de refus,
+    // et tous les DM1 s'arrêtent. Signalé une fois (même empreinte à chaque refus).
+    if (signature) {
+      await signalerIncident({
+        source: 'vercel-serveur',
+        gravite: 'critique',
+        titre: 'Webhook Instagram : Meta envoie des événements dont la signature est refusée — les DM automatiques vont s’arrêter',
+        empreinte: ['webhook-instagram-signature'],
+        detail: {
+          type: 'webhook_instagram_signature',
+          consequence: 'Meta désabonne l’application après 1 h d’échecs : plus aucun DM1, réabonnement manuel requis.',
+          a_faire: 'Vérifier que INSTAGRAM_CLIENT_SECRET (Vercel) est bien le secret de l’app Meta qui envoie le webhook (developers.facebook.com → app → Paramètres → Général). Puis vérifier l’abonnement : docs/instagram-api-limitations.md et la mémoire « Architecture webhook Instagram ».',
+        },
+      });
+    }
     return NextResponse.json({ error: 'Signature invalide' }, { status: 401 });
   }
 
@@ -148,6 +167,23 @@ export async function POST(request: Request) {
         for (const entry of entries) await processWebhookEntry(entry);
       } catch (e: any) {
         console.error('[IG Webhook] Traitement direct échoué:', e?.message || e);
+        // File indisponible ET traitement direct en échec : l'événement est PERDU, Meta
+        // ne le renverra pas. Le refus de la mise en file est déjà signalé par le filet ;
+        // ceci dit ce qu'il a coûté.
+        const err = decrireErreur(e);
+        await signalerIncident({
+          source: 'vercel-serveur',
+          gravite: 'critique',
+          titre: `Événement Instagram PERDU : file indisponible et traitement direct en échec — ${err.message.slice(0, 120)}`,
+          empreinte: ['webhook-instagram-perdu', normaliserMessage(err.message)],
+          detail: {
+            type: 'webhook_instagram_perdu',
+            erreur_file: error.message,
+            erreur_traitement: err,
+            evenements: entries.length,
+            apercu: JSON.stringify(entries).slice(0, 1_500),
+          },
+        });
       }
     }
   }

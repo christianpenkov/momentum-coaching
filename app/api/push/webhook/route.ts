@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import webpush from 'web-push';
 import { createClient } from '@supabase/supabase-js';
 import { TAG_MESSAGERIE } from '@/lib/notifications';
+import { decrireErreur, signalerIncident } from '@/lib/incidents';
+import { normaliserMessage } from '@/lib/incidentsClassement';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -21,6 +23,22 @@ export async function POST(req: NextRequest) {
     const secret = req.headers.get('x-webhook-secret');
     log(`[WEBHOOK] secret ok: ${secret === process.env.CRON_SECRET}`);
     if (secret !== process.env.CRON_SECRET) {
+      // Appelée par un trigger de la base, jamais par un inconnu : un secret refusé veut
+      // dire que le Vault (`push_webhook_secret`) et `CRON_SECRET` ne concordent plus —
+      // cas réel après la rotation du 2026-09-12. Plus AUCUNE notification de message ne
+      // part, et pg_net ne lit pas la réponse. Signalé seulement si l'en-tête est présent.
+      if (secret) {
+        await signalerIncident({
+          source: 'vercel-serveur',
+          gravite: 'critique',
+          titre: 'Notifications de messagerie coupées : le secret envoyé par la base ne correspond plus à CRON_SECRET',
+          empreinte: ['push-webhook-secret'],
+          detail: {
+            type: 'push_webhook_secret',
+            a_faire: 'Aligner le secret `push_webhook_secret` du Vault Supabase sur la valeur de CRON_SECRET (Vercel). Procédure : docs/transfert-de-compte.md §5 bis.',
+          },
+        });
+      }
       return NextResponse.json({ error: 'unauthorized', logs }, { status: 401 });
     }
 
@@ -155,6 +173,33 @@ export async function POST(req: NextRequest) {
         .in('endpoint', expired.map(({ sub }) => sub.endpoint));
     }
 
+    // Un refus du service push qui n'est ni 404 ni 410 ne dit pas « abonnement périmé » :
+    // c'est la plateforme qui est refusée (clés VAPID désaccordées → 401/403, charge
+    // trop lourde → 413). Il touche alors TOUS les destinataires, et ne laissait qu'un
+    // console.log. Une empreinte par statut : un seul e-mail par cause.
+    const refusPlateforme = results
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .map(r => (r.status === 'rejected' ? (r.reason as any) : null))
+      .filter(e => e && ![404, 410].includes(e.statusCode));
+    if (refusPlateforme.length) {
+      const e = refusPlateforme[0];
+      await signalerIncident({
+        source: 'vercel-serveur',
+        gravite: 'critique',
+        titre: `Notifications push refusées par le service push (HTTP ${e.statusCode ?? 'inconnu'}) : ${String(e.message ?? '').slice(0, 120)}`,
+        empreinte: ['push-refus', String(e.statusCode ?? 'sans-statut')],
+        detail: {
+          type: 'push_refus',
+          statut: e.statusCode ?? null,
+          message: String(e.message ?? ''),
+          corps: String(e.body ?? '').slice(0, 1_000),
+          refus: refusPlateforme.length,
+          abonnements: subs.length,
+          a_faire: '401/403 : les clés VAPID (NEXT_PUBLIC_VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT) ne correspondent plus à celles des abonnements — vérifier qu’aucune n’a de retour à la ligne (mémoire « Vercel env vars sans newline »). Diagnostic de la chaîne push : docs/pastille-et-sauts-accueil.md.',
+        },
+      });
+    }
+
     const sent = results.filter(r => r.status === 'fulfilled').length;
     log(`[WEBHOOK] terminé, envoyé: ${sent}`);
     // Retourner tous les logs dans la réponse pour debug
@@ -163,6 +208,14 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     logs.push(`[WEBHOOK] 💥 crash: ${String(err)}`);
     console.log(logs.join(' | '));
+    const e = decrireErreur(err);
+    await signalerIncident({
+      source: 'vercel-serveur',
+      gravite: 'critique',
+      titre: `Notification de messagerie en échec : ${e.message.slice(0, 140)}`,
+      empreinte: ['push-webhook-crash', e.nom, normaliserMessage(e.message)],
+      detail: { type: 'push_webhook_crash', erreur: e, journal: logs.slice(-15) },
+    });
     return NextResponse.json({ error: String(err), logs }, { status: 500 });
   }
 }

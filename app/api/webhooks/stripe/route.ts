@@ -5,6 +5,8 @@ import { getStripeAccess, modeLive } from '@/lib/stripe-account';
 import { ensureInstallmentSchedule, METADATA_KEYS } from '@/lib/stripe-payment-links';
 import { sendPushToProfile } from '@/lib/googleCalendarService';
 import { refreshDealStatus, journaliser } from '@/lib/dealStatus';
+import { decrireErreur, signalerIncident } from '@/lib/incidents';
+import { normaliserMessage } from '@/lib/incidentsClassement';
 
 const WEBHOOK_SECRET = process.env.STRIPE_CONNECT_WEBHOOK_SECRET!;
 
@@ -530,6 +532,23 @@ async function guardInstallments(supabase: Supa, dealId: string, profileId: stri
     );
   } catch (err) {
     console.error(`[stripe] bornage échoué deal=${dealId}`, err);
+    // Le console.error seul disparaissait au bout d'une heure (Vercel Hobby). Un
+    // abonnement non borné prélève le client sans fin : c'est un incident critique.
+    await signalerIncident({
+      source: 'vercel-serveur',
+      gravite: 'critique',
+      titre: `Paiement en plusieurs fois NON BORNÉ — le client risque d’être prélevé sans fin (deal ${dealId})`,
+      empreinte: ['stripe-bornage', dealId],
+      detail: {
+        type: 'stripe_bornage_echoue',
+        deal_id: dealId,
+        profile_id: profileId,
+        abonnement: deal.stripe_subscription_id,
+        echeances_prevues: deal.installments_count,
+        erreur: decrireErreur(err),
+        a_faire: 'Dans le dashboard Stripe du compte connecté, ouvrir l’abonnement et poser la fin après le nombre d’échéances prévu (ou l’annuler si toutes sont payées). Voir docs/stripe-paiements.md et la mémoire « Bornage paiement en N fois Stripe ».',
+      },
+    });
 
     // Filet : si le compte y est déjà, on coupe sans attendre le schedule.
     const { count } = await supabase
@@ -569,11 +588,18 @@ async function handleEvent(event: Stripe.Event) {
         ? session.customer
         : session.customer?.id ?? null;
 
-      await supabase.from('deals').update({
+      const { error: erreurRattachement } = await supabase.from('deals').update({
         ...(subscriptionId ? { stripe_subscription_id: subscriptionId } : {}),
         ...(customerId ? { stripe_customer_id: customerId } : {}),
         ...(session.customer_details?.email ? { buyer_email: session.customer_details.email } : {}),
       }).eq('id', dealId);
+      // ⚠️ ARGENT RÉEL — corrigé le 2026-09-13 (audit de surveillance). L'erreur n'était
+      // pas lue : si `stripe_subscription_id` n'était pas écrit, `guardInstallments` sortait
+      // sans rien faire (pas d'abonnement connu) et un paiement en N fois n'était JAMAIS
+      // borné — le client prélevé indéfiniment. On lève : le `catch` global rend 500 et
+      // Stripe rejoue l'événement (jusqu'à 3 jours). Rejouer est sûr, cette écriture est la
+      // première de l'événement et elle est idempotente.
+      if (erreurRattachement) throw new Error(`deals ${dealId} : rattachement Stripe non écrit — ${erreurRattachement.message}`);
 
       // ⚠️ Paiement comptant : c'est ICI qu'on enregistre, pas dans charge.succeeded.
       //
@@ -1145,6 +1171,23 @@ export async function POST(request: NextRequest) {
     // 500 → Stripe rejoue l'événement (jusqu'à 3 jours). Préférable à un 200
     // qui perdrait le paiement définitivement.
     console.error(`[stripe] échec traitement ${event.type}`, err);
+    // Stripe rejoue pendant 3 jours, puis abandonne : un échec qui dure est un
+    // paiement perdu. Le rejeu produit la même empreinte, donc UN seul e-mail.
+    const e = decrireErreur(err);
+    await signalerIncident({
+      source: 'vercel-serveur',
+      gravite: 'critique',
+      titre: `Webhook Stripe en échec — ${event.type} : ${e.message.slice(0, 140)}`,
+      empreinte: ['webhook-stripe', event.type, normaliserMessage(e.message)],
+      detail: {
+        type: 'webhook_stripe_echec',
+        evenement: event.type,
+        evenement_id: event.id,
+        compte: event.account ?? null,
+        erreur: e,
+        a_faire: 'Stripe rejoue l’événement jusqu’à 3 jours. Corriger la cause puis, si le délai est dépassé, renvoyer l’événement depuis le dashboard Stripe (Développeurs → Webhooks → l’événement → Renvoyer). La passe sync-stripe-payments rattrape les paiements, pas les litiges.',
+      },
+    });
     return NextResponse.json({ error: 'Échec traitement' }, { status: 500 });
   }
 

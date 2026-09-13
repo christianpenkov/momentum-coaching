@@ -126,6 +126,15 @@ This version has breaking changes — APIs, conventions, and file structure may 
   `docs/sante-plateforme.md`. Aucune vue n'a besoin d'être regardée — mais une vue
   absente du tableau `SURVEILLANCES` est muette, et `etat <> 'ok'` n'est pas un
   filtre d'anomalie.
+- **Recevoir un e-mail d'incident, toucher au filet `fetch`, à `instrumentation.ts`, à
+  `/api/sante/dispatch`, ou ajouter une Edge Function** → `docs/surveillance-et-incidents.md`.
+  Trois règles s'y cassent en silence : la règle de gravité ne vit que dans
+  `lib/incidentsClassement.ts` (importé tel quel par Vercel, Deno ET le navigateur — jamais
+  de copie) ; les alertes n'ont qu'UN déclencheur, le répartiteur sur pg_cron (ne jamais
+  les rappeler depuis `poll-leads`) ; et toute nouvelle Edge Function s'écrit
+  `Deno.serve(servirAvecFilet('<nom>', …))`. ⚠️ Modifier `lib/incidents.ts` ou
+  `lib/incidentsClassement.ts` change l'empreinte de TOUTES les Edge Functions : les
+  redéployer toutes.
 
 # ⚠️ Un `profile_id` est PUBLIC
 

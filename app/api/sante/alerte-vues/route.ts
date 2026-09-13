@@ -69,6 +69,15 @@ type Surveillance = {
    * bien).
    */
   detection: 'alerte' | 'toute_ligne';
+  /**
+   * Lue TOUTES LES HEURES (et pas seulement à 8 h) par `/api/sante/dispatch`.
+   *
+   * Réservé à ce qui perd des données ou de l'argent tant que personne n'agit : un cron
+   * muet (plus aucun lead), une file de webhooks bloquée (DM perdus), un accès ouvert
+   * sans RLS, pg_net dont les réponses ne vivent que 6 h. Tout le reste attend le
+   * passage du matin — une alerte horaire sur une donnée métier serait du bruit.
+   */
+  critique?: boolean;
   /** Ce que la vue surveille, en une phrase compréhensible sans le code. */
   surveille: string;
   /** Ce que l'alerte veut dire concrètement, et ce que ça coûte. */
@@ -110,6 +119,7 @@ const SURVEILLANCES: Surveillance[] = [
     source: 'acces_sante_lecture',
     titre: 'Une donnée est lisible depuis le navigateur sans que la RLS ne s’applique',
     detection: 'toute_ligne',
+    critique: true,
     surveille:
       'Un invariant, pas une liste : toute relation de `public` que `anon` ou `authenticated` peut lire DOIT appliquer la RLS — `security_invoker = true` pour une vue, RLS activée pour une table.',
     signifie:
@@ -313,6 +323,7 @@ const SURVEILLANCES: Surveillance[] = [
     source: 'crons_sante',
     titre: 'Un cron s’est tu, ou tourne beaucoup trop souvent',
     detection: 'alerte',
+    critique: true,
     surveille:
       'Que chaque cron inscrit laisse une trace de passage, succès OU échec, dans le délai qui lui est propre — et qu’il n’en laisse pas quatre fois trop. Deux états possibles : `SILENCIEUX` et `ALERTE cadence trop rapide`.',
     signifie:
@@ -381,6 +392,7 @@ const SURVEILLANCES: Surveillance[] = [
     source: 'cron_runs_actifs',
     titre: 'Un cron a échoué de façon actionnable',
     detection: 'toute_ligne',
+    critique: true,
     surveille:
       'Les échecs de cron qui demandent ENCORE une action — c’est-à-dire ceux dont la cause n’a pas été corrigée (`cron_runs.resolu_le` nulle). Les incidents passagers et auto-réparés en sont volontairement absents.',
     signifie:
@@ -454,7 +466,132 @@ const SURVEILLANCES: Surveillance[] = [
       'supabase/migrations/20260904181000_conversations_instagram_purges_sante.sql',
     ],
   },
+  // ── Ajoutées le 2026-09-13 par l'audit de surveillance ─────────────────────────────
+  {
+    cle: 'sante_webhook_queue',
+    source: 'webhook_queue_sante',
+    titre: 'La file des webhooks Instagram est bloquée, ou abandonne des événements',
+    detection: 'alerte',
+    critique: true,
+    surveille:
+      'Que chaque commentaire, clic ou message reçu de Meta soit traité par le worker `process-webhook-queue` : aucune ligne en attente depuis plus de 10 minutes, aucun événement abandonné après 5 essais dans les dernières 24 h.',
+    signifie:
+      'Chaque ligne bloquée ou abandonnée est un DM qui ne partira jamais : un commentaire resté sans réponse, un lien de lead magnet jamais envoyé. Meta n’autorise qu’UNE réponse privée par commentaire, et seulement dans une fenêtre limitée — un événement perdu l’est pour de bon. ⚠️ « file bloquée » a une cause connue et silencieuse : `claim_webhook_queue` ne reprend pas une ligne restée en `processing` avec 5 essais (Vercel a coupé le worker pendant le dernier), elle y reste donc pour toujours.',
+    quoiFaire: [
+      '`select * from webhook_queue_sante;` puis `select id, status, attempts, next_retry_at, left(last_error, 200) from webhook_queue where status in (\'pending\',\'processing\',\'failed\') order by created_at desc limit 20;`',
+      '« abandonnés » : lire `last_error`. Un jeton révoqué ou un compte déconnecté se voit aussi dans `integrations_sante` ; une erreur de code se voit dans `incidents`.',
+      '« bloquée » : vérifier que le worker tourne (`select * from crons_sante where nom = \'process-webhook-queue\';`). Une ligne en `processing` à 5 essais ne repartira pas seule — la remettre en `pending` avec `attempts = 4` la fait retenter UNE fois.',
+      '⚠️ Ne pas supprimer les lignes pour faire taire l’alerte : elles sont la seule trace des DM perdus. La purge quotidienne les retire à 30 jours.',
+    ],
+    docs: ['app/api/cron/process-webhook-queue/route.ts', 'supabase/migrations/20260913180000_incidents_plateforme.sql'],
+  },
+  {
+    cle: 'sante_pgcron',
+    source: 'pgcron_sante',
+    titre: 'Un job planifié dans la base a échoué, est désactivé, ou ne tourne plus',
+    detection: 'alerte',
+    critique: true,
+    surveille:
+      'Les jobs pg_cron eux-mêmes (`cron.job_run_details`) : le dernier passage de chacun doit avoir réussi, aucun ne doit être désactivé, et un job quotidien doit avoir réussi dans les 26 dernières heures.',
+    signifie:
+      'Les purges et l’entretien ne se font plus. Rien ne casse le jour même : la base grossit (`degrossir-historiques-analytics` retient 3,6 Go/an à 40 élèves), les conversations Instagram restent au-delà de la durée annoncée aux élèves, les journaux de machine regonflent — jusqu’au plafond du plan, où la base passe en LECTURE SEULE d’un coup. ⚠️ Un job qui appelle `declencher_cron` apparaît toujours « succeeded » ici : pg_net met la requête en file et rend la main. Les appels HTTP sont couverts par `crons_sante` et `pgnet_sante`, pas par cette vue.',
+    quoiFaire: [
+      '`select * from pgcron_sante where etat like \'ALERTE%\' or etat = \'SILENCIEUX\';` — `message_dernier_echec` porte l’erreur Postgres exacte.',
+      'Rejouer la commande à la main pour voir l’erreur en direct : `select command from cron.job where jobname = \'<nom>\';` puis l’exécuter.',
+      '« job désactivé » : si c’est voulu, le SUPPRIMER (`select cron.unschedule(\'<nom>\');`) plutôt que le laisser inactif — un job inactif est indiscernable d’un job coupé par erreur.',
+      'Le détail de chaque job et pourquoi il vit dans la base : `docs/crons.md`.',
+    ],
+    docs: ['docs/crons.md', 'supabase/migrations/20260913180000_incidents_plateforme.sql'],
+  },
+  {
+    cle: 'sante_pgnet',
+    source: 'pgnet_sante',
+    titre: 'Les appels sortants de la base échouent (crons, notifications push)',
+    detection: 'alerte',
+    critique: true,
+    surveille:
+      'Les réponses HTTP reçues par pg_net sur les 6 dernières heures : les crons `send-pending-dm3`, `call-reminders`, `process-webhook-queue`, `sante-dispatch`, et les notifications push déclenchées par les messages. Au moins 3 échecs du même statut dans la fenêtre.',
+    signifie:
+      'Une cible appelée par la base répond en erreur. Les causes les plus probables, dans l’ordre : le secret des crons désaccordé entre le Vault (`push_webhook_secret`) et Vercel/Supabase (401), une route ou une fonction supprimée ou renommée (404), une fonction qui plante (500). ⚠️ Les délais dépassés sont volontairement exclus : pg_net cesse d’attendre à 5 s pendant que la fonction continue et termine son travail (28 cas bénins mesurés le 2026-09-13). ⚠️ pg_net ne garde ses réponses que ~6 h : cette alerte doit être traitée le jour même, la preuve disparaît ensuite.',
+    quoiFaire: [
+      '`select * from pgnet_sante;` puis `select id, status_code, left(content, 300), created from net._http_response where status_code >= 400 order by created desc limit 20;`',
+      '401 : comparer le secret du Vault à `CRON_SECRET` (Vercel ET secrets des Edge Functions). Procédure de rotation complète : `docs/transfert-de-compte.md` §5 bis.',
+      '404 : la liste fermée des cibles est dans `declencher_cron` (`select pg_get_functiondef(\'public.declencher_cron\'::regproc);`) — une URL a peut-être changé (domaine, nom du projet Vercel).',
+      '500 : chercher l’incident correspondant dans `select * from incidents order by derniere_le desc limit 10;`.',
+    ],
+    docs: ['docs/crons.md', 'docs/transfert-de-compte.md'],
+  },
+  {
+    cle: 'sante_versions_api',
+    source: 'versions_api_sante',
+    titre: 'Une version d’API utilisée par le code arrive à expiration',
+    detection: 'alerte',
+    surveille:
+      'Les versions de la Graph API Meta écrites dans le code (relevées à chaque build par `scripts/manifeste-versions-api.mjs`), croisées avec les dates d’expiration publiées par Meta (`versions_api_expirations`). Alerte à 90 jours.',
+    signifie:
+      'À expiration, Meta NE REFUSE PAS les appels : il les sert avec la plus ancienne version encore active, sans erreur (mesuré le 2026-09-13 : v19.0 demandée, v20.0 servie). Rien ne casse visiblement, mais une métrique peut disparaître ou changer de sens, et les statistiques Instagram deviennent fausses en silence. 90 jours laissent le temps de migrer les appels ET de refaire l’audit métrique par métrique.',
+    quoiFaire: [
+      '`select version, jours_restants, fichiers from versions_api_sante where etat like \'ALERTE%\';` — la colonne `fichiers` liste tous les endroits à changer.',
+      'Choisir la version cible dans https://developers.facebook.com/docs/graph-api/changelog/versions (la plus récente dont la date d’expiration est connue), lire son changelog pour les métriques Instagram retirées.',
+      'Remplacer la version dans TOUS les fichiers listés, Edge Functions comprises (redéploiement séparé : `npm run deployer-edge <nom>`).',
+      'Refaire l’audit des métriques Instagram (skill `audit-metrique-bout-en-bout`) : une métrique qui change de sens ne produit aucune erreur.',
+      'Quand Meta publie la date d’une nouvelle version, l’ajouter : `insert into versions_api_expirations values (\'meta-graph\', \'v26.0\', \'<date>\', \'<url>\', current_date);`',
+    ],
+    docs: ['scripts/manifeste-versions-api.mjs', 'docs/instagram-api-limitations.md'],
+  },
+  {
+    cle: 'sante_ig_donnees',
+    source: 'ig_sante_donnees',
+    titre: 'La collecte Instagram d’un élève est arrêtée depuis plus de deux jours',
+    detection: 'alerte',
+    surveille:
+      'Que la portée Instagram quotidienne de chaque élève connecté continue d’arriver dans `analytics_daily_snapshots`. Seuls deux états alertent : « collecte arrêtée » (plus de 2 jours sans donnée) et « intégration sans identifiant ».',
+    signifie:
+      'Les statistiques Instagram de cet élève sont figées. Si PLUSIEURS élèves sont touchés en même temps, la cause est presque toujours la plateforme et non l’élève — perte de l’accès avancé Meta sur `instagram_business_basic`, qui coupe tous les comptes sauf l’administrateur pendant que les jetons continuent de se rafraîchir. ⚠️ « intégration déconnectée » et « trous à rattraper » ne sont PAS des pannes : l’élève n’est pas branché, ou le cron rattrape de lui-même.',
+    quoiFaire: [
+      '`select * from ig_sante_donnees where etat like \'ALERTE%\';` — un seul élève ou plusieurs ?',
+      'Un seul : `select status, last_snapshot_error, expires_at from integrations where provider = \'instagram\' and profile_id = \'…\';`',
+      'Plusieurs : vérifier l’accès avancé dans le tableau de bord Meta de l’application, puis les incidents récents (`select * from incidents where titre ilike \'%graph%\' order by derniere_le desc;`).',
+    ],
+    docs: ['docs/instagram-api-limitations.md', 'docs/checklist-scalabilite.md'],
+  },
+  {
+    cle: 'sante_shortio_donnees',
+    source: 'shortio_sante_donnees',
+    titre: 'La collecte des clics Short.io d’un élève est arrêtée depuis plus de sept jours',
+    detection: 'alerte',
+    surveille:
+      'Que les clics par lien de chaque élève connecté continuent d’arriver (`shortio_link_daily_snapshots`). Alerte seulement au-delà de 7 jours sans écriture — la fenêtre au-delà de laquelle le cron ne rattrape plus de lui-même.',
+    signifie:
+      'Les clics de cet élève ne sont plus comptés, et les jours manquants ne seront PAS rattrapés automatiquement : le taux clic → call devient faux sur ses statistiques. ⚠️ `estIncidentPassager` (poll-leads) écarte volontairement les erreurs Short.io passagères de `cron_runs` en comptant sur CETTE vue pour voir une panne qui dure : sans elle dans les e-mails, une clé Short.io révoquée restait muette.',
+    quoiFaire: [
+      '`select * from shortio_sante_donnees where etat like \'ALERTE%\';`',
+      'Vérifier la clé Short.io de l’élève (`select status, last_snapshot_error from integrations where provider = \'shortio\' and profile_id = \'…\';`) et son domaine.',
+      'Pour rattraper au-delà de 7 jours : Edge Function `backfill-shortio`, à déclencher à la main.',
+    ],
+    docs: ['docs/shortio-api.md', 'supabase/functions/poll-leads/index.ts (estIncidentPassager)'],
+  },
 ];
+
+/**
+ * Ce qui identifie UNE anomalie d'une vue d'un passage à l'autre.
+ *
+ * On ne garde que des colonnes stables — nom, relation, identifiant de ligne, état —
+ * jamais un compteur ni une date, qui changent à chaque passage et feraient renvoyer
+ * le même e-mail toutes les heures. Un changement d'ÉTAT, lui, compte comme une
+ * anomalie nouvelle : un cron qui passe de « SILENCIEUX » à « cadence trop rapide »
+ * mérite son e-mail.
+ */
+const COLONNES_IDENTITE = [
+  'relation', 'nom', 'id', 'deal_id', 'call_id', 'payment_id', 'message_id', 'sujet',
+  'statut_inconnu', 'statut', 'source', 'fournisseur', 'version', 'profile_id', 'link_path', 'type',
+  'etat', 'anomalie',
+];
+
+function identiteAnomalie(ligne: Record<string, unknown>): string {
+  const parts = COLONNES_IDENTITE.filter((c) => c in ligne).map((c) => `${c}=${ligne[c] ?? ''}`);
+  return parts.length ? parts.join('|') : JSON.stringify(ligne);
+}
 
 function promptClaudeCode(s: Surveillance, nb: number): string {
   return [
@@ -544,12 +681,29 @@ export async function GET(request: Request) {
   // `poll-leads` l'appelle une fois par heure. La fenêtre de mensonge passe de 24 heures
   // à une heure, pour 24 appels très légers par jour au lieu d'un — pas de lecture de
   // vue, pas de Resend, pas de table d'alertes.
-  const manifesteSeulement = new URL(request.url).searchParams.get('manifeste') === '1';
+  const parametres = new URL(request.url).searchParams;
+  const manifesteSeulement = parametres.get('manifeste') === '1';
+  // `?critiques=1` : la lecture horaire de `/api/sante/dispatch`, restreinte aux vues
+  // marquées `critique`. Le passage du matin, sans paramètre, lit tout.
+  const critiquesSeulement = parametres.get('critiques') === '1';
 
-  const { data: dejaEnvoyees } = manifesteSeulement
-    ? { data: [] as { cle: string }[] }
-    : await supabase.from('alertes_plateforme').select('cle');
-  const envoyees = new Set((dejaEnvoyees ?? []).map((a: any) => a.cle));
+  // ⚠️ Tout ce qui empêche une alerte de partir est rendu dans `problemes`, avec un
+  // statut 500. Avant le 2026-09-13 cette route répondait 200 même quand une vue était
+  // illisible ou que Resend refusait, et `poll-leads` ne lisait pas la réponse : la
+  // surveillance pouvait se taire sans que personne le sache. Le répartiteur lit ce
+  // champ, et retient le battement externe tant qu'il n'est pas vide.
+  const problemes: string[] = [];
+
+  let envoyees = new Map<string, string[] | null>();
+  if (!manifesteSeulement) {
+    const { data: dejaEnvoyees, error: erreurLecture } = await supabase.from('alertes_plateforme').select('cle, identites');
+    if (erreurLecture) {
+      // Sans la mémoire des envois, chaque alerte en cours repartirait à chaque passage :
+      // on s'abstient d'envoyer plutôt que d'inonder, et on le dit.
+      return NextResponse.json({ ok: false, problemes: [`alertes_plateforme illisible : ${erreurLecture.message}`] }, { status: 500 });
+    }
+    envoyees = new Map((dejaEnvoyees ?? []).map((a: { cle: string; identites: string[] | null }) => [a.cle, a.identites]));
+  }
 
   const resultats: Record<string, string> = {};
   const aRearmer: string[] = [];
@@ -581,6 +735,7 @@ export async function GET(request: Request) {
     );
   if (erreurEmpreintes) {
     resultats['empreintes_edge'] = `inscription impossible: ${erreurEmpreintes.message}`;
+    problemes.push(`empreintes des Edge Functions non inscrites : ${erreurEmpreintes.message}`);
   }
 
   // ── La liste des migrations du dépôt, même pont et mêmes raisons ─────────────
@@ -610,6 +765,7 @@ export async function GET(request: Request) {
     );
   if (erreurMigrations) {
     resultats['migrations_depot'] = `inscription impossible: ${erreurMigrations.message}`;
+    problemes.push(`migrations du dépôt non inscrites : ${erreurMigrations.message}`);
   } else if (nomsDepot.length) {
     const { error: erreurMenage } = await supabase
       .from('migrations_du_depot')
@@ -617,6 +773,7 @@ export async function GET(request: Request) {
       .not('nom', 'in', `(${nomsDepot.join(',')})`);
     if (erreurMenage) {
       resultats['migrations_depot'] = `menage impossible: ${erreurMenage.message}`;
+      problemes.push(`ménage des migrations du dépôt impossible : ${erreurMenage.message}`);
     }
   }
 
@@ -627,10 +784,11 @@ export async function GET(request: Request) {
       empreintes: Object.keys(EMPREINTES_EDGE).length,
       migrations: MIGRATIONS_DEPOT.length,
       ...resultats,
-    });
+      problemes,
+    }, { status: problemes.length ? 500 : 200 });
   }
 
-  for (const s of SURVEILLANCES) {
+  for (const s of SURVEILLANCES.filter((x) => !critiquesSeulement || x.critique)) {
     const { data, error } = await supabase.from(s.source).select('*').limit(2000);
 
     // ⚠️ Une erreur de lecture ne doit PAS être traitée comme « aucune anomalie ».
@@ -639,10 +797,11 @@ export async function GET(request: Request) {
     // surtout pas la mémoire d'une alerte déjà envoyée.
     if (error) {
       resultats[s.cle] = `illisible: ${error.message}`;
+      problemes.push(`vue ${s.source} illisible : ${error.message}`);
       continue;
     }
 
-    const lignes = (data ?? []) as any[];
+    const lignes = (data ?? []) as Record<string, unknown>[];
     const anomalies = s.detection === 'toute_ligne'
       ? lignes
       : lignes.filter((l) => typeof l.etat === 'string' && (l.etat.startsWith('ALERTE') || l.etat.startsWith('SILENCIEUX')));
@@ -652,35 +811,76 @@ export async function GET(request: Request) {
       resultats[s.cle] = 'ok';
       continue;
     }
-    if (envoyees.has(s.cle)) { resultats[s.cle] = `deja_envoye (${anomalies.length})`; continue; }
 
-    const apercu = anomalies.slice(0, 5)
+    // ── Anti-répétition PAR LIGNE, et plus seulement par vue ─────────────────────
+    //
+    // Avant le 2026-09-13, une vue déjà en alerte ne renvoyait RIEN tant qu'elle
+    // n'était pas redevenue entièrement propre : un deuxième cron qui se tait pendant
+    // que le premier est encore silencieux ne produisait aucun e-mail. On retient
+    // désormais QUELLES lignes ont été signalées, et seules les nouvelles partent.
+    //
+    // ⚠️ Une clé déjà envoyée AVANT cette colonne (`identites` nulle) est considérée
+    // comme couvrant tout ce qu'on voit aujourd'hui : on inscrit l'état actuel sans
+    // renvoyer, sinon le premier passage après déploiement renverrait toutes les
+    // alertes déjà connues.
+    const identites = anomalies.map(identiteAnomalie);
+    const dejaSignalees = envoyees.get(s.cle);
+    if (envoyees.has(s.cle) && dejaSignalees == null) {
+      const { error: e } = await supabase.from('alertes_plateforme').update({ identites }).eq('cle', s.cle);
+      if (e) problemes.push(`alertes_plateforme (${s.cle}) : ${e.message}`);
+      resultats[s.cle] = `deja_envoye (${anomalies.length}, identites inscrites)`;
+      continue;
+    }
+    const connues = new Set(dejaSignalees ?? []);
+    const nouvelles = anomalies.filter((_, k) => !connues.has(identites[k]));
+    if (nouvelles.length === 0) {
+      // Rien de nouveau. On garde en mémoire la liste ACTUELLE : une ligne disparue puis
+      // revenue doit pouvoir repartir.
+      if (dejaSignalees && (dejaSignalees.length !== identites.length || dejaSignalees.some((x) => !identites.includes(x)))) {
+        const { error: e } = await supabase.from('alertes_plateforme').update({ identites }).eq('cle', s.cle);
+        if (e) problemes.push(`alertes_plateforme (${s.cle}) : ${e.message}`);
+      }
+      resultats[s.cle] = `deja_envoye (${anomalies.length})`;
+      continue;
+    }
+
+    const apercu = nouvelles.slice(0, 5)
       .map((l) => JSON.stringify(l, null, 1).replace(/[{}"]/g, '').trim())
-      .join('\n\n') + (anomalies.length > 5 ? `\n\n… et ${anomalies.length - 5} autre(s).` : '');
+      .join('\n\n') + (nouvelles.length > 5 ? `\n\n… et ${nouvelles.length - 5} autre(s).` : '')
+      + (nouvelles.length < anomalies.length ? `\n\n(${anomalies.length - nouvelles.length} autre(s) ligne(s) en alerte, déjà signalée(s) auparavant.)` : '');
 
     // Expéditeur et destinataire viennent de l'environnement (lib/alertesEmail.ts).
     // Écrits en dur ici, ils auraient laissé le repreneur sans aucune alerte.
-    const envoi = await envoyerAlerte(`Momentum — ${s.titre}`, corpsEmail(s, anomalies.length, apercu), 'technique');
+    const envoi = await envoyerAlerte(`Momentum — ${s.titre}`, corpsEmail(s, nouvelles.length, apercu), 'technique');
 
     // On n'inscrit la clé comme « envoyée » que si Resend a accepté. Sinon un échec
     // réseau condamnerait l'alerte au silence définitif.
     if (!envoi.envoye) {
       resultats[s.cle] = envoi.raison ?? 'envoi impossible';
+      problemes.push(`alerte ${s.cle} non envoyée : ${envoi.raison ?? 'envoi impossible'}`);
       continue;
     }
 
-    await supabase.from('alertes_plateforme').upsert({
+    const { error: erreurMemoire } = await supabase.from('alertes_plateforme').upsert({
       cle: s.cle,
       envoyee_le: new Date().toISOString(),
       contexte: `${s.source} : ${anomalies.length} ligne(s)`,
+      identites,
     }, { onConflict: 'cle' });
-    resultats[s.cle] = `envoye (${anomalies.length})`;
+    // ⚠️ Un e-mail parti mais non mémorisé repartirait au passage suivant, toutes les
+    // heures pour une vue critique. On le dit, pour que la cause soit corrigée.
+    if (erreurMemoire) problemes.push(`alerte ${s.cle} envoyée mais non mémorisée : ${erreurMemoire.message}`);
+    resultats[s.cle] = `envoye (${nouvelles.length} nouvelle(s) sur ${anomalies.length})`;
   }
 
   // Réarmement : la vue est redevenue propre, l'alerte pourra resservir.
   if (aRearmer.length) {
-    await supabase.from('alertes_plateforme').delete().in('cle', aRearmer);
+    const { error: erreurRearmement } = await supabase.from('alertes_plateforme').delete().in('cle', aRearmer);
+    if (erreurRearmement) problemes.push(`réarmement impossible : ${erreurRearmement.message}`);
   }
 
-  return NextResponse.json({ ok: true, resultats, rearmees: aRearmer });
+  return NextResponse.json(
+    { ok: problemes.length === 0, resultats, rearmees: aRearmer, problemes },
+    { status: problemes.length ? 500 : 200 },
+  );
 }

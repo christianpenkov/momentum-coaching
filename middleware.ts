@@ -1,42 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-// Log direct vers Supabase (pas d'appel à /api/client-log, pour ne pas dépendre
-// d'une autre route Next.js depuis le contexte Edge du middleware) — sert à
-// compter, côté SERVEUR, le nombre réel de requêtes de navigation document pour
-// /client à chaque ouverture d'app. Si le navigateur envoie bien 2 requêtes
-// séparées, ça confirme un vrai double chargement HTTP (pas un bug React côté
-// client) ; si une seule requête arrive ici mais qu'on voit 2 boots côté client,
-// le problème est isolé au rendu/hydratation, pas au réseau.
-function logNavigation(data: Record<string, unknown>) {
-  fetch(`${SUPABASE_URL}/rest/v1/webhook_debug_log`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      Prefer: 'return=minimal',
-    },
-    body: JSON.stringify({ message: '[MIDDLEWARE] navigation_request', data }),
-  }).catch(() => {});
-}
+// ⚠️ Un journal de navigation (`logNavigation`) vivait ici : une écriture dans
+// `webhook_debug_log` avec la clé ANON à chaque page ouverte, pour l'enquête sur le
+// double démarrage de l'app (close, voir components/AppBootstrap.tsx).
+// Retiré le 2026-09-13 : depuis le verrouillage RLS du 2026-09-02, la table n'a aucune
+// policy, donc CHAQUE écriture était refusée — 222 lignes jusqu'au 02/09 16:39, zéro
+// depuis — et son `.catch(() => {})` ne lisait pas le statut. Il ne journalisait donc
+// plus rien et coûtait une requête refusée par navigation, sur un quota d'egress qui se
+// paie au NOMBRE de requêtes (AGENTS.md). Ne pas le réintroduire avec la clé anon.
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-
-  if (request.headers.get('sec-fetch-dest') === 'document') {
-    logNavigation({
-      pathname,
-      method: request.method,
-      mode: request.headers.get('sec-fetch-mode'),
-      site: request.headers.get('sec-fetch-site'),
-      referer: request.headers.get('referer'),
-      ua: request.headers.get('user-agent'),
-    });
-  }
 
   const response = NextResponse.next({
     request: { headers: request.headers },

@@ -4,6 +4,7 @@
 // À déclencher une seule fois manuellement via Supabase Dashboard ou curl.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { servirAvecFilet } from '../_shared/incidents.ts';
 import { RateLimiter } from '../_shared/rate-limit.ts';
 import { createLinkCategoryResolver } from '../../../lib/shortio-link-category.ts';
 
@@ -64,7 +65,7 @@ async function fetchShortioLinksAllDomains(
   return all;
 }
 
-Deno.serve(async (req) => {
+Deno.serve(servirAvecFilet('backfill-shortio', async (req) => {
   // Auth
   const auth = req.headers.get('authorization') || '';
   if (auth !== `Bearer ${CRON_SECRET}`) {
@@ -174,4 +175,4 @@ Deno.serve(async (req) => {
   return new Response(JSON.stringify({ ok: true, results }), {
     headers: { 'Content-Type': 'application/json' },
   });
-});
+}));

@@ -34,7 +34,14 @@ export type IntegrationSante = {
   derniere_donnee: string | null;
   retard_jours: number | null;
   etat_collecte: string | null;
-  etat: 'non_connectee' | 'en_echec' | 'collecte_degradee' | 'ok';
+  // ⚠️ Le type doit porter TOUS les états que la vue peut rendre. Il n'en listait que
+  // quatre alors que `integrations_sante` rend aussi `erreur_api` et `collecte_arretee`
+  // (migration 20260901130746) : `BandeauIntegrations` indexait sa table de couleurs
+  // avec un état inconnu, obtenait `undefined`, et « Mes stats » plantait — précisément
+  // pendant une panne d'intégration, le seul moment où le bandeau sert. Corrigé le
+  // 2026-09-13. Avant d'ajouter un état dans la vue : `select distinct etat from
+  // integrations_sante;` et l'ajouter ici.
+  etat: 'non_connectee' | 'en_echec' | 'erreur_api' | 'collecte_arretee' | 'collecte_degradee' | 'ok';
 };
 
 export async function GET(request: NextRequest) {

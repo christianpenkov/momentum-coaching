@@ -8,6 +8,7 @@
 // reste vide tant que l'utilisateur ne clique pas lui-même sur Actualiser).
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { servirAvecFilet } from '../_shared/incidents.ts';
 import { getIgCreds, snapshotIgPosts } from '../_shared/ig-posts.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -35,7 +36,7 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-Deno.serve(async (req: Request) => {
+Deno.serve(servirAvecFilet('refresh-ig-posts', async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
   const jsonHeaders = { ...corsHeaders, 'Content-Type': 'application/json' };
@@ -89,4 +90,4 @@ Deno.serve(async (req: Request) => {
   console.log(`[refresh-ig-posts] profileId=${profileId} igAccountId=${creds.igAccountId} errors=${JSON.stringify(errors)}`);
 
   return new Response(JSON.stringify({ ok: errors.length === 0, errors }), { headers: jsonHeaders });
-});
+}));

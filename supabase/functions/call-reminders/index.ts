@@ -8,6 +8,7 @@
 //   npx supabase functions deploy call-reminders --no-verify-jwt
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { servirAvecFilet } from '../_shared/incidents.ts';
 
 // web-push via npm (Deno)
 import webpush from 'npm:web-push';
@@ -98,7 +99,7 @@ async function sendPushToProfile(
   return results.filter(r => r.livre).length;
 }
 
-Deno.serve(async (req: Request) => {
+Deno.serve(servirAvecFilet('call-reminders', async (req: Request) => {
   // Vérification du secret cron
   const authHeader = req.headers.get('authorization');
   const cronSecret = Deno.env.get('CRON_SECRET');
@@ -285,4 +286,4 @@ Deno.serve(async (req: Request) => {
   return new Response(JSON.stringify({ ok: true, sent, checked: calls.length }), {
     headers: { 'Content-Type': 'application/json' },
   });
-});
+}));

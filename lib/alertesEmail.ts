@@ -25,9 +25,12 @@
  * enverrait les alertes du repreneur à l'ancien propriétaire sans qu'aucun réglage ne
  * l'ait dit.
  *
- * Config absente ⇒ on N'ENVOIE PAS, et on dit pourquoi. L'alerte reste tracée en base
- * (`alertes_plateforme`), donc l'information n'est pas perdue — seul son acheminement
- * l'est, et ça se lit dans la réponse de la route.
+ * Config absente ⇒ on N'ENVOIE PAS, et on dit pourquoi dans la réponse de la route.
+ * ⚠️ Corrigé le 2026-09-13 : ce commentaire affirmait que l'alerte « reste tracée dans
+ * `alertes_plateforme` ». C'était faux — la clé n'y est inscrite QU'APRÈS un envoi
+ * réussi, précisément pour que l'alerte reparte au passage suivant. Ce qui rend
+ * désormais un canal cassé visible, c'est `sonderCanalAlerte()` ci-dessous et le
+ * battement externe de `/api/sante/dispatch`.
  *
  * ⚠️ Corollaire à tenir : poser les variables sur Vercel AVANT de déployer ce module,
  * sinon les alertes se taisent le temps d'un déploiement.
@@ -95,4 +98,68 @@ export async function envoyerAlerte(
   } catch (e) {
     return { envoye: false, raison: `Resend injoignable — ${e instanceof Error ? e.message : String(e)}` };
   }
+}
+
+/**
+ * Le canal d'alerte fonctionne-t-il ENCORE ? Rend `null` si oui, la raison sinon.
+ *
+ * ── Pourquoi une sonde ─────────────────────────────────────────────────────────────
+ *
+ * Une clé Resend révoquée, un domaine qui perd sa vérification, un quota épuisé : dans
+ * les trois cas, TOUTES les alertes se taisent, et on ne l'apprend qu'au moment où l'une
+ * d'elles devait partir — c'est-à-dire trop tard. Relevé par l'audit du 2026-09-13 : un
+ * échec d'envoi n'était écrit nulle part.
+ *
+ * La sonde envoie donc un vrai e-mail, une fois par jour, à l'adresse de test officielle
+ * `delivered@resend.dev` (resend.com/docs/dashboard/emails/send-test-emails) : il ne
+ * sort pas de chez Resend, mais il exerce la clé, l'expéditeur et le quota exactement
+ * comme une alerte. Il compte dans le quota (1/jour sur 100).
+ *
+ * ⚠️ La doc ne dit pas si cette adresse exige un domaine VÉRIFIÉ. On lit donc aussi
+ * l'état du domaine quand la clé y a accès (`GET /domains`). Une clé « envoi seulement »
+ * y répond 401/403 : ce n'est pas une panne, la sonde d'envoi reste alors le seul signal.
+ *
+ * Qui prévient si la sonde échoue ? Pas Resend, par construction : c'est le battement
+ * externe (`/api/sante/dispatch` → healthchecks.io), qui cesse d'être envoyé.
+ */
+export async function sonderCanalAlerte(): Promise<string | null> {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) return 'RESEND_API_KEY manquant';
+  const expediteur = process.env.ALERTES_EMAIL_EXPEDITEUR;
+  if (!expediteur) return 'ALERTES_EMAIL_EXPEDITEUR manquant';
+  if (!process.env.ALERTES_EMAIL_TECHNIQUE) return 'ALERTES_EMAIL_TECHNIQUE manquant';
+
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        from: expediteur,
+        to: 'delivered@resend.dev',
+        subject: 'Momentum — sonde quotidienne du canal d’alerte',
+        html: '<p>Envoi automatique de contrôle. Il ne quitte pas Resend.</p>',
+      }),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      return `Resend refuse l’envoi (HTTP ${res.status}${detail ? ` — ${detail.slice(0, 300)}` : ''})`;
+    }
+  } catch (e) {
+    return `Resend injoignable — ${e instanceof Error ? e.message : String(e)}`;
+  }
+
+  try {
+    const domaine = expediteur.match(/@([^>\s]+)/)?.[1]?.toLowerCase();
+    if (!domaine) return null;
+    const res = await fetch('https://api.resend.com/domains', { headers: { authorization: `Bearer ${apiKey}` } });
+    if (!res.ok) return null; // clé « envoi seulement » : pas une panne
+    const json = await res.json() as { data?: { name?: string; status?: string }[] };
+    const d = (json.data ?? []).find((x) => x.name?.toLowerCase() === domaine);
+    if (d && d.status && d.status !== 'verified') {
+      return `Le domaine d’envoi ${domaine} n’est plus vérifié chez Resend (statut : ${d.status}) — les alertes vers une autre adresse que celle du compte sont refusées`;
+    }
+  } catch {
+    // Lecture de l'état du domaine impossible : l'envoi a réussi, on ne conclut rien de plus.
+  }
+  return null;
 }
