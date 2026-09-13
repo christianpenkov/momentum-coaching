@@ -51,7 +51,9 @@ export async function GET() {
       // calendly_event_uuid + next_rescheduled_uri : servent à relier un call
       // reprogrammé à celui qui le remplace, pour n'afficher qu'UNE carte par
       // prospect (voir le chaînage dans PagePipeline).
-      .select('id, invitee_name, invitee_email, scheduled_at, booked_at, status, no_show, no_show_at, deal_closed, revenue, outcome, source, ig_lead_id, prospect_id, utm_content, utm_medium, utm_campaign, short_link_path, created_at, rescheduled, rescheduled_at, cancellation_reason, lead_deleted, is_follow_up, lead_rapport_comment, qualified, calendly_event_uuid, next_rescheduled_uri, canceled_at, canceled_by, fathom_share_url, objection, objection_autre, relance_at')
+      // prospect_link_id : repli d'attribution d'un call à son contenu quand utm_content
+      // manque (`contenuConversion`), lu par « N calls bookés depuis ce contenu ».
+      .select('id, invitee_name, invitee_email, scheduled_at, booked_at, status, no_show, no_show_at, deal_closed, revenue, outcome, source, ig_lead_id, prospect_id, prospect_link_id, utm_content, utm_medium, utm_campaign, short_link_path, created_at, rescheduled, rescheduled_at, cancellation_reason, lead_deleted, is_follow_up, lead_rapport_comment, qualified, calendly_event_uuid, next_rescheduled_uri, canceled_at, canceled_by, fathom_share_url, objection, objection_autre, relance_at')
       .eq('coach_id', user.id)
       .in('call_type', CALL_TYPES_VENTE)
       .neq('ignored', true)

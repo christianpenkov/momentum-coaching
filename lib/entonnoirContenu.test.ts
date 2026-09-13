@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   compterLeadsDuContenu, compterConversationsDuContenu, compterCallsBookesDuContenu,
-  SOURCES_CONTENU_DIRECT,
-  type LeadEntonnoir, type CallEntonnoir, type CallBookeEntonnoir,
+  callsBookesParContenu, SOURCES_CONTENU_DIRECT,
+  type LeadEntonnoir, type CallEntonnoir, type CallBookeEntonnoir, type CallBookeParContenu,
 } from './entonnoirContenu.ts';
+import { SANS_CONTENU } from './attribution-roles.ts';
 import { computeSalesCallStats } from './salesCallStats.ts';
 
 // Relevé sur le profil de test le 2026-09-07 : 4 leads `comment`, 3 `cold_dm`,
@@ -189,4 +190,72 @@ test("même nombre que l'accueil (computeSalesCallStats)", () => {
   ];
   const accueil = computeSalesCallStats(calls as any, new Date('2026-09-13T12:00:00Z')).callsBookedCount;
   assert.equal(compterCallsBookesDuContenu(calls).total, accueil);
+});
+
+// ── « N calls bookés depuis ce contenu » ─────────────────────────────────────
+
+const POST = 'POST_A';
+const AUTRE = 'POST_B';
+const rdvC = (o: Partial<CallBookeParContenu> & { id: string }): CallBookeParContenu =>
+  ({ status: 'active', source: 'ig_description', outcome: null, ...o });
+const aucunJournal = new Map();
+const aucunLien = new Map<string, string>();
+
+test('par contenu : le 2e call ne recrédite pas le contenu', () => {
+  // Le 2e rendez-vous hérite du utm_content de son parent.
+  const calls = [
+    rdvC({ id: 'C1', utm_content: POST, invitee_email: 'a@x.com', booked_at: '2026-09-01T10:00:00Z', outcome: 'second_call' }),
+    rdvC({ id: 'C2', utm_content: POST, invitee_email: 'a@x.com', booked_at: '2026-09-05T10:00:00Z' }),
+  ];
+  assert.equal(callsBookesParContenu(calls, aucunJournal, aucunLien).get(POST), 1);
+});
+
+test('par contenu : une personne qui rebooke après un call perdu compte deux fois', () => {
+  // L'ancien compteur (personnes ayant un `call_booked`) donnait 1.
+  const calls = [
+    rdvC({ id: 'C1', utm_content: POST, invitee_email: 'a@x.com', booked_at: '2026-06-01T10:00:00Z', outcome: 'lost' }),
+    rdvC({ id: 'C2', utm_content: POST, invitee_email: 'a@x.com', booked_at: '2026-09-05T10:00:00Z' }),
+  ];
+  assert.equal(callsBookesParContenu(calls, aucunJournal, aucunLien).get(POST), 2);
+});
+
+test('par contenu : le lien personnel du DM est crédité au dernier lead magnet pris', () => {
+  // Le lien `prendre-rdv-<pseudo>` porte le contenu du jour où il a été gravé, pas
+  // celui qui a fait réserver : c'est le journal qui tranche, comme dans Mes stats.
+  const journal = new Map([['L1', [
+    { media_id: AUTRE, detected_at: '2026-07-05T10:00:00Z', lead_magnet_sent: true, ig_user_id: 'u1' },
+    { media_id: POST, detected_at: '2026-07-06T10:00:00Z', lead_magnet_sent: true, ig_user_id: 'u1' },
+  ]]]);
+  const calls = [rdvC({ id: 'C1', source: 'ig_dm', utm_medium: 'dm', utm_content: AUTRE, ig_lead_id: 'L1', invitee_email: 'a@x.com', booked_at: '2026-07-08T10:00:00Z' })];
+  const r = callsBookesParContenu(calls, journal, aucunLien);
+  assert.equal(r.get(POST), 1);
+  assert.equal(r.get(AUTRE), undefined);
+});
+
+test('par contenu : repli sur le contenu du lien prospect quand utm_content manque', () => {
+  const calls = [rdvC({ id: 'C1', source: 'ig_dm', prospect_link_id: 'PL1', invitee_email: 'a@x.com', booked_at: '2026-08-15T10:00:00Z' })];
+  assert.equal(callsBookesParContenu(calls, aucunJournal, new Map([['PL1', POST]])).get(POST), 1);
+});
+
+test('par contenu : un annulé ne crédite rien, un lien de bio va hors contenu', () => {
+  const calls = [
+    rdvC({ id: 'C1', utm_content: POST, invitee_email: 'a@x.com', status: 'canceled', booked_at: '2026-09-01T10:00:00Z' }),
+    rdvC({ id: 'C2', source: 'ig_bio', invitee_email: 'b@x.com', booked_at: '2026-09-02T10:00:00Z' }),
+  ];
+  const r = callsBookesParContenu(calls, aucunJournal, aucunLien);
+  assert.equal(r.get(POST), undefined);
+  assert.equal(r.get(SANS_CONTENU), 1);
+});
+
+test("par contenu : la somme des crédits égale le total de l'entonnoir", () => {
+  // L'invariant qui tient ensemble les deux compteurs de la page.
+  const calls = [
+    rdvC({ id: 'C1', utm_content: POST, invitee_email: 'a@x.com', booked_at: '2026-09-01T10:00:00Z', outcome: 'second_call' }),
+    rdvC({ id: 'C2', utm_content: POST, invitee_email: 'a@x.com', booked_at: '2026-09-05T10:00:00Z' }),
+    rdvC({ id: 'C3', utm_content: AUTRE, invitee_email: 'b@x.com', booked_at: '2026-09-02T10:00:00Z' }),
+    rdvC({ id: 'C4', source: 'ig_bio', invitee_name: 'Paul', booked_at: '2026-09-03T10:00:00Z' }),
+    rdvC({ id: 'C5', utm_content: AUTRE, invitee_email: 'c@x.com', booked_at: '2026-09-03T10:00:00Z', status: 'canceled' }),
+  ];
+  const credits = [...callsBookesParContenu(calls, aucunJournal, aucunLien).values()].reduce((s, n) => s + n, 0);
+  assert.equal(credits, compterCallsBookesDuContenu(calls).total);
 });

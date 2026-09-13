@@ -147,9 +147,14 @@ côté du taux.
 
 Écrans alignés : accueil élève (`useCoachData`), fiche client et accueil coach
 (`computeSalesCallStats`), « Mes stats », séquences de stories
-(`story-sequences-stats`), et l'entonnoir de « Gérer mes liens »
-(`compterCallsBookesDuContenu`, aligné le 2026-09-13 — il comptait encore les
-rendez-vous : 18 contre 17 sur le profil de test).
+(`story-sequences-stats`), et « Gérer mes liens », alignée le 2026-09-13 :
+- l'entonnoir « Du contenu à l'appel » (`compterCallsBookesDuContenu`) comptait encore
+  les rendez-vous — 18 contre 17 sur le profil de test ;
+- « N calls bookés depuis ce contenu » (`callsBookesParContenu`) comptait des
+  PERSONNES ayant un `call_booked` parmi les preneurs du lead magnet : il ignorait les
+  rendez-vous pris depuis la description du post. Il applique désormais
+  `conversionParContenu`, la règle de « Performance par contenu » de Mes stats, et un
+  test tient l'invariant « somme des crédits = total de l'entonnoir ».
 
 ---
 

@@ -11,7 +11,7 @@ import { createClient } from '@/lib/supabase/client';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import ModalShell from '@/components/ui/ModalShell';
 import { useIsMobile, isMobileViewport } from '@/lib/useIsMobile';
-import { compterLeadsDuContenu, compterConversationsDuContenu, compterCallsBookesDuContenu } from '@/lib/entonnoirContenu';
+import { compterLeadsDuContenu, compterConversationsDuContenu, compterCallsBookesDuContenu, callsBookesParContenu } from '@/lib/entonnoirContenu';
 import { refusSequence } from '@/lib/sequenceDm';
 import { personnesParContenu } from '@/lib/attribution-roles';
 import { SOURCE_DM_ENTRANT, SOURCE_DM_SORTANT } from '@/lib/canalDm';
@@ -2124,15 +2124,32 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
         .map(e => e.ig_lead_id)
     );
 
-    const calls = new Set(
-      events
-        .filter(e => e.event_type === 'call_booked' && idsDuContenu.has(e.ig_lead_id))
-        .map(e => e.ig_lead_id)
+    // Des OPPORTUNITÉS créditées à ce contenu, par la règle de « Performance par
+    // contenu » de Mes stats — pas des personnes ayant un `call_booked`. L'ancien
+    // compteur comptait une fois quelqu'un qui rebooke après un call perdu, et
+    // ignorait un rendez-vous pris depuis la description du post. La règle vit
+    // dans `lib/entonnoirContenu`, avec ses tests.
+    const journalParFiche = new Map<string, any[]>();
+    const ficheParPersonne = new Map<string, string>(
+      leads.filter(l => l.ig_user_id && l.id).map(l => [l.ig_user_id, l.id]),
     );
+    for (const h of lmHistory) {
+      const fiche = h.ig_user_id ? ficheParPersonne.get(h.ig_user_id) : undefined;
+      if (!fiche) continue;
+      const liste = journalParFiche.get(fiche);
+      if (liste) liste.push(h); else journalParFiche.set(fiche, [h]);
+    }
+    const contenuDuLien = new Map<string, string>(
+      (pipelineData?.prospects ?? [])
+        .filter((pl: any) => pl?.id && pl?.content_id)
+        .map((pl: any) => [String(pl.id), String(pl.content_id)]),
+    );
+    const calls = callsBookesParContenu(pipelineData?.calls ?? [], journalParFiche, contenuDuLien)
+      .get(post.id) ?? 0;
 
     return {
       commentaires, dm2Recus, dm2Mesure, premierAppui, clics: cliqueurs.size, conversations,
-      calls: calls.size,
+      calls,
       pret: !!pipelineData,
     };
   }, [pipelineData, post.id, post.lmShortUrl]);

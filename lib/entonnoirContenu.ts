@@ -23,6 +23,7 @@
 import { canalDuDm } from './canalDm.ts';
 import { idsDeContinuation } from './callSeries.ts';
 import { isNotCanceled } from './salesCallStats.ts';
+import { conversionParContenu, type CallPourConversion, type PriseDeLeadMagnet } from './attribution-roles.ts';
 
 /**
  * Les sources de `calls` qui désignent un rendez-vous pris depuis un contenu,
@@ -150,4 +151,54 @@ export function compterCallsBookesDuContenu(calls: CallBookeEntonnoir[]): {
   // `ig_lead_id` sur des rendez-vous venus d'une bio (voir PageLiens).
   const viaDm = opportunites.filter(c => c.source === 'ig_dm').length;
   return { total: opportunites.length, viaDm, directs: opportunites.length - viaDm };
+}
+
+export interface CallBookeParContenu extends CallBookeEntonnoir {
+  utm_content?: string | null;
+  utm_medium?: string | null;
+  prospect_link_id?: string | null;
+}
+
+/**
+ * « N calls bookés depuis ce contenu » : les OPPORTUNITÉS créditées à chaque contenu.
+ *
+ * Même règle que la colonne « Calls » de « Performance par contenu » dans Mes stats :
+ * `conversionParContenu`, appelée et jamais recopiée — `utm_content`, repli sur le
+ * contenu du lien prospect, et le journal des lead magnets pour le lien personnel du DM.
+ *
+ * Jusqu'au 2026-09-13 le volet d'un post comptait des PERSONNES ayant un événement
+ * `call_booked` parmi ses preneurs de lead magnet : une personne qui rebooke après un
+ * call perdu comptait une fois, et un rendez-vous pris depuis la description du post
+ * n'y comptait pas du tout.
+ *
+ * ⚠️ `calls` = le jeu COMPLET du coach, pour l'appariement des continuations.
+ *
+ * @param journalParFiche  id de fiche `instagram_leads` → prises de lead magnet de la personne
+ * @param contenuDuLien    id de `prospect_links` → `content_id`
+ */
+export function callsBookesParContenu(
+  calls: CallBookeParContenu[],
+  journalParFiche: ReadonlyMap<string, PriseDeLeadMagnet[]>,
+  contenuDuLien: ReadonlyMap<string, string>,
+): Map<string, number> {
+  const continuations = idsDeContinuation(calls.filter(isNotCanceled));
+  const ficheDuCall = new Map<string, string | null>();
+  const actifs: CallPourConversion[] = calls
+    .filter(c => c.status === 'active')
+    .map(c => {
+      ficheDuCall.set(c.id, c.ig_lead_id ?? null);
+      return {
+        id: c.id,
+        utm_content: c.utm_content,
+        utm_medium: c.utm_medium,
+        source: c.source,
+        booked_at: c.booked_at,
+        scheduled_at: c.scheduled_at,
+        prospect_link_content_id: c.prospect_link_id ? contenuDuLien.get(c.prospect_link_id) ?? null : null,
+      };
+    });
+  return conversionParContenu(actifs, continuations, call => {
+    const fiche = call.id ? ficheDuCall.get(call.id) : null;
+    return (fiche && journalParFiche.get(fiche)) || [];
+  });
 }
