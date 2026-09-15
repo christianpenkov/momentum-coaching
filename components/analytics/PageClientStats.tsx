@@ -6995,7 +6995,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const [selectedContentId, setSelectedContentId] = useState<string | null>(null);
   // Tableau contenu : tri
   type SortKey = 'clicsDesc' | 'lmDetectes' | 'lmClics' | 'lmReponses' | 'dmCount' | 'callsBooked' | 'callsHonored' | 'qualifiedPct' | 'closed' | 'revenue' | 'vuesParCall' | 'cashParVue' | 'views';
-  const [sortKey, setSortKey] = useState<SortKey>('callsBooked');
+  // Revenus d'abord : c'est la question que se pose l'élève en ouvrant l'onglet.
+  const [sortKey, setSortKey] = useState<SortKey>('revenue');
   const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc');
   // Tableau breakdown par source : tri
   type BdSortKey = 'default' | 'clics' | 'booked' | 'honored' | 'closed' | 'revenue';
@@ -7020,7 +7021,9 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // affiche, et ce qui est affiche differe.
   const [parcoursRecherche, setParcoursRecherche] = useState('');
   const [parcoursFiltres, setParcoursFiltres] = useState<Set<string>>(new Set());
-  const [parcoursTri, setParcoursTri] = useState('callsBookes');
+  // Revenus d'abord, comme « Ce que fait chaque contenu ». La colonne existe dans les
+  // trois angles (contenu Instagram, lead magnet, YouTube) : le défaut est toujours valide.
+  const [parcoursTri, setParcoursTri] = useState('revenue');
   const [parcoursTriDir, setParcoursTriDir] = useState<'desc' | 'asc'>('desc');
   // Le groupe « Engagement du DM1 » est REPLIE par defaut.
   //
@@ -9302,7 +9305,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
              ['calendlyEnvoyes', 'Calendly envoyés', 'min. 1 Calendly envoyé'],
              ...FIN_DE_CHAINE];
 
-        // Le tri par defaut peut ne pas exister sur l'angle courant : `callsBookes` existe
+        // Le tri par defaut peut ne pas exister sur l'angle courant : `revenue` existe
         // partout, mais un tri choisi sur Instagram puis un passage sur YouTube pourrait
         // pointer une colonne absente. On retombe alors sur la premiere colonne offerte,
         // plutot que de trier sur une valeur toujours nulle sans que rien ne le dise.
@@ -9318,10 +9321,17 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           .sort((a, b) => {
             const av = valeurParcours(a, triParcoursValide);
             const bv = valeurParcours(b, triParcoursValide);
-            // Departage stable par les commentaires : sans lui, deux lignes a egalite
-            // changeaient d'ordre d'un rendu a l'autre.
+            // Departage : calls bookes, puis commentaires, puis la cle elle-meme. Sans
+            // lui, deux lignes a egalite changeaient d'ordre d'un rendu a l'autre.
+            //
+            // ⚠️ Les calls passent AVANT les commentaires depuis que le tri par defaut est
+            // le revenu : la plupart des lignes sont a 0 €, et sur YouTube les commentaires
+            // valent tous 0 — le departage ne departageait plus rien. La cle finale rend
+            // l'ordre entierement deterministe.
             return (parcoursTriDir === 'desc' ? bv - av : av - bv)
-              || (b.l.commentairesLm - a.l.commentairesLm);
+              || (b.l.callsBookes - a.l.callsBookes)
+              || (b.l.commentairesLm - a.l.commentairesLm)
+              || a.cle.localeCompare(b.cle);
           });
 
         const thP: React.CSSProperties = { textAlign: 'right', fontSize: 9.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', padding: '6px 9px 9px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', verticalAlign: 'bottom' };
@@ -9849,7 +9859,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             .sort((a, b) => {
               const av = (a[sortKey as keyof typeof a] as number) || 0;
               const bv = (b[sortKey as keyof typeof b] as number) || 0;
-              return sortDir === 'desc' ? bv - av : av - bv;
+              // Départage par les calls bookés, puis par l'ordre d'arrivée (les vues).
+              //
+              // ⚠️ Il n'y en avait aucun, et le tri par revenus le rend indispensable :
+              // seules les six premières cartes s'affichent, et la plupart des contenus
+              // sont à 0 €. Sans départage, les places restantes revenaient aux contenus
+              // les plus VUS plutôt qu'à ceux qui ont déclenché des rendez-vous.
+              return (sortDir === 'desc' ? bv - av : av - bv)
+                || (b.callsBooked - a.callsBooked);
             })
             ;
           // Six cartes suffisent a l'usage courant ; les autres se deplient sur demande,
