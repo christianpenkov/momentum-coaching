@@ -254,3 +254,54 @@ export function sourceDuLead(
     default:            return null;
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lire un fil Instagram pour détecter un Cold DM
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** La forme utile de `GET /{compte}/conversations?user_id=…&fields=participants,messages.limit(3){from}`. */
+export interface FilGraph {
+  participants?: { data?: { id?: string; username?: string }[] };
+  messages?: { data?: { from?: { id?: string } }[]; paging?: { next?: string } };
+}
+
+/**
+ * Le pseudo de l'interlocuteur, et si c'est NOUS qui avons ouvert la conversation.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ POURQUOI PAR LE FIL ET PAS PAR LE PROFIL (mesuré le 2026-09-17)           │
+ * │                                                                           │
+ * │ `GET /{ig_user_id}?fields=username` répond, pour quelqu'un qui ne nous a  │
+ * │ jamais écrit : « User consent is required to access user profile »       │
+ * │ (code 230). Or un Cold DM, par définition, part vers quelqu'un qui ne     │
+ * │ nous a jamais écrit. La détection s'arrêtait donc en silence sur « pas de │
+ * │ pseudo », et 18 conversations sur 19 envoyées ce jour-là n'ont jamais eu  │
+ * │ de lead — donc jamais d'affichage.                                        │
+ * │                                                                           │
+ * │ Les PARTICIPANTS d'une conversation, eux, portent le pseudo sans exiger   │
+ * │ ce consentement. Vérifié sur les mêmes destinataires, le même jeton.      │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * ⚠️ « Premier contact sortant » ne lisait plus rien : l'ancien filtre demandait
+ * `message_count`, un champ que Meta IGNORE sans erreur — la réponse revient sans
+ * lui, `?? 0` le lisait comme zéro, et le filtre laissait tout passer. On lit
+ * donc les messages eux-mêmes : Cold DM si aucun ne vient de l'interlocuteur et
+ * qu'il n'y en a pas au-delà de la première page. Une personne qui nous a déjà
+ * écrit n'est pas un Cold DM, même si c'est nous qui relançons.
+ *
+ * ⚠️ On compare à l'identifiant de l'INTERLOCUTEUR, jamais à celui du compte :
+ * le compte apparaît sous plusieurs formes selon l'appel (voir `estLeCompte`),
+ * l'interlocuteur sous une seule — celle du webhook.
+ */
+export function lireFilPourColdDm(
+  fil: FilGraph | null | undefined,
+  peerId: string,
+): { pseudo: string | null; premierContactSortant: boolean } {
+  const pseudo = fil?.participants?.data?.find(p => p?.id === peerId)?.username || null;
+  const messages = fil?.messages?.data ?? [];
+  const premierContactSortant =
+    messages.length > 0 &&
+    !fil?.messages?.paging?.next &&
+    messages.every(m => m?.from?.id !== peerId);
+  return { pseudo, premierContactSortant };
+}

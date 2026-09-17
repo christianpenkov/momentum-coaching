@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   estLeCompte, estSortant, interlocuteur, typePieceJointe, lienDiscussion, estSuppression,
-  sourceDuLead,
+  sourceDuLead, lireFilPourColdDm,
 } from './igConversations.ts';
 
 // Lancé par `npm test` (node --test, sans aucune dépendance à installer).
@@ -264,4 +264,43 @@ test('les pastilles restent celles du pipeline, sinon deux codes couleur cohabit
     assert.ok(ligne!.includes(couleur),
       `la pastille ${source} (${couleur}) ne correspond plus à l'étape ${etape} du pipeline`);
   }
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// lireFilPourColdDm — réponses RÉELLES de Meta, relevées le 2026-09-17
+// ─────────────────────────────────────────────────────────────────────────────
+
+const COMPTE_COACH = '17841471827547821';
+const DESTINATAIRE = '830433213045211';
+
+test('lireFilPourColdDm prend le pseudo dans les participants, pas dans le profil', () => {
+  const fil = {
+    participants: { data: [{ username: 'christian_penkov', id: COMPTE_COACH }, { username: 'gaelcreates', id: DESTINATAIRE }] },
+    messages: { data: [{ from: { id: COMPTE_COACH } }] },
+  };
+  assert.deepEqual(lireFilPourColdDm(fil, DESTINATAIRE), { pseudo: 'gaelcreates', premierContactSortant: true });
+});
+
+test('lireFilPourColdDm : une personne qui a déjà écrit n’est pas un Cold DM', () => {
+  const fil = {
+    participants: { data: [{ username: 'gaelcreates', id: DESTINATAIRE }] },
+    messages: { data: [{ from: { id: COMPTE_COACH } }, { from: { id: DESTINATAIRE } }] },
+  };
+  assert.equal(lireFilPourColdDm(fil, DESTINATAIRE).premierContactSortant, false);
+});
+
+test('lireFilPourColdDm : un fil plus long qu’une page n’est pas un premier contact', () => {
+  const fil = {
+    participants: { data: [{ username: 'gaelcreates', id: DESTINATAIRE }] },
+    messages: { data: [{ from: { id: COMPTE_COACH } }], paging: { next: 'https://…' } },
+  };
+  assert.equal(lireFilPourColdDm(fil, DESTINATAIRE).premierContactSortant, false);
+});
+
+test('lireFilPourColdDm : sans messages ni participants, rien n’est affirmé', () => {
+  // ⚠️ Un fil illisible ne doit JAMAIS produire un Cold DM : ce serait créer un
+  // lead sur une réponse vide.
+  assert.deepEqual(lireFilPourColdDm(null, DESTINATAIRE), { pseudo: null, premierContactSortant: false });
+  assert.deepEqual(lireFilPourColdDm({}, DESTINATAIRE), { pseudo: null, premierContactSortant: false });
 });

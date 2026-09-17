@@ -22,8 +22,17 @@
 // d'appariement. Vérifié le 2026-09-05 : les mêmes identifiants échouent avec
 // un jeton étranger et réussissent avec le bon.
 //
-// Et ça marche aussi bien pour un COLD DM que pour un commentaire : la personne
-// n'a pas besoin de nous avoir répondu.
+// ⚠️ CETTE PHRASE ÉTAIT FAUSSE, corrigée le 2026-09-17. Elle disait que la photo
+// s'obtenait pour un COLD DM « sans que la personne ait répondu ». Mesuré sur trois
+// destinataires qui ne nous avaient jamais écrit : `profile_pic` répond « User
+// consent is required to access user profile » (code 230). Le test d'origine avait
+// dû porter sur quelqu'un qui avait déjà interagi avec le compte.
+//
+// Conséquence : un lead Cold DM naît SANS photo, et c'est normal. Elle arrive au
+// premier message qu'il nous envoie — `enregistrer_message_ig` rend alors
+// `lead_sans_photo`, et le webhook la rattrape (voir `rattraperPhotoLead`). Le
+// PSEUDO, lui, ne dépend pas de ce consentement : il se lit dans les participants
+// de la conversation (`lireFilPourColdDm`).
 //
 // ── SANS IMPORT, VOLONTAIREMENT ──────────────────────────────────────────────
 //

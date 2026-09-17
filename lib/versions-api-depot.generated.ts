@@ -27,7 +27,7 @@ export const VERSIONS_API_DEPOT: { fournisseur: string; version: string; occurre
   {
     "fournisseur": "meta-graph",
     "version": "v22.0",
-    "occurrences": 68,
+    "occurrences": 66,
     "fichiers": [
       "app/api/client/stories/live-refresh/route.ts",
       "app/api/instagram/debug/route.ts",

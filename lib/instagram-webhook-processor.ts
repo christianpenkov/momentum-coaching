@@ -22,7 +22,7 @@ import { rattraperPhotoLead } from './instagram-avatar';
 import { ORIGINE_DM_ENTRANT } from './origineLead';
 import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import { pushEvent } from '@/app/api/instagram/webhook-stream/route';
-import { estSortant, estLeCompte, typePieceJointe, estSuppression } from '@/lib/igConversations';
+import { estSortant, estLeCompte, typePieceJointe, estSuppression, lireFilPourColdDm } from '@/lib/igConversations';
 import { envoiInstagramRefuse } from '@/lib/notifications';
 
 const serviceSupabase = createClient(
@@ -407,11 +407,11 @@ async function enregistrerPourLeCoach(
     // seule fois par fil, puis on rappelle la même fonction : le message est
     // absorbé par le `on conflict`, seule la conversation reçoit le pseudo.
     // Un seul chemin de code, et aucun `update` séparé à maintenir.
-    const r = await fetch(
-      `https://graph.instagram.com/v22.0/${peerId}?fields=username&access_token=${accessToken}`
-    );
-    const j = await r.json();
-    const username: string | undefined = j?.username;
+    // ⚠️ Par la conversation, pas par le profil : le profil refuse le pseudo de
+    // quiconque ne nous a pas encore écrit (erreur 230) — donc de toute personne
+    // à qui l'on vient d'envoyer un premier message.
+    const fil = await lireFilInstagram(igAccountId, peerId, accessToken);
+    const username = fil?.pseudo;
     if (!username) return;
     await serviceSupabase.rpc('enregistrer_message_ig', { ...args, p_peer_username: username });
   } catch (e: any) {
@@ -654,6 +654,29 @@ async function enregistrerRelanceSiClasse(pid: string, recipientIgUserId: string
 //     seul message avant de créer la fiche — filtre anti-faux-positif (évite de
 //     tracker un message à un ami/autre coach), couvre aussi le cas d'une
 //     conversation ancienne antérieure au tracking, invisible en interne.
+/**
+ * Lit la conversation avec une personne : ses participants (donc son pseudo) et
+ * ses premiers messages (donc qui a écrit en premier). UN appel pour les deux.
+ *
+ * ⚠️ Par la conversation, jamais par le profil : `/{ig_user_id}?fields=username`
+ * exige que la personne nous ait déjà écrit (erreur 230), ce qu'un Cold DM exclut
+ * par définition. Voir `lireFilPourColdDm`.
+ *
+ * `null` sur tout échec : l'appelant n'affirme alors rien.
+ */
+async function lireFilInstagram(compteId: string, peerId: string, token: string) {
+  try {
+    const r = await fetch(
+      `https://graph.instagram.com/v22.0/${compteId}/conversations?user_id=${peerId}` +
+      `&fields=participants,messages.limit(3){from}&access_token=${token}`
+    );
+    const j = await r.json();
+    return lireFilPourColdDm(j?.data?.[0], peerId);
+  } catch {
+    return null;
+  }
+}
+
 async function handleColdDmCandidate(params: {
   pid: string;
   recipientId: string;
@@ -679,13 +702,17 @@ async function handleColdDmCandidate(params: {
 
   const { access_token: token } = resolvedMatch;
 
-  // Résout le username du destinataire (l'echo Meta ne le fournit pas directement)
-  const profileRes = await fetch(
-    `https://graph.instagram.com/v22.0/${recipientId}?fields=id,username&access_token=${token}`
-  );
-  const profileData = await profileRes.json().catch(() => ({}));
-  const recipientUsername: string | null = profileData?.username || null;
-  if (!recipientUsername) return;
+  // ⚠️ Le pseudo ET le « premier contact » viennent de la conversation, en un seul
+  // appel. L'ancien code demandait le pseudo au PROFIL — refusé par Meta tant que la
+  // personne ne nous a pas écrit (erreur 230), c'est-à-dire pour tout vrai Cold DM.
+  // La détection s'arrêtait là en silence : le 2026-09-17, 18 conversations sur 19
+  // n'ont jamais eu de lead, donc jamais d'affichage.
+  const fil = await lireFilInstagram(canonicalIgAccountId ?? igAccountId, recipientId, token);
+  const recipientUsername: string | null = fil?.pseudo ?? null;
+  if (!recipientUsername) {
+    debugLog('cold dm : pseudo introuvable', { recipientId });
+    return;
+  }
 
   // Re-vérifie par username (le filtre 1 était par ig_user_id, un prospect_link créé
   // manuellement dans l'UI est indexé par ig_username — double sécurité anti-doublon)
@@ -697,18 +724,12 @@ async function handleColdDmCandidate(params: {
     .maybeSingle();
   if (existingProspectByUsername) return;
 
-  // Filtre 2 — fallback API : confirme qu'il s'agit bien du premier (et seul) message
-  // de la conversation avant de créer la fiche.
-  try {
-    const convRes = await fetch(
-      `https://graph.instagram.com/v22.0/${canonicalIgAccountId ?? igAccountId}/conversations?user_id=${recipientId}&fields=id,message_count&access_token=${token}`
-    );
-    const convData = await convRes.json();
-    const conv = convData?.data?.[0];
-    if (!conv || (conv.message_count ?? 0) > 1) return;
-  } catch {
-    return;
-  }
+  // Filtre 2 — c'est bien NOUS qui ouvrons la conversation : aucun message de la
+  // personne. ⚠️ L'ancienne version lisait `message_count`, un champ que Meta ignore
+  // sans erreur : il revenait absent, `?? 0` le lisait comme zéro, et le filtre
+  // laissait tout passer — une personne qui nous avait écrit la veille devenait un
+  // « Cold DM ».
+  if (!fil?.premierContactSortant) return;
 
   const now = new Date().toISOString();
   const { data: newLead } = await serviceSupabase
