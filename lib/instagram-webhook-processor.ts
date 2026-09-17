@@ -668,7 +668,10 @@ async function lireFilInstagram(compteId: string, peerId: string, token: string)
   try {
     const r = await fetch(
       `https://graph.instagram.com/v22.0/${compteId}/conversations?user_id=${peerId}` +
-      `&fields=participants,messages.limit(3){from}&access_token=${token}`
+      // 25 messages : assez pour voir qu'une personne nous a déjà écrit avant une
+      // relance. Meta ne respecte pas la limite exactement, et renvoie un lien de
+      // page suivante même quand tout tient — voir `lireFilPourColdDm`.
+      `&fields=participants,messages.limit(25){from,created_time}&access_token=${token}`
     );
     const j = await r.json();
     return lireFilPourColdDm(j?.data?.[0], peerId);

@@ -259,10 +259,13 @@ export function sourceDuLead(
 // Lire un fil Instagram pour détecter un Cold DM
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** La forme utile de `GET /{compte}/conversations?user_id=…&fields=participants,messages.limit(3){from}`. */
+/** La forme utile de `GET /{compte}/conversations?user_id=…&fields=participants,messages.limit(N){from,created_time}`. */
 export interface FilGraph {
   participants?: { data?: { id?: string; username?: string }[] };
-  messages?: { data?: { from?: { id?: string } }[]; paging?: { next?: string } };
+  messages?: {
+    data?: { from?: { id?: string }; created_time?: string }[];
+    paging?: { next?: string };
+  };
 }
 
 /**
@@ -299,9 +302,29 @@ export function lireFilPourColdDm(
 ): { pseudo: string | null; premierContactSortant: boolean } {
   const pseudo = fil?.participants?.data?.find(p => p?.id === peerId)?.username || null;
   const messages = fil?.messages?.data ?? [];
-  const premierContactSortant =
-    messages.length > 0 &&
-    !fil?.messages?.paging?.next &&
-    messages.every(m => m?.from?.id !== peerId);
+
+  // ⚠️ Le PREMIER message décide, pas l'absence de réponse. Une personne à qui l'on
+  // a écrit en premier et qui a répondu reste un Cold DM : c'est nous qui avons
+  // ouvert. Juger sur « aucun message d'elle » l'aurait exclue dès sa réponse.
+  //
+  // ⚠️ On NE regarde PAS `paging.next`. Mesuré le 2026-09-17 : Meta renvoie un lien
+  // de page suivante MÊME quand tous les messages tiennent dans la réponse (7
+  // messages pour `limit(50)`, lien présent), et ne respecte pas la limite demandée
+  // (4 messages pour `limit(3)`). Une condition « pas de page suivante » était donc
+  // toujours fausse, et plus aucun Cold DM n'aurait été créé. C'est à l'APPELANT de
+  // demander une page assez large pour voir l'historique récent.
+  //
+  // On ne se fie pas non plus à l'ordre de la réponse : le plus ancien se choisit
+  // par `created_time`, et à défaut par la position (Meta rend les messages du plus
+  // récent au plus ancien).
+  let premierContactSortant = false;
+  if (messages.length > 0) {
+    const dates = messages.map(m => (m?.created_time ? Date.parse(m.created_time) : NaN));
+    const datees = dates.every(d => !Number.isNaN(d));
+    const plusAncien = datees
+      ? messages[dates.indexOf(Math.min(...dates))]
+      : messages[messages.length - 1];
+    premierContactSortant = !!plusAncien?.from?.id && plusAncien.from.id !== peerId;
+  }
   return { pseudo, premierContactSortant };
 }

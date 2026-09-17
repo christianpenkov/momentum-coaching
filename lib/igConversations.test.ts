@@ -282,18 +282,70 @@ test('lireFilPourColdDm prend le pseudo dans les participants, pas dans le profi
   assert.deepEqual(lireFilPourColdDm(fil, DESTINATAIRE), { pseudo: 'gaelcreates', premierContactSortant: true });
 });
 
-test('lireFilPourColdDm : une personne qui a déjà écrit n’est pas un Cold DM', () => {
+test('lireFilPourColdDm : si la personne a écrit EN PREMIER, ce n’est pas un Cold DM', () => {
+  // La règle est « qui a ouvert la conversation », jamais « a-t-elle répondu ».
   const fil = {
     participants: { data: [{ username: 'gaelcreates', id: DESTINATAIRE }] },
-    messages: { data: [{ from: { id: COMPTE_COACH } }, { from: { id: DESTINATAIRE } }] },
+    messages: { data: [
+      { from: { id: COMPTE_COACH }, created_time: '2026-09-17T10:30:00+0000' },
+      { from: { id: DESTINATAIRE }, created_time: '2026-09-16T08:00:00+0000' },
+    ] },
   };
   assert.equal(lireFilPourColdDm(fil, DESTINATAIRE).premierContactSortant, false);
 });
 
-test('lireFilPourColdDm : un fil plus long qu’une page n’est pas un premier contact', () => {
+test('lireFilPourColdDm : on a écrit en premier et elle a RÉPONDU — reste un Cold DM', () => {
+  // ⚠️ Le cas qui aurait été perdu en jugeant sur « aucun message d’elle » : sa
+  // réponse ne change pas qui a ouvert la conversation.
   const fil = {
     participants: { data: [{ username: 'gaelcreates', id: DESTINATAIRE }] },
-    messages: { data: [{ from: { id: COMPTE_COACH } }], paging: { next: 'https://…' } },
+    messages: { data: [
+      { from: { id: DESTINATAIRE }, created_time: '2026-09-17T10:40:00+0000' },
+      { from: { id: COMPTE_COACH }, created_time: '2026-09-17T10:19:00+0000' },
+    ] },
+  };
+  assert.equal(lireFilPourColdDm(fil, DESTINATAIRE).premierContactSortant, true);
+});
+
+test('lireFilPourColdDm ne se fie pas à l’ordre rendu par Meta', () => {
+  const fil = {
+    participants: { data: [{ username: 'gaelcreates', id: DESTINATAIRE }] },
+    messages: { data: [
+      { from: { id: COMPTE_COACH }, created_time: '2026-09-17T10:19:00+0000' },
+      { from: { id: DESTINATAIRE }, created_time: '2026-09-17T10:40:00+0000' },
+    ] },
+  };
+  assert.equal(lireFilPourColdDm(fil, DESTINATAIRE).premierContactSortant, true);
+});
+
+test('lireFilPourColdDm ignore le lien de page suivante, que Meta renvoie toujours', () => {
+  // ⚠️ Réponse RÉELLE du 2026-09-17 : un premier message unique, et pourtant un
+  // `paging.next`. Si la présence du lien bloquait, plus aucun Cold DM ne naîtrait.
+  const fil = {
+    participants: { data: [{ username: 'elsab.agency', id: DESTINATAIRE }] },
+    messages: {
+      data: [{ from: { id: COMPTE_COACH }, created_time: '2026-09-17T10:19:00+0000' }],
+      paging: { next: 'https://graph.instagram.com/v25.0/…/messages?after=…' },
+    },
+  };
+  assert.equal(lireFilPourColdDm(fil, DESTINATAIRE).premierContactSortant, true);
+});
+
+test('lireFilPourColdDm : page tronquée dont le plus ancien message VU est d’elle — on n’affirme rien', () => {
+  // Réponse RÉELLE de @gaelcreates pour `limit(3)` : notre relance du jour, puis
+  // trois de ses messages de mai. Sur l’historique COMPLET, c’est pourtant nous qui
+  // avions écrit en premier (13 mai) — c’est donc bien un Cold DM, et le rattrapage
+  // qui lit toutes les pages le reconnaît. Mais sur une page tronquée, le plus
+  // ancien vu est d’elle : on reste prudent, on ne crée rien. Un lead manqué se
+  // rattrape ; un lead inventé fausse l’origine d’une vente.
+  const fil = {
+    participants: { data: [{ username: 'gaelcreates', id: DESTINATAIRE }] },
+    messages: { data: [
+      { from: { id: COMPTE_COACH }, created_time: '2026-09-17T10:25:26+0000' },
+      { from: { id: DESTINATAIRE }, created_time: '2026-05-19T07:39:41+0000' },
+      { from: { id: DESTINATAIRE }, created_time: '2026-05-19T07:39:25+0000' },
+      { from: { id: DESTINATAIRE }, created_time: '2026-05-19T07:39:03+0000' },
+    ], paging: { next: 'https://…' } },
   };
   assert.equal(lireFilPourColdDm(fil, DESTINATAIRE).premierContactSortant, false);
 });
