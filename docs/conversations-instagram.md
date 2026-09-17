@@ -940,6 +940,29 @@ signalera, à raison.
 
 ## Interface
 
+### Les trois écrans, et qui regarde quoi
+
+| Écran | Route | Qui | Fils affichés | Notes / suggestions | Retirer · Ouvrir dans Instagram |
+|---|---|---|---|---|---|
+| Fiche client (modale) | `/clients/[id]` | coach | ceux de **l'élève** | écrit | non — ce n'est pas son compte |
+| Conversations DM élève | `/client/conversations` | élève | les siens | lit | oui |
+| Conversations DM coach | `/conversations` | coach | **les siens** | aucune | oui |
+
+La page coach (2026-09-17) n'a demandé **aucun** changement de collecte : la garde
+`collecte_dm_ig_autorisee` accepte déjà le rôle coach sans consentement depuis la
+migration `20260908200000_conversations_ig_du_coach`. Elle rend visible ce qui n'était
+lisible que fil par fil, depuis une fiche du Pipeline.
+
+⚠️ **Elle ne réutilise PAS `PageConversationsIg` de l'élève.** Celle-ci n'affiche la liste
+que si `/api/client/ig-dm-consentement` répond « accordé » — or la route lit `clients`, où
+le coach n'a pas de ligne : il resterait bloqué pour toujours sur l'écran d'accord.
+
+⚠️ **`annotable={false}` sur ses propres fils.** `/api/coach/ig-note` vérifie
+`clients.coach_id` : un champ de note n'y mènerait qu'à un 403, et personne ne le lirait.
+
+⚠️ **Une page coach doit figurer dans le `matcher` de `middleware.ts`.** Absente, elle n'a
+aucune protection : ni renvoi vers la connexion, ni renvoi d'un élève vers son espace.
+
 ### Le principe qui règle « ça prend de plus en plus de place »
 
 Ce qui vit **dans** la fiche a une hauteur **constante**, indépendante du nombre de

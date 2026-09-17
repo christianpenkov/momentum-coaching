@@ -203,7 +203,7 @@ function ModaleRetrait({
 
 export default function ConversationsIg({
   profileId, prenomEleve, annotable, titre, hauteur = 'min(78vh, 700px)', onFermer,
-  proprietaire = false, peerId, avatarAuteurNotes = null,
+  proprietaire = false, peerId, avatarAuteurNotes = null, messageVide,
 }: {
   profileId: string;
   prenomEleve: string;
@@ -250,6 +250,12 @@ export default function ConversationsIg({
    * avatar d'initiales : ce serait affirmer une photo qui n'existe pas.
    */
   avatarAuteurNotes?: string | null;
+  /**
+   * Le texte de la liste vide. Le défaut parle de conversations « partagées »,
+   * juste pour l'élève et pour la fiche client du coach. Sur la page du coach
+   * pour SES propres DM, rien n'est partagé avec personne : le mot y serait faux.
+   */
+  messageVide?: string;
 }) {
   const supabase = createSupabase();
   const [fils, setFils] = useState<Fil[] | null>(null);
@@ -319,7 +325,7 @@ export default function ConversationsIg({
               <div style={{ padding: '18px 16px', fontSize: 12, color: 'var(--muted)', lineHeight: 1.55 }}>
                 {recherche.trim()
                   ? 'Aucun prospect à ce nom.'
-                  : `Aucune conversation partagée pour l’instant. Les échanges avec des prospects identifiés apparaîtront ici.`}
+                  : (messageVide ?? `Aucune conversation partagée pour l’instant. Les échanges avec des prospects identifiés apparaîtront ici.`)}
               </div>
             )}
             {filtres.map(f => (

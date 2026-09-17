@@ -84,6 +84,9 @@ export const config = {
     '/api-debug/:path*',
     '/ig-live/:path*',
     '/pipeline/:path*',
+    // ⚠️ Une page coach absente de cette liste n'a AUCUNE protection : ni
+    // redirection vers la connexion, ni renvoi d'un élève vers son espace.
+    '/conversations/:path*',
     '/liens/:path*',
     '/mes-stats/:path*',
   ],

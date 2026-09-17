@@ -10,10 +10,6 @@ export async function GET(request: NextRequest) {
   const state = searchParams.get('state');
   const error = searchParams.get('error');
 
-  if (error || !code || !state) {
-    return NextResponse.redirect(`${origin}/client/settings?error=instagram_denied`);
-  }
-
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -33,6 +29,14 @@ export async function GET(request: NextRequest) {
 
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
   const dest = profile?.role === 'coach' ? '/settings' : '/client/settings';
+
+  // ⚠️ Le refus se traite APRÈS avoir lu le rôle, pas avant. Placé en tête, il
+  // renvoyait tout le monde vers `/client/settings` — et un coach y était redirigé
+  // par le middleware vers `/dashboard`, sans l'erreur, comme si rien ne s'était
+  // passé. Le seul coût est une lecture de session, qui existe de toute façon.
+  if (error || !code || !state) {
+    return NextResponse.redirect(`${origin}${dest}?error=instagram_denied`);
+  }
 
   const serviceSupabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

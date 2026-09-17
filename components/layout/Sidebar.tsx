@@ -14,6 +14,7 @@ const NAV: { href: string; icon: IconName; label: string; highlight?: boolean }[
   { href: '/analytics', icon: 'bar-chart', label: 'Stats Clients' },
   { href: '/clients', icon: 'users', label: 'Clients' },
   { href: '/pipeline', icon: 'trending-up', label: 'Pipeline Leads' },
+  { href: '/conversations', icon: 'instagram', label: 'Conversations DM' },
   { href: '/mes-stats', icon: 'bar-chart', label: 'Mes Stats' },
   { href: '/paiements', icon: 'circle-dollar-sign', label: 'Paiements' },
   { href: '/messages', icon: 'message-circle', label: 'Messages' },
