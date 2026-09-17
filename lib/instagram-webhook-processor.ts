@@ -18,7 +18,7 @@
  * milliers de commentaires peut donc s'étaler sur des heures sans rien perdre.
  */
 import { createClient } from '@supabase/supabase-js';
-import { recupererAvatar } from './instagram-avatar';
+import { rattraperPhotoLead } from './instagram-avatar';
 import { ORIGINE_DM_ENTRANT } from './origineLead';
 import { CALL_TYPES_VENTE } from '@/lib/callTypes';
 import { pushEvent } from '@/app/api/instagram/webhook-stream/route';
@@ -206,29 +206,29 @@ function normalizeForKeywordMatch(raw: string): string {
  * echouer le traitement d'un webhook. Mais l'echec est ECRIT en base, sinon un
  * lead sans photo reste indiscernable d'une recuperation qui a plante.
  */
-async function poserAvatar(profileId: string, igUserId: string | null | undefined, leadId: string | null | undefined): Promise<void> {
+async function poserAvatar(
+  profileId: string,
+  igUserId: string | null | undefined,
+  leadId: string | null | undefined,
+  jeton?: string | null,
+): Promise<void> {
   if (!igUserId || !leadId) return;
   try {
-    const { data: lead } = await serviceSupabase
-      .from('instagram_leads').select('avatar_url').eq('id', leadId).maybeSingle();
-    if (lead?.avatar_url) return;   // deja fait, on ne redemande pas
-
     // Le jeton DOIT etre celui du compte qui a recu l'interaction : un
     // `ig_user_id` est scope, et un jeton etranger renvoie « does not exist ».
-    const { data: integ } = await serviceSupabase
-      .from('integrations').select('access_token')
-      .eq('profile_id', profileId).eq('provider', 'instagram').maybeSingle();
-    if (!integ?.access_token) return;
-
-    const { url, echec } = await recupererAvatar(serviceSupabase, igUserId, integ.access_token);
-    if (url) {
-      await serviceSupabase.from('instagram_leads').update({ avatar_url: url }).eq('id', leadId);
-    } else if (echec) {
-      // En base, pas en console : les logs Vercel ne se relisent pas.
-      await serviceSupabase.from('instagram_avatar_echecs').insert({
-        profile_id: profileId, ig_user_id: igUserId, lead_id: leadId, raison: echec,
-      });
+    let token = jeton ?? null;
+    if (!token) {
+      const { data: integ } = await serviceSupabase
+        .from('integrations').select('access_token')
+        .eq('profile_id', profileId).eq('provider', 'instagram').maybeSingle();
+      token = integ?.access_token ?? null;
     }
+    if (!token) return;
+
+    // La decision (deja une photo ? echec recent ?) et l'ecriture du resultat
+    // vivent dans `rattraperPhotoLead`, partage avec le cron et le bouton
+    // Rafraichir — voir lib/instagram-avatar.ts.
+    await rattraperPhotoLead(serviceSupabase, profileId, igUserId, token);
   } catch { /* jamais bloquant */ }
 }
 
@@ -384,6 +384,22 @@ async function enregistrerPourLeCoach(
     }
 
     const retour = Array.isArray(data) ? data[0] : data;
+
+    // ── La photo du lead, rattrapée quand il se manifeste ────────────────────
+    //
+    // La photo est normalement posée à la CRÉATION du lead. Mais une seule
+    // tentative ne suffit pas : une panne passagère de Meta laissait le lead sans
+    // photo pour toujours, alors même qu'il écrivait tous les jours.
+    //
+    // ⚠️ `lead_sans_photo` arrive dans la réponse de l'écriture, sans requête de
+    // plus : l'egress se paie au NOMBRE de requêtes, et la réponse vaut « non »
+    // pour presque tous les messages. La base ne le rend non nul que si le lead
+    // n'a pas de photo ET qu'aucun échec n'est survenu depuis 24 h — un compte qui
+    // ne rendra jamais de photo coûte donc au plus un appel à Meta par jour.
+    if (retour?.lead_sans_photo) {
+      await poserAvatar(profileId, peerId, retour.lead_sans_photo, accessToken);
+    }
+
     // Aucune ligne = aucun accord. Cas normal et silencieux.
     if (!retour?.conversation_id || !retour.pseudo_a_resoudre || !accessToken) return;
 

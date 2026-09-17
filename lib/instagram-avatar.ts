@@ -92,3 +92,61 @@ export async function recupererAvatar(
     return { url: null, echec: `exception ${(e as Error)?.message ?? 'inconnue'}` };
   }
 }
+
+
+/** Ce dont `rattraperPhotoLead` a besoin en plus du stockage. */
+interface ClientLeads extends ClientStockage {
+  // deno-lint-ignore no-explicit-any
+  rpc(fonction: string, args: Record<string, unknown>): PromiseLike<{ data: any; error: { message: string } | null }>;
+  // deno-lint-ignore no-explicit-any
+  from(table: string): any;
+}
+
+/**
+ * Tente la photo d'un lead SI la règle l'autorise, et range le résultat.
+ *
+ * ── UNE SEULE RÈGLE, TROIS APPELANTS ─────────────────────────────────────────
+ * Le webhook, le cron `poll-leads` et le bouton Rafraîchir portaient chacun leur
+ * propre version de « lire le lead, appeler Meta, écrire l'URL ou l'échec ». Le
+ * webhook ne réessayait jamais ; le cron réessayait toutes les cinq minutes, sans
+ * limite ; le bouton ne tentait rien du tout. Trois copies, trois comportements.
+ *
+ * La décision « faut-il tenter maintenant ? » vit en base,
+ * `lead_photo_a_tenter` : lead non écarté, sans photo, aucun échec depuis 24 h.
+ * Un échec passager se rattrape donc le lendemain ; un échec permanent coûte au
+ * plus un appel à Meta par jour.
+ *
+ * Jamais d'exception : la photo est un agrément, et ses appelants traitent un
+ * webhook ou une passe de collecte qui doivent aboutir sans elle. Mais l'échec
+ * est ÉCRIT — c'est lui qui déclenche le délai de 24 h.
+ *
+ * @param jeton Le jeton du compte Instagram QUI A REÇU l'interaction.
+ * @returns vrai si une photo a été posée.
+ */
+export async function rattraperPhotoLead(
+  supa: ClientLeads,
+  profileId: string,
+  igUserId: string,
+  jeton: string,
+  contexte = '',
+): Promise<boolean> {
+  try {
+    const { data: leadId, error } = await supa.rpc('lead_photo_a_tenter', {
+      p_profile_id: profileId, p_ig_user_id: igUserId,
+    });
+    if (error || !leadId) return false;
+
+    const { url, echec } = await recupererAvatar(supa, igUserId, jeton);
+    if (url) {
+      await supa.from('instagram_leads').update({ avatar_url: url }).eq('id', leadId);
+      return true;
+    }
+    await supa.from('instagram_avatar_echecs').insert({
+      profile_id: profileId, ig_user_id: igUserId, lead_id: leadId,
+      raison: `${contexte}${echec ?? 'inconnue'}`,
+    });
+    return false;
+  } catch {
+    return false;
+  }
+}

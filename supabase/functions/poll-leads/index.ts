@@ -13,7 +13,7 @@ import { limiteurShortio, mapWithConcurrency, sleep } from '../_shared/rate-limi
 // backfill-shortio ignorait utm_medium=story et effaçait donc tous les clics
 // Calendly de séquence story. Fichier sans aucun import, lisible par Node et Deno.
 import { createLinkCategoryResolver, type LinkCategory } from '../../../lib/shortio-link-category.ts';
-import { recupererAvatar } from '../../../lib/instagram-avatar.ts';
+import { rattraperPhotoLead } from '../../../lib/instagram-avatar.ts';
 /**
  * Pose la photo de profil d'un lead cree par ce cron.
  *
@@ -30,19 +30,11 @@ import { recupererAvatar } from '../../../lib/instagram-avatar.ts';
 async function poserAvatarCron(
   supa: any, profileId: string, igUserId: string, jeton: string,
 ): Promise<void> {
-  try {
-    const { data: lead } = await supa.from('instagram_leads')
-      .select('id, avatar_url').eq('profile_id', profileId).eq('ig_user_id', igUserId).maybeSingle();
-    if (!lead?.id || lead.avatar_url) return;
-    const { url, echec } = await recupererAvatar(supa, igUserId, jeton);
-    if (url) {
-      await supa.from('instagram_leads').update({ avatar_url: url }).eq('id', lead.id);
-    } else if (echec) {
-      await supa.from('instagram_avatar_echecs').insert({
-        profile_id: profileId, ig_user_id: igUserId, lead_id: lead.id, raison: `cron: ${echec}`,
-      });
-    }
-  } catch { /* jamais bloquant */ }
+  // ⚠️ Ce cron repasse sur les mêmes commentaires toutes les 5 minutes pendant
+  // 48 h. Sans le délai de 24 h porté par `lead_photo_a_tenter`, un compte qui ne
+  // rend pas de photo déclenchait un appel à Meta et une ligne d'échec à CHAQUE
+  // passage — ~576 fois. La règle vit en base, partagée avec le webhook.
+  await rattraperPhotoLead(supa, profileId, igUserId, jeton, 'cron: ');
 }
 // Lecture du flux de clics : même module que le bouton « Rafraîchir » (Node), pour
 // qu'une seule règle de filtrage et de datation existe dans toute la plateforme.

@@ -211,4 +211,12 @@ export const MIGRATIONS_DEPOT: { version: string; nom: string }[] = [
   { version: '20260909120000', nom: 'annulation_demandee' },
   { version: '20260909140000', nom: 'prelevements_a_venir_ne_terminent_pas' },
   { version: '20260912140000', nom: 'get_ig_posts_history_accepte_service_role' },
+  { version: '20260912200000', nom: 'conversations_nouvelles_par_jour' },
+  { version: '20260912200500', nom: 'stats_clients_series_conversations' },
+  { version: '20260913180000', nom: 'incidents_plateforme' },
+  { version: '20260913190000', nom: 'repartiteur_surveillance' },
+  { version: '20260913200000', nom: 'calls_index_calendly_complet' },
+  { version: '20260913201000', nom: 'incidents_rearmement_borne' },
+  { version: '20260913202000', nom: 'cibles_onconflict_sans_index' },
+  { version: '20260917120000', nom: 'photo_lead_rattrapage' },
 ];

@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { isoDateCore } from './ig-metrics-core';
+import { rattraperPhotoLead } from './instagram-avatar';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -371,7 +372,7 @@ export async function pollIgComments(
         // existe et va bien être mise à jour.
         const { data: ligneProspect } = await serviceSupabase
           .from('instagram_leads')
-          .select('detected_at')
+          .select('detected_at, source, avatar_url')
           .eq('profile_id', profileId)
           .eq('ig_user_id', commenterId)
           .maybeSingle();
@@ -379,7 +380,12 @@ export async function pollIgComments(
         // Upsert lead — pose first_seen_without_dm seulement s'il n'existe pas déjà
         await serviceSupabase.from('instagram_leads').upsert({
           profile_id: profileId,
-          source: 'comment',
+          // ⚠️ L'origine d'une personne ne change pas. Ce chemin écrivait
+          // `'comment'` en dur : un lead venu d'un Cold DM qui commentait ensuite
+          // un post devenait un lead « commentaire » au premier clic sur
+          // Rafraîchir — et toute l'attribution des paiements lit `source`.
+          // `poll-leads`, sa jumelle, préservait déjà la valeur ; pas celle-ci.
+          source: ligneProspect?.source ?? 'comment',
           ig_username: commenterUsername || null,
           ig_user_id: commenterId,
           message: comment.text.slice(0, 500),
@@ -392,6 +398,15 @@ export async function pollIgComments(
           first_seen_without_dm: existingLeadForMedia?.first_seen_without_dm || new Date().toISOString(),
           ig_account_id: igAccountId,
         }, { onConflict: 'profile_id,ig_user_id', ignoreDuplicates: false });
+
+        // ⚠️ La photo de profil. Le webhook et `poll-leads` la posaient à la
+        // création du lead ; ce chemin-ci — celui du bouton Rafraîchir — ne la
+        // tentait JAMAIS, et un lead créé par lui restait sans photo. `avatar_url`
+        // est lu dans la même requête que `detected_at`, donc un lead qui a déjà
+        // sa photo ne coûte rien de plus.
+        if (!ligneProspect?.avatar_url) {
+          await rattraperPhotoLead(serviceSupabase, profileId, commenterId, token, 'rafraichir: ');
+        }
 
         if (!readyForBackupSend) {
           console.warn(`[IG Poll] Commentaire "${cl.lm_keyword}" vu sans DM du webhook (ig_user_id=${commenterId}, media=${media.id}) — 1er passage, on attend le prochain cycle avant de backup.`);
