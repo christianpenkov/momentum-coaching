@@ -913,6 +913,17 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
       const msgText: string = messaging.message?.text || '';
       const isEcho = !!messaging.message?.is_echo; // true = DM envoyé par nous, false = DM reçu
 
+      // ⚠️ UN MESSAGE N'EST PAS FORCÉMENT DU TEXTE. Les trois détections qui suivent
+      // — Cold DM, réponse d'un prospect, DM entrant — exigeaient `msgText`. Un
+      // premier contact fait d'un vocal, d'une photo ou d'un reel partagé ne créait
+      // donc AUCUNE fiche, et une réponse vocale à un Cold DM ne faisait pas avancer
+      // la carte. En vente par DM, ouvrir ou répondre par un vocal est courant.
+      //
+      // Un vrai message porte un `mid`. On exclut les retraits (`is_deleted`), qui
+      // en portent un aussi : retirer un message n'est ni un contact ni une réponse.
+      // Les réactions et accusés de lecture n'ont pas de `message`, donc pas de `mid`.
+      const aDuContenu = !!msgText || (!!messaging.message?.mid && !estSuppression(messaging));
+
       if (!resolvedMatch) continue;
       const { profile_id: pid } = resolvedMatch;
 
@@ -937,7 +948,7 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
       }
 
       // Message envoyé par nous (echo) — détecter si on a envoyé un lien Calendly prospect
-      if (isEcho && msgText) {
+      if (isEcho && aDuContenu) {
         // recipientId = ig_user_id du destinataire (fourni par Meta dans l'echo)
         // On trouve le prospect_link par URL, puis on vérifie que le destinataire correspond.
         // Si c'est un cold DM (ig_lead_id null) → on crée la fiche lead à ce moment-là.
@@ -1528,7 +1539,7 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
       }
 
       // On ne traite que les messages REÇUS (pas nos propres envois)
-      if (!senderId || !msgText) continue;
+      if (!senderId || !aDuContenu) continue;
 
       // Le sender est le prospect — cherche un lead avec cet ig_user_id qui a soit
       // reçu le LM (lead_magnet_sent = true), soit est un Cold DM (source = 'cold_dm',
@@ -1561,7 +1572,9 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
           .from('instagram_leads')
           .update({
             hook_replied: true,
-            hook_reply_text: msgText.slice(0, 500),
+            // `null` et non `''` pour un vocal ou une photo : « pas de texte » n'est
+            // pas « un texte vide ».
+            hook_reply_text: msgText.slice(0, 500) || null,
             hook_replied_at: hookRepliedAt,
             awaiting_story_followup: false,
           })
@@ -1610,7 +1623,7 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
       // Décision de Chris (2026-09-05) : on la crée, et c'est lui qui tranche
       // ensuite avec « ce n'est pas un lead ». Le bruit se retire à la main ;
       // une personne jamais vue ne se rattrape pas.
-      else if (!isEcho && senderId && msgText) {
+      else if (!isEcho && senderId && aDuContenu) {
         // ⚠️ `leadToUpdate` vide ne veut PAS dire « aucune fiche ». La requête
         // ci-dessus filtre (lead magnet reçu, cold DM, story en attente) : une
         // fiche qui ne coche aucune de ces cases existe et ne remonte pas. Créer
@@ -1651,7 +1664,7 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
                 // Aucun mot-clé : personne n'a commenté. Voir la migration
                 // 20260905160000 — on n'en invente plus.
                 keyword_matched:  null,
-                message:          msgText.slice(0, 500),
+                message:          msgText.slice(0, 500) || null,
                 lead_magnet_sent: false,
                 // ⚠️ FAUX AMI : `hook_replied` veut dire « elle a répondu à NOTRE
                 // accroche ». Ici il n'y a eu aucune accroche. Et ce drapeau
