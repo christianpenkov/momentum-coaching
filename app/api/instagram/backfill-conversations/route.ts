@@ -138,10 +138,16 @@ export async function POST(request: Request) {
     .eq('profile_id', profileId).eq('not_a_lead', false).is('archived_at', null);
   const leadsParId = new Map((leads ?? []).map(l => [String(l.ig_user_id), l.ig_username as string]));
 
-  // Les fils déjà importés : c'est ce qui remplace le curseur. Un fil connu est
+  // Les fils déjà importés : c'est ce qui remplace le curseur. Un fil importé est
   // sauté, donc rebalayer depuis le début ne refait pas le travail.
+  //
+  // ⚠️ « importé », pas « existant ». La première version sautait tout fil présent
+  // en base — or un fil naît aussi du webhook, au premier message en direct, AVANT
+  // que la personne ne devienne un lead. Ces fils-là n'avaient jamais leur
+  // historique (mesuré le 2026-09-17 : 31 fils « traités », zéro message importé).
   const { data: dejaLa } = await supa
-    .from('ig_conversations').select('peer_id').eq('profile_id', profileId);
+    .from('ig_conversations').select('peer_id')
+    .eq('profile_id', profileId).not('historique_importe_le', 'is', null);
   const importes = new Set((dejaLa ?? []).map(c => String(c.peer_id)));
 
   await supa.from('ig_backfill_etat')
@@ -173,7 +179,13 @@ export async function POST(request: Request) {
         if (importes.has(String(autre.id))) continue;      // déjà fait
         if (!leadsParId.has(String(autre.id))) continue;   // pas un lead : quarantaine, pas de reprise
 
-        await importerLeFil(conv.id, autre, profileId, igAccountId, token, debut);
+        const complet = await importerLeFil(conv.id, autre, profileId, igAccountId, token, debut);
+        if (!complet) { balayageComplet = false; break; }
+        // Marqué SEULEMENT après la dernière page : un import coupé par le budget
+        // reste à reprendre au passage suivant.
+        await supa.from('ig_conversations')
+          .update({ historique_importe_le: new Date().toISOString() })
+          .eq('profile_id', profileId).eq('peer_id', String(autre.id));
         importes.add(String(autre.id));
         filsTraites++;
         await pause(PAUSE_MS);
@@ -227,7 +239,7 @@ async function importerLeFil(
   igAccountId: string,
   token: string,
   debut: number,
-) {
+): Promise<boolean> {
   let suivant: string | null =
     `https://graph.instagram.com/v23.0/${conversationId}` +
     `?fields=messages{id,created_time,from,message}&access_token=${token}`;
@@ -264,10 +276,14 @@ async function importerLeFil(
       });
     }
 
-    suivant = (premier ? rep.messages?.paging?.next : rep.paging?.next) ?? null;
+    // ⚠️ Meta renvoie un lien de page suivante même quand il ne reste rien : on
+    // s'arrête donc aussi sur une page VIDE, sans quoi le fil ne finirait jamais.
+    suivant = lot.length ? ((premier ? rep.messages?.paging?.next : rep.paging?.next) ?? null) : null;
     premier = false;
     if (suivant) await pause(PAUSE_MS);
   }
+  // Vrai seulement si la boucle s'est arrêtée faute de page, pas faute de temps.
+  return suivant === null;
 }
 
 /** Même motif que `reveillerLeWorker()` : silencieux, poll-leads rattrape. */

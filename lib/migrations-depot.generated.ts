@@ -219,4 +219,5 @@ export const MIGRATIONS_DEPOT: { version: string; nom: string }[] = [
   { version: '20260913201000', nom: 'incidents_rearmement_borne' },
   { version: '20260913202000', nom: 'cibles_onconflict_sans_index' },
   { version: '20260917120000', nom: 'photo_lead_rattrapage' },
+  { version: '20260917140000', nom: 'ig_conversations_historique_importe_le' },
 ];

@@ -299,7 +299,7 @@ export interface FilGraph {
 export function lireFilPourColdDm(
   fil: FilGraph | null | undefined,
   peerId: string,
-): { pseudo: string | null; premierContactSortant: boolean } {
+): { pseudo: string | null; premierContactSortant: boolean; nbMessages: number } {
   const pseudo = fil?.participants?.data?.find(p => p?.id === peerId)?.username || null;
   const messages = fil?.messages?.data ?? [];
 
@@ -326,5 +326,7 @@ export function lireFilPourColdDm(
       : messages[messages.length - 1];
     premierContactSortant = !!plusAncien?.from?.id && plusAncien.from.id !== peerId;
   }
-  return { pseudo, premierContactSortant };
+  // `nbMessages` : combien la page en montre. Plus d'un, et le fil a un passé que
+  // le webhook ne verra jamais — c'est ce qui décide de relancer la reprise.
+  return { pseudo, premierContactSortant, nbMessages: messages.length };
 }

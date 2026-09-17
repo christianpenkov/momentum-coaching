@@ -279,7 +279,7 @@ test('lireFilPourColdDm prend le pseudo dans les participants, pas dans le profi
     participants: { data: [{ username: 'christian_penkov', id: COMPTE_COACH }, { username: 'gaelcreates', id: DESTINATAIRE }] },
     messages: { data: [{ from: { id: COMPTE_COACH } }] },
   };
-  assert.deepEqual(lireFilPourColdDm(fil, DESTINATAIRE), { pseudo: 'gaelcreates', premierContactSortant: true });
+  assert.deepEqual(lireFilPourColdDm(fil, DESTINATAIRE), { pseudo: 'gaelcreates', premierContactSortant: true, nbMessages: 1 });
 });
 
 test('lireFilPourColdDm : si la personne a écrit EN PREMIER, ce n’est pas un Cold DM', () => {
@@ -353,6 +353,6 @@ test('lireFilPourColdDm : page tronquée dont le plus ancien message VU est d’
 test('lireFilPourColdDm : sans messages ni participants, rien n’est affirmé', () => {
   // ⚠️ Un fil illisible ne doit JAMAIS produire un Cold DM : ce serait créer un
   // lead sur une réponse vide.
-  assert.deepEqual(lireFilPourColdDm(null, DESTINATAIRE), { pseudo: null, premierContactSortant: false });
-  assert.deepEqual(lireFilPourColdDm({}, DESTINATAIRE), { pseudo: null, premierContactSortant: false });
+  assert.deepEqual(lireFilPourColdDm(null, DESTINATAIRE), { pseudo: null, premierContactSortant: false, nbMessages: 0 });
+  assert.deepEqual(lireFilPourColdDm({}, DESTINATAIRE), { pseudo: null, premierContactSortant: false, nbMessages: 0 });
 });

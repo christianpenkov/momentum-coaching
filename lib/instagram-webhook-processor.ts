@@ -680,6 +680,26 @@ async function lireFilInstagram(compteId: string, peerId: string, token: string)
   }
 }
 
+/**
+ * Relance la reprise d'historique d'un compte quand une fiche naît sur un fil qui
+ * a DÉJÀ un passé — typiquement la relance d'un contact de mai, ou une personne
+ * qui nous écrivait avant la connexion du compte.
+ *
+ * ⚠️ Sans elle, ce passé n'arrivait jamais : la reprise ne charge que les fils de
+ * leads, et elle avait fini bien avant que la fiche existe.
+ *
+ * ⚠️ Seulement si la conversation montre plus d'un message. Un vrai premier
+ * contact n'a rien à reprendre, et relancer un balayage complet à chaque Cold DM
+ * reviendrait à relister toutes les conversations du compte des dizaines de fois
+ * par jour.
+ */
+async function relancerRepriseSiPasse(pid: string, nbMessages: number | undefined): Promise<void> {
+  if ((nbMessages ?? 0) <= 1) return;
+  const { error } = await serviceSupabase
+    .from('ig_backfill_etat').update({ termine_le: null }).eq('profile_id', pid);
+  if (error) debugLog('reprise non relancee', { erreur: error.message });
+}
+
 async function handleColdDmCandidate(params: {
   pid: string;
   recipientId: string;
@@ -758,6 +778,7 @@ async function handleColdDmCandidate(params: {
   if (newLead?.id) {
     // La photo de profil, comme pour un lead venu d'un commentaire.
     void poserAvatar(pid, recipientId, newLead.id);
+    await relancerRepriseSiPasse(pid, fil?.nbMessages);
     // RPC obligatoire — aucun index ne couvrait (ig_lead_id, event_type) pour
     // 'cold_dm_sent', donc ce .upsert() échouait à chaque appel sans que rien ne
     // le dise : zéro événement cold_dm_sent en base au 2026-08-27. Les index de
@@ -1639,12 +1660,13 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
 
         if (!ficheExistante) {
           // Le pseudo n'est pas dans la charge utile de Meta, il faut le demander.
+          // Par la CONVERSATION, comme pour un Cold DM : un seul chemin pour le
+          // pseudo, et la même lecture dit si le fil a un passé à reprendre.
           let pseudo = '';
+          let filEntrant: Awaited<ReturnType<typeof lireFilInstagram>> = null;
           if (resolvedMatch?.access_token) {
-            try {
-              const r = await fetch(`https://graph.instagram.com/v22.0/${senderId}?fields=username&access_token=${resolvedMatch.access_token}`);
-              pseudo = (await r.json())?.username || '';
-            } catch { /* non bloquant */ }
+            filEntrant = await lireFilInstagram(canonicalIgAccountId ?? igAccountId, senderId, resolvedMatch.access_token);
+            pseudo = filEntrant?.pseudo || '';
           }
 
           // Sans pseudo, on ne crée RIEN. `ig_username` sert de clé d'affichage
@@ -1694,6 +1716,7 @@ export async function processWebhookEntry(queuedEntry: any): Promise<void> {
               pushEvent({ type: 'error', reason: 'dm_entrant_refuse', ig_username: pseudo, detail: ficheErr.message });
             } else if (fiche?.id) {
               void poserAvatar(pid, senderId, fiche.id);
+              await relancerRepriseSiPasse(pid, filEntrant?.nbMessages);
               console.log(`[IG Webhook] DM entrant — fiche créée pour @${pseudo}, lead: ${fiche.id}`);
               pushEvent({ type: 'dm_entrant_cree', ig_username: pseudo, lead_id: fiche.id });
             }
