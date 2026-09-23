@@ -4,6 +4,7 @@ import './globals.css';
 import Providers from './Providers';
 import AppBootstrap from '@/components/AppBootstrap';
 import SplashHold from '@/components/ui/SplashHold';
+import MetaPixelRouteTracker from '@/components/MetaPixelRouteTracker';
 
 // display: 'swap' — le texte s'affiche immédiatement en police système puis bascule vers
 // Inter quand elle charge. Ce swap agrandit le contenu de la messagerie APRÈS le premier
@@ -103,8 +104,50 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           />
         ))}
         <link rel="preconnect" href="https://fathom.video" />
+        {/* Meta Pixel Code — code de base, dans <head> comme le demande Meta,
+            donc présent sur TOUTES les pages (layout racine unique).
+            La garde __fbqPixelReady n'est pas cosmétique : Next sérialise le
+            HTML du layout racine une première fois pour le SSR puis une seconde
+            fois dans le flux de streaming RSC, si bien qu'un <script> inline y
+            est exécuté deux fois par chargement (constaté et documenté dans
+            components/AppBootstrap.tsx). Le `if(f.fbq)return` du snippet Meta
+            n'empêche que le double chargement de fbevents.js — pas le second
+            init/PageView, qui doublerait toutes les stats du pixel.
+            Les PageView des navigations client (SPA) sont envoyés par
+            MetaPixelRouteTracker, monté en bas du body. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `if(!window.__fbqPixelReady){window.__fbqPixelReady=true;
+!function(f,b,e,v,n,t,s)
+{if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+n.queue=[];t=b.createElement(e);t.async=!0;
+t.src=v;s=b.getElementsByTagName(e)[0];
+s.parentNode.insertBefore(t,s)}(window, document,'script',
+'https://connect.facebook.net/en_US/fbevents.js');
+fbq('init', '1820841072435741');
+fbq('track', 'PageView');
+}`,
+          }}
+        />
+        {/* End Meta Pixel Code */}
       </head>
       <body>
+        {/* Repli sans JavaScript du pixel Meta. Placé dans le <body> et non
+            dans le <head> : la spec HTML n'autorise que link/style/meta dans un
+            <noscript> de <head>, un <img> y est invalide et certains
+            navigateurs le déplacent — ce qui casserait le reste du head. */}
+        <noscript>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            height="1"
+            width="1"
+            style={{ display: 'none' }}
+            alt=""
+            src="https://www.facebook.com/tr?id=1820841072435741&ev=PageView&noscript=1"
+          />
+        </noscript>
         {/* Écran de lancement, en HTML pur et non en composant React.
             Il est peint par le navigateur AVANT que React ne démarre et
             s'hydrate : c'est la seule façon de garantir qu'aucun blanc ni
@@ -178,6 +221,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             show reste à false et le splash part après sa durée minimale. */}
         <SplashHold />
         <AppBootstrap />
+        <MetaPixelRouteTracker />
       </body>
     </html>
   );
