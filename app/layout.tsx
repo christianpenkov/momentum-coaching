@@ -48,6 +48,12 @@ const SPLASH_SCREENS: [number, number, number][] = [
   [2048, 2732, 2], // iPad Pro 12.9"
 ];
 
+// Identifiant du pixel Meta. Défini une seule fois : il est lu par le code de
+// base dans le <head> ET par le repli <noscript> du body, et deux littéraux
+// séparés finiraient tôt ou tard par diverger lors d'un changement de pixel —
+// avec un repli qui alimenterait silencieusement un autre compte.
+const META_PIXEL_ID = '986920111084037';
+
 export const metadata: Metadata = {
   title: 'Momentum — Plateforme coaching',
   description: 'Infrastructure de delivery pour coachs premium 1:1',
@@ -126,7 +132,7 @@ n.queue=[];t=b.createElement(e);t.async=!0;
 t.src=v;s=b.getElementsByTagName(e)[0];
 s.parentNode.insertBefore(t,s)}(window, document,'script',
 'https://connect.facebook.net/en_US/fbevents.js');
-fbq('init', '1820841072435741');
+fbq('init', '${META_PIXEL_ID}');
 fbq('track', 'PageView');
 }`,
           }}
@@ -145,7 +151,7 @@ fbq('track', 'PageView');
             width="1"
             style={{ display: 'none' }}
             alt=""
-            src="https://www.facebook.com/tr?id=1820841072435741&ev=PageView&noscript=1"
+            src={`https://www.facebook.com/tr?id=${META_PIXEL_ID}&ev=PageView&noscript=1`}
           />
         </noscript>
         {/* Écran de lancement, en HTML pur et non en composant React.
